@@ -240,6 +240,10 @@ namespace symir::solver {
     return wrap(tm.mk_fp_value(unwrap(s), tm.mk_rm_value(map_rm(rm)), std::to_string(val)));
   }
 
+  smt::Term BitwuzlaSolver::make_rm_value(smt::RoundingMode rm) {
+    return wrap(tm.mk_rm_value(map_rm(rm)));
+  }
+
   smt::Term BitwuzlaSolver::make_const(smt::Sort s, const std::string &name) {
     return wrap(tm.mk_const(unwrap(s), name));
   }

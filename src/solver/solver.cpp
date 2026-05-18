@@ -672,9 +672,15 @@ namespace symir {
                 fpRes = solver.make_term(smt::Kind::FP_MUL, {c, r});
               else if (arg.op == AtomOpKind::Div)
                 fpRes = solver.make_term(smt::Kind::FP_DIV, {c, r});
-              else if (arg.op == AtomOpKind::Mod)
-                fpRes = solver.make_term(smt::Kind::FP_REM, {c, r});
-              else
+              else if (arg.op == AtomOpKind::Mod) {
+                // fmod(x,y) = x - trunc(x/y)*y  (truncated-quotient, matches integer %)
+                // Encode as: fp.sub(x, fp.mul(fp.roundToIntegral[RTZ](fp.div(x,y)), y))
+                auto rmRTZ = solver.make_rm_value(smt::RoundingMode::RTZ);
+                auto q = solver.make_term(smt::Kind::FP_DIV, {c, r});      // div with default RNE
+                auto qi = solver.make_term(smt::Kind::FP_RTI, {rmRTZ, q}); // truncate to integer
+                auto prod = solver.make_term(smt::Kind::FP_MUL, {qi, r});  // qi * y
+                fpRes = solver.make_term(smt::Kind::FP_SUB, {c, prod});    // x - qi*y
+              } else
                 return {};
               assertFPFinite(fpRes, solver, pc);
               return fpRes;

@@ -35,6 +35,7 @@ namespace symir::solver {
 
     smt::Term make_fp_value(smt::Sort s, const std::string &val, smt::RoundingMode rm) override;
     smt::Term make_fp_value_from_real(smt::Sort s, double val, smt::RoundingMode rm) override;
+    smt::Term make_rm_value(smt::RoundingMode rm) override;
 
     smt::Term make_const(smt::Sort s, const std::string &name) override;
 

@@ -166,6 +166,8 @@ namespace symir::solver {
     return ::alivesmt::expr::rne();
   }
 
+  smt::Term AliveSolver::make_rm_value(smt::RoundingMode rm) { return wrap(map_rm(rm)); }
+
   smt::Term
   AliveSolver::make_fp_value(smt::Sort s, const std::string &val, smt::RoundingMode /*rm*/) {
     return wrap(::alivesmt::expr::mkNumber(val.c_str(), unwrap(s)));

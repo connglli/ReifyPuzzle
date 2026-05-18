@@ -450,7 +450,7 @@ namespace symir {
               else if (arg.op == AtomOpKind::Div)
                 res.floatVal = checkFPResult(c.floatVal / r.floatVal, res.bits);
               else if (arg.op == AtomOpKind::Mod)
-                res.floatVal = checkFPResult(std::remainder(c.floatVal, r.floatVal), res.bits);
+                res.floatVal = checkFPResult(std::fmod(c.floatVal, r.floatVal), res.bits);
               else
                 throw std::runtime_error("Unsupported op for floats");
               return res;

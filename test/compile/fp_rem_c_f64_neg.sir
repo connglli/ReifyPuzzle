@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// -3.5 % 2.0 (f64): IEEE remainder = 0.5
+// -3.5 % 2.0 (f64): fmod = -1.5
 fun @main() : f64 {
   let %a: f64 = -3.5;
   let %b: f64 = 2.0;

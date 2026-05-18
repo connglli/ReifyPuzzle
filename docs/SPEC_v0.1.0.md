@@ -64,10 +64,12 @@ SymIR uses **finite IEEE 754-2008 semantics** for floating-point:
 - **Signed zeros**: `+0.0` and `-0.0` are distinct bit patterns and both are valid values. They compare equal (`+0.0 == -0.0` is `true`). Negating `+0.0` yields `-0.0` and vice versa. Writing `-0.0` as a literal is valid.
 - **Subnormals**: subnormal (denormal) values are regular finite values. There is no flush-to-zero behavior.
 - **Rounding mode**: all operations use a single fixed mode — **RNE (Round to Nearest, Ties to Even)**. There are no dynamic rounding modes and no per-operation rounding specifiers.
-- **`%` for floats**: the `%` operator is the **IEEE 754 `remainder`** operation (SMT-LIB2 `fp.rem`), **not** C's `fmod`. They differ when `x/y` is near a half-integer or when operands are negative.
+- **`%` for floats**: the `%` operator is **C's `fmod`** (truncated-quotient remainder), **not** the IEEE 754 `remainder` (`fp.rem`). This is defined as `x - trunc(x/y) * y` — the quotient is truncated toward zero, matching the semantics of integer `%`. They differ from `fp.rem` when `x/y` is near a half-integer: `fmod(1.5, 1.0) = 0.5`, `remainder(1.5, 1.0) = -0.5`.
+
+  **Design rationale**: `fmod` was chosen over `fp.rem` for semantic consistency — both integer and float `%` use truncation toward zero, so the sign of the result always matches the sign of the dividend. The trade-off is that SMT encoding requires three composed FP operations (`fp.div` + `fp.roundToIntegral[RTZ]` + `fp.mul` + `fp.sub`) rather than a single `fp.rem` primitive, which may reduce solver efficiency on symbolic `%` expressions.
 - **No fast-math**: expressions are evaluated strictly left-to-right (no reassociation). No implicit NaN/infinity assumptions beyond what is stated here. No contraction (`fma`), no approximate functions, no flags of any kind.
 
-SMT encoding: `f32` maps to `(_ FloatingPoint 8 24)` and `f64` maps to `(_ FloatingPoint 11 53)`. All FP operations use `roundNearestTiesToEven`.
+SMT encoding: `f32` maps to `(_ FloatingPoint 8 24)` and `f64` maps to `(_ FloatingPoint 11 53)`. All FP operations use `roundNearestTiesToEven` except `%`, which encodes as `fp.sub(x, fp.mul(fp.roundToIntegral[RTZ](fp.div[RNE](x, y)), y))` — the `fp.roundToIntegral[RTZ]` truncates the quotient toward zero before multiplying back.
 
 
 ## 3. Concrete syntax
@@ -315,7 +317,7 @@ For `select c, a, b`:
 ### 7.3 Floating-point arithmetic semantics
 See §2.8 for the full floating-point value model. Key points:
 - All operations use **RNE** rounding.
-- `%` is the IEEE 754 `remainder` (`fp.rem`), not C's `fmod`.
+- `%` is C's `fmod` (truncated-quotient remainder), not IEEE 754 `remainder` (`fp.rem`). The result has the same sign as the dividend, consistent with integer `%`.
 - Comparisons are total over the finite domain (NaN never occurs). `+0.0 == -0.0` is `true`.
 
 ### 7.4 Floating-point UB rules
@@ -326,7 +328,11 @@ See §2.8 for the full floating-point value model. Key points:
 
 8. **Float-to-integer out-of-range**: `fN as iM` is UB if the float value, after truncation toward zero, is outside the representable range of `iM`. (Non-finite values are already UB per rules 6–7, but would also trigger this rule.)
 
-## 8. Integer division and modulo (round toward 0)
+## 8. Division and modulo (round toward 0)
+
+SymIR uses **truncation toward zero** for both integer and floating-point `%`, so the sign of the result always matches the sign of the dividend.
+
+### 8.1 Integer division and modulo
 
 For integers `A` and `B` with `B != 0`:
 
@@ -338,7 +344,27 @@ Properties:
 - `|R| < |B|`
 - `R` has the same sign as `A` (or is 0)
 
-This semantics is used for all `/` and `%` atoms.
+### 8.2 Floating-point modulo (`fmod` semantics)
+
+For finite floats `A` and `B` with `B != ±0.0`:
+
+- `Q = trunc(A / B)` (the real quotient truncated toward zero)
+- `R = A - Q*B`
+- `A % B = R`
+
+This matches C's `fmod`, **not** IEEE 754 `remainder` (`fp.rem`).
+
+| Expression | `fmod` (SymIR `%`) | `fp.rem` (IEEE remainder) |
+|---|---|---|
+| `1.5 % 1.0` | `0.5` | `-0.5` |
+| `-1.5 % 1.0` | `-0.5` | `0.5` |
+| `3.5 % 2.0` | `1.5` | `-0.5` |
+
+**Rationale**: `fmod` is consistent with integer `%` — result sign matches dividend sign. `fp.rem` rounds the quotient to nearest-even, which can flip the sign.
+
+**SMT encoding**: `fp.sub(A, fp.mul(fp.roundToIntegral[RTZ](fp.div[RNE](A, B)), B))`.
+
+**Trade-off vs `fp.rem`**: `fp.rem` maps to a single SMT-LIB2 primitive (`fp.rem`) and has direct solver support. The `fmod` encoding requires four composed FP operations and loses that direct-primitive efficiency. We accept this cost for semantic uniformity.
 
 
 ## 9. Path-based symbolic execution and constraint extraction

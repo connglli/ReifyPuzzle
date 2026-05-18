@@ -358,7 +358,8 @@ namespace symir {
               emitLValue(arg.rval);
               out_ << ")";
             } else if (arg.op == AtomOpKind::Mod) {
-              // IEEE 754 remainder: C's % is invalid for floats.
+              // C fmod (truncated quotient): same semantics as integer %, consistent
+              // with SymIR spec which aligns float % with integer % (truncate-toward-zero).
               // Detect float operand via coef type.
               bool isFloat = std::holds_alternative<FloatLit>(arg.coef);
               bool isF32 = false;
@@ -376,7 +377,7 @@ namespace symir {
                   isF32 = true;
               }
               if (isFloat) {
-                out_ << (isF32 ? "remainderf(" : "remainder(");
+                out_ << (isF32 ? "fmodf(" : "fmod(");
                 emitCoef(arg.coef);
                 out_ << ", ";
                 emitLValue(arg.rval);

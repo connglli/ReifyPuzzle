@@ -138,6 +138,7 @@ namespace symir::smt {
 
     virtual Term make_fp_value(Sort s, const std::string &val, RoundingMode rm) = 0;
     virtual Term make_fp_value_from_real(Sort s, double val, RoundingMode rm) = 0;
+    virtual Term make_rm_value(RoundingMode rm) = 0;
 
     // Term creation - Variables
     virtual Term make_const(Sort s, const std::string &name) = 0;
