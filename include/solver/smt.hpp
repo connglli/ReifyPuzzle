@@ -84,6 +84,10 @@ namespace symir::smt {
     FP_GT,
     FP_GEQ,
 
+    // FP predicates (unary, return Bool)
+    FP_IS_INF,
+    FP_IS_NAN,
+
     // Conversions
     FP_TO_SBV,
     FP_TO_UBV,

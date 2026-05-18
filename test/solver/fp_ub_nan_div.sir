@@ -1,0 +1,16 @@
+// EXPECT: FAIL
+// SOLVER_ARGS: --main @test --path ^entry
+// x==0 forces x/x = 0/0 = NaN; isFinite(x/x) must be in PC → UNSAT
+// NaN != 0 is TRUE in SMT FP, so without isFinite the solver returns SAT.
+fun @test() : f32 {
+  sym %?x : value f32;
+  let %zero: f32 = 0.0;
+  let mut %a: f32 = 0.0;
+  let mut %r: f32 = 0.0;
+^entry:
+  assume %?x == %zero;
+  %a = %?x;
+  %r = %a / %zero;
+  require %r != %zero;
+  ret %?x;
+}

@@ -604,6 +604,14 @@ namespace symir {
     root = updateLValueRec(root, lv.accesses, val, solver.make_true(), solver, store, pc, 0);
   }
 
+  // Enforce spec §7.4 rules 6–7: add NOT(fp.isInfinite(t)) AND NOT(fp.isNaN(t)) to pc.
+  static void assertFPFinite(smt::Term t, smt::ISolver &solver, std::vector<smt::Term> &pc) {
+    auto notInf = solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::FP_IS_INF, {t})});
+    auto notNaN = solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::FP_IS_NAN, {t})});
+    pc.push_back(notInf);
+    pc.push_back(notNaN);
+  }
+
   smt::Term SymbolicExecutor::evalExpr(
       const Expr &e, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
       std::optional<smt::Sort> expectedSort
@@ -620,6 +628,7 @@ namespace symir {
         } else {
           res = solver.make_term(smt::Kind::FP_SUB, {res, right});
         }
+        assertFPFinite(res, solver, pc);
       } else if (solver.is_bv_sort(lSort) && solver.is_bv_sort(rSort)) {
         auto lWidth = solver.get_bv_width(lSort);
         auto rWidth = solver.get_bv_width(rSort);
@@ -658,13 +667,17 @@ namespace symir {
             auto rSort = solver.get_sort(r);
 
             if (solver.is_fp_sort(cSort)) {
+              smt::Term fpRes;
               if (arg.op == AtomOpKind::Mul)
-                return solver.make_term(smt::Kind::FP_MUL, {c, r});
-              if (arg.op == AtomOpKind::Div)
-                return solver.make_term(smt::Kind::FP_DIV, {c, r});
-              if (arg.op == AtomOpKind::Mod)
-                return solver.make_term(smt::Kind::FP_REM, {c, r});
-              return {};
+                fpRes = solver.make_term(smt::Kind::FP_MUL, {c, r});
+              else if (arg.op == AtomOpKind::Div)
+                fpRes = solver.make_term(smt::Kind::FP_DIV, {c, r});
+              else if (arg.op == AtomOpKind::Mod)
+                fpRes = solver.make_term(smt::Kind::FP_REM, {c, r});
+              else
+                return {};
+              assertFPFinite(fpRes, solver, pc);
+              return fpRes;
             }
 
             if (solver.is_bv_sort(cSort) && solver.is_bv_sort(rSort)) {

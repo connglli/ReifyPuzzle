@@ -1,0 +1,14 @@
+// EXPECT: FAIL
+// SOLVER_ARGS: --main @test --path ^entry
+// x > 1.8e38 forces x+x to overflow in f32; isFinite(x+x) must be in PC → UNSAT
+fun @test() : f32 {
+  sym %?x : value f32;
+  let %bound: f32 = 1.8e38;
+  let %zero: f32 = 0.0;
+  let mut %r: f32 = 0.0;
+^entry:
+  assume %?x > %bound;
+  %r = %?x + %?x;
+  require %r > %zero;
+  ret %?x;
+}

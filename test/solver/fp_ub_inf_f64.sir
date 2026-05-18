@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SOLVER_ARGS: --main @test --path ^entry
+// x > 9.0e307 forces x+x to overflow in f64; isFinite(x+x) must be in PC → UNSAT
+fun @test() : f64 {
+  sym %?x : value f64;
+^entry:
+  assume %?x > 9.0e307;
+  require %?x + %?x > 0.0;
+  ret %?x;
+}
