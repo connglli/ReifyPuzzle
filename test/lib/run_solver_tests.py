@@ -3,6 +3,7 @@ import sys
 import subprocess
 import tempfile
 from test.lib.framework import run_test_suite, run_command, TestResult
+from test.lib.run_interp_tests import FAIL_EXIT_CODES
 
 
 def run_symirsolve_test(symirsolve_path, symiri_path=None):
@@ -57,7 +58,9 @@ def run_symirsolve_test(symirsolve_path, symiri_path=None):
                 f"Interpreter failed on concretized program.\nSTDOUT:\n{interp_res.stdout}\nSTDERR:\n{interp_res.stderr}",
               )
 
-      elif expectation == "FAIL":
+      elif expectation.startswith("FAIL"):
+        # All FAIL subtypes (including FAIL:UndefinedBehavior) are treated the
+        # same by the solver: non-zero exit OR UNSAT output.
         if result.returncode != 0 or "UNSAT" in result.stdout:
           passed = True
 

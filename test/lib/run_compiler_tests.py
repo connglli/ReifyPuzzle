@@ -2,6 +2,10 @@ import os
 import sys
 import shutil
 from test.lib.framework import run_test_suite, run_command, TestResult, strip_sigil
+from test.lib.run_interp_tests import FAIL_EXIT_CODES
+
+# These subtypes are expected to fail at compile time (symirc exit code).
+COMPILE_TIME_FAILS = {"FAIL:LexError", "FAIL:ParseError", "FAIL:StaticError"}
 
 
 def parse_bindings(args):
@@ -78,7 +82,7 @@ def extract_sir_info(file_path, entry_func="main"):
 
 
 def run_symirc_test(symirc_path, target="c"):
-  temp_dir = "test_build_tmp"
+  temp_dir = "build/test_tmp"
   os.makedirs(temp_dir, exist_ok=True)
 
   # Check for WASM runtime if needed
@@ -121,8 +125,19 @@ def run_symirc_test(symirc_path, target="c"):
     )
 
     if result.returncode != 0:
+      # Check compile-time failure expectations first.
       if expectation == "FAIL":
         return TestResult.PASS, ""
+      if expectation in COMPILE_TIME_FAILS:
+        expected_code = FAIL_EXIT_CODES[expectation]
+        if result.returncode == expected_code:
+          return TestResult.PASS, ""
+        return (
+          TestResult.FAIL,
+          f"symirc exit {result.returncode} (expected {expectation}={expected_code}):\n{result.stderr}",
+        )
+      # For runtime-failure expectations (UndefinedBehavior, RequireViolation),
+      # symirc should have succeeded — fall through to the runtime stage.
       return TestResult.FAIL, f"symirc failed:\n{result.stderr}"
 
     if not is_runnable_test:
@@ -180,7 +195,8 @@ def run_symirc_test(symirc_path, target="c"):
         "-o",
         exe_out,
         "-w",
-        "-fsanitize=address,undefined",
+        "-fsanitize=address,undefined,float-cast-overflow",
+        "-fno-sanitize-recover=all",
         "-g",
         "-lm",
       ]
@@ -244,11 +260,16 @@ def run_symirc_test(symirc_path, target="c"):
           TestResult.FAIL,
           f"Runtime error (code {res_exe.returncode}):\n{res_exe.stderr}",
         )
-    elif expectation == "FAIL":
+    elif expectation in ("FAIL", "FAIL:UndefinedBehavior", "FAIL:RequireViolation"):
+      # Compiled binaries use their own exit conventions (e.g. assert/abort for
+      # require, UBSan for UB) — just require any non-zero exit.
       if res_exe.returncode != 0:
         return TestResult.PASS, ""
       else:
-        return TestResult.FAIL, "Expected runtime error but succeeded"
+        return TestResult.FAIL, f"Expected runtime failure ({expectation}) but exited 0"
+    elif expectation in COMPILE_TIME_FAILS:
+      # symirc should have failed above; reaching here means it succeeded unexpectedly.
+      return TestResult.FAIL, f"Expected {expectation} from symirc but it succeeded"
 
     return TestResult.FAIL, "Logic error"
 

@@ -1,6 +1,15 @@
 import sys
 from test.lib.framework import run_test_suite, run_command, TestResult
 
+# Maps EXPECT: FAIL:<subtype> to the exit code the tool must return.
+FAIL_EXIT_CODES = {
+  "FAIL:LexError": 2,
+  "FAIL:ParseError": 3,
+  "FAIL:StaticError": 4,
+  "FAIL:UndefinedBehavior": 5,
+  "FAIL:RequireViolation": 6,
+}
+
 
 def run_symiri_test(binary_cmd_parts):
   def test_func(file_path, expectation, args, skips):
@@ -15,16 +24,22 @@ def run_symiri_test(binary_cmd_parts):
 
     passed = False
     if expectation == "PASS":
-      if result.returncode == 0:
-        passed = True
+      passed = result.returncode == 0
     elif expectation == "FAIL":
-      if result.returncode != 0:
-        passed = True
+      passed = result.returncode != 0
+    elif expectation in FAIL_EXIT_CODES:
+      passed = result.returncode == FAIL_EXIT_CODES[expectation]
+    else:
+      passed = result.returncode != 0  # unknown subtype: any failure
 
     if passed:
       return TestResult.PASS, ""
     else:
-      return TestResult.FAIL, f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+      return (
+        TestResult.FAIL,
+        f"exit code {result.returncode} (expected {expectation})\n"
+        f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}",
+      )
 
   return test_func
 

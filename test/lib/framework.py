@@ -27,6 +27,9 @@ def get_metadata(file_path):
         break
       if "// EXPECT: PASS" in line:
         expectation = "PASS"
+      elif "// EXPECT: FAIL:" in line:
+        # Specific fail subtype, e.g. "FAIL:UndefinedBehavior"
+        expectation = line.split("EXPECT: ")[1].strip().split()[0]
       elif "// EXPECT: FAIL" in line:
         expectation = "FAIL"
 
