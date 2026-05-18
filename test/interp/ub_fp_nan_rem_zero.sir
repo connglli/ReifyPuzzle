@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// 1.0 % 0.0 (f32): IEEE remainder by zero produces NaN: UB rule 7
+fun @main() : f32 {
+  let %a: f32 = 1.0;
+  let %b: f32 = 0.0;
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = %a % %b;
+  ret %r;
+}

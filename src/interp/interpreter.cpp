@@ -9,6 +9,18 @@
 
 namespace symir {
 
+  // Enforce IEEE 754 finite-only semantics (spec §7.4 rules 6–7):
+  // truncate to f32 if needed, then reject infinity or NaN.
+  static double checkFPResult(double val, uint32_t bits) {
+    if (bits == 32)
+      val = static_cast<double>(static_cast<float>(val));
+    if (std::isinf(val))
+      throw std::runtime_error("UB: Floating-point result is infinity");
+    if (std::isnan(val))
+      throw std::runtime_error("UB: Floating-point result is NaN");
+    return val;
+  }
+
   Interpreter::Interpreter(const Program &prog) : prog_(prog) {
     for (const auto &s: prog_.structs) {
       structs_[s.name.name] = &s;
@@ -357,9 +369,9 @@ namespace symir {
         v.intVal = canonicalize(v.intVal, v.bits);
       } else if (v.kind == RuntimeValue::Kind::Float && right.kind == RuntimeValue::Kind::Float) {
         if (tail.op == AddOp::Plus)
-          v.floatVal += right.floatVal;
+          v.floatVal = checkFPResult(v.floatVal + right.floatVal, v.bits);
         else
-          v.floatVal -= right.floatVal;
+          v.floatVal = checkFPResult(v.floatVal - right.floatVal, v.bits);
       } else {
         throw std::runtime_error("Expr ops only on same scalar kinds (Int/Float)");
       }
@@ -434,11 +446,11 @@ namespace symir {
               res.kind = RuntimeValue::Kind::Float;
               res.bits = c.bits;
               if (arg.op == AtomOpKind::Mul)
-                res.floatVal = c.floatVal * r.floatVal;
+                res.floatVal = checkFPResult(c.floatVal * r.floatVal, res.bits);
               else if (arg.op == AtomOpKind::Div)
-                res.floatVal = c.floatVal / r.floatVal;
+                res.floatVal = checkFPResult(c.floatVal / r.floatVal, res.bits);
               else if (arg.op == AtomOpKind::Mod)
-                res.floatVal = std::remainder(c.floatVal, r.floatVal);
+                res.floatVal = checkFPResult(std::remainder(c.floatVal, r.floatVal), res.bits);
               else
                 throw std::runtime_error("Unsupported op for floats");
               return res;
