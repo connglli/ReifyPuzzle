@@ -1,6 +1,6 @@
-# SymIR v0 Specification
+# SymIR v0.1.0 Specification
 
-**Status:** Draft v0
+**Status:** v0.1.0
 
 SymIR is a CFG-based symbolic IR for **program templates**. A SymIR function contains **symbols** (unknowns) that are solved by an SMT solver under constraints derived from:
 
@@ -9,7 +9,7 @@ SymIR is a CFG-based symbolic IR for **program templates**. A SymIR function con
 
 The tool symbolically executes the template **only along the chosen path**, collects constraints, and solves them to obtain a concrete instantiation of the symbols (and, if desired, other unconstrained inputs). Basic blocks not on the chosen path contribute no constraints (except global symbol-domain constraints).
 
-This v0 surface syntax adopts LLVM-style annotations and branching, while remaining **non-SSA** and using a **mutable store** semantics.
+This v0.1.0 surface syntax adopts LLVM-style annotations and branching, while remaining **non-SSA** and using a **mutable store** semantics.
 
 
 ## 1. Notation and identifier classes
@@ -25,7 +25,7 @@ SymIR uses sigils to make identifier categories immediately recognizable:
 **Hard rule:** `?` is permitted **only** immediately after `@` or `%` to form `@?` / `%?`. It is forbidden in all other identifiers.
 
 
-## 2. Key semantic commitments (v0)
+## 2. Key semantic commitments (v0.1.0)
 
 ### 2.1 Non-SSA and mutable store
 SymIR is not SSA. Locals declared with `let mut` denote **mutable storage cells**. Assignments update the store at the given lvalue location.
@@ -54,7 +54,7 @@ SymIR uses **strict UB** on the chosen path:
 
 - `select <cond>, <vtrue>, <vfalse>`
 - `select` is **lazy**: only the selected arm is evaluated.
-- In v0, `vtrue` and `vfalse` are restricted to **scalar values** (`RValue` or constant `Coef`) to avoid nested expressions.
+- In v0.1.0, `vtrue` and `vfalse` are restricted to **scalar values** (`RValue` or constant `Coef`) to avoid nested expressions.
 
 
 ## 3. Concrete syntax
@@ -83,7 +83,7 @@ StructName  := GlobalId ;     (* recommended: use @TypeName for struct names *)
 
 Notes:
 - Arrays are fixed-size.
-- `Nat` is a literal (no symbolic sizes in v0).
+- `Nat` is a literal (no symbolic sizes in v0.1.0).
 - **Multidimensional arrays** are supported by nesting `ArrayType`. For example, `[3][4] i32` represents a 3x4 grid of integers. Whitespace between brackets is optional.
 - **Integer Types:** Common bit-widths like `i1`, `i8`, `i16`, `i32`, `i64` are all supported via the `i<Nat>` syntax.
 - **Floating-point Types:** `f32` (IEEE 754 single-precision) and `f64` (IEEE 754 double-precision) are supported.
@@ -105,7 +105,7 @@ Param       := LocalId ":" Type ;
 ### 3.4 Declarations
 
 #### 3.4.1 Symbols (`sym` implies immutable `let`)
-A `sym` declaration introduces a solver-chosen unknown. Symbols are **immutable** (there is no `sym mut` in v0).
+A `sym` declaration introduces a solver-chosen unknown. Symbols are **immutable** (there is no `sym mut` in v0.1.0).
 
 ```ebnf
 SymDecl     := "sym" SymId ":" SymKind Type Domain? ";" ;
@@ -132,7 +132,7 @@ Local initialization:
   - **Structs:** `{f0, f1, ..., fK-1}` initializes a struct with `K` fields in the order they were declared. The number of elements must **exactly match** the field count.
   - **Recursive:** Braces can be nested to initialize multidimensional arrays or nested structs (e.g., `let %m: [2][2] i32 = { {1, 2}, {3, 4} };`).
 - **Empty Braces:** `{}` is **disallowed**.
-- `undef` indicates an uninitialized value; **reading** `undef` is UB in v0.
+- `undef` indicates an uninitialized value; **reading** `undef` is UB in v0.1.0.
 
 Mutability:
 - `let <id>` creates an immutable binding.
@@ -174,7 +174,7 @@ RequireInstr:= "require" Cond ("," StringLit)? ";" ;
 ### 5.1 LValues and access paths
 ```ebnf
 LValue      := Base Access* ;
-Base        := LocalId ;                   (* v0: locals/params only; no global storage *)
+Base        := LocalId ;                   (* v0.1.0: locals/params only; no global storage *)
 Access      := "[" Index "]" | "." Ident ;
 Index       := IntLit | LocalId | SymId ;
 ```
@@ -205,7 +205,7 @@ Atom        := Coef "*" RValue
             | RValue ;
 
 Select      := "select" Cond "," SelectVal "," SelectVal ;
-SelectVal   := RValue | Coef ;     (* v0 restriction: no nested expressions *)
+SelectVal   := RValue | Coef ;     (* v0.1.0 restriction: no nested expressions *)
 
 Cast        := RValue "as" Type ;
 
@@ -223,7 +223,7 @@ Evaluation order:
   - `>>` : Arithmetic Shift Right (sign-extending).
   - `>>>`: Logical Shift Right (zero-filling).
 
-## 6. Typing and well-formedness (v0)
+## 6. Typing and well-formedness (v0.1.0)
 
 ### 6.1 Scalar arithmetic restriction
 Arithmetic (`Expr`) is defined over **scalar integer and floating-point leaves**. Arrays and structs exist to provide addressable structure, but only their scalar elements/fields may be used in arithmetic or comparisons.
@@ -266,7 +266,7 @@ Literals do not have fixed types but are inferred from their context:
 - **Homogeneity Requirement:** Since mixed arithmetic is forbidden, a literal in an expression `x + <lit>` will always be inferred to match the type of `x`.
 
 
-## 7. Strict UB rules (v0)
+## 7. Strict UB rules (v0.1.0)
 
 UB is checked during symbolic execution along the chosen path. Any UB makes the path infeasible.
 
@@ -343,7 +343,7 @@ A satisfying model yields concrete values for `@?` / `%?` symbols (and any other
 
 ## 10. Examples
 
-This section provides additional examples of common patterns and “classical” problems expressed in SymIR v0. All examples follow v0 constraints:
+This section provides additional examples of common patterns and “classical” problems expressed in SymIR v0.1.0. All examples follow v0.1.0 constraints:
 - no parentheses in expressions (left-to-right evaluation),
 - strict UB,
 - `div`/`mod` round toward 0,
@@ -387,7 +387,7 @@ fun @max2(%a: i32, %b: i32) : i32 {
 ```
 
 ### 10.4 Saturating clamp (classic)
-Clamp `%x` into `[0, 255]` using nested selects with v0 restrictions (arms are scalar values).
+Clamp `%x` into `[0, 255]` using nested selects with v0.1.0 restrictions (arms are scalar values).
 ```text
 fun @clamp_u8(%x: i32) : i32 {
   let %lo: i32 = 0;
@@ -502,8 +502,8 @@ A path like `^entry -> ^b1 -> ^body -> ^b1 -> ^body -> ... -> ^exit` is feasible
 
 
 
-## 11. Non-goals for v0 (planned extensions)
-- Heap, pointers, aliasing, pointer arithmetic.
+## 11. Non-goals for v0.1.0 (planned for v0.2.0+)
+- Pointers and pointer arithmetic (planned for v0.2.0; heap allocation skipped).
 - Parentheses, operator precedence, general expression trees.
 - SSA/phi.
 - Interprocedural calls and summaries.

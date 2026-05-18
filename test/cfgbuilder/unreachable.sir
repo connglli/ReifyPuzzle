@@ -1,6 +1,6 @@
 // EXPECT: PASS
 
-// Basic blocks that are unreachable from the entry block are semantically valid in v0.
+// Basic blocks that are unreachable from the entry block are semantically valid in v0.1.0.
 fun @unreach() : i32 {
 ^entry:
   ret 0;

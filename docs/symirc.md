@@ -97,7 +97,7 @@ Examples:
 | `-h, --help`       | Print usage                                |
 
 
-## Limitations (v0)
+## Limitations (v0.1.0)
 
 * Only `i32` and `i64` are guaranteed to translate cleanly
 * No heap or pointer support

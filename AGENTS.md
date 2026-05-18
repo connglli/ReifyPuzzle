@@ -27,7 +27,7 @@ The key design goals are:
 
 SymIR deliberately restricts expressions (flat, left-to-right, no parentheses) and uses **LLVM-style syntax** (`@`, `%`, `br`, basic blocks) while remaining language-agnostic.
 
-The complete formal specification of the language is presented in: **[./docs/SPEC_v0.md](./docs/SPEC_v0.md)**
+The complete formal specification of the language is presented in: **[./docs/SPEC_v0.1.0.md](./docs/SPEC_v0.1.0.md)**
 
 ## Language at a Glance
 
