@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @test --path ^entry
+// INTERP_ARGS: --main @test --sym %?x=100.0
+// x in (0, 2^31-1): cast to i32 is valid; solver should find a concrete value
+fun @test() : i32 {
+  sym %?x : value f32;
+  let %lo: f32 = 0.0;
+  let %hi: f32 = 1.0e9;
+  let %zero: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  assume %?x > %lo;
+  assume %?x < %hi;
+  %r = %?x as i32;
+  require %r > %zero;
+  ret %r;
+}

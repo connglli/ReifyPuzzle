@@ -1,0 +1,14 @@
+// EXPECT: FAIL
+// SOLVER_ARGS: --main @test --path ^entry
+// x < -3.0e9 is below INT32_MIN (≈-2.147e9); range PC constraint on cast → UNSAT
+fun @test() : i32 {
+  sym %?x : value f32;
+  let %bound: f32 = -3.0e9;
+  let %zero: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  assume %?x < %bound;
+  %r = %?x as i32;
+  require %r < %zero;
+  ret %r;
+}

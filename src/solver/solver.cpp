@@ -798,8 +798,17 @@ namespace symir {
             bool dstIsFp = solver.is_fp_sort(dstSort);
 
             // Correct handling for FP casts requiring indices
-            if (srcIsFp && !dstIsFp) { // FP -> BV
+            if (srcIsFp && !dstIsFp) { // FP -> BV (spec §7.4 rule 8: range check)
               uint32_t width = solver.get_bv_width(dstSort);
+              auto srcSort = solver.get_sort(src);
+              // Add PC constraints: src is finite and in [-2^(w-1), 2^(w-1)).
+              assertFPFinite(src, solver, pc);
+              double lo = -std::ldexp(1.0, static_cast<int>(width) - 1);
+              double hi = std::ldexp(1.0, static_cast<int>(width) - 1);
+              auto loFp = solver.make_fp_value_from_real(srcSort, lo, smt::RoundingMode::RNE);
+              auto hiFp = solver.make_fp_value_from_real(srcSort, hi, smt::RoundingMode::RNE);
+              pc.push_back(solver.make_term(smt::Kind::FP_GEQ, {src, loFp}));
+              pc.push_back(solver.make_term(smt::Kind::FP_LT, {src, hiFp}));
               return solver.make_term(smt::Kind::FP_TO_SBV, {src}, {width});
             }
             if (!srcIsFp && dstIsFp) { // BV -> FP

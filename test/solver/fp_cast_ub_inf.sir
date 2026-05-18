@@ -1,0 +1,14 @@
+// EXPECT: FAIL
+// SOLVER_ARGS: --main @test --path ^entry
+// x > 1.0e10 as f64 exceeds INT32_MAX; range PC constraint on cast → UNSAT
+fun @test() : i32 {
+  sym %?x : value f64;
+  let %bound: f64 = 1.0e10;
+  let %zero: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  assume %?x > %bound;
+  %r = %?x as i32;
+  require %r > %zero;
+  ret %r;
+}
