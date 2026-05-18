@@ -1,0 +1,65 @@
+// EXPECT: FAIL
+// v0.2.1 feature — ptr [N] T (pointer to array). Not yet implemented.
+// TODO: change to EXPECT: PASS once ptr [4] i32 is supported.
+//
+// Compute the sum of each row in a 3x4 matrix by advancing a row pointer.
+// Matrix: {{1,2,3,4},{5,6,7,8},{9,10,11,12}}
+// Row sums: {10, 26, 42}
+struct @Matrix3x4 { rows: [3][4]i32; }
+
+fun @main() : i32 {
+  let mut %mat: @Matrix3x4 = { {{1,2,3,4},{5,6,7,8},{9,10,11,12}} };
+  let mut %row: ptr [4] i32 = null;
+  let mut %ep: ptr i32 = null;
+  let mut %sums: [3] i32 = {0, 0, 0};
+  let mut %sp: ptr i32 = null;
+  let %one: i32 = 1;
+  let mut %ri: i32 = 0;
+  let mut %ci: i32 = 0;
+  let mut %acc: i32 = 0;
+  let mut %v: i32 = 0;
+^entry:
+  // row = &mat.rows[0]  (ptr [4] i32 pointing to first row)
+  %row = addr %mat.rows[0];
+  %sp = addr %sums[0];
+  br ^row_loop;
+
+^row_loop:
+  br %ri < 3, ^row_body, ^verify;
+
+^row_body:
+  // sum elements of this row by walking ep over *row
+  %ep = load %row;
+  %acc = 0;
+  %ci = 0;
+  br ^col_loop;
+
+^col_loop:
+  br %ci < 4, ^col_body, ^row_done;
+
+^col_body:
+  %v = load %ep;
+  %acc = %acc + %v;
+  %ep = %ep + %one;
+  %ci = %ci + 1;
+  br ^col_loop;
+
+^row_done:
+  store %sp, %acc;
+  %row = %row + %one;
+  %sp = %sp + %one;
+  %ri = %ri + 1;
+  br ^row_loop;
+
+^verify:
+  %sp = addr %sums[0];
+  %v = load %sp;
+  require %v == 10, "row0 sum==10";
+  %sp = %sp + %one;
+  %v = load %sp;
+  require %v == 26, "row1 sum==26";
+  %sp = %sp + %one;
+  %v = load %sp;
+  require %v == 42, "row2 sum==42";
+  ret 0;
+}

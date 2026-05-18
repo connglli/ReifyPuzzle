@@ -1,0 +1,34 @@
+// EXPECT: FAIL
+// v0.2.1 feature — ptr @S (pointer to struct). Not yet implemented.
+// TODO: change to EXPECT: PASS once ptr @S is supported.
+//
+// Swap two @Point3 values through pointers.
+// a={1,2,3}, b={4,5,6} -> after swap: a={4,5,6}, b={1,2,3}
+// Mirrors the classic void swap(T *a, T *b) using a temporary.
+struct @Point3 { x: i32; y: i32; z: i32; }
+
+fun @main() : i32 {
+  let mut %a: @Point3 = {1, 2, 3};
+  let mut %b: @Point3 = {4, 5, 6};
+  let mut %tmp: @Point3 = {0, 0, 0};
+  let mut %pa: ptr @Point3 = null;
+  let mut %pb: ptr @Point3 = null;
+  let mut %pt: ptr @Point3 = null;
+^entry:
+  %pa = addr %a;
+  %pb = addr %b;
+  %pt = addr %tmp;
+  // tmp = *pa
+  store %pt, load %pa;
+  // *pa = *pb
+  store %pa, load %pb;
+  // *pb = tmp
+  store %pb, load %pt;
+  require %a.x == 4, "a.x==4";
+  require %a.y == 5, "a.y==5";
+  require %a.z == 6, "a.z==6";
+  require %b.x == 1, "b.x==1";
+  require %b.y == 2, "b.y==2";
+  require %b.z == 3, "b.z==3";
+  ret 0;
+}

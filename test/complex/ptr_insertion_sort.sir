@@ -1,0 +1,86 @@
+// EXPECT: PASS
+// Insertion sort via pointer-based element shifting.
+// Input: {5,2,8,1,9,3}  Output: {1,2,3,5,8,9}
+// Mirrors the classic C idiom: advance outer pointer, shift elements right via
+// an inner pointer to make room for the key.
+// When the inner pointer reaches the base we use a direct store to avoid
+// decrementing past the allocation start (which would be UB in SymIR).
+fun @main() : i32 {
+  let mut %arr: [6] i32 = {5, 2, 8, 1, 9, 3};
+  let mut %p: ptr i32 = null;
+  let mut %q: ptr i32 = null;
+  let mut %r: ptr i32 = null;
+  let mut %base: ptr i32 = null;
+  let %one: i32 = 1;
+  let mut %i: i32 = 1;
+  let mut %key: i32 = 0;
+  let mut %prev: i32 = 0;
+  let mut %v: i32 = 0;
+^entry:
+  %base = addr %arr[0];
+  %p = addr %arr[1];
+  br ^outer_loop;
+
+^outer_loop:
+  br %i < 6, ^outer_body, ^verify;
+
+^outer_body:
+  // key = arr[i]; q = arr[i-1]
+  %key = load %p;
+  %q = %p - %one;
+  br ^inner_loop;
+
+^inner_loop:
+  // while q >= base && *q > key: *(q+1) = *q; q--
+  br %q >= %base, ^inner_check, ^insert;
+
+^inner_check:
+  %prev = load %q;
+  br %prev > %key, ^shift, ^insert;
+
+^shift:
+  %r = %q + %one;
+  store %r, %prev;
+  // If q is already at the base, inserting goes to base; don't decrement past it.
+  br %q == %base, ^insert_at_base, ^do_decr;
+
+^do_decr:
+  %q = %q - %one;
+  br ^inner_loop;
+
+^insert_at_base:
+  // key belongs at arr[0]
+  store %base, %key;
+  %p = %p + %one;
+  %i = %i + 1;
+  br ^outer_loop;
+
+^insert:
+  // key belongs at *(q+1)
+  %r = %q + %one;
+  store %r, %key;
+  %p = %p + %one;
+  %i = %i + 1;
+  br ^outer_loop;
+
+^verify:
+  %p = addr %arr[0];
+  %v = load %p;
+  require %v == 1, "arr[0]==1";
+  %p = %p + %one;
+  %v = load %p;
+  require %v == 2, "arr[1]==2";
+  %p = %p + %one;
+  %v = load %p;
+  require %v == 3, "arr[2]==3";
+  %p = %p + %one;
+  %v = load %p;
+  require %v == 5, "arr[3]==5";
+  %p = %p + %one;
+  %v = load %p;
+  require %v == 8, "arr[4]==8";
+  %p = %p + %one;
+  %v = load %p;
+  require %v == 9, "arr[5]==9";
+  ret 0;
+}

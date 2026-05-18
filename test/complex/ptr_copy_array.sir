@@ -1,0 +1,47 @@
+// EXPECT: PASS
+// Array copy (memcpy-style) via pointer walk — src to dst.
+// src={10,20,30,40,50,60} -> dst={10,20,30,40,50,60}
+fun @main() : i32 {
+  let mut %src: [6] i32 = {10, 20, 30, 40, 50, 60};
+  let mut %dst: [6] i32 = {0, 0, 0, 0, 0, 0};
+  let mut %sp: ptr i32 = null;
+  let mut %dp: ptr i32 = null;
+  let %one: i32 = 1;
+  let mut %i: i32 = 0;
+  let mut %v: i32 = 0;
+^entry:
+  %sp = addr %src[0];
+  %dp = addr %dst[0];
+  br ^loop;
+
+^loop:
+  br %i < 6, ^copy, ^verify;
+
+^copy:
+  store %dp, load %sp;
+  %sp = %sp + %one;
+  %dp = %dp + %one;
+  %i = %i + 1;
+  br ^loop;
+
+^verify:
+  %dp = addr %dst[0];
+  %v = load %dp;
+  require %v == 10, "dst[0]==10";
+  %dp = %dp + %one;
+  %v = load %dp;
+  require %v == 20, "dst[1]==20";
+  %dp = %dp + %one;
+  %v = load %dp;
+  require %v == 30, "dst[2]==30";
+  %dp = %dp + %one;
+  %v = load %dp;
+  require %v == 40, "dst[3]==40";
+  %dp = %dp + %one;
+  %v = load %dp;
+  require %v == 50, "dst[4]==50";
+  %dp = %dp + %one;
+  %v = load %dp;
+  require %v == 60, "dst[5]==60";
+  ret 0;
+}

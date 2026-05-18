@@ -1,0 +1,37 @@
+// EXPECT: PASS
+// Palindrome check via two-pointer technique on a symmetric array.
+// {3,1,4,1,1,4,1,3} is a palindrome -> result=1
+fun @main() : i32 {
+  let mut %arr: [8] i32 = {3, 1, 4, 1, 1, 4, 1, 3};
+  let mut %lo: ptr i32 = null;
+  let mut %hi: ptr i32 = null;
+  let mut %result: i32 = 1;
+  let %one: i32 = 1;
+  let mut %vl: i32 = 0;
+  let mut %vr: i32 = 0;
+^entry:
+  %lo = addr %arr[0];
+  %hi = addr %arr[7];
+  br ^loop;
+
+^loop:
+  br %lo < %hi, ^check, ^done;
+
+^check:
+  %vl = load %lo;
+  %vr = load %hi;
+  br %vl == %vr, ^advance, ^not_palindrome;
+
+^advance:
+  %lo = %lo + %one;
+  %hi = %hi - %one;
+  br ^loop;
+
+^not_palindrome:
+  %result = 0;
+  br ^done;
+
+^done:
+  require %result == 1, "array is a palindrome";
+  ret %result;
+}

@@ -1,0 +1,53 @@
+// EXPECT: PASS
+// Two-pointer in-place array reverse using pointer arithmetic.
+// Input: {1,2,3,4,5,6,7,8}  Output: {8,7,6,5,4,3,2,1}
+fun @main() : i32 {
+  let mut %arr: [8] i32 = {1, 2, 3, 4, 5, 6, 7, 8};
+  let mut %lo: ptr i32 = null;
+  let mut %hi: ptr i32 = null;
+  let mut %tmp: i32 = 0;
+  let %one: i32 = 1;
+  let mut %v: i32 = 0;
+^entry:
+  %lo = addr %arr[0];
+  %hi = addr %arr[7];
+  br ^loop;
+
+^loop:
+  br %lo < %hi, ^swap, ^verify;
+
+^swap:
+  %tmp = load %lo;
+  store %lo, load %hi;
+  store %hi, %tmp;
+  %lo = %lo + %one;
+  %hi = %hi - %one;
+  br ^loop;
+
+^verify:
+  %lo = addr %arr[0];
+  %v = load %lo;
+  require %v == 8, "arr[0]==8";
+  %lo = %lo + %one;
+  %v = load %lo;
+  require %v == 7, "arr[1]==7";
+  %lo = %lo + %one;
+  %v = load %lo;
+  require %v == 6, "arr[2]==6";
+  %lo = %lo + %one;
+  %v = load %lo;
+  require %v == 5, "arr[3]==5";
+  %lo = %lo + %one;
+  %v = load %lo;
+  require %v == 4, "arr[4]==4";
+  %lo = %lo + %one;
+  %v = load %lo;
+  require %v == 3, "arr[5]==3";
+  %lo = %lo + %one;
+  %v = load %lo;
+  require %v == 2, "arr[6]==2";
+  %lo = %lo + %one;
+  %v = load %lo;
+  require %v == 1, "arr[7]==1";
+  ret 0;
+}

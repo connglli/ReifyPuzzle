@@ -1,0 +1,35 @@
+// EXPECT: PASS
+// Linear search: find first occurrence of 37 in a 10-element array via pointer.
+// Array: {10,17,24,31,37,43,50,57,63,70}, target=37 found at index 4.
+fun @main() : i32 {
+  let mut %arr: [10] i32 = {10, 17, 24, 31, 37, 43, 50, 57, 63, 70};
+  let %target: i32 = 37;
+  let mut %p: ptr i32 = null;
+  let %one: i32 = 1;
+  let mut %found: i32 = -1;
+  let mut %idx: i32 = 0;
+  let mut %v: i32 = 0;
+^entry:
+  %p = addr %arr[0];
+  br ^loop;
+
+^loop:
+  br %idx < 10, ^check, ^done;
+
+^check:
+  %v = load %p;
+  br %v == %target, ^mark_found, ^next;
+
+^mark_found:
+  %found = %idx;
+  br ^done;
+
+^next:
+  %p = %p + %one;
+  %idx = %idx + 1;
+  br ^loop;
+
+^done:
+  require %found == 4, "37 found at index 4";
+  ret %found;
+}

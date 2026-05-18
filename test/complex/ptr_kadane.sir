@@ -1,0 +1,53 @@
+// EXPECT: PASS
+// Kadane's algorithm for maximum subarray sum, traversal via pointer.
+// Input: {-2,1,-3,4,-1,2,1,-5,4}
+// Maximum subarray {4,-1,2,1} has sum = 6.
+fun @main() : i32 {
+  let mut %arr: [9] i32 = {-2, 1, -3, 4, -1, 2, 1, -5, 4};
+  let mut %p: ptr i32 = null;
+  let %one: i32 = 1;
+  let mut %cur: i32 = 0;
+  let mut %best: i32 = 0;
+  let mut %v: i32 = 0;
+  let mut %i: i32 = 0;
+^entry:
+  %p = addr %arr[0];
+  %v = load %p;
+  %cur = %v;
+  %best = %v;
+  %p = %p + %one;
+  %i = 1;
+  br ^loop;
+
+^loop:
+  br %i < 9, ^body, ^done;
+
+^body:
+  %v = load %p;
+  // cur = max(cur + v, v)
+  %cur = %cur + %v;
+  br %v > %cur, ^reset_cur, ^keep_cur;
+
+^reset_cur:
+  %cur = %v;
+  br ^update_best;
+
+^keep_cur:
+  br ^update_best;
+
+^update_best:
+  br %cur > %best, ^new_best, ^next;
+
+^new_best:
+  %best = %cur;
+  br ^next;
+
+^next:
+  %p = %p + %one;
+  %i = %i + 1;
+  br ^loop;
+
+^done:
+  require %best == 6, "max subarray sum == 6";
+  ret %best;
+}
