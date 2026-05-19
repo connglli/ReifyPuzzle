@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// `ptr T - ptr T` yields the element distance as i64. addr arr[5] - addr arr[0] = 5.
+fun @main() : i32 {
+  let mut %arr: [8] i32 = {0, 0, 0, 0, 0, 0, 0, 0};
+  let mut %p: ptr i32 = null;
+  let mut %q: ptr i32 = null;
+  let mut %d: i64 = 0;
+  let %expected: i64 = 5;
+^entry:
+  %p = addr %arr[0];
+  %q = addr %arr[5];
+  %d = %q - %p;
+  require %d == %expected, "distance is 5 elements";
+  ret 0;
+}

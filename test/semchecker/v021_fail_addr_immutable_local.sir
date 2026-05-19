@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// `addr` requires its root to be `let mut`; addressing an immutable `let` is an error.
+fun @main() : i32 {
+  let %x: i32 = 7;
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  ret 0;
+}

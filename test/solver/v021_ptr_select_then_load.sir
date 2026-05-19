@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+// INTERP_ARGS: --main @main --sym %?which=1
+// COMPILER_ARGS: --main @main --sym %?which=1
+
+// Pick one of two pointers based on a sym, then load.
+// Require the loaded value to be 99, forcing %?which to select %b (=99).
+fun @main() : i32 {
+  sym %?which : value i32 in [0, 1];
+  let mut %a: i32 = 11;
+  let mut %b: i32 = 99;
+  let mut %pa: ptr i32 = null;
+  let mut %pb: ptr i32 = null;
+  let mut %p: ptr i32 = null;
+^entry:
+  %pa = addr %a;
+  %pb = addr %b;
+  %p = select %?which == 1, %pb, %pa;
+  require load %p == 99, "selected ptr loads b";
+  ret 0;
+}

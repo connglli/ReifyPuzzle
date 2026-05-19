@@ -1,0 +1,28 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+// INTERP_ARGS: --main @main --sym %?a=3 --sym %?b=5
+// COMPILER_ARGS: --main @main --sym %?a=3 --sym %?b=5
+
+// Swap two locals through pointers, then require the post-swap values.
+fun @main() : i32 {
+  sym %?a : value i32 in [0, 10];
+  sym %?b : value i32 in [0, 10];
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+  let mut %tmp: i32 = 0;
+  let mut %px: ptr i32 = null;
+  let mut %py: ptr i32 = null;
+^entry:
+  %x = %?a;
+  %y = %?b;
+  %px = addr %x;
+  %py = addr %y;
+  %tmp = load %px;
+  store %px, load %py;
+  store %py, %tmp;
+  require %x == %?b, "x got b";
+  require %y == %?a, "y got a";
+  require %?a == 3, "consume a";
+  require %?b == 5, "consume b";
+  ret 0;
+}

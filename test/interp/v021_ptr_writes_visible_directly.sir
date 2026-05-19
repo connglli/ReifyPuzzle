@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// A `store` through a pointer is immediately visible via direct reads of the target.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  store %p, 7;
+  require %x == 7, "direct read sees the ptr-store";
+  store %p, 11;
+  require %x == 11, "second ptr-store overwrites x";
+  ret %x;
+}

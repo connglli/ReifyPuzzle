@@ -1,0 +1,11 @@
+// EXPECT: FAIL:StaticError
+// load on ptr i32 yields i32; assigning to an i64 lvalue must fail.
+fun @main() : i32 {
+  let mut %x: i32 = 1;
+  let mut %p: ptr i32 = null;
+  let mut %r: i64 = 0;
+^entry:
+  %p = addr %x;
+  %r = load %p;
+  ret 0;
+}

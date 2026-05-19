@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// Lexer must recognise `load` as a keyword.
+fun @main() : i32 {
+  let mut %x: i32 = 7;
+  let mut %p: ptr i32 = null;
+  let mut %r: i32 = 0;
+^entry:
+  %p = addr %x;
+  %r = load %p;
+  ret 0;
+}

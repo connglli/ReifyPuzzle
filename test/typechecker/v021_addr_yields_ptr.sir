@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// addr %x where %x : i32 yields ptr i32.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  ret 0;
+}

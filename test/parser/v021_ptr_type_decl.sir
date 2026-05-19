@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// Parser must accept `ptr T` in let-decl type position.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let %p: ptr i32 = null;
+  let mut %q: ptr f64 = null;
+  let mut %v: f64 = 0.0;
+^entry:
+  ret 0;
+}

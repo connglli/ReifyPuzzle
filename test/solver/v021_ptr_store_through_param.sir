@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @writer --path '^entry' --sym %?c=6
+// SKIP: INTERPRETER
+// SKIP: COMPILER
+// SKIP: SOLVER
+
+// Out-parameter pattern: writer stores %?c * 2 through %out; require result == 12.
+// The solver must find %?c = 6.
+// Solver SKIP: requires the spec §9.4.6 parameter-pointer memory encoding
+// (a Mem[T] array for externally-provided pointers). The current solver's
+// BV64 tag dispatch can't model parameter pointers with no local targets.
+fun @writer(%out: ptr i32) : i32 {
+  sym %?c : coef i32 in [-8, 8];
+^entry:
+  store %out, %?c + %?c;
+  require load %out == 12, "output must be 12";
+  ret 0;
+}

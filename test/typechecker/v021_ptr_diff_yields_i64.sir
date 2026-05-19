@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// `ptr T - ptr T` yields i64.
+fun @main() : i32 {
+  let mut %arr: [8] i32 = {0, 0, 0, 0, 0, 0, 0, 0};
+  let mut %p: ptr i32 = null;
+  let mut %q: ptr i32 = null;
+  let mut %d: i64 = 0;
+^entry:
+  %p = addr %arr[0];
+  %q = addr %arr[5];
+  %d = %q - %p;
+  ret 0;
+}

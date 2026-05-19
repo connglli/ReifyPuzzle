@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// Store through a ptr-ptr chain: the value lands in the leaf local.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %p: ptr i32 = null;
+  let mut %pp: ptr ptr i32 = null;
+  let mut %inner: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  %pp = addr %p;
+  %inner = load %pp;
+  store %inner, 123;
+  require %x == 123, "double-indirect store updates x";
+  ret %x;
+}

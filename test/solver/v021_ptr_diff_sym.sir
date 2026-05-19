@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+// INTERP_ARGS: --main @main --sym %?i=4
+// COMPILER_ARGS: --main @main --sym %?i=4
+// SKIP: SOLVER
+
+// The element distance between addr arr[%?i] and addr arr[0] must equal %?i.
+// Solver SKIP: requires the spec §9.4 array-theory pointer model
+// (addr of array elements + ptr difference arithmetic).
+fun @main() : i32 {
+  sym %?i : index i32 in [0, 7];
+  let mut %arr: [8] i32 = {0, 0, 0, 0, 0, 0, 0, 0};
+  let mut %p: ptr i32 = null;
+  let mut %q: ptr i32 = null;
+  let mut %d: i64 = 0;
+^entry:
+  %p = addr %arr[0];
+  %q = addr %arr[%?i];
+  %d = %q - %p;
+  require %d == 4, "distance must be 4";
+  ret 0;
+}

@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// Lexer must tokenise repeated `ptr` keywords for nested pointer types.
+fun @main() : i32 {
+  let %a: ptr i32 = null;
+  let %b: ptr ptr i32 = null;
+  let %c: ptr ptr ptr i32 = null;
+^entry:
+  ret 0;
+}

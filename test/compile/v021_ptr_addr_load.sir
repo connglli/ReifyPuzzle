@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// addr-then-load through a pointer must compile and execute to the stored value.
+fun @main() : i32 {
+  let mut %x: i32 = 21;
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  ret load %p;
+}

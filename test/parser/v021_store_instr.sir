@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// Parser must accept the `store <ptr-expr>, <val-expr>;` instruction form.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  store %p, 17;
+  ret 0;
+}

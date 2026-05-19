@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// Pointer equality between two ptr T pointers is well-typed.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+  let mut %p: ptr i32 = null;
+  let mut %q: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  %q = addr %y;
+  br %p == %q, ^same, ^diff;
+^same:
+  ret 1;
+^diff:
+  ret 0;
+}

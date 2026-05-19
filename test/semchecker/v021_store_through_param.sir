@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// A pointer parameter can be the operand of `store` (the binding itself is
+// immutable but the pointee storage is writable).
+fun @writer(%out: ptr i32) : i32 {
+^entry:
+  store %out, 42;
+  ret 0;
+}

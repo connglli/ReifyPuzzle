@@ -1,0 +1,12 @@
+// EXPECT: FAIL:StaticError
+// `store %p, val` requires val to have the pointee type. ptr i32 expects an i32 value;
+// storing a 64-bit value (i64 literal) must fail typechecking.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %p: ptr i32 = null;
+  let mut %v: i64 = 5;
+^entry:
+  %p = addr %x;
+  store %p, %v;
+  ret 0;
+}

@@ -1,0 +1,8 @@
+// EXPECT: FAIL:StaticError
+// A pointer parameter is an immutable binding; reassigning it is an error.
+fun @main(%p: ptr i32) : i32 {
+  let mut %x: i32 = 0;
+^entry:
+  %p = addr %x;
+  ret 0;
+}

@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// Parser must accept `null` as the initializer for a let-decl.
+fun @main() : i32 {
+  let %p: ptr i32 = null;
+  let mut %q: ptr f64 = null;
+  let mut %pp: ptr ptr i32 = null;
+^entry:
+  ret 0;
+}

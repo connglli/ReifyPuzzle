@@ -1,0 +1,16 @@
+// EXPECT: FAIL:StaticError
+// Comparing pointers of different pointee types is a type error.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i64 = 0;
+  let mut %p: ptr i32 = null;
+  let mut %q: ptr i64 = null;
+^entry:
+  %p = addr %x;
+  %q = addr %y;
+  br %p == %q, ^same, ^diff;
+^same:
+  ret 1;
+^diff:
+  ret 0;
+}

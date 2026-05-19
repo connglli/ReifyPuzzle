@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// Two-level dereference: load through ptr ptr to retrieve the inner value.
+fun @main() : i32 {
+  let mut %x: i32 = 99;
+  let mut %p: ptr i32 = null;
+  let mut %pp: ptr ptr i32 = null;
+  let mut %inner: ptr i32 = null;
+  let mut %r: i32 = 0;
+^entry:
+  %p = addr %x;
+  %pp = addr %p;
+  %inner = load %pp;
+  %r = load %inner;
+  require %r == 99, "double-load yields x's value";
+  ret %r;
+}

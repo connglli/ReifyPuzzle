@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// Parser must accept `load <rvalue>` as an atom.
+fun @main() : i32 {
+  let mut %x: i32 = 9;
+  let mut %p: ptr i32 = null;
+  let mut %r: i32 = 0;
+^entry:
+  %p = addr %x;
+  %r = load %p;
+  ret %r;
+}

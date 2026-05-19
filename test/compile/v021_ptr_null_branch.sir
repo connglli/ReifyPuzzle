@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// Branch on `ptr == null` and follow the not-null path after addr-assignment.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %p: ptr i32 = null;
+^entry:
+  br %p == null, ^is_null, ^assign_then_check;
+^assign_then_check:
+  %p = addr %x;
+  br %p == null, ^is_null, ^not_null;
+^is_null:
+  ret 0;
+^not_null:
+  store %p, 42;
+  ret %x;
+}

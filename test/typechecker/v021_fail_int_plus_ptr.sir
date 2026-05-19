@@ -1,0 +1,12 @@
+// EXPECT: FAIL:StaticError
+// `iN + ptr T` is a type error; the pointer must be the LEFT operand of `+`.
+fun @main() : i32 {
+  let mut %arr: [4] i32 = {0, 0, 0, 0};
+  let mut %p: ptr i32 = null;
+  let mut %q: ptr i32 = null;
+  let %one: i32 = 1;
+^entry:
+  %p = addr %arr[0];
+  %q = %one + %p;
+  ret 0;
+}

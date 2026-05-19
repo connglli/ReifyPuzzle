@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// load on ptr T yields T (here i32), so assigning to an i32 local typechecks.
+fun @main() : i32 {
+  let mut %x: i32 = 1;
+  let mut %p: ptr i32 = null;
+  let mut %r: i32 = 0;
+^entry:
+  %p = addr %x;
+  %r = load %p;
+  ret %r;
+}

@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// A `let mut %p: ptr T = null` can be reassigned to a different addr expression.
+fun @main() : i32 {
+  let mut %x: i32 = 1;
+  let mut %y: i32 = 2;
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  %p = addr %y;
+  ret 0;
+}

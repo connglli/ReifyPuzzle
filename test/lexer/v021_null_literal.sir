@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// Lexer must recognise `null` as a literal token.
+fun @main() : i32 {
+  let mut %p: ptr i32 = null;
+  let %q: ptr i32 = null;
+^entry:
+  ret 0;
+}

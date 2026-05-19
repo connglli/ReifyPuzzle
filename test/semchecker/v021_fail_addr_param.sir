@@ -1,0 +1,8 @@
+// EXPECT: FAIL:StaticError
+// Parameters are immutable; addr on a parameter is forbidden.
+fun @main(%x: i32) : i32 {
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  ret 0;
+}

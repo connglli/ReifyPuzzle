@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// Double-indirect store: write through ptr-ptr, observe via direct read.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %p: ptr i32 = null;
+  let mut %pp: ptr ptr i32 = null;
+  let mut %inner: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  %pp = addr %p;
+  %inner = load %pp;
+  store %inner, 55;
+  ret %x;
+}

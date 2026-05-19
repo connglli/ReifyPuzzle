@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// Lexer must accept `ptr` as a keyword in the v0.2.0 type position.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let %p: ptr i32 = null;
+^entry:
+  ret 0;
+}

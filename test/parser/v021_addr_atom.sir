@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// Parser must accept `addr <lvalue>` as an atom on the RHS of an assignment.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  ret 0;
+}

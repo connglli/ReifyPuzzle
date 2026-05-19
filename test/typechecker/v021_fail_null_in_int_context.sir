@@ -1,0 +1,7 @@
+// EXPECT: FAIL:StaticError
+// `null` has no type without a ptr T context; using it as an int initializer must fail.
+fun @main() : i32 {
+  let %x: i32 = null;
+^entry:
+  ret 0;
+}

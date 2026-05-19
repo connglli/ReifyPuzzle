@@ -1,0 +1,7 @@
+// EXPECT: FAIL:StaticError
+// v0.2.0 forbids `sym` of pointer type; the typechecker must reject it.
+fun @main() : i32 {
+  sym %?p : value ptr i32;
+^entry:
+  ret 0;
+}

@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// One-past-the-end is a valid (non-dereferenceable) address for arithmetic.
+// Computing `addr arr[N]` for an `[N] T` is legal even though it cannot be loaded.
+fun @main() : i32 {
+  let mut %arr: [3] i32 = {1, 2, 3};
+  let mut %p: ptr i32 = null;
+  let mut %end: ptr i32 = null;
+  let %three: i32 = 3;
+^entry:
+  %p = addr %arr[0];
+  %end = %p + %three;
+  br %p == %end, ^bad, ^ok;
+^ok:
+  ret 0;
+^bad:
+  require 0 == 1, "start and one-past-the-end must differ";
+  ret 1;
+}

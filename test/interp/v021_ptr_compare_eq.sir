@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// Two pointers to the same local compare equal. To different locals: not equal.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+  let mut %p: ptr i32 = null;
+  let mut %q: ptr i32 = null;
+  let mut %r: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  %q = addr %x;
+  %r = addr %y;
+  br %p == %q, ^same_ok, ^bad;
+^same_ok:
+  br %p == %r, ^bad, ^diff_ok;
+^diff_ok:
+  ret 0;
+^bad:
+  require 0 == 1, "ptr equality must match the locals";
+  ret 1;
+}

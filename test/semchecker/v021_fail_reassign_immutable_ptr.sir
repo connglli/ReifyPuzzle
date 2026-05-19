@@ -1,0 +1,10 @@
+// EXPECT: FAIL:StaticError
+// An immutable `let %p: ptr T = null` cannot be reassigned. Even though the pointee may be
+// mutated through store, %p itself is immutable.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let %p: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  ret 0;
+}

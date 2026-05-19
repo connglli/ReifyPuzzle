@@ -1,0 +1,8 @@
+// EXPECT: FAIL:StaticError
+// Using an undeclared pointer identifier is a semchecker error.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+^entry:
+  %p = addr %x;
+  ret 0;
+}

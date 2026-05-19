@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// `ptr T + iN` yields ptr T (here i32 offset).
+fun @main() : i32 {
+  let mut %arr: [4] i32 = {0, 0, 0, 0};
+  let mut %p: ptr i32 = null;
+  let mut %q: ptr i32 = null;
+  let %one: i32 = 1;
+^entry:
+  %p = addr %arr[0];
+  %q = %p + %one;
+  ret 0;
+}

@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// A `store` through a pointer must be visible to subsequent loads in compiled code.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  store %p, 77;
+  ret load %p;
+}

@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// Lexer must recognise `addr` as a keyword preceding an lvalue.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let %p: ptr i32 = null;
+^entry:
+  %x = 1;
+  ret 0;
+}
