@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+// INTERP_ARGS: --main @main --sym %?x=33
+// COMPILER_ARGS: --main @main --sym %?x=33
+
+// store-through-ptr must propagate: after `store %p, %?x`, reading %v
+// directly should observe the new value.
+fun @main() : i32 {
+  sym %?x : value i32 in [0, 100];
+  let mut %v: i32 = 0;
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = addr %v;
+  store %p, %?x;
+  require %v == 33, "store through ptr must update target";
+  ret 0;
+}

@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+// INTERP_ARGS: --main @main --sym %?x=55
+// COMPILER_ARGS: --main @main --sym %?x=55
+
+// Store a symbolic value through a pointer, then load it back.
+// Require result == 55, so the solver must pick %?x = 55.
+fun @main() : i32 {
+  sym %?x : value i32 in [0, 100];
+  let mut %v: i32 = 0;
+  let mut %p: ptr i32 = null;
+  let mut %r: i32 = 0;
+^entry:
+  %p = addr %v;
+  store %p, %?x;
+  %r = load %p;
+  require %r == 55, "stored then loaded == 55";
+  ret 0;
+}

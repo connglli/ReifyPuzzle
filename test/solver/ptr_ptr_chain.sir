@@ -1,0 +1,24 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+// INTERP_ARGS: --main @main --sym %?x=77
+// COMPILER_ARGS: --main @main --sym %?x=77
+
+// Two-level pointer: %pp -> %p -> %v.
+// Loading once through %pp yields %p; loading once more yields %v.
+// Tests that ptr-to-ptr dispatch works under the BV64 tag encoding.
+fun @main() : i32 {
+  sym %?x : value i32 in [0, 100];
+  let mut %v: i32 = 0;
+  let mut %p: ptr i32 = null;
+  let mut %pp: ptr ptr i32 = null;
+  let mut %q: ptr i32 = null;
+  let mut %r: i32 = 0;
+^entry:
+  %v = %?x;
+  %p = addr %v;
+  %pp = addr %p;
+  %q = load %pp;
+  %r = load %q;
+  require %r == 77, "load (load %pp) should yield %v's value";
+  ret 0;
+}

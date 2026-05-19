@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry,^not_null'
+// INTERP_ARGS: --main @main --sym %?x=7
+// COMPILER_ARGS: --main @main --sym %?x=7
+
+// Path `^entry → ^not_null` is taken: %p is non-null after addr-assignment.
+// The solver must produce a SAT model for %?x.
+fun @main() : i32 {
+  sym %?x : value i32 in [-10, 10];
+  let mut %v: i32 = 0;
+  let mut %p: ptr i32 = null;
+^entry:
+  %v = %?x;
+  %p = addr %v;
+  br %p == null, ^is_null, ^not_null;
+^is_null:
+  ret 1;
+^not_null:
+  require %?x == 7, "x must be 7 along the not-null branch";
+  ret 0;
+}

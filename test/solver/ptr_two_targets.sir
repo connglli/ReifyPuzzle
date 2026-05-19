@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+// INTERP_ARGS: --main @main --sym %?which=1
+// COMPILER_ARGS: --main @main --sym %?which=1
+
+// Two i32 locals. %p is set to addr of %a; loading must yield %a's value.
+// The solver must verify that load-through-ptr selects the right target.
+fun @main() : i32 {
+  sym %?which : value i32 in [0, 1];
+  let mut %a: i32 = 11;
+  let mut %b: i32 = 22;
+  let mut %p: ptr i32 = null;
+  let mut %r: i32 = 0;
+^entry:
+  %p = addr %a;
+  %r = load %p;
+  require %r == 11, "load through ptr-to-a should yield 11";
+  require %?which == 1, "consume the sym";
+  ret 0;
+}

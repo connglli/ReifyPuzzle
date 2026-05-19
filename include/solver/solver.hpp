@@ -146,6 +146,13 @@ namespace symir {
     evalInit(const InitVal &iv, const TypePtr &t, smt::ISolver &solver, SymbolicStore &store);
 
     std::unordered_map<std::string, const StructDecl *> structs_;
+
+    // Pointer dispatch helpers (v0.2.0):
+    // Pointers are encoded as BV64 tags identifying their target local. The
+    // current FunDecl is held per-solve via thread_local storage to support
+    // load/store dispatch over candidate targets, while keeping sample() safe
+    // for concurrent workers.
+    static thread_local const FunDecl *currentFun_;
   };
 
 } // namespace symir

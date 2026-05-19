@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+// INTERP_ARGS: --main @main --sym %?x=42
+// COMPILER_ARGS: --main @main --sym %?x=42
+
+// Take addr of a local, load through ptr — should equal the symbolic value
+// when constrained: %?x must be 42.
+fun @main() : i32 {
+  sym %?x : value i32 in [0, 100];
+  let mut %v: i32 = 0;
+  let mut %p: ptr i32 = null;
+  let mut %r: i32 = 0;
+^entry:
+  %v = %?x;
+  %p = addr %v;
+  %r = load %p;
+  require %r == 42, "load %p should yield 42";
+  ret 0;
+}

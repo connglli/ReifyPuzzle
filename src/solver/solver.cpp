@@ -12,6 +12,56 @@
 
 namespace symir {
 
+  thread_local const FunDecl *SymbolicExecutor::currentFun_ = nullptr;
+
+  // Pointers are encoded as 64-bit BV tags identifying the addressed local.
+  // Tag 0 is reserved for null. Tags are derived deterministically from the
+  // local name via FNV-1a so they remain stable across solver invocations.
+  static constexpr uint32_t kPtrBits = 64;
+
+  static uint64_t tagOfLocal(const std::string &name) {
+    uint64_t h = 1469598103934665603ULL; // FNV-1a 64-bit offset basis
+    for (unsigned char c: name) {
+      h ^= c;
+      h *= 1099511628211ULL; // FNV-1a 64-bit prime
+    }
+    if (h == 0)
+      h = 1; // never collide with null
+    return h;
+  }
+
+  // Compare SymIR types for structural equality at the level we care about
+  // (matters when enumerating candidate ptr targets in load/store dispatch).
+  static bool typeMatch(const TypePtr &a, const TypePtr &b) {
+    if (!a || !b)
+      return a == b;
+    if (a->v.index() != b->v.index())
+      return false;
+    if (auto pa = std::get_if<IntType>(&a->v)) {
+      auto pb = std::get_if<IntType>(&b->v);
+      auto width = [](const IntType &t) -> uint32_t {
+        switch (t.kind) {
+          case IntType::Kind::I32:
+            return 32;
+          case IntType::Kind::I64:
+            return 64;
+          case IntType::Kind::ICustom:
+            return t.bits.value_or(32);
+        }
+        return 32;
+      };
+      return width(*pa) == width(*pb);
+    }
+    if (auto pa = std::get_if<FloatType>(&a->v)) {
+      return pa->kind == std::get<FloatType>(b->v).kind;
+    }
+    if (auto pa = std::get_if<PtrType>(&a->v)) {
+      return typeMatch(pa->pointee, std::get<PtrType>(b->v).pointee);
+    }
+    // Aggregate types as pointees are not supported in current solver dispatch.
+    return false;
+  }
+
   SymbolicExecutor::SymbolicExecutor(
       const Program &prog, const Config &config, SolverFactory solverFactory
   ) : prog_(prog), config_(config), solverFactory_(solverFactory) {
@@ -50,6 +100,9 @@ namespace symir {
       if (it != structs_.end() && !it->second->fields.empty()) {
         return getSort(it->second->fields[0].type, solver);
       }
+    }
+    if (std::holds_alternative<PtrType>(t->v)) {
+      return solver.make_bv_sort(kPtrBits);
     }
     throw std::runtime_error("Unknown type or empty struct in getSort");
   }
@@ -159,6 +212,11 @@ namespace symir {
 
     // Scalar
     smt::Term val;
+    if (iv.kind == InitVal::Kind::Null) {
+      // null pointer: BV64 zero.
+      val = solver.make_bv_value(solver.make_bv_sort(kPtrBits), "0", 10);
+      return broadcast(t, val, solver);
+    }
     if (iv.kind == InitVal::Kind::Int) {
       auto lit = std::get<IntLit>(iv.value);
       TypePtr leafType = t;
@@ -199,6 +257,17 @@ namespace symir {
     if (!entry)
       throw std::runtime_error("Function not found: " + funcName);
 
+    // Make the current FunDecl visible to evalAtom/StoreInstr handlers via
+    // thread_local storage. Restored on scope exit so nested or concurrent
+    // solve() invocations on different threads see their own value.
+    struct FunGuard {
+      const FunDecl *prev;
+
+      ~FunGuard() { SymbolicExecutor::currentFun_ = prev; }
+    } funGuard{currentFun_};
+
+    currentFun_ = entry;
+
     auto solverPtr = solverFactory_(config_);
     smt::ISolver &solver = *solverPtr;
 
@@ -217,14 +286,18 @@ namespace symir {
             [&](auto &&d) {
               using T = std::decay_t<decltype(d)>;
               if constexpr (std::is_same_v<T, DomainInterval>) {
-                auto lo = solver.make_bv_value(getSort(s.type, solver), std::to_string(d.lo), 10);
-                auto hi = solver.make_bv_value(getSort(s.type, solver), std::to_string(d.hi), 10);
+                // Use make_bv_value_int64 to correctly handle negative bounds
+                // (mk_bv_value with base 10 may not support negative decimal strings)
+                auto loSort = getSort(s.type, solver);
+                auto hiSort = loSort;
+                auto lo = solver.make_bv_value_int64(loSort, d.lo);
+                auto hi = solver.make_bv_value_int64(hiSort, d.hi);
                 pathConstraints.push_back(solver.make_term(smt::Kind::BV_SLE, {lo, sv.term}));
                 pathConstraints.push_back(solver.make_term(smt::Kind::BV_SLE, {sv.term, hi}));
               } else if constexpr (std::is_same_v<T, DomainSet>) {
                 std::vector<smt::Term> or_terms;
                 for (auto v: d.values) {
-                  auto vt = solver.make_bv_value(getSort(s.type, solver), std::to_string(v), 10);
+                  auto vt = solver.make_bv_value_int64(getSort(s.type, solver), v);
                   or_terms.push_back(solver.make_term(smt::Kind::EQUAL, {sv.term, vt}));
                 }
                 if (!or_terms.empty()) {
@@ -240,9 +313,7 @@ namespace symir {
       }
 
       if (fixedSyms.count(s.name.name)) {
-        auto val = solver.make_bv_value(
-            getSort(s.type, solver), std::to_string(fixedSyms.at(s.name.name)), 10
-        );
+        auto val = solver.make_bv_value_int64(getSort(s.type, solver), fixedSyms.at(s.name.name));
         pathConstraints.push_back(solver.make_term(smt::Kind::EQUAL, {sv.term, val}));
       }
     }
@@ -292,8 +363,48 @@ namespace symir {
               } else if constexpr (std::is_same_v<T, RequireInstr>) {
                 requirements.push_back(evalCond(arg.cond, solver, store, pathConstraints));
               } else if constexpr (std::is_same_v<T, StoreInstr>) {
-                // TODO v0.2.0: store instruction not yet implemented in solver
-                throw std::runtime_error("'store' is not yet supported in symbolic execution");
+                // store %p, %v — mux-update every candidate target's value:
+                //   for each %t of pointee type: %t := ite(p == tag_t, v, %t)
+                if (!currentFun_)
+                  throw std::runtime_error("store encountered without active FunDecl");
+
+                // Evaluate ptr term (BV64) and stored value term.
+                smt::Term ptrTerm = evalExpr(arg.ptr, solver, store, pathConstraints);
+
+                // Determine pointee type from the ptr expression's first atom.
+                // The first atom is an RValueAtom of a ptr-typed local in the
+                // common case (rysmith generates `store %p, ...`).
+                TypePtr pointeeType;
+                if (auto *rv = std::get_if<RValueAtom>(&arg.ptr.first.v)) {
+                  const std::string baseName = rv->rval.base.name;
+                  for (const auto &l: currentFun_->lets) {
+                    if (l.name.name == baseName) {
+                      if (auto pt = std::get_if<PtrType>(&l.type->v))
+                        pointeeType = pt->pointee;
+                      break;
+                    }
+                  }
+                }
+                if (!pointeeType)
+                  throw std::runtime_error(
+                      "store: cannot derive pointee type (only `store %p, ...` "
+                      "with a ptr-typed local %p is currently supported)"
+                  );
+
+                auto pointeeSort = getSort(pointeeType, solver);
+                smt::Term valTerm =
+                    evalExpr(arg.val, solver, store, pathConstraints, std::optional(pointeeSort));
+
+                for (const auto &l: currentFun_->lets) {
+                  if (!typeMatch(l.type, pointeeType))
+                    continue;
+                  auto tagTerm = solver.make_bv_value_int64(
+                      solver.make_bv_sort(kPtrBits), static_cast<int64_t>(tagOfLocal(l.name.name))
+                  );
+                  auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, tagTerm});
+                  auto &sv = store.at(l.name.name);
+                  sv.term = solver.make_term(smt::Kind::ITE, {cond, valTerm, sv.term});
+                }
               }
             },
             ins
@@ -363,17 +474,22 @@ namespace symir {
           finalRes.model[s.name.name] = d;
         } else {
           auto val_str = solver.get_bv_value_string(val_term, 10);
-          int64_t raw = parseIntegerLiteral(val_str);
-          // Sign-extend: Bitwuzla returns the unsigned bit-pattern as decimal.
-          // Reinterpret as signed so the printer emits e.g. -2 instead of 4294967294.
+          // Bitwuzla returns the unsigned bit-pattern as decimal.
+          // Use stoull so values in (INT64_MAX, UINT64_MAX] don't throw out_of_range.
+          uint64_t uraw = std::stoull(val_str, nullptr, 10);
           uint32_t width = solver.get_bv_width(solver.get_sort(term));
+          int64_t raw;
           if (width < 64) {
+            // Mask to bitwidth then sign-extend.
             uint64_t mask = (uint64_t(1) << width) - 1;
-            uint64_t uval = static_cast<uint64_t>(raw) & mask;
-            if (uval >= (uint64_t(1) << (width - 1)))
-              raw = static_cast<int64_t>(uval - (uint64_t(1) << width));
+            uraw &= mask;
+            if (uraw >= (uint64_t(1) << (width - 1)))
+              raw = static_cast<int64_t>(uraw) - static_cast<int64_t>(uint64_t(1) << width);
             else
-              raw = static_cast<int64_t>(uval);
+              raw = static_cast<int64_t>(uraw);
+          } else {
+            // width == 64: reinterpret unsigned bit-pattern as signed two's complement.
+            raw = static_cast<int64_t>(uraw);
           }
           finalRes.model[s.name.name] = raw;
         }
@@ -852,11 +968,72 @@ namespace symir {
               return solver.make_term(smt::Kind::BV_EXTRACT, {src}, {dstWidth - 1, 0});
             }
           } else if constexpr (std::is_same_v<T, AddrAtom>) {
-            // TODO v0.2.0: addr encoding not yet implemented in solver
-            throw std::runtime_error("'addr' is not yet supported in symbolic execution");
+            // addr %v — encode as a BV64 tag identifying the target local.
+            // Only whole-local addresses are currently supported; struct/array
+            // field addressing (spec rule 15) is left to a future revision.
+            if (!arg.lv.accesses.empty())
+              throw std::runtime_error(
+                  "'addr' with field/index accesses not yet supported in solver"
+              );
+            const std::string targetName = arg.lv.base.name;
+            return solver.make_bv_value_int64(
+                solver.make_bv_sort(kPtrBits), static_cast<int64_t>(tagOfLocal(targetName))
+            );
           } else if constexpr (std::is_same_v<T, LoadAtom>) {
-            // TODO v0.2.0: load encoding not yet implemented in solver
-            throw std::runtime_error("'load' is not yet supported in symbolic execution");
+            // load %p — dispatch over candidate targets of the pointee type.
+            // Build a chain of ites: ite(p == tag_v, value_of_v, fallback).
+            // Fallback (no target matches) is zero; defenseable since hitting
+            // it means a UB null-deref under the path.
+            if (!currentFun_)
+              throw std::runtime_error("load encountered without active FunDecl");
+
+            // Evaluate the pointer expression to a BV64 term.
+            smt::Term ptrTerm = evalLValue(arg.rval, solver, store, pc).term;
+
+            // Identify pointee type from the pointer-typed lvalue.
+            // arg.rval is an LValue; resolve the base local's type and walk
+            // any accesses (none expected in the rysmith use case).
+            const std::string baseName = arg.rval.base.name;
+            TypePtr baseType;
+            for (const auto &l: currentFun_->lets) {
+              if (l.name.name == baseName) {
+                baseType = l.type;
+                break;
+              }
+            }
+            if (!baseType) {
+              for (const auto &p: currentFun_->params)
+                if (p.name.name == baseName) {
+                  baseType = p.type;
+                  break;
+                }
+            }
+            if (!baseType || !std::holds_alternative<PtrType>(baseType->v))
+              throw std::runtime_error("load target is not ptr-typed: " + baseName);
+            const TypePtr pointeeType = std::get<PtrType>(baseType->v).pointee;
+
+            // Default fallback: zero of pointee sort.
+            auto pointeeSort = getSort(pointeeType, solver);
+            smt::Term result;
+            if (solver.is_fp_sort(pointeeSort)) {
+              auto [exp, sig] = solver.get_fp_dims(pointeeSort);
+              auto zeroBv = solver.make_bv_value(solver.make_bv_sort(exp + sig), "0", 10);
+              result = solver.make_term(smt::Kind::FP_TO_FP_FROM_SBV, {zeroBv}, {exp, sig});
+            } else {
+              result = solver.make_bv_value(pointeeSort, "0", 10);
+            }
+
+            for (const auto &l: currentFun_->lets) {
+              if (!typeMatch(l.type, pointeeType))
+                continue;
+              auto tagTerm = solver.make_bv_value_int64(
+                  solver.make_bv_sort(kPtrBits), static_cast<int64_t>(tagOfLocal(l.name.name))
+              );
+              auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, tagTerm});
+              auto &sv = store.at(l.name.name);
+              result = solver.make_term(smt::Kind::ITE, {cond, sv.term, result});
+            }
+            return result;
           }
           // Unreachable
           return solver.make_bv_value(solver.make_bv_sort(32), "0", 10);

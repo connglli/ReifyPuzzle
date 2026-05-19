@@ -104,6 +104,11 @@ namespace symir {
                   printCond(arg.cond);
                   if (arg.message)
                     out_ << ", \"" << *arg.message << "\"";
+                } else if constexpr (std::is_same_v<T, StoreInstr>) {
+                  out_ << "store ";
+                  printExpr(arg.ptr);
+                  out_ << ", ";
+                  printExpr(arg.val);
                 }
                 out_ << ";\n";
               },
@@ -174,6 +179,9 @@ namespace symir {
           } else if constexpr (std::is_same_v<T, ArrayType>) {
             out_ << "[" << arg.size << "] ";
             printType(arg.elem);
+          } else if constexpr (std::is_same_v<T, PtrType>) {
+            out_ << "ptr ";
+            printType(arg.pointee);
           }
         },
         t->v
@@ -238,6 +246,12 @@ namespace symir {
             );
             out_ << " as ";
             printType(arg.dstType);
+          } else if constexpr (std::is_same_v<T, AddrAtom>) {
+            out_ << "addr ";
+            printLValue(arg.lv);
+          } else if constexpr (std::is_same_v<T, LoadAtom>) {
+            out_ << "load ";
+            printLValue(arg.rval);
           }
         },
         a.v
