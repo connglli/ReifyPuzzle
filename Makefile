@@ -59,16 +59,22 @@ INTERP_SRCS = src/symiri.cpp src/interp/interpreter.cpp
 COMPILER_SRCS = src/symirc.cpp src/backend/c_backend.cpp src/backend/wasm_backend.cpp
 SOLVER_MAIN_SRCS = src/symirsolve.cpp src/solver/solver.cpp
 SOLVER_ALL_SRCS = $(SOLVER_MAIN_SRCS) $(SOLVER_SRCS)
+REIFY_SRCS = src/reify/cfg_gen.cpp src/reify/path_sampler.cpp \
+             src/reify/type_gen.cpp src/reify/var_catalogue.cpp \
+             src/reify/expr_gen.cpp src/reify/func_gen.cpp
+RYSMITH_SRCS = src/rysmith.cpp src/solver/solver.cpp $(REIFY_SRCS)
 
 COMMON_OBJS = $(COMMON_SRCS:.cpp=.o)
 TEST_OBJS = $(TEST_SRCS:.cpp=.o)
 INTERP_OBJS = $(INTERP_SRCS:.cpp=.o)
 COMPILER_OBJS = $(COMPILER_SRCS:.cpp=.o)
 SOLVER_OBJS = $(SOLVER_MAIN_SRCS:.cpp=.o) $(SOLVER_IMPL_OBJ)
+RYSMITH_OBJS = $(RYSMITH_SRCS:.cpp=.o) $(SOLVER_IMPL_OBJ)
 
 TARGET_INTERP = symiri
 TARGET_COMPILER = symirc
 TARGET_SOLVER = symirsolve
+TARGET_RYSMITH = rysmith
 
 BUILD_DIR = build
 BIN_DIR = $(BUILD_DIR)/bin
@@ -85,7 +91,7 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
 
 .PHONY: all clean test build
 
-all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER)
+all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH)
 
 $(TARGET_INTERP): $(COMMON_OBJS) $(INTERP_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
@@ -96,12 +102,15 @@ $(TARGET_COMPILER): $(COMMON_OBJS) $(COMPILER_OBJS)
 $(TARGET_SOLVER): $(COMMON_OBJS) $(SOLVER_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
+$(TARGET_RYSMITH): $(COMMON_OBJS) $(RYSMITH_OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 build: all $(LIB_DIR)/$(LIB_NAME)
 	mkdir -p $(BIN_DIR) $(INC_DIR)
-	cp $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(BIN_DIR)/
+	cp $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(BIN_DIR)/
 	cp -r include/* $(INC_DIR)/
 
 $(LIB_DIR)/$(LIB_NAME): $(LIBRARY_OBJS)
@@ -109,7 +118,7 @@ $(LIB_DIR)/$(LIB_NAME): $(LIBRARY_OBJS)
 	$(AR) $(ARFLAGS) $@ $^
 
 clean:
-	rm -f $(COMMON_OBJS) $(TEST_OBJS) $(INTERP_OBJS) $(COMPILER_OBJS) $(SOLVER_OBJS) $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER)
+	rm -f $(COMMON_OBJS) $(TEST_OBJS) $(INTERP_OBJS) $(COMPILER_OBJS) $(SOLVER_OBJS) $(RYSMITH_OBJS) $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH)
 	rm -rf $(BUILD_DIR)
 	find . -name "*.gcno" -delete
 	find . -name "*.gcda" -delete
