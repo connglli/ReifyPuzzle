@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+fun @main() : i32 {
+  let %a: i32 = 0;
+  let %a: i32 = 0;
+^entry:
+  ret 0;
+}

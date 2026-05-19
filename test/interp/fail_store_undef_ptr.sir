@@ -1,0 +1,8 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+fun @main() : i32 {
+  let mut %undef_ptr: ptr i32 = undef;
+^entry:
+  store %undef_ptr, 10;
+  ret 0;
+}

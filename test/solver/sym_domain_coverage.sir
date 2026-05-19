@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @test --path ^entry
+// COMPILER_ARGS: --main @test --sym %?x=127 --sym %?y=3
+
+fun @test() : i32 {
+  sym %?x: value i8 in [-1000, 1000];
+  sym %?y: value i32 in {1, 2, 3, 4};
+  let mut %r: i32 = 0;
+^entry:
+  %r = %?x as i32;
+  assume %r == 127;
+  %r = %?y;
+  assume %r == 3;
+  ret %r;
+}

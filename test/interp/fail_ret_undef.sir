@@ -1,0 +1,8 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+fun @main() : i32 {
+  let mut %arr: [2] i32 = undef;
+^entry:
+  %arr[1] = 0;
+  ret %arr[0];
+}

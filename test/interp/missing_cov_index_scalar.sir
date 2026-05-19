@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// INTERP_ARGS:
+
+fun @main() : i32 {
+  let mut %scalar: i32 = 0;
+^entry:
+  %scalar[0] = 10;
+  ret 0;
+}

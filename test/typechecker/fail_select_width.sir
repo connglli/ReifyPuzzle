@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let %v1: i32 = 1;
+  let %v2: i64 = 2;
+^entry:
+  %r = select 1 == 1, %v1, %v2;
+  ret 0;
+}

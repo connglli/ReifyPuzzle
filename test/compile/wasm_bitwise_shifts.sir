@@ -1,0 +1,24 @@
+// EXPECT: PASS
+
+fun @main() : i32 {
+  let %a: i32 = 10;
+  let %b: i32 = 2;
+  let mut %c: i32 = 0;
+  let %d: i64 = 100;
+  let %e: i64 = 4;
+  let mut %f: i64 = 0;
+^entry:
+  %c = %a << %b;
+  %c = %a >> %b;
+  %c = %a >>> %b;
+
+  %f = %d << %e;
+  %f = %d >> %e;
+  %f = %d >>> %e;
+  %f = %d & %e;
+  %f = %d | %e;
+  %f = %d ^ %e;
+  %f = ~%d;
+
+  ret %c;
+}

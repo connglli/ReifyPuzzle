@@ -1,0 +1,24 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --sym %?idx=0 --sym %?s64=2
+
+fun @main() : i32 {
+  sym %?idx: value i32;
+  sym %?s64: value i64;
+  let mut %arr: [10] i32 = 0;
+  let %v1: i32 = 10;
+  let %v2: i64 = 20;
+  let mut %idx64: i64 = 1;
+  let mut %res1: i32 = 0;
+  let mut %res2: i64 = 0;
+^entry:
+  %arr[%?idx] = 1;
+  %arr[%idx64] = 2;
+  %arr[%?s64] = 3;
+
+  %res1 = select %v1 == 10, %v1, 0;
+  %res2 = select %v1 == 10, %v2, 0;
+  %res1 = select %v1 == 10, 1, 2;
+  %res2 = select %v1 == 10, 1, 2;
+
+  ret %res1;
+}

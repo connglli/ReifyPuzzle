@@ -1,0 +1,8 @@
+// EXPECT: PASS
+fun @main(%unused: i32) : i32 {
+  let %idx: i32 = 0;
+  let mut %arr: [5] i32 = 0;
+^entry:
+  %arr[%idx] = 1;
+  ret 0;
+}

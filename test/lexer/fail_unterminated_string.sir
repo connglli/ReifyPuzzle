@@ -1,0 +1,6 @@
+// EXPECT: FAIL
+fun @main() : i32 {
+  require 1 == 1, "Unterminated
+^entry:
+  ret 0;
+}

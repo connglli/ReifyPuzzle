@@ -1,0 +1,10 @@
+// EXPECT: PASS
+/* Block comment
+   Testing block comment
+*/
+fun @main() : i32 {
+  // Test escape sequences
+^entry:
+  require 1 == 1, "Testing\tEscapes\rAnd\"Quotes\"\\";
+  ret 0;
+}

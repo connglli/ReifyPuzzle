@@ -1,0 +1,11 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+fun @main() : i32 {
+  let mut %mem: i32 = 0;
+  let mut %ptr: ptr i32 = null;
+^entry:
+  %ptr = addr %mem;
+  %ptr = %ptr + 5;
+  %ptr = %ptr + 1;
+  ret 0;
+}

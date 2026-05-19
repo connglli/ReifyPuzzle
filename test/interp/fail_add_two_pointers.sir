@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+fun @main() : i32 {
+  let mut %mem: i32 = 0;
+  let mut %ptr: ptr i32 = null;
+  let mut %ptr2: ptr i32 = null;
+  let mut %res: ptr i32 = null;
+^entry:
+  %ptr = addr %mem;
+  %ptr2 = addr %mem;
+  %res = %ptr + %ptr2;
+  ret 0;
+}

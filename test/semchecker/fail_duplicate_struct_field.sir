@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+struct @MyStruct {
+  x: i32;
+  x: i64;
+}
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

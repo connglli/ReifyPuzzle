@@ -1,0 +1,11 @@
+// EXPECT: FAIL:UndefinedBehavior
+// INTERP_ARGS: --sym %?idx=5
+// SKIP: COMPILER
+
+fun @main() : i32 {
+  sym %?idx: value i32;
+  let mut %arr: [4] i32 = 0;
+^entry:
+  %arr[%?idx] = 10;
+  ret 0;
+}

@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+fun @main() : i32 {
+^entry:
+  ret 0;
+}
+fun @main() : i32 {
+^entry:
+  ret 1;
+}

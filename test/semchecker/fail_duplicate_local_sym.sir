@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+fun @main() : i32 {
+  sym %?a: value i32;
+  sym %?a: value i64;
+^entry:
+  ret 0;
+}

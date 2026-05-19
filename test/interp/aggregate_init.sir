@@ -1,4 +1,5 @@
 // EXPECT: PASS
+// INTERP_ARGS: --dump-trace
 
 // Test various ways of initializing aggregate types (arrays and structs).
 struct @Point { x: i32; y: i32; }
