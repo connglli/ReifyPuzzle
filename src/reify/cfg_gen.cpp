@@ -38,11 +38,11 @@ namespace symir::reify {
     std::mt19937 rng(params.seed);
     std::uniform_real_distribution<double> prob(0.0, 1.0);
 
-    int nInterior = std::max(0, params.nInterior);
+    int nBbls = std::max(0, params.nBbls);
 
     std::vector<std::string> labels;
     labels.push_back("entry");
-    for (int i = 0; i < nInterior; i++)
+    for (int i = 0; i < nBbls; i++)
       labels.push_back("b" + std::to_string(i));
     labels.push_back("exit");
 
@@ -85,7 +85,7 @@ namespace symir::reify {
       auto *blk = cfg.get(lbl);
       if (blk->succs.size() >= 2)
         continue;
-      if (prob(rng) < params.pBack) {
+      if (prob(rng) < params.pBackedge) {
         auto it = std::find(labels.begin(), labels.end(), lbl);
         std::size_t idx = (std::size_t)(it - labels.begin());
         std::vector<std::string> cands(labels.begin(), labels.begin() + idx);

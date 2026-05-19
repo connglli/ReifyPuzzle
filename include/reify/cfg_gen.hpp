@@ -32,10 +32,10 @@ namespace symir::reify {
   };
 
   struct GenCFGParams {
-    int nInterior = 15;
+    int nBbls = 15;
     uint32_t seed = 0;
     double pBranch = 0.5;
-    double pBack = 0.3;
+    double pBackedge = 0.3;
     int maxBackEdges = 2;
   };
 

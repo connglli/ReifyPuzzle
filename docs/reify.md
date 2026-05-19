@@ -176,7 +176,7 @@ rysmith [OPTIONS]
 |---|---|---|
 | `--no-fp` | off | Disable `f32`/`f64` types entirely |
 | `--max-ptr-depth N` | 2 | Maximum pointer nesting depth (`ptr ptr T` = depth 2) |
-| `--max-agg-nesting N` | 2 | Maximum aggregate nesting depth |
+| `--max-agg-nest N` | 2 | Maximum aggregate nesting depth |
 | `--max-agg-elems N` | 3 | Maximum array size and struct field count |
 
 #### Generation
@@ -191,32 +191,34 @@ rysmith [OPTIONS]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--no-div` | off | Disable integer division and modulo |
+| `--no-divmod` | off | Disable integer division and modulo |
 | `--no-select` | off | Disable `select` ternary expressions |
 
 #### CFG
 
 | Flag | Default | Description |
 |---|---|---|
-| `--n-interior N` | 15 | Interior blocks per CFG |
+| `--n-bbls N` | 15 | Basic blocks between entry and exit per CFG |
 | `--p-branch F` | 0.5 | Probability of a two-successor (branch) block |
-| `--p-back F` | 0.3 | Probability of a back edge (loop) from an interior block |
+| `--p-backedge F` | 0.3 | Probability of a back edge (loop) from a non-entry/exit block |
 
 #### Solver
 
 | Flag | Default | Description |
 |---|---|---|
-| `--timeout-ms N` | 2000 | SMT solver timeout per attempt (ms) |
+| `--timeout N` | 2000 | SMT solver timeout per attempt (ms) |
 | `--seed N` | random | Master RNG seed |
 
 #### Output
 
 | Flag | Default | Description |
 |---|---|---|
-| `-n, --num-funcs N` | 1 | Number of leaf functions to generate |
-| `--n-inits-per-exec N` | 3 | Concretizations per CFG+path template |
+| `-n, --n-funcs N` | 1 | Number of leaf functions to generate |
+| `--n-inits N` | 3 | Concretizations per CFG+path template |
 | `--max-retries N` | 2 | Retry attempts on solver failure (simpler path each time) |
 | `-o, --output-dir PATH` | `reify_out` | Output directory for `.sir` files |
+| `--target sir\|c\|wasm` | `sir` | Optionally compile each concrete `.sir` via `symirc` |
+| `--keep-require` | off | Include `require` checks in compiled output |
 | `--keep-symbolic` | off | Write intermediate symbolic `.sir` to disk |
 | `--validate` | off | Run `symiri` on each concrete `.sir` to confirm correctness |
 | `-v, --verbose` | off | Verbose progress output |
@@ -225,10 +227,10 @@ rysmith [OPTIONS]
 
 ```sh
 # Generate 10 diverse functions, 3 concretizations each, validate all
-rysmith -n 10 --n-inits-per-exec 3 --validate -o out/
+rysmith -n 10 --n-inits 3 --validate -o out/
 
 # Stress pointer and mixed-type generation, disable floats
-rysmith -n 20 --no-fp --max-ptr-depth 2 --max-agg-nesting 2 -o out/
+rysmith -n 20 --no-fp --max-ptr-depth 2 --max-agg-nest 2 -o out/
 
 # Maximally safe off-path code (useful when lowering to Rust with strict UB)
 rysmith -n 10 --safe-off-path -o out/

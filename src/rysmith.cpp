@@ -107,7 +107,7 @@ struct GenerateResult {
 
 static GenerateResult generateLeaf(
     // CFG params
-    int nInterior, double pBranch, double pBack,
+    int nBbls, double pBranch, double pBackedge,
     // Path params
     int maxLoopIter,
     // Var params (varCfg.typeConfig contains the type generation configuration)
@@ -119,7 +119,7 @@ static GenerateResult generateLeaf(
     // Solver params
     uint32_t timeoutMs,
     // Retry params
-    int maxRetries, int nInitsPerExec,
+    int maxRetries, int nInits,
     // IO
     const fs::path &outDir, bool keepSymbolic, bool verbose,
     // RNG (by value — safe to run in a detached thread)
@@ -127,10 +127,10 @@ static GenerateResult generateLeaf(
 ) {
   // S1: CFG
   GenCFGParams cfgParams;
-  cfgParams.nInterior = nInterior;
+  cfgParams.nBbls = nBbls;
   cfgParams.seed = rng();
   cfgParams.pBranch = pBranch;
-  cfgParams.pBack = pBack;
+  cfgParams.pBackedge = pBackedge;
   auto cfg = genCFG(cfgParams);
 
   if (verbose)
@@ -157,9 +157,9 @@ static GenerateResult generateLeaf(
     if (verbose)
       std::cout << "[S2] attempt=" << attempt << " EP len=" << path.size() << "\n";
 
-    // S3+S4+S5: Generate n_inits_per_exec independently-seeded programs
+    // S3+S4+S5: Generate nInits independently-seeded programs
     std::vector<fs::path> produced;
-    for (int initIdx = 0; initIdx < nInitsPerExec; initIdx++) {
+    for (int initIdx = 0; initIdx < nInits; initIdx++) {
       FuncGenConfig fcfg;
       fcfg.funcName = funcName;
       fcfg.seed = rng();
@@ -226,8 +226,8 @@ static GenerateResult generateLeaf(
       }
 
       if (res.sat) {
-        std::string outName = nInitsPerExec > 1 ? funcName + "_" + std::to_string(initIdx) + ".sir"
-                                                : funcName + ".sir";
+        std::string outName =
+            nInits > 1 ? funcName + "_" + std::to_string(initIdx) + ".sir" : funcName + ".sir";
         auto concretePath = outDir / outName;
         {
           std::ofstream ofs(concretePath);
@@ -262,13 +262,13 @@ int main(int argc, char **argv) {
 
   // clang-format off
   opts.add_options()
-    ("n,num-funcs",       "Number of leaf functions to generate",
+    ("n,n-funcs",         "Number of leaf functions to generate",
                           cxxopts::value<int>()->default_value("1"))
     // Type control
     ("no-fp",             "Disable f32/f64 types entirely")
     ("max-ptr-depth",     "Maximum pointer nesting depth (0 disables pointers)",
                           cxxopts::value<int>()->default_value("2"))
-    ("max-agg-nesting",   "Maximum aggregate nesting depth",
+    ("max-agg-nest",      "Maximum aggregate nesting depth",
                           cxxopts::value<int>()->default_value("2"))
     ("max-agg-elems",     "Maximum array size and struct field count",
                           cxxopts::value<int>()->default_value("3"))
@@ -279,17 +279,17 @@ int main(int argc, char **argv) {
                           cxxopts::value<int>()->default_value("3"))
     ("safe-off-path",     "Add UB guards in off-path code")
     // Operators
-    ("no-div",            "Disable integer division and modulo")
+    ("no-divmod",         "Disable integer division and modulo")
     ("no-select",         "Disable select ternary expressions")
     // CFG
-    ("n-interior",        "Interior blocks per CFG",
+    ("n-bbls",            "Basic blocks between entry and exit per CFG",
                           cxxopts::value<int>()->default_value("15"))
     ("p-branch",          "Probability of two-successor block",
                           cxxopts::value<double>()->default_value("0.5"))
-    ("p-back",            "Probability of back-edge",
+    ("p-backedge",        "Probability of back-edge",
                           cxxopts::value<double>()->default_value("0.3"))
     // Solver
-    ("timeout-ms",        "SMT solver timeout per attempt in ms",
+    ("timeout",           "SMT solver timeout per attempt in ms",
                           cxxopts::value<uint32_t>()->default_value("2000"))
     ("seed",              "Master RNG seed (default: random)",
                           cxxopts::value<uint32_t>())
@@ -301,7 +301,7 @@ int main(int argc, char **argv) {
     ("index-domain",      "Domain for index symbols",
                           cxxopts::value<std::string>()->default_value("[1, 30]"))
     // Retry/inits
-    ("n-inits-per-exec",  "Concretizations per template (different seeds)",
+    ("n-inits",           "Concretizations per template (different seeds)",
                           cxxopts::value<int>()->default_value("3"))
     ("max-retries",       "Retry attempts on solver failure",
                           cxxopts::value<int>()->default_value("2"))
@@ -312,10 +312,9 @@ int main(int argc, char **argv) {
                           cxxopts::value<std::string>()->default_value("reify_out"))
     ("target",            "Compile concrete .sir to target (sir, c, wasm); sir = no compilation",
                           cxxopts::value<std::string>()->default_value("sir"))
-    ("require",           "Include require checks in compiled output (default: omitted)")
+    ("keep-require",      "Include require checks in compiled output (default: omitted)")
     ("keep-symbolic",     "Write intermediate symbolic .sir files to disk")
     ("validate",          "Run symiri on each concrete .sir to validate")
-    ("no-interest-coefs", "Disable nonzero-coef require constraints")
     ("v,verbose",         "Verbose output")
     ("h,help",            "Print usage");
   // clang-format on
@@ -363,7 +362,7 @@ int main(int argc, char **argv) {
   TypeGenConfig typeCfg;
   typeCfg.enableFp = !result.count("no-fp");
   typeCfg.maxPtrDepth = result["max-ptr-depth"].as<int>();
-  typeCfg.maxAggNesting = result["max-agg-nesting"].as<int>();
+  typeCfg.maxAggNesting = result["max-agg-nest"].as<int>();
   typeCfg.maxAggElems = result["max-agg-elems"].as<int>();
 
   // Var config
@@ -374,31 +373,30 @@ int main(int argc, char **argv) {
   // Expr config
   ExprGenConfig exprCfg;
   exprCfg.enableAllOps = true; // always enable all ops by default
-  exprCfg.enableDiv = !result.count("no-div");
+  exprCfg.enableDiv = !result.count("no-divmod");
   exprCfg.enableSelect = !result.count("no-select");
   exprCfg.enableFp = typeCfg.enableFp;
 
-  int nFuncs = result["num-funcs"].as<int>();
-  int nInterior = result["n-interior"].as<int>();
+  int nFuncs = result["n-funcs"].as<int>();
+  int nBbls = result["n-bbls"].as<int>();
   int nStmts = result["n-stmts"].as<int>();
   int maxLoopIter = result["max-loop-iter"].as<int>();
-  int nInitsPerExec = result["n-inits-per-exec"].as<int>();
+  int nInits = result["n-inits"].as<int>();
   int maxRetries = result["max-retries"].as<int>();
   double pBranch = result["p-branch"].as<double>();
-  double pBack = result["p-back"].as<double>();
+  double pBackedge = result["p-backedge"].as<double>();
   bool safeOffPath = result.count("safe-off-path") > 0;
-  bool enableInterestCoefs = !result.count("no-interest-coefs");
-  uint32_t timeoutMs = result["timeout-ms"].as<uint32_t>();
+  bool enableInterestCoefs = true; // kept in code; not user-exposed
+  uint32_t timeoutMs = result["timeout"].as<uint32_t>();
   // Wall-clock budget per function: covers all retries × inits plus 50 ms for non-solver overhead
   // (CFG gen, path sampling, formula construction, SIRPrinter). Compilation runs outside the
   // thread.
-  uint32_t funcTimeoutMs =
-      (uint32_t) ((uint64_t) (maxRetries + 1) * nInitsPerExec * timeoutMs + 50);
+  uint32_t funcTimeoutMs = (uint32_t) ((uint64_t) (maxRetries + 1) * nInits * timeoutMs + 50);
   bool keepSymbolic = result.count("keep-symbolic") > 0;
   bool doValidate = result.count("validate") > 0;
   bool verbose = result.count("verbose") > 0;
   std::string target = result["target"].as<std::string>();
-  bool noRequire = !result.count("require");
+  bool noRequire = !result.count("keep-require");
 
   if (target != "sir" && target != "c" && target != "wasm") {
     std::cerr << "error: unknown target '" << target << "' (expected sir, c, wasm)\n";
@@ -447,9 +445,9 @@ int main(int argc, char **argv) {
 
     std::thread t([&, state]() {
       state->result = generateLeaf(
-          nInterior, pBranch, pBack, maxLoopIter, varCfg, funcName, nStmts, safeOffPath,
+          nBbls, pBranch, pBackedge, maxLoopIter, varCfg, funcName, nStmts, safeOffPath,
           enableInterestCoefs, coefLo, coefHi, valueLo, valueHi, indexLo, indexHi, exprCfg,
-          timeoutMs, maxRetries, nInitsPerExec, outDir, keepSymbolic, verbose, state->rng, funcSeed
+          timeoutMs, maxRetries, nInits, outDir, keepSymbolic, verbose, state->rng, funcSeed
       );
       state->done.store(true, std::memory_order_release);
     });
