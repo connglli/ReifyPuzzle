@@ -85,6 +85,20 @@ static bool validateWithSymiri(
   return status == 0;
 }
 
+static bool compileWithSymirc(
+    const fs::path &symircPath, const fs::path &sirPath, const std::string &target,
+    const fs::path &outPath, bool noRequire, bool verbose
+) {
+  std::string cmd = "\"" + symircPath.string() + "\" \"" + sirPath.string() + "\" --target " +
+                    target + " -o \"" + outPath.string() + "\"";
+  if (noRequire)
+    cmd += " --no-require";
+  if (!verbose)
+    cmd += " 2>/dev/null";
+  int status = std::system(cmd.c_str());
+  return status == 0;
+}
+
 struct GenerateResult {
   std::vector<fs::path> produced;
 };
@@ -294,6 +308,9 @@ int main(int argc, char **argv) {
     // Output
     ("o,output-dir",      "Output directory",
                           cxxopts::value<std::string>()->default_value("reify_out"))
+    ("target",            "Compile concrete .sir to target (sir, c, wasm); sir = no compilation",
+                          cxxopts::value<std::string>()->default_value("sir"))
+    ("require",           "Include require checks in compiled output (default: omitted)")
     ("keep-symbolic",     "Write intermediate symbolic .sir files to disk")
     ("validate",          "Run symiri on each concrete .sir to validate")
     ("no-interest-coefs", "Disable nonzero-coef require constraints")
@@ -373,6 +390,13 @@ int main(int argc, char **argv) {
   bool keepSymbolic = result.count("keep-symbolic") > 0;
   bool doValidate = result.count("validate") > 0;
   bool verbose = result.count("verbose") > 0;
+  std::string target = result["target"].as<std::string>();
+  bool noRequire = !result.count("require");
+
+  if (target != "sir" && target != "c" && target != "wasm") {
+    std::cerr << "error: unknown target '" << target << "' (expected sir, c, wasm)\n";
+    return 1;
+  }
 
   // Find symiri for validation (sibling of this binary)
   fs::path symiriPath;
@@ -381,6 +405,16 @@ int main(int argc, char **argv) {
     if (!fs::exists(symiriPath)) {
       std::cerr << "warning: symiri not found at " << symiriPath << " — disabling --validate\n";
       doValidate = false;
+    }
+  }
+
+  // Find symirc for compilation
+  fs::path symircPath;
+  if (target != "sir") {
+    symircPath = fs::path(argv[0]).parent_path() / "symirc";
+    if (!fs::exists(symircPath)) {
+      std::cerr << "warning: symirc not found at " << symircPath << " — disabling --target\n";
+      target = "sir";
     }
   }
 
@@ -406,8 +440,19 @@ int main(int argc, char **argv) {
       continue;
     }
 
-    for (const auto &p: genRes.produced)
+    for (const auto &p: genRes.produced) {
       std::cout << "  concrete: " << p << "\n";
+
+      if (target != "sir") {
+        std::string ext = (target == "c") ? ".c" : ".wat";
+        fs::path outPath = p.parent_path() / (p.stem().string() + ext);
+        bool ok = compileWithSymirc(symircPath, p, target, outPath, noRequire, verbose);
+        if (ok)
+          std::cout << "  compiled: " << outPath << "\n";
+        else
+          std::cerr << "  compile FAIL: " << p << "\n";
+      }
+    }
 
     if (doValidate) {
       bool allOk = true;
