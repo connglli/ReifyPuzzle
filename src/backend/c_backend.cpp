@@ -344,7 +344,12 @@ namespace symir {
         [this](auto &&arg) {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, OpAtom>) {
-            if (arg.op == AtomOpKind::LShr) {
+            if (arg.op == AtomOpKind::LShr || arg.op == AtomOpKind::Shl) {
+              // Cast through unsigned to preserve SymIR's BV wrap semantics:
+              //   LShr: C signed >> is implementation-defined for negatives.
+              //   Shl:  C signed << is UB when result exceeds INT_MAX.
+              // Both UBSan-trap under the test harness; the unsigned roundtrip
+              // gives well-defined wrap and matches the SymIR interpreter.
               std::uint32_t bits = 32;
               if (std::holds_alternative<LocalOrSymId>(arg.coef)) {
                 auto name =
@@ -368,7 +373,7 @@ namespace symir {
                 out_ << "int64_t)((uint64_t)";
 
               emitCoef(arg.coef);
-              out_ << " >> ";
+              out_ << (arg.op == AtomOpKind::Shl ? " << " : " >> ");
               emitLValue(arg.rval);
               out_ << ")";
             } else if (arg.op == AtomOpKind::Mod) {
