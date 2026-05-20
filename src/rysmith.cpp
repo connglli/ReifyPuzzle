@@ -109,7 +109,7 @@ static GenerateResult generateLeaf(
     // CFG params
     int nBbls, double pBranch, double pBackedge,
     // Path params
-    int maxLoopIter,
+    int maxLoopIter, int minLoopIter,
     // Var params (varCfg.typeConfig contains the type generation configuration)
     const VarGenConfig &varCfg,
     // Func params
@@ -134,30 +134,37 @@ static GenerateResult generateLeaf(
   auto cfg = genCFG(cfgParams);
 
   if (verbose)
-    std::cout << "[S1] CFG: " << cfg.blocks.size() << " blocks\n";
+    std::cout << "[cfg] " << cfg.blocks.size() << " blocks\n";
 
-  // S2.5: Generate VarCatalogue (shared across all inits for the same CFG)
+  // Generate VarCatalogue (shared across all inits for the same CFG)
   VarCatalogue vars = genVarCatalogue(rng, varCfg);
 
   if (verbose)
-    std::cout << "[S2.5] Catalogue: " << vars.vars.size() << " vars, " << vars.structDecls.size()
+    std::cout << "[vars] " << vars.vars.size() << " vars, " << vars.structDecls.size()
               << " structs\n";
 
   for (int attempt = 0; attempt <= maxRetries; attempt++) {
-    // S2: Path sampling (reduce loop iterations on retry)
+    // Path sampling (reduce loop iterations on retry)
     SamplePathParams pathParams;
     pathParams.seed = rng();
-    pathParams.maxLoopIter = std::max(0, maxLoopIter - attempt);
+    // Keep max ≥ min so retry decay can't violate the requested minimum.
+    pathParams.maxLoopIter = std::max(minLoopIter, maxLoopIter - attempt);
+    pathParams.minLoopIter = minLoopIter;
 
     auto maybePath = samplePath(cfg, pathParams);
-    if (!maybePath)
+    if (!maybePath) {
+      if (verbose)
+        std::cerr << "[sampler] attempt=" << attempt
+                  << " sample failed (minLoopIter=" << minLoopIter
+                  << ", maxLoopIter=" << pathParams.maxLoopIter << ")\n";
       continue;
+    }
     const auto &path = *maybePath;
 
     if (verbose)
-      std::cout << "[S2] attempt=" << attempt << " EP len=" << path.size() << "\n";
+      std::cout << "[sampler] attempt=" << attempt << " EP len=" << path.size() << "\n";
 
-    // S3+S4+S5: Generate nInits independently-seeded programs
+    // Generate nInits independently-seeded programs
     std::vector<fs::path> produced;
     for (int initIdx = 0; initIdx < nInits; initIdx++) {
       FuncGenConfig fcfg;
@@ -177,10 +184,18 @@ static GenerateResult generateLeaf(
 
       auto [prog, pathLabels] = genFunction(cfg, path, vars, fcfg);
 
+      auto writePathHeader = [&](std::ostream &os) {
+        os << "// path:";
+        for (std::size_t k = 0; k < path.size(); k++)
+          os << (k == 0 ? " " : " -> ") << path[k];
+        os << "\n\n";
+      };
+
       // Optionally dump symbolic program
       if (keepSymbolic) {
         auto symPath = outDir / (funcName + "_sym" + std::to_string(initIdx) + ".sir");
         std::ofstream ofs(symPath);
+        writePathHeader(ofs);
         SIRPrinter printer(ofs);
         printer.print(prog);
         if (verbose)
@@ -194,7 +209,7 @@ static GenerateResult generateLeaf(
       pm.addModulePass(std::make_unique<TypeChecker>());
       if (pm.run(prog) == PassResult::Error) {
         if (verbose) {
-          std::cerr << "[S4] init " << initIdx << ": generated program failed validation\n";
+          std::cerr << "[validate] init " << initIdx << ": generated program failed validation\n";
           for (const auto &d: diags.diags)
             if (d.level == DiagLevel::Error)
               std::cerr << "  error: " << d.message << "\n";
@@ -215,12 +230,12 @@ static GenerateResult generateLeaf(
         res = executor.solve("@" + funcName, pathLabels);
       } catch (const std::exception &e) {
         if (verbose)
-          std::cerr << "[S5] init " << initIdx << ": solver exception: " << e.what() << "\n";
+          std::cerr << "[solver] init " << initIdx << ": exception: " << e.what() << "\n";
         res.unknown = true;
         continue;
       } catch (...) {
         if (verbose)
-          std::cerr << "[S5] init " << initIdx << ": solver unknown exception\n";
+          std::cerr << "[solver] init " << initIdx << ": unknown exception\n";
         res.unknown = true;
         continue;
       }
@@ -235,14 +250,15 @@ static GenerateResult generateLeaf(
             std::cerr << "error: cannot open " << concretePath << "\n";
             continue;
           }
+          writePathHeader(ofs);
           SIRPrinter printer(ofs, res.model);
           printer.print(prog);
         }
         produced.push_back(concretePath);
         if (verbose)
-          std::cout << "[S5] init " << initIdx << ": " << concretePath << "\n";
+          std::cout << "[emit] init " << initIdx << ": " << concretePath << "\n";
       } else if (verbose) {
-        std::cerr << "[S5] init " << initIdx << ": solver " << (res.unsat ? "UNSAT" : "UNKNOWN")
+        std::cerr << "[solver] init " << initIdx << ": " << (res.unsat ? "UNSAT" : "UNKNOWN")
                   << "\n";
       }
     }
@@ -251,7 +267,7 @@ static GenerateResult generateLeaf(
       return GenerateResult{std::move(produced)};
 
     if (verbose)
-      std::cerr << "[S5] attempt=" << attempt << ": all inits failed, retrying\n";
+      std::cerr << "[solver] attempt=" << attempt << ": all inits failed, retrying\n";
   }
 
   return GenerateResult{};
@@ -305,8 +321,10 @@ int main(int argc, char **argv) {
                           cxxopts::value<int>()->default_value("3"))
     ("max-retries",       "Retry attempts on solver failure",
                           cxxopts::value<int>()->default_value("2"))
-    ("max-loop-iter",     "Max loop iterations in EP",
+    ("max-loop-iter",     "Max loop iterations in the execution path (EP) sample",
                           cxxopts::value<int>()->default_value("1"))
+    ("min-loop-iter",     "Require at least one loop in the EP to iterate this many times",
+                          cxxopts::value<int>())
     // Output
     ("o,output-dir",      "Output directory",
                           cxxopts::value<std::string>()->default_value("reify_out"))
@@ -381,6 +399,7 @@ int main(int argc, char **argv) {
   int nBbls = result["n-bbls"].as<int>();
   int nStmts = result["n-stmts"].as<int>();
   int maxLoopIter = result["max-loop-iter"].as<int>();
+  int minLoopIter = result.count("min-loop-iter") ? result["min-loop-iter"].as<int>() : 0;
   int nInits = result["n-inits"].as<int>();
   int maxRetries = result["max-retries"].as<int>();
   double pBranch = result["p-branch"].as<double>();
@@ -445,9 +464,10 @@ int main(int argc, char **argv) {
 
     std::thread t([&, state]() {
       state->result = generateLeaf(
-          nBbls, pBranch, pBackedge, maxLoopIter, varCfg, funcName, nStmts, safeOffPath,
-          enableInterestCoefs, coefLo, coefHi, valueLo, valueHi, indexLo, indexHi, exprCfg,
-          timeoutMs, maxRetries, nInits, outDir, keepSymbolic, verbose, state->rng, funcSeed
+          nBbls, pBranch, pBackedge, maxLoopIter, minLoopIter, varCfg, funcName, nStmts,
+          safeOffPath, enableInterestCoefs, coefLo, coefHi, valueLo, valueHi, indexLo, indexHi,
+          exprCfg, timeoutMs, maxRetries, nInits, outDir, keepSymbolic, verbose, state->rng,
+          funcSeed
       );
       state->done.store(true, std::memory_order_release);
     });

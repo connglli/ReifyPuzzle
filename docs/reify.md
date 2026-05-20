@@ -215,6 +215,8 @@ rysmith [OPTIONS]
 |---|---|---|
 | `-n, --n-funcs N` | 1 | Number of leaf functions to generate |
 | `--n-inits N` | 3 | Concretizations per CFG+path template |
+| `--max-loop-iter N` | 1 | Max iterations of any single loop in the sampled path |
+| `--min-loop-iter N` | unset | If set, force at least one loop in the path to iterate ≥ N times (rejects loop-free CFGs) |
 | `--max-retries N` | 2 | Retry attempts on solver failure (simpler path each time) |
 | `-o, --output-dir PATH` | `reify_out` | Output directory for `.sir` files |
 | `--target sir\|c\|wasm` | `sir` | Optionally compile each concrete `.sir` via `symirc` |
