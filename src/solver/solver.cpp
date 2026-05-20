@@ -907,8 +907,17 @@ namespace symir {
               auto width_term = solver.make_bv_value(solver.get_sort(r), std::to_string(width), 10);
               pc.push_back(solver.make_term(smt::Kind::BV_ULT, {r, width_term}));
 
-              if (arg.op == AtomOpKind::Shl)
-                return solver.make_term(smt::Kind::BV_SHL, {c, r});
+              if (arg.op == AtomOpKind::Shl) {
+                // SPEC §7.1 rule 4: SHL result overflow is UB. There is no
+                // built-in BV_SHL_OVERFLOW, so we construct it: overflow iff
+                // arithmetic-right-shifting the result by n doesn't recover
+                // the original c (i.e., bits shifted past the sign bit
+                // disagreed with the sign).
+                auto shifted = solver.make_term(smt::Kind::BV_SHL, {c, r});
+                auto unshifted = solver.make_term(smt::Kind::BV_ASHR, {shifted, r});
+                pc.push_back(solver.make_term(smt::Kind::EQUAL, {unshifted, c}));
+                return shifted;
+              }
               if (arg.op == AtomOpKind::Shr)
                 return solver.make_term(smt::Kind::BV_ASHR, {c, r});
               if (arg.op == AtomOpKind::LShr)

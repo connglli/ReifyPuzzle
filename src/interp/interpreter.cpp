@@ -687,7 +687,13 @@ namespace symir {
                   throw UndefinedBehaviorError("UB: Overshift");
                 }
                 if (arg.op == AtomOpKind::Shl) {
-                  res.intVal = c.intVal << r.intVal;
+                  // SPEC §7.1 rule 4: SHL result overflow is signed-integer
+                  // overflow UB, on the same footing as `+`/`-`/`*`. Compute
+                  // in __int128 to detect bit-width overflow safely.
+                  __int128 prod = (__int128) c.intVal << r.intVal;
+                  if (prod > (__int128) bw_smax || prod < (__int128) bw_smin)
+                    throw UndefinedBehaviorError("UB: Signed integer overflow in shift");
+                  res.intVal = static_cast<int64_t>(prod);
                 } else if (arg.op == AtomOpKind::Shr) {
                   res.intVal = c.intVal >> r.intVal;
                 } else {

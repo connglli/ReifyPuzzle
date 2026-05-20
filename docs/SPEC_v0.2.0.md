@@ -420,8 +420,8 @@ UB is checked during symbolic execution along the chosen path. Any UB makes the 
 1. **Integer division/modulo by zero**: in `k / x` or `k % x` where `k` and `x` are integers, UB if `x == 0`. (For floating-point, see §7.4 rules 6–7.)
 2. **Out-of-bounds array access**: for `a[i]` where `a : [N] T`, UB if `i < 0` or `i >= N`.
 3. **Reading `undef`**: reading a location whose stored value is `undef` is UB.
-4. **Signed integer overflow**: `+`, `-`, `*` that produce a value outside the representable range of the target bit-width. Also: `INT_MIN / -1`.
-5. **Overshift**: in `x << n`, `x >> n`, `x >>> n`, UB if `n < 0` or `n >= width(x)`.
+4. **Signed integer overflow**: `+`, `-`, `*`, `<<` that produce a value outside the representable range of the target bit-width. Also: `INT_MIN / -1`. For `<<` specifically: UB if the result `x * 2^n` is not representable in `width(x)` signed bits, OR if `x < 0`. SymIR treats `<<` as signed integer arithmetic (aligning with `+`/`-`/`*`), not as a bit-vector shift — this keeps the overflow story consistent across all integer arithmetic operators.
+5. **Overshift**: in `x << n`, `x >> n`, `x >>> n`, UB if `n < 0` or `n >= width(x)`. (Separate from rule 4 — overshift is about the shift *amount*, not the shifted result.)
 
 ### 7.2 `select` and strict UB (lazy)
 For `select c, a, b`:

@@ -35,13 +35,14 @@ In the Solver (`symirsolve`), UB generates constraints that negate the path cond
 
 - **Status:** **Enforced.**
 - **Semantics:**
-  - Arithmetic operations (`+`, `-`, `*`) on signed integers must not overflow.
-  - **Dynamic:** Interpreter checks for signed overflow on every operation.
-  - **Solver:** Generates `(bv ssubo/saddo/smulo)` checks to ensure no overflow occurs.
-  - *Note:* This aligns SymIR with strict C/C++ signed integer semantics.
+  - Arithmetic operations (`+`, `-`, `*`, `<<`) on signed integers must not overflow.
+  - For `<<` specifically: UB if `x < 0` OR if `x * 2^n` is not representable in `width(x)` signed bits.
+  - **Dynamic:** Interpreter checks for signed overflow on every operation, including SHL result.
+  - **Solver:** Generates `(bv saddo/ssubo/smulo)` checks for `+`/`-`/`*`. For `<<`, asserts the result fits via a sign-bit comparison on the unshifted-back value.
+  - *Note:* This aligns SymIR with strict C/C++ signed integer semantics across **all** arithmetic ops, not just `+`/`-`/`*`. Treating `<<` as a BV wrap (the WASM/x86 choice) was rejected because it would leave SymIR's overflow story inconsistent.
 
 ## 5. Overshift
-**Definition:** Shifting a value by an amount `n` such that `n < 0` or `n >= bit_width`.
+**Definition:** Shifting a value by an amount `n` such that `n < 0` or `n >= bit_width`. This is about the shift *amount*; the shifted *result* overflowing is covered by §4.
 
 - **Status:** **Enforced.**
 - **Mechanism:**
