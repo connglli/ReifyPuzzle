@@ -1,0 +1,156 @@
+#pragma once
+
+#include <climits>
+#include <cstddef>
+#include <cstdint>
+
+// Central place to manage reify's *code-level* tunable hyperparameters.
+//
+// Scope:
+//   - Probabilities / slot frequencies for atom-kind, type-kind, and var-phase
+//     choices.
+//   - Pools of "interest" literal values that the random generator draws from.
+//   - Per-width concrete-literal coefficient ranges.
+//
+// Not in scope (these live elsewhere as struct defaults or CLI-tunable flags):
+//   - n-funcs, n-vars, n-stmts, n-bbls, n-inits, max-retries, max-loop-iter
+//   - p-branch, p-backedge, timeouts, RNG seed
+//   - coef-domain / value-domain / index-domain (symbolic-coef domains)
+//   - max-ptr-depth, max-agg-nest, max-agg-elems
+//
+// Editing a value here changes behaviour for all rysmith runs without
+// touching any CLI default.
+namespace symir::reify::hp {
+
+  // ===========================================================================
+  // Atom-kind slot tables for genIntAtomOnPath / OffPath and genFloatAtomOnPath.
+  //
+  // Each generator draws s in [0, 99] and walks a series of "if (s < THRESH)"
+  // checks. The slot reserved for a kind is [previous_thresh, this_thresh),
+  // i.e. its share is (this_thresh - prev_thresh) percent. Order matters: the
+  // first matching slot wins, with the final fallthrough used when no slot
+  // matches (e.g. when a required precondition like "has an rvalue" fails).
+  // ===========================================================================
+
+  // --- genIntAtomOnPath: uses sym for coefs ---
+  inline constexpr int kIntOnPath_CoefBareEnd = 40; // standalone sym Coef
+  inline constexpr int kIntOnPath_MulEnd = 60;      // sym * rval
+  inline constexpr int kIntOnPath_BitwiseEnd = 70;  // sym & | ^ rval
+  inline constexpr int kIntOnPath_ShiftEnd = 75;    // sym <</>>/>>> rval
+  inline constexpr int kIntOnPath_UnaryNotEnd = 80; // ~ rval
+  inline constexpr int kIntOnPath_CastEnd = 85;     // var as T
+  inline constexpr int kIntOnPath_DivModEnd = 90;   // sym / % rval (+ guard)
+  inline constexpr int kIntOnPath_LoadEnd = 95;     // load %p
+  inline constexpr int kIntOnPath_SelectEnd = 99;   // select cond, a, b
+  // fallthrough → standalone sym Coef
+
+  // --- genIntAtomOffPath: concrete coefs only, no syms ---
+  inline constexpr int kIntOffPath_ConcreteEnd = 30;  // bare int literal
+  inline constexpr int kIntOffPath_MulEnd = 50;       // lit * var
+  inline constexpr int kIntOffPath_BitwiseEnd = 60;   // lit & | ^ var
+  inline constexpr int kIntOffPath_CastEnd = 65;      // var as T
+  inline constexpr int kIntOffPath_DivModEnd = 70;    // lit / % var
+  inline constexpr int kIntOffPath_PlainRvalEnd = 75; // bare lvalue
+  inline constexpr int kIntOffPath_LoadEnd = 85;      // load %p
+  inline constexpr int kIntOffPath_SelectEnd = 95;    // select cond, a, b
+  // fallthrough → concrete int literal
+
+  // --- genFloatAtomOnPath ---
+  inline constexpr int kFloatOnPath_CastFromI32SymEnd = 50; // sym as fT
+  inline constexpr int kFloatOnPath_MulLitEnd = 70;         // float lit * var
+  inline constexpr int kFloatOnPath_CastFromVarEnd = 85;    // i32 var as fT
+  inline constexpr int kFloatOnPath_SelectEnd = 95;         // select cond, a, b
+  // fallthrough → concrete float literal
+
+  // ===========================================================================
+  // Expression structure
+  // ===========================================================================
+  inline constexpr int kMinAtomsPerExpr = 1;
+  inline constexpr int kMaxAtomsPerExpr = 3;
+
+  // ===========================================================================
+  // Type-kind probabilities in genRandomType (sum normalised at use-site).
+  // depth-0 distribution; pArray/pStruct are zeroed past maxAggNesting and
+  // pPtr is zeroed past maxPtrDepth.
+  // ===========================================================================
+  inline constexpr double kPTypeScalar = 0.50;
+  inline constexpr double kPTypeArray = 0.20;
+  inline constexpr double kPTypeStruct = 0.15;
+  inline constexpr double kPTypePtr = 0.15;
+
+  // ===========================================================================
+  // Var catalogue split: fraction of cfg.nVars allocated to each phase.
+  // The remainder after non-ptr + ptr1 goes to ptr-of-ptr vars.
+  // ===========================================================================
+  inline constexpr double kFracNonPtrVars = 0.65;
+  inline constexpr double kFracPtr1Vars = 0.20;
+  // remainder → ptr-of-ptr vars (~15%)
+
+  // Probability that a struct field is an array (struct-of-arrays pattern).
+  inline constexpr double kPStructFieldIsArray = 0.30;
+
+  // ===========================================================================
+  // Concrete int-literal coefficient ranges per bitwidth in genConcreteIntAtom.
+  // Each entry is the inclusive [lo, hi] range used for that exact width and
+  // covers the type's full representable signed range, so every width gets
+  // equal access to boundary values (sign bit, INT_MIN-style wrap, etc.).
+  //
+  // These bound only the *literal* pool; symbolic coefs are bounded separately
+  // by the --coef-domain / --value-domain / --index-domain CLI flags.
+  // ===========================================================================
+  inline constexpr std::int64_t kConcreteInt_I8_Lo = -128;
+  inline constexpr std::int64_t kConcreteInt_I8_Hi = 127;
+  inline constexpr std::int64_t kConcreteInt_I16_Lo = -32768;
+  inline constexpr std::int64_t kConcreteInt_I16_Hi = 32767;
+  inline constexpr std::int64_t kConcreteInt_I32_Lo = -2147483648;
+  inline constexpr std::int64_t kConcreteInt_I32_Hi = 2147483647;
+  inline constexpr std::int64_t kConcreteInt_I64_Lo = INT64_MIN;
+  inline constexpr std::int64_t kConcreteInt_I64_Hi = INT64_MAX;
+  // Used when targetType has no recognised width (shouldn't normally happen).
+  inline constexpr std::int64_t kConcreteInt_Default_Lo = -4;
+  inline constexpr std::int64_t kConcreteInt_Default_Hi = 8;
+
+  // Concrete int range used as the multiplicative coef in off-path OpAtoms.
+  // (Off-path code is constant-folded by the typechecker / runtime, so we
+  // keep the coef small and human-friendly here rather than full-width.)
+  inline constexpr std::int64_t kOffPathCoef_Lo = -8;
+  inline constexpr std::int64_t kOffPathCoef_Hi = 8;
+  inline constexpr std::int64_t kOffPathCoefI8_Lo = -4;
+  inline constexpr std::int64_t kOffPathCoefI8_Hi = 4;
+  // Off-path divisor must be nonzero — kept positive so the off-path branch
+  // can never trigger div-by-zero UB without adding a runtime guard.
+  inline constexpr std::int64_t kOffPathDivisor_Lo = 1;
+  inline constexpr std::int64_t kOffPathDivisor_Hi = 8;
+
+  // ===========================================================================
+  // Float literal pools.
+  //
+  // SAFETY-CRITICAL — DO NOT REPLACE WITH uniform_real_distribution.
+  //
+  // reify's output is differentially tested against compiled C/WASM. If a
+  // generated FP expression isn't bitwise-deterministic across the SymIR
+  // interpreter, GCC (with/without FMA contraction), and WASM, we'd flag
+  // legitimate rounding non-determinism as a compiler bug.
+  //
+  // Every entry below is a *dyadic rational* (p / 2^q) or a small odd int.
+  // Sums, differences, products, and divisions of such values are themselves
+  // dyadic and stay exactly representable in IEEE-754 binary64 until the
+  // mantissa overflows — which doesn't happen for the 1–3 atom expressions
+  // reify produces. Adding any non-dyadic value (e.g. 0.1, 0.3) here would
+  // break differential testing.
+  // ===========================================================================
+  // Bare-literal float Coef pool (genConcreteFloatAtom).
+  inline constexpr double kFloatLitPool[] = {0.0, 1.0,  -1.0, 2.0,   -2.0,  4.0,    -4.0, 8.0, -8.0,
+                                             0.5, -0.5, 0.25, -0.25, 0.125, -0.125, 3.0,  -3.0};
+  inline constexpr std::size_t kFloatLitPoolSize = sizeof(kFloatLitPool) / sizeof(kFloatLitPool[0]);
+
+  // Multiplicative float coefs used in float * var atoms (genFloatAtomOnPath
+  // Mul slot). 0.0 is intentionally omitted to avoid trivial zero terms.
+  // Small odd ints (3, 5) are dyadic-exact themselves; products like 3*5=15
+  // stay exact until precision overflow.
+  inline constexpr double kFloatMulCoefPool[] = {2.0,  -2.0, 4.0,   -4.0, 8.0,  -8.0, 0.5,
+                                                 -0.5, 0.25, -0.25, 3.0,  -3.0, 5.0,  -5.0};
+  inline constexpr std::size_t kFloatMulCoefPoolSize =
+      sizeof(kFloatMulCoefPool) / sizeof(kFloatMulCoefPool[0]);
+
+} // namespace symir::reify::hp

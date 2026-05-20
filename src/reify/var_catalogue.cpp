@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include "reify/hyperparameters.hpp"
 
 namespace symir::reify {
 
@@ -112,8 +113,8 @@ namespace symir::reify {
       for (int fi = 0; fi < nf; fi++) {
         FieldDecl fd;
         fd.name = "f" + std::to_string(fi);
-        // ~30% chance of an array field (struct-of-arrays)
-        if (prob(rng) < 0.30 && tcfg.maxAggElems >= 1) {
+        // Struct field is an array with probability hp::kPStructFieldIsArray
+        if (prob(rng) < hp::kPStructFieldIsArray && tcfg.maxAggElems >= 1) {
           std::uniform_int_distribution<int> szd(1, std::max(1, tcfg.maxAggElems));
           uint64_t sz = (uint64_t) szd(rng);
           ArrayType at;
@@ -129,10 +130,9 @@ namespace symir::reify {
       return sname;
     };
 
-    // Phase 1: generate up to nVars non-pointer vars
-    // Allocation: ~60% non-ptr budget for phase 1, ~20% for ptr, ~20% for ptr-ptr
-    int nNonPtr = std::max(1, (int) (cfg.nVars * 0.65));
-    int nPtr1 = std::max(0, (int) (cfg.nVars * 0.20));
+    // Split cfg.nVars between phases — see hp::kFracNonPtrVars / kFracPtr1Vars.
+    int nNonPtr = std::max(1, (int) (cfg.nVars * hp::kFracNonPtrVars));
+    int nPtr1 = std::max(0, (int) (cfg.nVars * hp::kFracPtr1Vars));
     int nPtr2 = cfg.nVars - nNonPtr - nPtr1;
     if (nPtr2 < 0)
       nPtr2 = 0;

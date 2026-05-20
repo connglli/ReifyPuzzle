@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include "reify/hyperparameters.hpp"
 
 namespace symir::reify {
 
@@ -169,14 +170,19 @@ namespace symir::reify {
   // The type checker validates literal range, so we keep values small.
   static Atom genConcreteIntAtom(std::mt19937 &rng, const TypePtr &targetType) {
     uint32_t bits = intBitWidth(targetType);
-    // Keep values in a small safe range to avoid range errors for narrow types
-    int64_t lo = -4, hi = 8;
+    int64_t lo = hp::kConcreteInt_Default_Lo, hi = hp::kConcreteInt_Default_Hi;
     if (bits == 8) {
-      lo = -4;
-      hi = 4;
+      lo = hp::kConcreteInt_I8_Lo;
+      hi = hp::kConcreteInt_I8_Hi;
     } else if (bits == 16) {
-      lo = -16;
-      hi = 16;
+      lo = hp::kConcreteInt_I16_Lo;
+      hi = hp::kConcreteInt_I16_Hi;
+    } else if (bits == 32) {
+      lo = hp::kConcreteInt_I32_Lo;
+      hi = hp::kConcreteInt_I32_Hi;
+    } else if (bits == 64) {
+      lo = hp::kConcreteInt_I64_Lo;
+      hi = hp::kConcreteInt_I64_Hi;
     }
     std::uniform_int_distribution<int64_t> d(lo, hi);
     return coefAtom(intCoef(d(rng)));
@@ -184,9 +190,8 @@ namespace symir::reify {
 
   // Generate a concrete float atom
   static Atom genConcreteFloatAtom(std::mt19937 &rng) {
-    static const double vals[] = {0.0, 1.0, -1.0, 2.0, -2.0, 0.5, -0.5, 3.0};
-    std::uniform_int_distribution<int> d(0, 7);
-    return coefAtom(floatCoef(vals[d(rng)]));
+    std::uniform_int_distribution<std::size_t> d(0, hp::kFloatLitPoolSize - 1);
+    return coefAtom(floatCoef(hp::kFloatLitPool[d(rng)]));
   }
 
   // Build a SelectVal of targetType: either a same-typed scalar local or a
@@ -278,21 +283,21 @@ namespace symir::reify {
       return localLV(v->name);
     };
 
-    if (s < 40) {
+    if (s < hp::kIntOnPath_CoefBareEnd) {
       // Standalone coef sym
       return coefAtom(symCoef(sym.nextCoef(targetType)));
     }
-    if (s < 60 && hasRval) {
+    if (s < hp::kIntOnPath_MulEnd && hasRval) {
       // Linear: sym * rval
       return opAtom(AtomOpKind::Mul, symCoef(sym.nextCoef(targetType)), pickRval());
     }
-    if (s < 70 && cfg.enableAllOps && hasRval) {
+    if (s < hp::kIntOnPath_BitwiseEnd && cfg.enableAllOps && hasRval) {
       // Bitwise
       static const AtomOpKind bops[] = {AtomOpKind::And, AtomOpKind::Or, AtomOpKind::Xor};
       std::uniform_int_distribution<int> opPick(0, 2);
       return opAtom(bops[opPick(rng)], symCoef(sym.nextCoef(targetType)), pickRval());
     }
-    if (s < 75 && cfg.enableAllOps && hasRval) {
+    if (s < hp::kIntOnPath_ShiftEnd && cfg.enableAllOps && hasRval) {
       // Shift: index_sym << rval  (coef=index sym, rval=variable being shifted)
       // Per the existing pattern: index sym is the VALUE being shifted, rval is shift amount
       // But shift amount must be i32 — we need an i32 rval for the shift amount
@@ -327,11 +332,11 @@ namespace symir::reify {
       }
       return coefAtom(symCoef(sym.nextCoef(targetType)));
     }
-    if (s < 80 && hasRval) {
+    if (s < hp::kIntOnPath_UnaryNotEnd && hasRval) {
       // Unary NOT
       return unaryAtom(pickRval());
     }
-    if (s < 85 && !otherIntScalars.empty()) {
+    if (s < hp::kIntOnPath_CastEnd && !otherIntScalars.empty()) {
       // CastAtom from another int width
       auto *srcVar = pickOne(rng, otherIntScalars);
       CastAtom ca;
@@ -339,7 +344,7 @@ namespace symir::reify {
       ca.dstType = targetType;
       return Atom{std::move(ca), {}};
     }
-    if (s < 90 && cfg.enableDiv && hasRval) {
+    if (s < hp::kIntOnPath_DivModEnd && cfg.enableDiv && hasRval) {
       // Div/Mod: OpAtom{Div/Mod, sym_coef, rval}  = sym / rval
       // We need a require(rval != 0) guard on-path
       std::uniform_int_distribution<int> dm(0, 1);
@@ -355,7 +360,7 @@ namespace symir::reify {
       extraRequires.push_back(Instr{std::move(req)});
       return opAtom(op, symCoef(symName), localLV(rv->name));
     }
-    if (s < 95) {
+    if (s < hp::kIntOnPath_LoadEnd) {
       // Load from a ptr T var if any exist
       auto ptrs = vars.ptrsOf(targetType);
       if (!ptrs.empty()) {
@@ -363,7 +368,7 @@ namespace symir::reify {
         return Atom{LoadAtom{localLV(pv->name), {}}, {}};
       }
     }
-    if (s < 99 && cfg.enableSelect) {
+    if (s < hp::kIntOnPath_SelectEnd && cfg.enableSelect) {
       return genSelectAtom(rng, &sym, vars, targetType);
     }
     // Fallback: standalone sym
@@ -387,46 +392,46 @@ namespace symir::reify {
     std::uniform_int_distribution<int> slot(0, 99);
     int s = slot(rng);
 
-    if (s < 30 || !hasRval) {
+    if (s < hp::kIntOffPath_ConcreteEnd || !hasRval) {
       return genConcreteIntAtom(rng, targetType);
     }
-    if (s < 50) {
+    if (s < hp::kIntOffPath_MulEnd) {
       auto *v = pickOne(rng, scalarsOfT);
       uint32_t bits = intBitWidth(targetType);
-      int64_t lo = -8, hi = 8;
+      int64_t lo = hp::kOffPathCoef_Lo, hi = hp::kOffPathCoef_Hi;
       if (bits == 8) {
-        lo = -4;
-        hi = 4;
+        lo = hp::kOffPathCoefI8_Lo;
+        hi = hp::kOffPathCoefI8_Hi;
       }
       std::uniform_int_distribution<int64_t> cd(lo, hi);
       return opAtom(AtomOpKind::Mul, intCoef(cd(rng)), localLV(v->name));
     }
-    if (s < 60 && cfg.enableAllOps) {
+    if (s < hp::kIntOffPath_BitwiseEnd && cfg.enableAllOps) {
       auto *v = pickOne(rng, scalarsOfT);
       static const AtomOpKind bops[] = {AtomOpKind::And, AtomOpKind::Or, AtomOpKind::Xor};
       std::uniform_int_distribution<int> op(0, 2);
-      std::uniform_int_distribution<int64_t> cv(-8, 8);
+      std::uniform_int_distribution<int64_t> cv(hp::kOffPathCoef_Lo, hp::kOffPathCoef_Hi);
       return opAtom(bops[op(rng)], intCoef(cv(rng)), localLV(v->name));
     }
-    if (s < 65 && !otherIntScalars.empty()) {
+    if (s < hp::kIntOffPath_CastEnd && !otherIntScalars.empty()) {
       auto *v = pickOne(rng, otherIntScalars);
       CastAtom ca;
       ca.src = LValue{LocalId{v->name, {}}, {}, {}};
       ca.dstType = targetType;
       return Atom{std::move(ca), {}};
     }
-    if (s < 70 && cfg.enableDiv && hasRval) {
+    if (s < hp::kIntOffPath_DivModEnd && cfg.enableDiv && hasRval) {
       auto *v = pickOne(rng, scalarsOfT);
       std::uniform_int_distribution<int> dm(0, 1);
       AtomOpKind op = dm(rng) ? AtomOpKind::Mod : AtomOpKind::Div;
-      std::uniform_int_distribution<int64_t> cd(1, 8);
+      std::uniform_int_distribution<int64_t> cd(hp::kOffPathDivisor_Lo, hp::kOffPathDivisor_Hi);
       return opAtom(op, intCoef(cd(rng)), localLV(v->name));
     }
-    if (s < 75) {
+    if (s < hp::kIntOffPath_PlainRvalEnd) {
       auto *v = pickOne(rng, scalarsOfT);
       return rvalAtom(localLV(v->name));
     }
-    if (s < 85) {
+    if (s < hp::kIntOffPath_LoadEnd) {
       // Load from a ptr T var if available
       auto ptrs = vars.ptrsOf(targetType);
       if (!ptrs.empty()) {
@@ -434,7 +439,7 @@ namespace symir::reify {
         return Atom{LoadAtom{localLV(pv->name), {}}, {}};
       }
     }
-    if (s < 95 && cfg.enableSelect) {
+    if (s < hp::kIntOffPath_SelectEnd && cfg.enableSelect) {
       return genSelectAtom(rng, /*sym=*/nullptr, vars, targetType);
     }
     return genConcreteIntAtom(rng, targetType);
@@ -451,7 +456,7 @@ namespace symir::reify {
     std::uniform_int_distribution<int> slot(0, 99);
     int s = slot(rng);
 
-    if (s < 50) {
+    if (s < hp::kFloatOnPath_CastFromI32SymEnd) {
       // Cast from i32 sym to float (keeps SMT in BV theory)
       auto symName = sym.nextValue();
       CastAtom ca;
@@ -459,14 +464,13 @@ namespace symir::reify {
       ca.dstType = targetType;
       return Atom{std::move(ca), {}};
     }
-    if (s < 70 && !fpVars.empty()) {
+    if (s < hp::kFloatOnPath_MulLitEnd && !fpVars.empty()) {
       // Multiply by concrete float literal
       auto *v = pickOne(rng, fpVars);
-      static const double lits[] = {2.0, -2.0, 0.5, 3.0, -3.0};
-      std::uniform_int_distribution<int> ld(0, 4);
-      return opAtom(AtomOpKind::Mul, floatCoef(lits[ld(rng)]), localLV(v->name));
+      std::uniform_int_distribution<std::size_t> ld(0, hp::kFloatMulCoefPoolSize - 1);
+      return opAtom(AtomOpKind::Mul, floatCoef(hp::kFloatMulCoefPool[ld(rng)]), localLV(v->name));
     }
-    if (s < 85 && !i32scalars.empty()) {
+    if (s < hp::kFloatOnPath_CastFromVarEnd && !i32scalars.empty()) {
       // CastAtom from i32 var
       auto *v = pickOne(rng, i32scalars);
       CastAtom ca;
@@ -474,7 +478,7 @@ namespace symir::reify {
       ca.dstType = targetType;
       return Atom{std::move(ca), {}};
     }
-    if (s < 95 && cfg.enableSelect) {
+    if (s < hp::kFloatOnPath_SelectEnd && cfg.enableSelect) {
       return genSelectAtom(rng, &sym, vars, targetType);
     }
     // Concrete float literal
@@ -531,7 +535,7 @@ namespace symir::reify {
     std::vector<Atom> atoms;
 
     // Determine number of atoms in this expression
-    std::uniform_int_distribution<int> nAtomsDist(1, 3);
+    std::uniform_int_distribution<int> nAtomsDist(hp::kMinAtomsPerExpr, hp::kMaxAtomsPerExpr);
     int nAtoms = nAtomsDist(rng);
 
     // For ptr types, always single atom
@@ -659,7 +663,7 @@ namespace symir::reify {
     std::vector<Instr> reqs;
     std::vector<Atom> atoms;
 
-    std::uniform_int_distribution<int> nAtomsDist(1, 3);
+    std::uniform_int_distribution<int> nAtomsDist(hp::kMinAtomsPerExpr, hp::kMaxAtomsPerExpr);
     int nAtoms = nAtomsDist(rng);
 
     if (isPtrType(targetType))

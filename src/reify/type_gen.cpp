@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <stdexcept>
+#include "reify/hyperparameters.hpp"
 
 namespace symir::reify {
 
@@ -129,13 +130,12 @@ namespace symir::reify {
   }
 
   TypePtr genRandomType(std::mt19937 &rng, const TypeGenConfig &cfg, int depth) {
-    // Probability buckets (sum to 1):
-    // depth 0: ~50% scalar, ~20% array, ~15% struct, ~15% ptr
-    // Reduce agg probability at maxAggNesting, ptr probability at maxPtrDepth
-    double pScalar = 0.50;
-    double pArray = (depth >= cfg.maxAggNesting) ? 0.0 : 0.20;
-    double pStruct = (depth >= cfg.maxAggNesting) ? 0.0 : 0.15;
-    double pPtr = (depth >= cfg.maxPtrDepth) ? 0.0 : 0.15;
+    // Type-kind probability buckets — see hp::kPType*. Aggregates are zeroed
+    // past maxAggNesting and pointers past maxPtrDepth, then renormalized.
+    double pScalar = hp::kPTypeScalar;
+    double pArray = (depth >= cfg.maxAggNesting) ? 0.0 : hp::kPTypeArray;
+    double pStruct = (depth >= cfg.maxAggNesting) ? 0.0 : hp::kPTypeStruct;
+    double pPtr = (depth >= cfg.maxPtrDepth) ? 0.0 : hp::kPTypePtr;
 
     // Renormalize
     double total = pScalar + pArray + pStruct + pPtr;
