@@ -27,9 +27,7 @@ exclude = [
     "site-packages",
     "venv",
 ]
-include = [
-    "."
-]
+include = ["."]
 
 # Same as Black.
 line-length = 88

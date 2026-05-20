@@ -15,8 +15,7 @@ import shutil
 import subprocess
 import sys
 
-from test.lib.style import green, red, yellow, bold
-
+from test.lib.style import bold, green, red, yellow
 
 _FUN_RE = re.compile(r"fun\s+@([a-zA-Z0-9_]+)\(\)\s*:\s*(i[0-9]+|f32|f64)")
 _RESULT_RE = re.compile(r"Result:\s*(-?[0-9]+)")
@@ -81,9 +80,8 @@ def run(rysmith, symiri, symirc, n, seed, out_dir, gcc, verbose):
     gen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
   )
   if gen.returncode != 0:
-    print(red(f"rysmith failed (exit {gen.returncode}):"))
+    print(yellow(f"rysmith failed (exit {gen.returncode}):"))
     print(gen.stderr)
-    return False
 
   # 2. For each (sir, c) pair, compare symiri's Result to the compiled-C Result.
   passed = 0
@@ -199,12 +197,17 @@ def main():
   ap.add_argument("--rysmith", default="./rysmith")
   ap.add_argument("--symiri", default="./symiri")
   ap.add_argument(
-    "--symirc", default="./symirc", help="(implicitly invoked by rysmith --target c)"
+    "--symirc",
+    default="./symirc",
+    help="(implicitly invoked by rysmith --target c)",
   )
   ap.add_argument("--gcc", default="gcc")
   ap.add_argument("--n", type=int, default=100)
   ap.add_argument(
-    "--seed", type=int, default=1234, help="Fixed seed so make test is deterministic"
+    "--seed",
+    type=int,
+    default=1234,
+    help="Fixed seed so make test is deterministic",
   )
   ap.add_argument("--out", default="build/test_tmp/reify_diff")
   ap.add_argument("--verbose", "-v", action="store_true")

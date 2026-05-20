@@ -1,9 +1,8 @@
 import os
 import sys
-import subprocess
 import tempfile
-from test.lib.framework import run_test_suite, run_command, TestResult
-from test.lib.run_interp_tests import FAIL_EXIT_CODES
+
+from test.lib.framework import TestResult, run_command, run_test_suite
 
 
 def run_symirsolve_test(symirsolve_path, symiri_path=None):

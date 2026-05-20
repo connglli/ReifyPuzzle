@@ -2,7 +2,8 @@ import os
 import subprocess
 import sys
 import time
-from test.lib.style import green, red, yellow, bold
+
+from test.lib.style import bold, green, red, yellow
 
 
 class TestResult:
