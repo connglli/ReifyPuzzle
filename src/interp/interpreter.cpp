@@ -707,7 +707,13 @@ namespace symir {
             } else if (c.kind == RuntimeValue::Kind::Float && r.kind == RuntimeValue::Kind::Float) {
               RuntimeValue res;
               res.kind = RuntimeValue::Kind::Float;
-              res.bits = c.bits;
+              // SPEC §6.7: float expressions are homogeneous — all atoms must
+              // have the same FP type. evalCoef always tags FloatLit with
+              // bits=64 (it has no context), so use the rval's precision (the
+              // typed variable) to recover the expression's true type. Without
+              // this, e.g. `-4.0 * %v0` for %v0:f32 would yield bits=64 and
+              // the surrounding chain would round at f64 precision.
+              res.bits = std::min(c.bits, r.bits);
               if (arg.op == AtomOpKind::Mul)
                 res.floatVal = checkFPResult(c.floatVal * r.floatVal, res.bits);
               else if (arg.op == AtomOpKind::Div)
