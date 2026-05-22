@@ -781,8 +781,18 @@ namespace symir {
       std::optional<smt::Sort> expectedSort
   ) {
     smt::Term res = evalAtom(e.first, solver, store, pc, expectedSort);
+    // The typechecker requires the +/- chain to be homogeneous in type. If the
+    // caller didn't supply an expected sort, propagate the first atom's sort
+    // to subsequent atoms so untyped literals (e.g. SelectVal `1` inside an
+    // i16 chain) come out at the right width — otherwise the solver would
+    // sign-extend to BV32 and miss the i16 overflow that the interpreter
+    // detects.
+    std::optional<smt::Sort> chainSort = expectedSort;
+    if (!chainSort)
+      chainSort = solver.get_sort(res);
+
     for (const auto &tail: e.rest) {
-      smt::Term right = evalAtom(tail.atom, solver, store, pc, expectedSort);
+      smt::Term right = evalAtom(tail.atom, solver, store, pc, chainSort);
       auto lSort = solver.get_sort(res);
       auto rSort = solver.get_sort(right);
 
@@ -976,7 +986,15 @@ namespace symir {
             bool srcIsFp = solver.is_fp_sort(solver.get_sort(src));
             bool dstIsFp = solver.is_fp_sort(dstSort);
 
-            // Correct handling for FP casts requiring indices
+            // FP cast handling. SMT-LIB FP theory requires a rounding-mode
+            // operand. SPEC §6.4: fp->int is RTZ (truncation toward zero),
+            // int->fp and fp->fp are RNE. Omitting the RM (as the previous
+            // code did) made bitwuzla default to its own choice and silently
+            // produced models where the solver disagreed with the interp on
+            // the cast result — surfaced by seed 13579 / func38_2 where the
+            // solver computed `v0 = -7.5f as i32 = -8` (RNE) while interp
+            // truncated to -7 (RTZ), causing the saddo chain to admit an
+            // overflowing model.
             if (srcIsFp && !dstIsFp) { // FP -> BV (spec §7.4 rule 8: range check)
               uint32_t width = solver.get_bv_width(dstSort);
               auto srcSort = solver.get_sort(src);
@@ -988,15 +1006,18 @@ namespace symir {
               auto hiFp = solver.make_fp_value_from_real(srcSort, hi, smt::RoundingMode::RNE);
               pc.push_back(solver.make_term(smt::Kind::FP_GEQ, {src, loFp}));
               pc.push_back(solver.make_term(smt::Kind::FP_LT, {src, hiFp}));
-              return solver.make_term(smt::Kind::FP_TO_SBV, {src}, {width});
+              auto rmRTZ = solver.make_rm_value(smt::RoundingMode::RTZ);
+              return solver.make_term(smt::Kind::FP_TO_SBV, {rmRTZ, src}, {width});
             }
             if (!srcIsFp && dstIsFp) { // BV -> FP
               auto [exp, sig] = solver.get_fp_dims(dstSort);
-              return solver.make_term(smt::Kind::FP_TO_FP_FROM_SBV, {src}, {exp, sig});
+              auto rmRNE = solver.make_rm_value(smt::RoundingMode::RNE);
+              return solver.make_term(smt::Kind::FP_TO_FP_FROM_SBV, {rmRNE, src}, {exp, sig});
             }
             if (srcIsFp && dstIsFp) { // FP -> FP
               auto [exp, sig] = solver.get_fp_dims(dstSort);
-              return solver.make_term(smt::Kind::FP_TO_FP_FROM_FP, {src}, {exp, sig});
+              auto rmRNE = solver.make_rm_value(smt::RoundingMode::RNE);
+              return solver.make_term(smt::Kind::FP_TO_FP_FROM_FP, {rmRNE, src}, {exp, sig});
             }
 
             // BV -> BV resizing

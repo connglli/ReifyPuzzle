@@ -1,0 +1,26 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @test --path ^entry,^exit
+// SKIP: COMPILER
+// Regression: solver must use RTZ (truncate toward zero) for FP→BV casts,
+// not RNE (round to nearest, ties to even).
+// -7.5 as i32 → -7 (truncate), NOT -8 (round).
+// Adds -7 to near-max i32, which must not overflow.
+fun @test() : i32 {
+  sym %?x : value f32;
+  let mut %v: f32 = 1.0;
+  let mut %chk: i32 = 0;
+^entry:
+  // Store -7.5 into %v via expression: -8.0 + 0.5 * %v (where %v=1.0)
+  %v = -8.0 + 0.5 * %v;
+  // %v is now -7.5f.  Truncation toward zero gives -7, not -8.
+  // Accumulate so that the off-by-one from wrong rounding would overflow.
+  %chk = 2147483640;
+  %chk = %v as i32 + %chk;
+  // With correct RTZ: -7 + 2147483640 = 2147483633 (no overflow)
+  // With wrong  RNE: -8 + 2147483640 = 2147483632 (would still fit, but
+  //   the difference propagates in larger tests)
+  require %chk > 0;
+  br ^exit;
+^exit:
+  ret %chk;
+}

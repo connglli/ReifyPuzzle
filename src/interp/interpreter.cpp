@@ -592,10 +592,17 @@ namespace symir {
         v.intVal = static_cast<int64_t>(result);
         v.intVal = canonicalize(v.intVal, v.bits);
       } else if (v.kind == RuntimeValue::Kind::Float && right.kind == RuntimeValue::Kind::Float) {
+        // SPEC §6.7: FP expressions are homogeneous, but evalCoef tags
+        // FloatLit with bits=64 (it has no context). Take the narrower of the
+        // two operands so an Expr like `0.125 + (-268435449 as f32)` rounds
+        // at f32 precision instead of inheriting the literal's bits=64. The
+        // result's effective type also narrows for downstream chain steps.
+        uint32_t opBits = std::min(v.bits, right.bits);
         if (tail.op == AddOp::Plus)
-          v.floatVal = checkFPResult(v.floatVal + right.floatVal, v.bits);
+          v.floatVal = checkFPResult(v.floatVal + right.floatVal, opBits);
         else
-          v.floatVal = checkFPResult(v.floatVal - right.floatVal, v.bits);
+          v.floatVal = checkFPResult(v.floatVal - right.floatVal, opBits);
+        v.bits = opBits;
       } else if (v.kind == RuntimeValue::Kind::Ptr && right.kind == RuntimeValue::Kind::Int) {
         // ptr ± int: scale offset by element size; result must stay in [base, end].
         // One-past-the-end (== end) is valid for arithmetic but not for dereference.
