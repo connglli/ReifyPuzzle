@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// Intention: Test Round-to-Nearest-Ties-to-Even (RNE) rounding mode for f64 multiplication.
+// Purpose: Verify that multiplying f64 values that yield a result halfway between two representable values rounds to the even LSB.
+// Test Round-to-Nearest-Ties-to-Even (RNE) for f64 multiplication.
+// A = 9007199254740994.0 (2^53 + 2) is representable in f64.
+// B = 1.5 is representable in f64.
+// A * B = 13510798882111491.0, which is halfway between 13510798882111490.0 and 13510798882111492.0.
+// RNE rounds to the even LSB: 13510798882111492.0.
+fun @main() : i32 {
+  let %a: f64 = 9007199254740994.0;
+  let %b: f64 = 1.5;
+  let %expected: f64 = 13510798882111492.0;
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = %a * %b;
+  require %r == %expected, "9007199254740994.0 * 1.5 rounds to 13510798882111492.0";
+  ret 0;
+}

@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// Intention: Test cast from f32 to signed 64-bit integer (i64).
+// Purpose: Verify that casting f32 to i64 truncates the fractional part towards zero.
+// Test f32 to i64 cast with truncation toward zero.
+// 5000000000.0 as i64 -> 5000000000.
+// -5000000000.0 as i64 -> -5000000000.
+fun @main() : i32 {
+  let %a1: f32 = 5000000000.0;
+  let %a2: f32 = -5000000000.0;
+  let %expected1: i64 = 5000000000;
+  let %expected2: i64 = -5000000000;
+  let mut %r1: i64 = 0;
+  let mut %r2: i64 = 0;
+^entry:
+  %r1 = %a1 as i64;
+  %r2 = %a2 as i64;
+  require %r1 == %expected1, "5000000000.0 as i64 == 5000000000";
+  require %r2 == %expected2, "-5000000000.0 as i64 == -5000000000";
+  ret 0;
+}

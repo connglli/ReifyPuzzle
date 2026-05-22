@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// Intention: Test subnormal floating-point value behavior.
+// Purpose: Verify that subnormal values are preserved and not flushed to zero.
+// Test subnormal (denormal) values support.
+// f32 subnormals (e.g. 1.0e-40) are regular finite values and do not flush to zero.
+fun @main() : i32 {
+  let %subnormal: f32 = 1.0e-40;
+  let %zero: f32 = 0.0;
+^entry:
+  require %subnormal > %zero, "1.0e-40 > 0.0";
+  ret 0;
+}

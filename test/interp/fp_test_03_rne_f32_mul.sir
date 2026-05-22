@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// Intention: Test Round-to-Nearest-Ties-to-Even (RNE) rounding mode for f32 multiplication.
+// Purpose: Verify that multiplying f32 values that yield a result halfway between two representable values rounds to the even LSB.
+// Test Round-to-Nearest-Ties-to-Even (RNE) for f32 multiplication.
+// A = 16777218.0 (2^24 + 2) is representable in f32.
+// B = 1.5 is representable in f32.
+// A * B = 25165827.0, which is halfway between 25165826.0 and 25165828.0.
+// RNE rounds to the even LSB: 25165828.0.
+fun @main() : i32 {
+  let %a: f32 = 16777218.0;
+  let %b: f32 = 1.5;
+  let %expected: f32 = 25165828.0;
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = %a * %b;
+  require %r == %expected, "16777218.0 * 1.5 rounds to 25165828.0";
+  ret 0;
+}

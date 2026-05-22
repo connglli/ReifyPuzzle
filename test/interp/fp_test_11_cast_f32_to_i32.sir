@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// Intention: Test cast from f32 to signed 32-bit integer (i32).
+// Purpose: Verify that casting f32 to i32 truncates the fractional part towards zero for both positive and negative values.
+// Test f32 to i32 cast with truncation toward zero.
+// 2.9 as i32 -> 2.
+// -2.9 as i32 -> -2.
+fun @main() : i32 {
+  let %a1: f32 = 2.9;
+  let %a2: f32 = -2.9;
+  let %expected1: i32 = 2;
+  let %expected2: i32 = -2;
+  let mut %r1: i32 = 0;
+  let mut %r2: i32 = 0;
+^entry:
+  %r1 = %a1 as i32;
+  %r2 = %a2 as i32;
+  require %r1 == %expected1, "2.9 as i32 == 2";
+  require %r2 == %expected2, "-2.9 as i32 == -2";
+  ret 0;
+}

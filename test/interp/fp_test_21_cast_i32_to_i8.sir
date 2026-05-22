@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// Intention: Test narrowing cast from i32 to i8.
+// Purpose: Verify that casting i32 to i8 truncates the upper 24 bits and preserves the low-order byte.
+// Test narrowing integer cast (truncation).
+// 257 (0x101) as i8 -> 1.
+// -1 (0xFFFFFFFF) as i8 -> -1.
+fun @main() : i32 {
+  let %a1: i32 = 257;
+  let %a2: i32 = -1;
+  let %expected1: i8 = 1;
+  let %expected2: i8 = -1;
+  let mut %r1: i8 = 0;
+  let mut %r2: i8 = 0;
+^entry:
+  %r1 = %a1 as i8;
+  %r2 = %a2 as i8;
+  require %r1 == %expected1, "257 as i8 == 1";
+  require %r2 == %expected2, "-1 as i8 == -1";
+  ret 0;
+}

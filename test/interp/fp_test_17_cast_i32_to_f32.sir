@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// SKIP: COMPILER
+// Intention: Test cast from i32 to f32.
+// Purpose: Verify that casting a 32-bit integer to f32 applies RNE rounding when the integer cannot be represented exactly in 24 bits of significand.
+// Test i32 to f32 cast using Round-to-Nearest-Ties-to-Even (RNE).
+// 16777217 is halfway between 16777216.0 and 16777218.0.
+// 16777217 as f32 rounds to even LSB: 16777216.0.
+// 16777219 as f32 rounds to even LSB: 16777220.0.
+fun @main() : i32 {
+  let %a1: i32 = 16777217;
+  let %a2: i32 = 16777219;
+  let %expected1: f32 = 16777216.0;
+  let %expected2: f32 = 16777220.0;
+  let mut %r1: f32 = 0.0;
+  let mut %r2: f32 = 0.0;
+^entry:
+  %r1 = %a1 as f32;
+  %r2 = %a2 as f32;
+  require %r1 == %expected1, "16777217 as f32 rounds to 16777216.0";
+  require %r2 == %expected2, "16777219 as f32 rounds to 16777220.0";
+  ret 0;
+}

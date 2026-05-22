@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// Intention: Test narrowing cast from f64 to f32.
+// Purpose: Verify that casting f64 to f32 applies RNE rounding on values that are halfway between f32 representable boundaries.
+// Test f64 to f32 narrowing cast using Round-to-Nearest-Ties-to-Even (RNE).
+// 16777217.0 (2^24 + 1) is representable in f64.
+// 16777217.0 as f32 is halfway, rounding to even LSB: 16777216.0.
+// 16777219.0 (2^24 + 3) is representable in f64.
+// 16777219.0 as f32 is halfway, rounding to even LSB: 16777220.0.
+fun @main() : i32 {
+  let %a1: f64 = 16777217.0;
+  let %a2: f64 = 16777219.0;
+  let %expected1: f32 = 16777216.0;
+  let %expected2: f32 = 16777220.0;
+  let mut %r1: f32 = 0.0;
+  let mut %r2: f32 = 0.0;
+^entry:
+  %r1 = %a1 as f32;
+  %r2 = %a2 as f32;
+  require %r1 == %expected1, "16777217.0 as f32 rounds to 16777216.0";
+  require %r2 == %expected2, "16777219.0 as f32 rounds to 16777220.0";
+  ret 0;
+}

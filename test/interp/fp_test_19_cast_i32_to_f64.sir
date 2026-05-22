@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SKIP: COMPILER
+// Intention: Test cast from i32 to f64.
+// Purpose: Verify that converting a 32-bit integer to f64 is always exact (since f64 has 53 bits of significand).
+// Test i32 to f64 cast (must be exact since f64 can represent all i32 values).
+fun @main() : i32 {
+  let %a: i32 = 2147483647;
+  let %expected: f64 = 2147483647.0;
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = %a as f64;
+  require %r == %expected, "2147483647 as f64 == 2147483647.0";
+  ret 0;
+}

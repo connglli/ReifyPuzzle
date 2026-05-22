@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// SKIP: COMPILER
+// Intention: Test Round-to-Nearest-Ties-to-Even (RNE) rounding mode for f32 addition.
+// Purpose: Verify that adding f32 values that yield a result halfway between two representable values rounds to the one with the even least significant bit (LSB) per IEEE 754.
+// Test Round-to-Nearest-Ties-to-Even (RNE) for f32 addition.
+// 16777216.0 (2^24) and 1.0 are representable in f32.
+// 16777216.0 + 1.0 = 16777217.0, which is halfway between 16777216.0 and 16777218.0.
+// RNE rounds to the even LSB: 16777216.0.
+// 16777216.0 + 3.0 = 16777219.0, which is halfway between 16777218.0 and 16777220.0.
+// RNE rounds to the even LSB: 16777220.0.
+fun @main() : i32 {
+  let %a: f32 = 16777216.0;
+  let %one: f32 = 1.0;
+  let %three: f32 = 3.0;
+  let %expected1: f32 = 16777216.0;
+  let %expected2: f32 = 16777220.0;
+  let mut %r1: f32 = 0.0;
+  let mut %r2: f32 = 0.0;
+^entry:
+  %r1 = %a + %one;
+  %r2 = %a + %three;
+  require %r1 == %expected1, "16777216.0 + 1.0 rounds to 16777216.0";
+  require %r2 == %expected2, "16777216.0 + 3.0 rounds to 16777220.0";
+  ret 0;
+}

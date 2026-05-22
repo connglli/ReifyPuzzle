@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// SKIP: COMPILER
+// Intention: Test Round-to-Nearest-Ties-to-Even (RNE) rounding mode for f32 division.
+// Purpose: Verify that dividing f32 values that yield a result halfway between two representable values rounds to the even LSB.
+// Test Round-to-Nearest-Ties-to-Even (RNE) for f32 division.
+// 1.0 and 3.0 are representable in f32.
+// 1.0 / 3.0 = 0.3333333333... which is rounded to f32.
+// The nearest f32 representable value is 0.33333334 (specifically, 0.3333333432674408).
+fun @main() : i32 {
+  let %a: f32 = 1.0;
+  let %b: f32 = 3.0;
+  let mut %expected: f32 = 0.0;
+  let mut %r: f32 = 0.0;
+^entry:
+  %expected = 0.33333334 as f32;
+  %r = %a / %b;
+  require %r == %expected, "1.0 / 3.0 rounds to 0.33333334";
+  ret 0;
+}

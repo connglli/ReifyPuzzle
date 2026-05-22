@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// Intention: Test Round-Toward-Zero (RTZ) division truncation behavior for f32 modulo.
+// Purpose: Verify that floating-point modulo (%) on f32 uses RTZ truncation (matching C's fmod) instead of IEEE remainder.
+// Test Round-to-Zero (RTZ) truncation of quotient for f32 modulo (fmod).
+// 3.5 % 2.0 = 3.5 - trunc(3.5/2.0)*2.0 = 3.5 - 1.0*2.0 = 1.5.
+// -3.5 % 2.0 = -3.5 - trunc(-3.5/2.0)*2.0 = -3.5 - (-1.0)*2.0 = -1.5.
+fun @main() : i32 {
+  let %a1: f32 = 3.5;
+  let %b1: f32 = 2.0;
+  let %expected1: f32 = 1.5;
+  let %a2: f32 = -3.5;
+  let %b2: f32 = 2.0;
+  let %expected2: f32 = -1.5;
+  let mut %r1: f32 = 0.0;
+  let mut %r2: f32 = 0.0;
+^entry:
+  %r1 = %a1 % %b1;
+  %r2 = %a2 % %b2;
+  require %r1 == %expected1, "3.5 fmod 2.0 == 1.5";
+  require %r2 == %expected2, "-3.5 fmod 2.0 == -1.5";
+  ret 0;
+}

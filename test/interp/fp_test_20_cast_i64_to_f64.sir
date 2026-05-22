@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SKIP: COMPILER
+// Intention: Test cast from i64 to f64.
+// Purpose: Verify that converting a 64-bit integer to f64 applies RNE rounding when the value exceeds 53 bits of significand.
+// Test i64 to f64 cast using Round-to-Nearest-Ties-to-Even (RNE).
+// 9007199254740993 (2^53 + 1) is halfway, rounding to even LSB: 9007199254740992.0.
+// 9007199254740995 (2^53 + 3) is halfway, rounding to even LSB: 9007199254740996.0.
+fun @main() : i32 {
+  let %a1: i64 = 9007199254740993;
+  let %a2: i64 = 9007199254740995;
+  let %expected1: f64 = 9007199254740992.0;
+  let %expected2: f64 = 9007199254740996.0;
+  let mut %r1: f64 = 0.0;
+  let mut %r2: f64 = 0.0;
+^entry:
+  %r1 = %a1 as f64;
+  %r2 = %a2 as f64;
+  require %r1 == %expected1, "9007199254740993 as f64 rounds to 9007199254740992.0";
+  require %r2 == %expected2, "9007199254740995 as f64 rounds to 9007199254740996.0";
+  ret 0;
+}

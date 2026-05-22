@@ -1,0 +1,12 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: WASM
+// Intention: Test UB for out-of-bounds f64-to-i64 cast.
+// Purpose: Verify that casting a double value out of the representable i64 range is flagged as Undefined Behavior (SPEC Rule 8).
+// f64 1.0e20 cast to i64: out of i64 range [-2^63, 2^63-1], UB rule 8
+fun @main() : i64 {
+  let %a: f64 = 1.0e20;
+  let mut %r: i64 = 0;
+^entry:
+  %r = %a as i64;
+  ret %r;
+}

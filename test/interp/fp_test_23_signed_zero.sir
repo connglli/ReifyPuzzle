@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// Intention: Test signed zero (+0.0 vs -0.0) behavior.
+// Purpose: Verify that +0.0 and -0.0 compare equal, and that negating +0.0 yields -0.0 per IEEE 754.
+// Test signed zero properties.
+// +0.0 and -0.0 are distinct but compare equal.
+// Negating -0.0 yields +0.0 (or -(-0.0) == 0.0).
+fun @main() : i32 {
+  let %pos_zero: f32 = 0.0;
+  let %neg_zero: f32 = -0.0;
+  let mut %negated_neg: f32 = 0.0;
+^entry:
+  require %pos_zero == %neg_zero, "+0.0 == -0.0";
+  %negated_neg = 0.0 - %neg_zero;
+  require %negated_neg == 0.0, "-(-0.0) == 0.0";
+  ret 0;
+}

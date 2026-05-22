@@ -1,0 +1,12 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// Intention: Test UB for float narrowing cast overflow.
+// Purpose: Verify that casting a double-precision float to single-precision float that overflows to infinity is flagged as Undefined Behavior (SPEC Rule 6).
+// f64 1e40 cast to f32 overflows to ±inf: UB rule 6
+fun @main() : f32 {
+  let %a: f64 = 1.0e40;
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = %a as f32;
+  ret %r;
+}

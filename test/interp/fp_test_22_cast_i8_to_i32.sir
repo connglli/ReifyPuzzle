@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// Intention: Test sign-extending cast from i8 to i32.
+// Purpose: Verify that casting a signed 8-bit integer to i32 correctly performs sign-extension for both positive and negative values.
+// Test widening integer cast (sign extension).
+// -128 (0x80) as i32 -> -128 (0xFFFFFF80).
+// 127 (0x7F) as i32 -> 127 (0x0000007F).
+fun @main() : i32 {
+  let %a1: i8 = -128;
+  let %a2: i8 = 127;
+  let %expected1: i32 = -128;
+  let %expected2: i32 = 127;
+  let mut %r1: i32 = 0;
+  let mut %r2: i32 = 0;
+^entry:
+  %r1 = %a1 as i32;
+  %r2 = %a2 as i32;
+  require %r1 == %expected1, "-128 as i32 == -128";
+  require %r2 == %expected2, "127 as i32 == 127";
+  ret 0;
+}

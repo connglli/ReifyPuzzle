@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SKIP: COMPILER
+// Intention: Test cast from f64 to signed 32-bit integer (i32).
+// Purpose: Verify that casting f64 to i32 truncates the fractional part towards zero.
+// Test f64 to i32 cast with truncation toward zero.
+// 123456.789 as i32 -> 123456.
+// -123456.789 as i32 -> -123456.
+fun @main() : i32 {
+  let %a1: f64 = 123456.789;
+  let %a2: f64 = -123456.789;
+  let %expected1: i32 = 123456;
+  let %expected2: i32 = -123456;
+  let mut %r1: i32 = 0;
+  let mut %r2: i32 = 0;
+^entry:
+  %r1 = %a1 as i32;
+  %r2 = %a2 as i32;
+  require %r1 == %expected1, "123456.789 as i32 == 123456";
+  require %r2 == %expected2, "-123456.789 as i32 == -123456";
+  ret 0;
+}

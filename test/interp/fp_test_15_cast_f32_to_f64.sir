@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// Intention: Test widening cast from f32 to f64.
+// Purpose: Verify that widening cast preserves the exact value of the f32 source representation.
+// Test f32 to f64 widening cast (must be exact).
+fun @main() : i32 {
+  let %a: f32 = 1.25;
+  let %expected: f64 = 1.25;
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = %a as f64;
+  require %r == %expected, "1.25 as f64 == 1.25";
+  ret 0;
+}

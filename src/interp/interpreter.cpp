@@ -929,6 +929,12 @@ namespace symir {
               // double precision instead of being rounded to 268435456.0f
               // (round-to-nearest-even at the f32 boundary).
               res.floatVal = isF32 ? static_cast<double>(static_cast<float>(raw)) : raw;
+              // SPEC §6.4 / §7.4 rule 6: f64 -> f32 narrowing is UB if the
+              // result overflows to ±∞ (e.g. 1e40 as f32). Trap here for any
+              // FP -> f32 that produced ±∞ after rounding (integer sources
+              // can't overflow per spec, but the check covers them harmlessly).
+              if (isF32 && std::isinf(res.floatVal))
+                throw UndefinedBehaviorError("UB: Float narrowing cast overflows to infinity");
             }
             return res;
           }

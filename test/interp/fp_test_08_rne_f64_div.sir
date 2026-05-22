@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SKIP: COMPILER
+// Intention: Test Round-to-Nearest-Ties-to-Even (RNE) rounding mode for f64 division.
+// Purpose: Verify that dividing f64 values that yield a result halfway between two representable values rounds to the even LSB.
+// Test Round-to-Nearest-Ties-to-Even (RNE) for f64 division.
+// 1.0 and 3.0 are representable in f64.
+// 1.0 / 3.0 = 0.3333333333333333... which is rounded to f64.
+// The nearest f64 representable value is 0.3333333333333333.
+fun @main() : i32 {
+  let %a: f64 = 1.0;
+  let %b: f64 = 3.0;
+  let %expected: f64 = 0.3333333333333333;
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = %a / %b;
+  require %r == %expected, "1.0 / 3.0 rounds to 0.3333333333333333";
+  ret 0;
+}
