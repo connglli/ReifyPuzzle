@@ -83,6 +83,19 @@ namespace symir {
     // can't be inlined as a C expression.
     void emitVecCmpAssign(const LValue &lhs, const CmpAtom &c, const VecType &vt);
     void emitVecMaskSelectAssign(const LValue &lhs, const SelectAtom &s, const VecType &vt);
+    /// Per-lane C expression for a SelectVal at lane `kExpr`.
+    std::string sirSelectValLane(const SelectVal &sv, const VecType &vt, const std::string &kExpr);
+
+    /// [v0.2.1] Lane-unroll: compute the C expression for lane k of the
+    /// value produced by an Atom / Expr that yields a vector. Used by
+    /// the AssignInstr handler when the active strategy needs lane-wise
+    /// statement emission (scalars / array / struct*).
+    std::string emitVecAtomLane(const Atom &a, const VecType &vt, std::uint64_t k);
+    std::string emitVecExprLane(const Expr &e, const VecType &vt, std::uint64_t k);
+    /// Emit `lhs = rhs;` for a vector LHS, using lane-unroll if the
+    /// strategy requires it; falls back to the inline (vecext) path
+    /// otherwise.
+    void emitVecAssign(const LValue &lhs, const Expr &rhs, const VecType &vt);
 
     // Look up a struct field by name; returns nullptr if either the
     // struct or the field is unknown.

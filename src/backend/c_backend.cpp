@@ -350,6 +350,42 @@ namespace symir {
       for (const auto &l: f.lets) {
         CtxGuard ctx(isDoubleCtx_, isOrContainsF64(l.type));
 
+        // [v0.2.1] Vector locals route through the strategy: emit the
+        // declaration (which can be `T v[N]`, `T v_0, v_1, …` for scalars,
+        // or `struct ... v`), then emit per-lane initializers as separate
+        // statements so every strategy converges on the same code shape.
+        if (std::holds_alternative<VecType>(l.type->v)) {
+          auto &vt = std::get<VecType>(l.type->v);
+          std::string vName = mangleName(l.name.name);
+          indent();
+          vecLowering_->emitLocalDecl(out_, vName, vt);
+          out_ << ";\n";
+          if (l.init) {
+            if (l.init->kind == InitVal::Kind::Aggregate) {
+              const auto &elems = std::get<std::vector<InitValPtr>>(l.init->value);
+              for (std::uint64_t k = 0; k < vt.size && k < elems.size(); ++k) {
+                indent();
+                std::string lane = vecLowering_->emitLaneRead(vName, vt, std::to_string(k));
+                out_ << lane << " = ";
+                emitInitVal(*elems[k], vt.elem);
+                out_ << ";\n";
+              }
+            } else if (l.init->kind == InitVal::Kind::Undef) {
+              // undef: no init. Reading is UB by spec (caught by definite-init).
+            } else {
+              // Broadcast scalar.
+              for (std::uint64_t k = 0; k < vt.size; ++k) {
+                indent();
+                std::string lane = vecLowering_->emitLaneRead(vName, vt, std::to_string(k));
+                out_ << lane << " = ";
+                emitInitVal(*l.init, vt.elem);
+                out_ << ";\n";
+              }
+            }
+          }
+          continue;
+        }
+
         indent();
         TypePtr cur = l.type;
         std::vector<uint64_t> dims;
@@ -366,18 +402,6 @@ namespace symir {
           out_ << " = ";
           emitInitVal(*l.init, l.type);
           out_ << ";\n";
-        } else if (l.init && std::holds_alternative<VecType>(l.type->v)) {
-          // [v0.2.1] Vector broadcast init `let %v: <N> T = <scalar>;`.
-          // Emit a per-lane brace init so we don't rely on scalar-to-vector
-          // implicit conversion (which GCC vec-ext does not provide).
-          auto &vt = std::get<VecType>(l.type->v);
-          out_ << " = { ";
-          for (size_t k = 0; k < vt.size; ++k) {
-            if (k)
-              out_ << ", ";
-            emitInitVal(*l.init, vt.elem);
-          }
-          out_ << " };\n";
         } else if (l.init) {
           // Broadcast init
           if (!dims.empty() || std::holds_alternative<StructType>(l.type->v)) {
@@ -436,14 +460,13 @@ namespace symir {
                 using T = std::decay_t<decltype(arg)>;
                 if constexpr (std::is_same_v<T, AssignInstr>) {
                   CtxGuard ctx(isDoubleCtx_, isOrContainsF64(getLValueType(arg.lhs)));
-                  // [v0.2.1] Special-case vector atoms that need lane-wise
-                  // statement-level emission: CmpAtom and mask-form
-                  // SelectAtom. These can only appear as the entire RHS
-                  // (a single Atom Expr, no +/- tail).
-                  if (arg.rhs.rest.empty()) {
-                    auto lhsTy = getLValueType(arg.lhs);
-                    if (lhsTy && std::holds_alternative<VecType>(lhsTy->v)) {
-                      auto &vt = std::get<VecType>(lhsTy->v);
+                  // [v0.2.1] Vector LHS goes through strategy-aware paths.
+                  auto lhsTy = getLValueType(arg.lhs);
+                  if (lhsTy && std::holds_alternative<VecType>(lhsTy->v) &&
+                      arg.lhs.accesses.empty()) {
+                    auto &vt = std::get<VecType>(lhsTy->v);
+                    // CmpAtom and mask-form SelectAtom are always lane-unroll.
+                    if (arg.rhs.rest.empty()) {
                       if (auto cmpA = std::get_if<CmpAtom>(&arg.rhs.first.v)) {
                         emitVecCmpAssign(arg.lhs, *cmpA, vt);
                         return;
@@ -455,6 +478,11 @@ namespace symir {
                         }
                       }
                     }
+                    if (vecLowering_->needsLaneUnroll()) {
+                      emitVecAssign(arg.lhs, arg.rhs, vt);
+                      return;
+                    }
+                    // vecext: fall through to the inline expression path.
                   }
                   emitLValue(arg.lhs);
                   out_ << " = ";
@@ -768,10 +796,32 @@ namespace symir {
     return "/*?*/";
   }
 
+  // [v0.2.1] Per-lane C expression for a SelectVal. Delegates lane access
+  // to the active VecLowering so each strategy picks its lane syntax.
+  std::string
+  CBackend::sirSelectValLane(const SelectVal &sv, const VecType &vt, const std::string &kExpr) {
+    if (auto rv = std::get_if<RValue>(&sv)) {
+      return vecLowering_->emitLaneRead(sirMangle(rv->base.name), vt, kExpr);
+    }
+    if (auto cf = std::get_if<Coef>(&sv)) {
+      if (auto i = std::get_if<IntLit>(cf))
+        return std::to_string(i->value);
+      if (auto f = std::get_if<FloatLit>(cf)) {
+        std::ostringstream os;
+        os.precision(17);
+        os << f->value;
+        return os.str();
+      }
+      if (auto id = std::get_if<LocalOrSymId>(cf)) {
+        std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
+        return sirMangle(nm);
+      }
+    }
+    return "/*?*/";
+  }
+
   void CBackend::emitVecCmpAssign(const LValue &lhs, const CmpAtom &c, const VecType &vt) {
     std::string dst = sirMangle(lhs.base.name);
-    std::string l = sirSelectValToC(c.lhs);
-    std::string r = sirSelectValToC(c.rhs);
     const char *op = nullptr;
     switch (c.op) {
       case RelOp::EQ:
@@ -793,30 +843,245 @@ namespace symir {
         op = ">=";
         break;
     }
-    out_ << "for (int _i = 0; _i < " << vt.size << "; ++_i) " << dst << "[_i] = ((" << l << ")[_i] "
-         << op << " (" << r << ")[_i]) ? 1 : 0;\n";
+    VecType operandVt = vt;
+    if (auto rv = std::get_if<RValue>(&c.lhs)) {
+      auto t = getLValueType(*rv);
+      if (t && std::holds_alternative<VecType>(t->v))
+        operandVt = std::get<VecType>(t->v);
+    }
+    for (std::uint64_t k = 0; k < vt.size; ++k) {
+      std::string kS = std::to_string(k);
+      std::string dstLane = vecLowering_->emitLaneRead(dst, vt, kS);
+      std::string l = sirSelectValLane(c.lhs, operandVt, kS);
+      std::string r = sirSelectValLane(c.rhs, operandVt, kS);
+      if (k) {
+        out_ << ";\n";
+        indent();
+      }
+      out_ << dstLane << " = ((" << l << ") " << op << " (" << r << ")) ? 1 : 0";
+    }
+    out_ << ";\n";
   }
 
   void
   CBackend::emitVecMaskSelectAssign(const LValue &lhs, const SelectAtom &s, const VecType &vt) {
     std::string dst = sirMangle(lhs.base.name);
-    // Mask form: arg.maskExpr is a single Expr — for the test surface we
-    // need only the simplest case (mask is a single RValue local).
-    // Emit the mask expression into a temporary so any complex form works.
-    std::string maskTmp = dst + "__mask";
-    // Generate the mask's vector type: lane = i1, count = vt.size.
-    // The mask is <N> i1; in vecext, i1 lanes are int8_t (typeString of `<N> i1`).
-    auto i1ElemTy = std::make_shared<Type>();
-    i1ElemTy->v = IntType{IntType::Kind::ICustom, 1, {}};
-    VecType maskVt{vt.size, i1ElemTy, {}};
-    std::string maskType = vecLowering_->typeString(maskVt);
-    out_ << maskType << " " << maskTmp << " = ";
-    emitExpr(*s.maskExpr);
+    if (!s.maskExpr->rest.empty())
+      throw std::runtime_error("Mask-form select: complex mask expressions not yet lowered to C");
+    auto maskRv = std::get_if<RValueAtom>(&s.maskExpr->first.v);
+    if (!maskRv)
+      throw std::runtime_error("Mask-form select: mask must be a vector local for codegen");
+    auto maskTy = getLValueType(maskRv->rval);
+    if (!maskTy || !std::holds_alternative<VecType>(maskTy->v))
+      throw std::runtime_error("Mask-form select: mask must have vector type");
+    auto &maskVt = std::get<VecType>(maskTy->v);
+    std::string maskName = sirMangle(maskRv->rval.base.name);
+
+    VecType armVt = vt;
+    if (auto rv = std::get_if<RValue>(&s.vtrue)) {
+      auto t = getLValueType(*rv);
+      if (t && std::holds_alternative<VecType>(t->v))
+        armVt = std::get<VecType>(t->v);
+    }
+
+    for (std::uint64_t k = 0; k < vt.size; ++k) {
+      std::string kS = std::to_string(k);
+      std::string dstLane = vecLowering_->emitLaneRead(dst, vt, kS);
+      std::string maskLane = vecLowering_->emitLaneRead(maskName, maskVt, kS);
+      std::string vtLane = sirSelectValLane(s.vtrue, armVt, kS);
+      std::string vfLane = sirSelectValLane(s.vfalse, armVt, kS);
+      if (k) {
+        out_ << ";\n";
+        indent();
+      }
+      out_ << dstLane << " = (" << maskLane << ") ? (" << vtLane << ") : (" << vfLane << ")";
+    }
     out_ << ";\n";
-    indent();
-    out_ << "for (int _i = 0; _i < " << vt.size << "; ++_i) " << dst << "[_i] = (" << maskTmp
-         << ")[_i] ? (" << sirSelectValToC(s.vtrue) << ")[_i] : (" << sirSelectValToC(s.vfalse)
-         << ")[_i];\n";
+  }
+
+  // [v0.2.1] emitVecAtomLane: return a C expression for lane k of an Atom
+  // that yields a vector value. Used by the lane-unroll path when the
+  // active strategy can't lower vector ops as native C operators.
+  std::string CBackend::emitVecAtomLane(const Atom &a, const VecType &vt, std::uint64_t k) {
+    std::string kS = std::to_string(k);
+    return std::visit(
+        [&](auto &&arg) -> std::string {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, RValueAtom>) {
+            // Vector lvalue → lane k via strategy.
+            std::string base = sirMangle(arg.rval.base.name);
+            if (arg.rval.accesses.empty()) {
+              return vecLowering_->emitLaneRead(base, vt, kS);
+            }
+            // Path with accesses (struct fields, etc.) — fall back to
+            // emitLValue + lane subscript. Not exercised by our tests.
+            return base + "/* nested */" + "[" + kS + "]";
+          } else if constexpr (std::is_same_v<T, CoefAtom>) {
+            // Literal broadcasts.
+            if (auto i = std::get_if<IntLit>(&arg.coef))
+              return std::to_string(i->value);
+            if (auto f = std::get_if<FloatLit>(&arg.coef)) {
+              std::ostringstream os;
+              os.precision(17);
+              os << f->value;
+              return os.str();
+            }
+            if (auto id = std::get_if<LocalOrSymId>(&arg.coef)) {
+              std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
+              // If it names a vector local/sym, take lane k; else broadcast.
+              auto vinfo = varTypes_.find(nm);
+              if (vinfo != varTypes_.end() && std::holds_alternative<VecType>(vinfo->second->v)) {
+                auto &vvt = std::get<VecType>(vinfo->second->v);
+                return vecLowering_->emitLaneRead(sirMangle(nm), vvt, kS);
+              }
+              return sirMangle(nm);
+            }
+            return "/*?coef*/";
+          } else if constexpr (std::is_same_v<T, OpAtom>) {
+            // coef <op> rval, lane-wise. coef may be a literal (broadcast)
+            // or a vector lvalue.
+            std::string coefLane;
+            if (auto i = std::get_if<IntLit>(&arg.coef))
+              coefLane = std::to_string(i->value);
+            else if (auto f = std::get_if<FloatLit>(&arg.coef)) {
+              std::ostringstream os;
+              os.precision(17);
+              os << f->value;
+              coefLane = os.str();
+            } else if (auto id = std::get_if<LocalOrSymId>(&arg.coef)) {
+              std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
+              auto vinfo = varTypes_.find(nm);
+              if (vinfo != varTypes_.end() && std::holds_alternative<VecType>(vinfo->second->v)) {
+                auto &vvt = std::get<VecType>(vinfo->second->v);
+                coefLane = vecLowering_->emitLaneRead(sirMangle(nm), vvt, kS);
+              } else {
+                coefLane = sirMangle(nm);
+              }
+            } else {
+              coefLane = "/*?coef*/";
+            }
+            std::string rvalLane =
+                vecLowering_->emitLaneRead(sirMangle(arg.rval.base.name), vt, kS);
+            const char *op = nullptr;
+            switch (arg.op) {
+              case AtomOpKind::Mul:
+                op = "*";
+                break;
+              case AtomOpKind::Div:
+                op = "/";
+                break;
+              case AtomOpKind::Mod:
+                op = "%";
+                break;
+              case AtomOpKind::And:
+                op = "&";
+                break;
+              case AtomOpKind::Or:
+                op = "|";
+                break;
+              case AtomOpKind::Xor:
+                op = "^";
+                break;
+              case AtomOpKind::Shl:
+                op = "<<";
+                break;
+              case AtomOpKind::Shr:
+                op = ">>";
+                break;
+              case AtomOpKind::LShr:
+                op = ">>";
+                break;
+            }
+            // Float % needs fmod / fmodf.
+            bool isFloat = vt.elem && std::holds_alternative<FloatType>(vt.elem->v);
+            if (arg.op == AtomOpKind::Mod && isFloat) {
+              const char *fn =
+                  (std::get<FloatType>(vt.elem->v).kind == FloatType::Kind::F32) ? "fmodf" : "fmod";
+              return std::string(fn) + "((" + coefLane + "), (" + rvalLane + "))";
+            }
+            if (arg.op == AtomOpKind::LShr) {
+              // Logical (unsigned) right-shift: cast lane to unsigned.
+              return "((unsigned long long)(" + coefLane + ") >> (" + rvalLane + "))";
+            }
+            return "((" + coefLane + ") " + op + " (" + rvalLane + "))";
+          } else if constexpr (std::is_same_v<T, UnaryAtom>) {
+            std::string rvalLane =
+                vecLowering_->emitLaneRead(sirMangle(arg.rval.base.name), vt, kS);
+            return "(~(" + rvalLane + "))";
+          } else if constexpr (std::is_same_v<T, CastAtom>) {
+            // src is LValue (or literal/sym, but those aren't vectors).
+            auto lv = std::get_if<LValue>(&arg.src);
+            if (!lv)
+              return "/*?cast*/";
+            auto srcTy = getLValueType(*lv);
+            if (!srcTy || !std::holds_alternative<VecType>(srcTy->v))
+              return "/*?cast2*/";
+            auto &srcVt = std::get<VecType>(srcTy->v);
+            std::string srcLane = vecLowering_->emitLaneRead(sirMangle(lv->base.name), srcVt, kS);
+            // C cast on scalar lane.
+            std::ostringstream os;
+            os << "((";
+            // Element C type from vt:
+            if (auto it = std::get_if<IntType>(&vt.elem->v)) {
+              int bits = it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
+              if (bits <= 8)
+                os << "int8_t";
+              else if (bits <= 16)
+                os << "int16_t";
+              else if (bits <= 32)
+                os << "int32_t";
+              else
+                os << "int64_t";
+            } else if (auto ft = std::get_if<FloatType>(&vt.elem->v)) {
+              os << (ft->kind == FloatType::Kind::F32 ? "float" : "double");
+            }
+            os << ")(" << srcLane << "))";
+            return os.str();
+          } else {
+            // Other atoms (cmp / mask-select / load / addr) aren't handled
+            // by the lane-unroll path — they're special-cased at
+            // AssignInstr level above.
+            return "/*?atom*/";
+          }
+        },
+        a.v
+    );
+  }
+
+  std::string CBackend::emitVecExprLane(const Expr &e, const VecType &vt, std::uint64_t k) {
+    std::string result = emitVecAtomLane(e.first, vt, k);
+    for (const auto &tail: e.rest) {
+      std::string rhs = emitVecAtomLane(tail.atom, vt, k);
+      const char *op = (tail.op == AddOp::Plus) ? "+" : "-";
+      result = "(" + result + " " + op + " " + rhs + ")";
+    }
+    return result;
+  }
+
+  void CBackend::emitVecAssign(const LValue &lhs, const Expr &rhs, const VecType &vt) {
+    std::string dst = sirMangle(lhs.base.name);
+    // Whole-vector copy fast path: RHS is a single bare RValueAtom of
+    // the same vector type — let the strategy emit one copy statement.
+    if (rhs.rest.empty()) {
+      if (auto rv = std::get_if<RValueAtom>(&rhs.first.v)) {
+        if (rv->rval.accesses.empty()) {
+          auto srcTy = getLValueType(rv->rval);
+          if (srcTy && std::holds_alternative<VecType>(srcTy->v)) {
+            vecLowering_->emitWholeCopy(out_, dst, sirMangle(rv->rval.base.name), vt);
+            out_ << ";\n";
+            return;
+          }
+        }
+      }
+    }
+    // Unroll: emit one statement per lane.
+    for (std::uint64_t k = 0; k < vt.size; ++k) {
+      if (k) {
+        indent();
+      }
+      std::string dstLane = vecLowering_->emitLaneRead(dst, vt, std::to_string(k));
+      out_ << dstLane << " = " << emitVecExprLane(rhs, vt, k) << ";\n";
+    }
   }
 
   void CBackend::emitCond(const Cond &cond) {
@@ -851,6 +1116,33 @@ namespace symir {
   }
 
   void CBackend::emitLValue(const LValue &lv) {
+    // [v0.2.1] Vector lane access through the LValue path goes through the
+    // strategy's emitLaneRead so each strategy controls its lane syntax
+    // (vecext: `name[k]`; scalars: `name_k`; structarray: `name.lanes[k]`;
+    // structscalars: `name.l<k>`).
+    if (lv.accesses.size() == 1) {
+      if (auto ai = std::get_if<AccessIndex>(&lv.accesses[0])) {
+        auto baseTy = getLValueType(LValue{lv.base, {}, lv.span});
+        if (baseTy && std::holds_alternative<VecType>(baseTy->v)) {
+          auto &vt = std::get<VecType>(baseTy->v);
+          std::ostringstream idxStream;
+          {
+            std::ostream &saved =
+                const_cast<std::ostream &>(static_cast<const std::ostream &>(out_));
+            (void) saved;
+          }
+          // Render the index into a string; reuse emitIndex via a tmp stream.
+          std::ostringstream tmp;
+          std::ostream &orig = out_; // emitIndex writes to out_; rebind temporarily.
+          // Trick: temporarily swap rdbuf.
+          std::streambuf *origBuf = orig.rdbuf(tmp.rdbuf());
+          emitIndex(ai->index);
+          orig.rdbuf(origBuf);
+          out_ << vecLowering_->emitLaneRead(mangleName(lv.base.name), vt, tmp.str());
+          return;
+        }
+      }
+    }
     out_ << mangleName(lv.base.name);
     for (const auto &acc: lv.accesses) {
       if (auto ai = std::get_if<AccessIndex>(&acc)) {

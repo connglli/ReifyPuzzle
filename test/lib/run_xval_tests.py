@@ -53,7 +53,7 @@ def _parse_expect_rc(sir_path):
   return None
 
 
-def run_xval_test(symiri_path, symirc_path, gcc_path):
+def run_xval_test(symiri_path, symirc_path, gcc_path, symirc_extra=None):
   def test_func(file_path, expectation, args, skips):
     if "XVAL" in skips:
       return TestResult.SKIP, "Skipped by XVAL tag"
@@ -88,8 +88,11 @@ def run_xval_test(symiri_path, symirc_path, gcc_path):
       main_c = os.path.join(td, "main.c")
       exe = os.path.join(td, "exe")
 
+      symirc_cmd = [symirc_path, file_path, "--target", "c", "-o", c_out]
+      if symirc_extra:
+        symirc_cmd.extend(symirc_extra)
       r = subprocess.run(
-        [symirc_path, file_path, "--target", "c", "-o", c_out],
+        symirc_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -150,13 +153,25 @@ def run_xval_test(symiri_path, symirc_path, gcc_path):
 
 
 if __name__ == "__main__":
-  if len(sys.argv) < 4:
+  # Pull --symirc-extra=... out of argv (one flag, value is the extra
+  # arg string passed verbatim to symirc, e.g. `--vec-lowering=array`).
+  symirc_extra = []
+  argv = list(sys.argv)
+  i = 1
+  while i < len(argv):
+    if argv[i].startswith("--symirc-extra="):
+      symirc_extra = argv[i].split("=", 1)[1].split()
+      del argv[i]
+    else:
+      i += 1
+  if len(argv) < 4:
     print(
-      "Usage: python3 -m test.lib.run_xval_tests <test_dir> <symiri> <symirc> [gcc]"
+      "Usage: python3 -m test.lib.run_xval_tests <test_dir> <symiri> <symirc> [gcc] "
+      "[--symirc-extra='...']"
     )
     sys.exit(1)
-  test_dir = sys.argv[1]
-  symiri = sys.argv[2]
-  symirc = sys.argv[3]
-  gcc = sys.argv[4] if len(sys.argv) > 4 else "gcc"
-  run_test_suite(test_dir, run_xval_test(symiri, symirc, gcc))
+  test_dir = argv[1]
+  symiri = argv[2]
+  symirc = argv[3]
+  gcc = argv[4] if len(argv) > 4 else "gcc"
+  run_test_suite(test_dir, run_xval_test(symiri, symirc, gcc, symirc_extra))

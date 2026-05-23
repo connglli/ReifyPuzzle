@@ -70,48 +70,6 @@ namespace symir {
       return "_vec_" + std::to_string(vt.size) + "_" + elemSuffix(vt.elem);
     }
 
-    const char *opStr(AtomOpKind k) {
-      switch (k) {
-        case AtomOpKind::Mul:
-          return "*";
-        case AtomOpKind::Div:
-          return "/";
-        case AtomOpKind::Mod:
-          return "%"; // float lanes use fmod handled by caller; vec-ext doesn't have a fmod op
-        case AtomOpKind::And:
-          return "&";
-        case AtomOpKind::Or:
-          return "|";
-        case AtomOpKind::Xor:
-          return "^";
-        case AtomOpKind::Shl:
-          return "<<";
-        case AtomOpKind::Shr:
-          return ">>";
-        case AtomOpKind::LShr:
-          return ">>"; // for unsigned cast inside, see emitBinOp
-      }
-      return "?";
-    }
-
-    const char *relStr(RelOp op) {
-      switch (op) {
-        case RelOp::EQ:
-          return "==";
-        case RelOp::NE:
-          return "!=";
-        case RelOp::LT:
-          return "<";
-        case RelOp::LE:
-          return "<=";
-        case RelOp::GT:
-          return ">";
-        case RelOp::GE:
-          return ">=";
-      }
-      return "?";
-    }
-
   } // namespace
 
   class VecExtLowering : public VecLowering {
@@ -176,81 +134,28 @@ namespace symir {
       out << lhs << " = " << rhs;
     }
 
-    void emitBinOp(
-        std::ostream &out, const std::string &dst, AtomOpKind op, const std::string &lhs,
-        const std::string &rhs, const VecType &vt
-    ) override {
-      bool isFloat = vt.elem && std::holds_alternative<FloatType>(vt.elem->v);
-      if (op == AtomOpKind::Mod && isFloat) {
-        // GCC vec-ext doesn't have a vector fmod. Fall back to a small
-        // per-lane loop using fmodf/fmod. Emit as a comma-sep block.
-        // We emit a do-while(0) so the macro-style block is statement-safe.
-        const char *fn =
-            (std::get<FloatType>(vt.elem->v).kind == FloatType::Kind::F32) ? "fmodf" : "fmod";
-        out << "do { for (int _i = 0; _i < " << vt.size << "; ++_i) (" << dst << ")[_i] = " << fn
-            << "((" << lhs << ")[_i], (" << rhs << ")[_i]); } while(0)";
-        return;
-      }
-      if (op == AtomOpKind::LShr) {
-        // Logical shift: cast lhs to unsigned vector type, shift, cast back.
-        // We do this lane-wise to avoid needing a second vec-ext typedef.
-        out << "do { for (int _i = 0; _i < " << vt.size << "; ++_i) (" << dst << ")[_i] = (typeof(("
-            << lhs << ")[0]))((unsigned long long)(" << lhs << ")[_i] >> (" << rhs
-            << ")[_i]); } while(0)";
-        return;
-      }
-      out << dst << " = " << lhs << " " << opStr(op) << " " << rhs;
-    }
-
-    void emitUnaryNot(
-        std::ostream &out, const std::string &dst, const std::string &src, const VecType &vt
-    ) override {
-      (void) vt;
-      out << dst << " = ~" << src;
-    }
-
-    void emitCmp(
-        std::ostream &out, const std::string &dst, RelOp op, const std::string &lhs,
-        const std::string &rhs, const VecType &operandVt
-    ) override {
-      // GCC vec-ext compare returns a vector of all-ones (true) / 0 (false)
-      // of the same lane width as the operands. The interpreter uses 0/1
-      // for <N> i1, so we mask the result with `& 1` per lane to land on
-      // the same representation. Since the dst is `<N> i1` (stored as i8
-      // lanes per our `i1 -> int8_t` mapping), we also need to truncate
-      // to i8 widths. We do all of that in one per-lane loop.
-      const char *cmp = relStr(op);
-      out << "do { for (int _i = 0; _i < " << operandVt.size << "; ++_i) (" << dst << ")[_i] = (("
-          << lhs << ")[_i] " << cmp << " (" << rhs << ")[_i]) ? 1 : 0; } while(0)";
-    }
-
-    void emitMaskSelect(
-        std::ostream &out, const std::string &dst, const std::string &mask,
-        const std::string &vtArg, const std::string &vfArg, const VecType &operandVt
-    ) override {
-      // Per-lane blend. We rely on the interpreter's 0/1 mask representation.
-      out << "do { for (int _i = 0; _i < " << operandVt.size << "; ++_i) (" << dst << ")[_i] = (("
-          << mask << ")[_i]) ? (" << vtArg << ")[_i] : (" << vfArg << ")[_i]; } while(0)";
-    }
-
-    void emitCast(
-        std::ostream &out, const std::string &dst, const std::string &src, const VecType &srcVt,
-        const VecType &dstVt
-    ) override {
-      (void) srcVt;
-      // Per-lane scalar cast. The C compiler picks RNE for int->float and
-      // truncation toward zero for float->int (matches our spec §6.4).
-      out << "do { for (int _i = 0; _i < " << dstVt.size << "; ++_i) (" << dst << ")[_i] = ("
-          << elemCType(dstVt.elem) << ")(" << src << ")[_i]; } while(0)";
-    }
-
     bool canCrossFnBoundary() const override { return true; }
+
+    bool needsLaneUnroll() const override { return false; }
   };
+
+  // Phase-2 strategy constructors live in their own translation units.
+  std::unique_ptr<VecLowering> makeArrayLowering();
+  std::unique_ptr<VecLowering> makeScalarsLowering();
+  std::unique_ptr<VecLowering> makeStructArrayLowering();
+  std::unique_ptr<VecLowering> makeStructScalarsLowering();
 
   std::unique_ptr<VecLowering> makeVecLowering(const std::string &name) {
     if (name == "vecext")
       return std::make_unique<VecExtLowering>();
-    // struct / scalars / array — Phase 2.
+    if (name == "array")
+      return makeArrayLowering();
+    if (name == "scalars")
+      return makeScalarsLowering();
+    if (name == "structarray")
+      return makeStructArrayLowering();
+    if (name == "structscalars")
+      return makeStructScalarsLowering();
     return nullptr;
   }
 

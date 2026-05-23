@@ -56,7 +56,11 @@ COMMON_SRCS = src/frontend/lexer.cpp src/frontend/parser.cpp src/frontend/ast_du
 
 TEST_SRCS =
 INTERP_SRCS = src/symiri.cpp src/interp/interpreter.cpp
-COMPILER_SRCS = src/symirc.cpp src/backend/c_backend.cpp src/backend/wasm_backend.cpp src/backend/vec_lowering_vecext.cpp
+COMPILER_SRCS = src/symirc.cpp src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
+                src/backend/vec_lowering_vecext.cpp \
+                src/backend/vec_lowering_array.cpp \
+                src/backend/vec_lowering_scalars.cpp \
+                src/backend/vec_lowering_struct.cpp
 SOLVER_MAIN_SRCS = src/symirsolve.cpp src/solver/solver.cpp
 SOLVER_ALL_SRCS = $(SOLVER_MAIN_SRCS) $(SOLVER_SRCS)
 REIFY_SRCS = src/reify/cfg_gen.cpp src/reify/path_sampler.cpp \
@@ -86,6 +90,9 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                src/interp/interpreter.o \
                src/backend/c_backend.o \
                src/backend/vec_lowering_vecext.o \
+               src/backend/vec_lowering_array.o \
+               src/backend/vec_lowering_scalars.o \
+               src/backend/vec_lowering_struct.o \
                src/backend/wasm_backend.o \
                src/solver/solver.o \
                $(SOLVER_IMPL_OBJ)

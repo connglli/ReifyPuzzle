@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
     ("Werror", "Make all warnings into errors", cxxopts::value<bool>()->default_value("false"))
     ("no-module-tags", "Omit (module ...) tags in WASM output", cxxopts::value<bool>()->default_value("false"))
     ("no-require", "Omit require checks from emitted code (useful for compiler testing)", cxxopts::value<bool>()->default_value("false"))
-    ("vec-lowering", "C-backend vector lowering: vecext|scalars|array|structscalars|structarray (default: vecext) [v0.2.1]", cxxopts::value<std::string>()->default_value("vecext"))
+    ("vec-lowering", "C-backend vector lowering: vecext|scalars|array|structscalars|structarray", cxxopts::value<std::string>()->default_value("vecext"))
     ("h,help", "Print usage");
   options.parse_positional({"input"});
   // clang-format on

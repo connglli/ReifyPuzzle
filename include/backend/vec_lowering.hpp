@@ -57,42 +57,10 @@ namespace symir {
     ) = 0;
 
     /// Whole-vector copy `lhs = rhs;`. For vecext/struct: one assignment.
-    /// For scalars/array: per-lane copies.
+    /// For scalars/array: per-lane copies. Emits statement(s) without a
+    /// trailing semicolon.
     virtual void emitWholeCopy(
         std::ostream &out, const std::string &lhs, const std::string &rhs, const VecType &vt
-    ) = 0;
-
-    /// Lane-wise binary op `dst = lhs <op> rhs;`. Coef-broadcast is handled
-    /// by the caller — both `lhs` and `rhs` already reference vector
-    /// values at this point.
-    virtual void emitBinOp(
-        std::ostream &out, const std::string &dst, AtomOpKind op, const std::string &lhs,
-        const std::string &rhs, const VecType &vt
-    ) = 0;
-
-    /// Lane-wise unary `~`.
-    virtual void emitUnaryNot(
-        std::ostream &out, const std::string &dst, const std::string &src, const VecType &vt
-    ) = 0;
-
-    /// cmp -> mask vector. The output is `<N> i1` (lane scalar `i1`); the
-    /// strategy decides how `i1` is represented (vecext: -1/0 lanes;
-    /// others: 1/0 lanes).
-    virtual void emitCmp(
-        std::ostream &out, const std::string &dst, RelOp op, const std::string &lhs,
-        const std::string &rhs, const VecType &operandVt
-    ) = 0;
-
-    /// Mask-based select per lane.
-    virtual void emitMaskSelect(
-        std::ostream &out, const std::string &dst, const std::string &mask,
-        const std::string &vtArg, const std::string &vfArg, const VecType &operandVt
-    ) = 0;
-
-    /// Lane-wise cast.
-    virtual void emitCast(
-        std::ostream &out, const std::string &dst, const std::string &src, const VecType &srcVt,
-        const VecType &dstVt
     ) = 0;
 
     /// May a vector cross a C function boundary? `false` for `scalars`
@@ -100,6 +68,13 @@ namespace symir {
     /// decays arrays to pointers); the C backend refuses to emit a vector
     /// param or return if this is false.
     virtual bool canCrossFnBoundary() const = 0;
+
+    /// True iff this strategy needs lane-by-lane statement emission for
+    /// vector arithmetic (i.e., C arithmetic operators *don't* work
+    /// natively on the lowered C type). `vecext` is the only "false";
+    /// `scalars`, `array`, `structscalars`, `structarray` all return true
+    /// so the C backend emits per-lane statements at AssignInstr.
+    virtual bool needsLaneUnroll() const = 0;
   };
 
   /**
