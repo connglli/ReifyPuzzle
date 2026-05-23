@@ -40,6 +40,12 @@ namespace symir {
       std::string message;
       using ModelVal = std::variant<int64_t, double>;
       std::unordered_map<std::string, ModelVal> model;
+      // [v0.2.1] Per-lane model for vector syms. Populated only for syms
+      // of vector type. Each entry holds N lane values matching the sym's
+      // declared `<N> T` shape. Floats stored as bit-exact int64 too (so
+      // a single map type fits both `<N> iM` and `<N> fM` cases —
+      // consumers reinterpret as needed).
+      std::unordered_map<std::string, std::vector<ModelVal>> vecModel;
     };
 
     /**
@@ -73,7 +79,10 @@ namespace symir {
      * Maps to SMT terms or nested aggregate structures.
      */
     struct SymbolicValue {
-      enum class Kind { Int, Array, Struct, Undef } kind = Kind::Undef;
+      // [v0.2.1] Vec: N-lane tuple (held in arrayVal, same shape as Array).
+      // Distinguished from Array so the solver can apply lane-wise UB
+      // semantics and the C-backend-compatible 0/1 mask representation.
+      enum class Kind { Int, Array, Struct, Undef, Vec } kind = Kind::Undef;
       smt::Term term;       // For scalar Int (the BV value)
       smt::Term is_defined; // Boolean term: true if value is defined
       std::vector<SymbolicValue> arrayVal;
@@ -96,6 +105,16 @@ namespace symir {
     // --- Symbolic evaluation helpers ---
     SymbolicValue
     mergeAggregate(const std::vector<SymbolicValue> &elements, smt::Term idx, smt::ISolver &solver);
+
+    // [v0.2.1] Evaluate an Expr whose value is a vector, returning a
+    // SymbolicValue of Kind::Vec. Used by AssignInstr when the LHS is
+    // vector-typed. Handles CoefAtom/RValueAtom (whole-vector reference),
+    // OpAtom (per-lane scalar arith with coef-broadcast), UnaryAtom,
+    // CmpAtom (vec→<N>i1), and mask-form SelectAtom.
+    SymbolicValue evalVecExpr(
+        const Expr &e, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
+        std::vector<smt::Term> &pc
+    );
 
     smt::Term evalExpr(
         const Expr &e, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,

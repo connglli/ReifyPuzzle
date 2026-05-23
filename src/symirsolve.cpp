@@ -135,8 +135,8 @@ int main(int argc, char **argv) {
     }
 #endif
 
-    auto solverFactory = [](const SymbolicExecutor::Config &cfg
-                         ) -> std::unique_ptr<symir::smt::ISolver> {
+    auto solverFactory =
+        [](const SymbolicExecutor::Config &cfg) -> std::unique_ptr<symir::smt::ISolver> {
 #if defined(USE_ALIVESMT)
       return std::make_unique<symir::solver::AliveSolver>(
           cfg.timeout_ms, cfg.seed, cfg.num_smt_threads
@@ -201,7 +201,7 @@ int main(int argc, char **argv) {
                     << std::endl;
           return 1;
         }
-        SIRPrinter printer(ofs, res.model);
+        SIRPrinter printer(ofs, res.model, res.vecModel);
         printer.print(prog);
       }
 

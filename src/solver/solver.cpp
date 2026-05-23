@@ -58,6 +58,10 @@ namespace symir {
     if (auto pa = std::get_if<PtrType>(&a->v)) {
       return typeMatch(pa->pointee, std::get<PtrType>(b->v).pointee);
     }
+    if (auto pa = std::get_if<VecType>(&a->v)) {
+      auto pb = std::get_if<VecType>(&b->v);
+      return pa->size == pb->size && typeMatch(pa->elem, pb->elem);
+    }
     // Aggregate types as pointees are not supported in current solver dispatch.
     return false;
   }
@@ -104,6 +108,13 @@ namespace symir {
     if (std::holds_alternative<PtrType>(t->v)) {
       return solver.make_bv_sort(kPtrBits);
     }
+    if (auto vt = std::get_if<VecType>(&t->v)) {
+      // [v0.2.1] Vectors aren't a single SMT sort; lanes are held as N
+      // independent terms in SymbolicValue::arrayVal. getSort returns the
+      // lane sort so any downstream caller that wants "what kind of term
+      // is in each lane?" gets the right answer.
+      return getSort(vt->elem, solver);
+    }
     throw std::runtime_error("Unknown type or empty struct in getSort");
   }
 
@@ -116,6 +127,16 @@ namespace symir {
       for (size_t i = 0; i < at->size; ++i) {
         res.arrayVal.push_back(
             createSymbolicValue(at->elem, name + "[" + std::to_string(i) + "]", solver)
+        );
+      }
+    } else if (auto vt = std::get_if<VecType>(&t->v)) {
+      // [v0.2.1] Vector sym: N independent lane-symbolic constants
+      // (§9.5.1). Same shape as Array but tagged Vec so downstream
+      // dispatch picks the lane-wise UB path.
+      res.kind = SymbolicValue::Kind::Vec;
+      for (size_t i = 0; i < vt->size; ++i) {
+        res.arrayVal.push_back(
+            createSymbolicValue(vt->elem, name + "[" + std::to_string(i) + "]", solver)
         );
       }
     } else if (auto st = std::get_if<StructType>(&t->v)) {
@@ -141,6 +162,10 @@ namespace symir {
       res.kind = SymbolicValue::Kind::Array;
       for (size_t i = 0; i < at->size; ++i)
         res.arrayVal.push_back(makeUndef(at->elem, solver));
+    } else if (auto vt = std::get_if<VecType>(&t->v)) {
+      res.kind = SymbolicValue::Kind::Vec;
+      for (size_t i = 0; i < vt->size; ++i)
+        res.arrayVal.push_back(makeUndef(vt->elem, solver));
     } else if (auto st = std::get_if<StructType>(&t->v)) {
       res.kind = SymbolicValue::Kind::Struct;
       auto it = structs_.find(st->name.name);
@@ -164,6 +189,13 @@ namespace symir {
       const auto &at = std::get<ArrayType>(t->v);
       for (size_t i = 0; i < at.size; ++i)
         res.arrayVal.push_back(broadcast(at.elem, val, solver));
+      return res;
+    } else if (std::holds_alternative<VecType>(t->v)) {
+      SymbolicValue res;
+      res.kind = SymbolicValue::Kind::Vec;
+      const auto &vt = std::get<VecType>(t->v);
+      for (size_t i = 0; i < vt.size; ++i)
+        res.arrayVal.push_back(broadcast(vt.elem, val, solver));
       return res;
     } else if (std::holds_alternative<StructType>(t->v)) {
       SymbolicValue res;
@@ -196,6 +228,12 @@ namespace symir {
         res.kind = SymbolicValue::Kind::Array;
         for (size_t i = 0; i < elements.size(); ++i)
           res.arrayVal.push_back(evalInit(*elements[i], at->elem, solver, store));
+        return res;
+      } else if (auto vt = std::get_if<VecType>(&t->v)) {
+        SymbolicValue res;
+        res.kind = SymbolicValue::Kind::Vec;
+        for (size_t i = 0; i < elements.size(); ++i)
+          res.arrayVal.push_back(evalInit(*elements[i], vt->elem, solver, store));
         return res;
       } else if (auto st = std::get_if<StructType>(&t->v)) {
         SymbolicValue res;
@@ -280,18 +318,32 @@ namespace symir {
       auto sv = createSymbolicValue(s.type, s.name.name, solver, true);
       store[s.name.name] = sv;
 
+      // [v0.2.1] Vector sym: collect the per-lane terms so the domain/fix
+      // logic below can apply constraints per lane. For scalar sym this
+      // is just `{sv.term}` (one element).
+      std::vector<smt::Term> symLaneTerms;
+      TypePtr symLaneType;
+      if (sv.kind == SymbolicValue::Kind::Vec) {
+        for (const auto &lane: sv.arrayVal)
+          symLaneTerms.push_back(lane.term);
+        if (auto vt = std::get_if<VecType>(&s.type->v))
+          symLaneType = vt->elem;
+      } else {
+        symLaneTerms.push_back(sv.term);
+        symLaneType = s.type;
+      }
+
       // Add domain constraints
       if (s.domain) {
         std::visit(
             [&](auto &&d) {
               using T = std::decay_t<decltype(d)>;
+              // Domain constraints apply per-lane for vector syms (§3.4.1
+              // says each lane gets the same domain).
+              auto laneSort = getSort(symLaneType, solver);
               if constexpr (std::is_same_v<T, DomainInterval>) {
-                auto loSort = getSort(s.type, solver);
-                // Clamp [lo, hi] to the type's actual signed range so a wide domain
-                // (e.g. full-i32) applied to a narrow type (i8, i16) doesn't produce
-                // an unsatisfiable constraint after BV truncation.
                 uint32_t bits = 64;
-                if (auto *it = std::get_if<IntType>(&s.type->v)) {
+                if (auto *it = std::get_if<IntType>(&symLaneType->v)) {
                   switch (it->kind) {
                     case IntType::Kind::I32:
                       bits = 32;
@@ -312,22 +364,26 @@ namespace symir {
                   effHi = std::min(effHi, typeHi);
                 }
                 if (effLo <= effHi) {
-                  auto lo = solver.make_bv_value_int64(loSort, effLo);
-                  auto hi = solver.make_bv_value_int64(loSort, effHi);
-                  pathConstraints.push_back(solver.make_term(smt::Kind::BV_SLE, {lo, sv.term}));
-                  pathConstraints.push_back(solver.make_term(smt::Kind::BV_SLE, {sv.term, hi}));
+                  auto lo = solver.make_bv_value_int64(laneSort, effLo);
+                  auto hi = solver.make_bv_value_int64(laneSort, effHi);
+                  for (const auto &t: symLaneTerms) {
+                    pathConstraints.push_back(solver.make_term(smt::Kind::BV_SLE, {lo, t}));
+                    pathConstraints.push_back(solver.make_term(smt::Kind::BV_SLE, {t, hi}));
+                  }
                 }
               } else if constexpr (std::is_same_v<T, DomainSet>) {
-                std::vector<smt::Term> or_terms;
-                for (auto v: d.values) {
-                  auto vt = solver.make_bv_value_int64(getSort(s.type, solver), v);
-                  or_terms.push_back(solver.make_term(smt::Kind::EQUAL, {sv.term, vt}));
-                }
-                if (!or_terms.empty()) {
-                  smt::Term or_all = or_terms[0];
-                  for (size_t i = 1; i < or_terms.size(); ++i)
-                    or_all = solver.make_term(smt::Kind::OR, {or_all, or_terms[i]});
-                  pathConstraints.push_back(or_all);
+                for (const auto &t: symLaneTerms) {
+                  std::vector<smt::Term> or_terms;
+                  for (auto v: d.values) {
+                    auto vt = solver.make_bv_value_int64(laneSort, v);
+                    or_terms.push_back(solver.make_term(smt::Kind::EQUAL, {t, vt}));
+                  }
+                  if (!or_terms.empty()) {
+                    smt::Term or_all = or_terms[0];
+                    for (size_t i = 1; i < or_terms.size(); ++i)
+                      or_all = solver.make_term(smt::Kind::OR, {or_all, or_terms[i]});
+                    pathConstraints.push_back(or_all);
+                  }
                 }
               }
             },
@@ -336,8 +392,10 @@ namespace symir {
       }
 
       if (fixedSyms.count(s.name.name)) {
-        auto val = solver.make_bv_value_int64(getSort(s.type, solver), fixedSyms.at(s.name.name));
-        pathConstraints.push_back(solver.make_term(smt::Kind::EQUAL, {sv.term, val}));
+        auto val =
+            solver.make_bv_value_int64(getSort(symLaneType, solver), fixedSyms.at(s.name.name));
+        for (const auto &t: symLaneTerms)
+          pathConstraints.push_back(solver.make_term(smt::Kind::EQUAL, {t, val}));
       }
     }
 
@@ -373,6 +431,30 @@ namespace symir {
               using T = std::decay_t<decltype(arg)>;
               if constexpr (std::is_same_v<T, AssignInstr>) {
                 auto lhsVal = evalLValue(arg.lhs, solver, store, pathConstraints);
+                // [v0.2.1] Vector LHS: evaluate RHS as a SymbolicValue::Vec.
+                if (lhsVal.kind == SymbolicValue::Kind::Vec && arg.lhs.accesses.empty()) {
+                  // Find the LHS local's declared VecType.
+                  TypePtr lhsType;
+                  if (currentFun_) {
+                    for (const auto &l: currentFun_->lets)
+                      if (l.name.name == arg.lhs.base.name) {
+                        lhsType = l.type;
+                        break;
+                      }
+                    if (!lhsType)
+                      for (const auto &p: currentFun_->params)
+                        if (p.name.name == arg.lhs.base.name) {
+                          lhsType = p.type;
+                          break;
+                        }
+                  }
+                  if (lhsType && std::holds_alternative<VecType>(lhsType->v)) {
+                    auto &vt = std::get<VecType>(lhsType->v);
+                    SymbolicValue rhsV = evalVecExpr(arg.rhs, vt, solver, store, pathConstraints);
+                    setLValue(arg.lhs, rhsV, solver, store, pathConstraints);
+                    return;
+                  }
+                }
                 auto rhs = evalExpr(
                     arg.rhs, solver, store, pathConstraints,
                     lhsVal.kind == SymbolicValue::Kind::Int
@@ -485,16 +567,16 @@ namespace symir {
     Result finalRes;
     if (res == smt::Result::SAT) {
       finalRes.sat = true;
-      for (const auto &s: entry->syms) {
-        auto term = store.at(s.name.name).term;
+      // Local helper: extract one BV/FP lane's concrete value into a
+      // ModelVal. Pulled out so the vector branch below can reuse it
+      // without duplicating the FP bit-pattern reconstruction.
+      auto extractValue = [&](const smt::Term &term) -> Result::ModelVal {
         auto val_term = solver.get_value(term);
-
         if (solver.is_fp_sort(solver.get_sort(term))) {
           std::string bin = solver.get_fp_value_string(val_term);
           uint64_t bits = 0;
-          for (char c: bin) {
+          for (char c: bin)
             bits = (bits << 1) | (c - '0');
-          }
           double d;
           if (bin.size() <= 32) {
             uint32_t b32 = (uint32_t) bits;
@@ -504,28 +586,38 @@ namespace symir {
           } else {
             std::memcpy(&d, &bits, sizeof(d));
           }
-          finalRes.model[s.name.name] = d;
+          return d;
         } else {
           auto val_str = solver.get_bv_value_string(val_term, 10);
-          // Bitwuzla returns the unsigned bit-pattern as decimal.
-          // Use stoull so values in (INT64_MAX, UINT64_MAX] don't throw out_of_range.
           uint64_t uraw = std::stoull(val_str, nullptr, 10);
           uint32_t width = solver.get_bv_width(solver.get_sort(term));
           int64_t raw;
           if (width < 64) {
-            // Mask to bitwidth then sign-extend.
             uint64_t mask = (uint64_t(1) << width) - 1;
             uraw &= mask;
             if (uraw >= (uint64_t(1) << (width - 1)))
-              raw = static_cast<int64_t>(uraw) - static_cast<int64_t>(uint64_t(1) << width);
+              raw = static_cast<int64_t>(uraw) - static_cast<int64_t>(mask + 1);
             else
               raw = static_cast<int64_t>(uraw);
           } else {
-            // width == 64: reinterpret unsigned bit-pattern as signed two's complement.
             raw = static_cast<int64_t>(uraw);
           }
-          finalRes.model[s.name.name] = raw;
+          return raw;
         }
+      };
+
+      for (const auto &s: entry->syms) {
+        const auto &sv = store.at(s.name.name);
+        // [v0.2.1] Vector sym: extract one model value per lane.
+        if (sv.kind == SymbolicValue::Kind::Vec) {
+          std::vector<Result::ModelVal> lanes;
+          lanes.reserve(sv.arrayVal.size());
+          for (const auto &lane: sv.arrayVal)
+            lanes.push_back(extractValue(lane.term));
+          finalRes.vecModel[s.name.name] = std::move(lanes);
+          continue;
+        }
+        finalRes.model[s.name.name] = extractValue(sv.term);
       }
     } else if (res == smt::Result::UNSAT) {
       finalRes.unsat = true;
@@ -599,7 +691,7 @@ namespace symir {
     SymbolicValue res = store.at(lv.base.name);
     for (const auto &acc: lv.accesses) {
       if (auto ai = std::get_if<AccessIndex>(&acc)) {
-        if (res.kind != SymbolicValue::Kind::Array)
+        if (res.kind != SymbolicValue::Kind::Array && res.kind != SymbolicValue::Kind::Vec)
           throw std::runtime_error("Indexing non-array");
         size_t array_size = res.arrayVal.size();
         smt::Term idx;
@@ -660,9 +752,9 @@ namespace symir {
       }
       res.term = solver.make_term(smt::Kind::ITE, {cond, tTerm, fTerm});
       res.is_defined = solver.make_term(smt::Kind::ITE, {cond, t.is_defined, f.is_defined});
-    } else if (t.kind == SymbolicValue::Kind::Array) {
+    } else if (t.kind == SymbolicValue::Kind::Array || t.kind == SymbolicValue::Kind::Vec) {
       if (t.arrayVal.size() != f.arrayVal.size())
-        throw std::runtime_error("Muxing arrays of different sizes");
+        throw std::runtime_error("Muxing arrays/vectors of different sizes");
       for (size_t i = 0; i < t.arrayVal.size(); ++i) {
         res.arrayVal.push_back(muxSymbolicValue(cond, t.arrayVal[i], f.arrayVal[i], solver));
       }
@@ -693,7 +785,7 @@ namespace symir {
     SymbolicValue newCur = cur; // Copy
 
     if (auto ai = std::get_if<AccessIndex>(&acc)) {
-      if (cur.kind != SymbolicValue::Kind::Array)
+      if (cur.kind != SymbolicValue::Kind::Array && cur.kind != SymbolicValue::Kind::Vec)
         throw std::runtime_error("Indexing non-array in setLValue");
 
       smt::Term idx;
@@ -1107,6 +1199,239 @@ namespace symir {
           return solver.make_bv_value(solver.make_bv_sort(32), "0", 10);
         },
         a.v
+    );
+  }
+
+  // [v0.2.1] evalVecExpr — evaluate an Expr whose value is a vector,
+  // returning a SymbolicValue with Kind::Vec. Single-atom Expr only
+  // (chains involving vectors aren't exercised by our v0.2.1 tests; the
+  // typechecker already permits them, so this is the natural follow-up
+  // when those patterns appear in user code).
+  SymbolicExecutor::SymbolicValue SymbolicExecutor::evalVecExpr(
+      const Expr &e, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
+      std::vector<smt::Term> &pc
+  ) {
+    if (!e.rest.empty())
+      throw std::runtime_error(
+          "Solver: chained +/- on vector RHS not yet supported (single-atom only)"
+      );
+
+    auto buildVec = [&](std::vector<SymbolicValue> lanes) {
+      SymbolicValue r;
+      r.kind = SymbolicValue::Kind::Vec;
+      r.arrayVal = std::move(lanes);
+      return r;
+    };
+
+    return std::visit(
+        [&](auto &&arg) -> SymbolicValue {
+          using T = std::decay_t<decltype(arg)>;
+          auto sortFor = [&]() { return getSort(vt.elem, solver); };
+          if constexpr (std::is_same_v<T, CoefAtom>) {
+            // Vector sym or local — look up the store entry.
+            if (auto id = std::get_if<LocalOrSymId>(&arg.coef)) {
+              std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
+              auto it = store.find(nm);
+              if (it != store.end() && it->second.kind == SymbolicValue::Kind::Vec)
+                return it->second;
+            }
+            // Literal broadcast (rare; vector init handled elsewhere).
+            smt::Term bv = evalCoef(arg.coef, solver, store, sortFor());
+            std::vector<SymbolicValue> lanes;
+            lanes.reserve(vt.size);
+            for (std::uint64_t k = 0; k < vt.size; ++k)
+              lanes.emplace_back(SymbolicValue::Kind::Int, bv, solver.make_true());
+            return buildVec(std::move(lanes));
+          } else if constexpr (std::is_same_v<T, RValueAtom>) {
+            return evalLValue(arg.rval, solver, store, pc);
+          } else if constexpr (std::is_same_v<T, CmpAtom>) {
+            // Per-lane comparison → <N> i1.
+            auto getVecOperand = [&](const SelectVal &sv) -> SymbolicValue {
+              if (auto rv = std::get_if<RValue>(&sv))
+                return evalLValue(*rv, solver, store, pc);
+              if (auto cf = std::get_if<Coef>(&sv)) {
+                if (auto id = std::get_if<LocalOrSymId>(cf)) {
+                  std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
+                  auto it = store.find(nm);
+                  if (it != store.end() && it->second.kind == SymbolicValue::Kind::Vec)
+                    return it->second;
+                }
+                smt::Term bv = evalCoef(*cf, solver, store, sortFor());
+                std::vector<SymbolicValue> lanes;
+                lanes.reserve(vt.size);
+                for (std::uint64_t k = 0; k < vt.size; ++k)
+                  lanes.emplace_back(SymbolicValue::Kind::Int, bv, solver.make_true());
+                return buildVec(std::move(lanes));
+              }
+              throw std::runtime_error("Vec cmp: unsupported SelectVal");
+            };
+            auto lhsV = getVecOperand(arg.lhs);
+            auto rhsV = getVecOperand(arg.rhs);
+            std::vector<SymbolicValue> lanes;
+            lanes.reserve(vt.size);
+            smt::Sort i1 = solver.make_bv_sort(1);
+            smt::Term one = solver.make_bv_value(i1, "1", 10);
+            smt::Term zero = solver.make_bv_value(i1, "0", 10);
+            for (std::uint64_t k = 0; k < vt.size; ++k) {
+              const auto &l = lhsV.arrayVal[k].term;
+              const auto &r = rhsV.arrayVal[k].term;
+              smt::Kind opKind = smt::Kind::EQUAL;
+              switch (arg.op) {
+                case RelOp::EQ:
+                  opKind = smt::Kind::EQUAL;
+                  break;
+                case RelOp::NE:
+                  opKind = smt::Kind::DISTINCT;
+                  break;
+                case RelOp::LT:
+                  opKind = smt::Kind::BV_SLT;
+                  break;
+                case RelOp::LE:
+                  opKind = smt::Kind::BV_SLE;
+                  break;
+                case RelOp::GT:
+                  opKind = smt::Kind::BV_SGT;
+                  break;
+                case RelOp::GE:
+                  opKind = smt::Kind::BV_SGE;
+                  break;
+              }
+              smt::Term cond = solver.make_term(opKind, {l, r});
+              smt::Term laneBit = solver.make_term(smt::Kind::ITE, {cond, one, zero});
+              lanes.emplace_back(SymbolicValue::Kind::Int, laneBit, solver.make_true());
+            }
+            return buildVec(std::move(lanes));
+          } else if constexpr (std::is_same_v<T, SelectAtom>) {
+            // Mask form (cond form is scalar — wouldn't yield a vector).
+            if (!arg.maskExpr)
+              throw std::runtime_error("Vec SelectAtom: expected mask form");
+            // Mask is a vector value: either an lvalue (RValueAtom) or a
+            // bare sym/local reference (CoefAtom holding LocalOrSymId).
+            SymbolicValue maskV;
+            if (auto maskRv = std::get_if<RValueAtom>(&arg.maskExpr->first.v)) {
+              maskV = evalLValue(maskRv->rval, solver, store, pc);
+            } else if (auto maskCf = std::get_if<CoefAtom>(&arg.maskExpr->first.v)) {
+              auto id = std::get_if<LocalOrSymId>(&maskCf->coef);
+              if (!id)
+                throw std::runtime_error("Vec SelectAtom: mask coef must be local/sym identifier");
+              std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
+              auto it = store.find(nm);
+              if (it == store.end() || it->second.kind != SymbolicValue::Kind::Vec)
+                throw std::runtime_error("Vec SelectAtom: mask must resolve to a vector");
+              maskV = it->second;
+            } else {
+              throw std::runtime_error(
+                  "Vec SelectAtom: mask must be a vector lvalue or identifier"
+              );
+            }
+            auto loadArm = [&](const SelectVal &sv) -> SymbolicValue {
+              if (auto rv = std::get_if<RValue>(&sv))
+                return evalLValue(*rv, solver, store, pc);
+              if (auto cf = std::get_if<Coef>(&sv)) {
+                if (auto id = std::get_if<LocalOrSymId>(cf)) {
+                  std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
+                  auto it = store.find(nm);
+                  if (it != store.end() && it->second.kind == SymbolicValue::Kind::Vec)
+                    return it->second;
+                }
+                smt::Term bv = evalCoef(*cf, solver, store, sortFor());
+                std::vector<SymbolicValue> lanes;
+                lanes.reserve(vt.size);
+                for (std::uint64_t k = 0; k < vt.size; ++k)
+                  lanes.emplace_back(SymbolicValue::Kind::Int, bv, solver.make_true());
+                return buildVec(std::move(lanes));
+              }
+              throw std::runtime_error("Vec select arm: unsupported");
+            };
+            SymbolicValue vtArm = loadArm(arg.vtrue);
+            SymbolicValue vfArm = loadArm(arg.vfalse);
+            std::vector<SymbolicValue> lanes;
+            lanes.reserve(vt.size);
+            smt::Sort i1 = solver.make_bv_sort(1);
+            smt::Term oneI1 = solver.make_bv_value(i1, "1", 10);
+            for (std::uint64_t k = 0; k < vt.size; ++k) {
+              smt::Term cond = solver.make_term(smt::Kind::EQUAL, {maskV.arrayVal[k].term, oneI1});
+              smt::Term chosen = solver.make_term(
+                  smt::Kind::ITE, {cond, vtArm.arrayVal[k].term, vfArm.arrayVal[k].term}
+              );
+              lanes.emplace_back(SymbolicValue::Kind::Int, chosen, solver.make_true());
+            }
+            return buildVec(std::move(lanes));
+          } else if constexpr (std::is_same_v<T, OpAtom>) {
+            // Per-lane scalar op with coef broadcast or coef-as-vector.
+            std::vector<smt::Term> coefLanes;
+            // Resolve coef as a per-lane sequence.
+            if (auto i = std::get_if<IntLit>(&arg.coef)) {
+              smt::Term bv =
+                  solver.make_bv_value(getSort(vt.elem, solver), std::to_string(i->value), 10);
+              for (std::uint64_t k = 0; k < vt.size; ++k)
+                coefLanes.push_back(bv);
+            } else if (auto id = std::get_if<LocalOrSymId>(&arg.coef)) {
+              std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
+              auto it = store.find(nm);
+              if (it != store.end() && it->second.kind == SymbolicValue::Kind::Vec) {
+                for (std::uint64_t k = 0; k < vt.size; ++k)
+                  coefLanes.push_back(it->second.arrayVal[k].term);
+              } else {
+                throw std::runtime_error("Vec OpAtom: coef must be vector sym/local");
+              }
+            } else {
+              throw std::runtime_error("Vec OpAtom: unsupported coef shape");
+            }
+            // Rval is a vector lvalue.
+            SymbolicValue rvalV = evalLValue(arg.rval, solver, store, pc);
+            std::vector<SymbolicValue> lanes;
+            lanes.reserve(vt.size);
+            for (std::uint64_t k = 0; k < vt.size; ++k) {
+              smt::Term c = coefLanes[k];
+              smt::Term r = rvalV.arrayVal[k].term;
+              smt::Term out;
+              switch (arg.op) {
+                case AtomOpKind::Mul: {
+                  auto ov = solver.make_term(smt::Kind::BV_SMUL_OVERFLOW, {c, r});
+                  pc.push_back(solver.make_term(smt::Kind::NOT, {ov}));
+                  out = solver.make_term(smt::Kind::BV_MUL, {c, r});
+                  break;
+                }
+                case AtomOpKind::Div: {
+                  auto zero = solver.make_bv_zero(solver.get_sort(r));
+                  pc.push_back(solver.make_term(smt::Kind::DISTINCT, {r, zero}));
+                  out = solver.make_term(smt::Kind::BV_SDIV, {c, r});
+                  break;
+                }
+                case AtomOpKind::Mod: {
+                  auto zero = solver.make_bv_zero(solver.get_sort(r));
+                  pc.push_back(solver.make_term(smt::Kind::DISTINCT, {r, zero}));
+                  out = solver.make_term(smt::Kind::BV_SREM, {c, r});
+                  break;
+                }
+                case AtomOpKind::And:
+                  out = solver.make_term(smt::Kind::BV_AND, {c, r});
+                  break;
+                case AtomOpKind::Or:
+                  out = solver.make_term(smt::Kind::BV_OR, {c, r});
+                  break;
+                case AtomOpKind::Xor:
+                  out = solver.make_term(smt::Kind::BV_XOR, {c, r});
+                  break;
+                case AtomOpKind::Shl:
+                  out = solver.make_term(smt::Kind::BV_SHL, {c, r});
+                  break;
+                case AtomOpKind::Shr:
+                  out = solver.make_term(smt::Kind::BV_ASHR, {c, r});
+                  break;
+                case AtomOpKind::LShr:
+                  out = solver.make_term(smt::Kind::BV_SHR, {c, r});
+                  break;
+              }
+              lanes.emplace_back(SymbolicValue::Kind::Int, out, solver.make_true());
+            }
+            return buildVec(std::move(lanes));
+          } else {
+            throw std::runtime_error("Solver: this vector RHS atom kind isn't yet lowered");
+          }
+        },
+        e.first.v
     );
   }
 

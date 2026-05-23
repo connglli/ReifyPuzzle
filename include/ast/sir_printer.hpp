@@ -15,16 +15,31 @@ namespace symir {
     explicit SIRPrinter(
         std::ostream &out,
         const std::unordered_map<std::string, SymbolicExecutor::Result::ModelVal> &model
-    ) :
-        out_(out),
-        model_(model) {}
+    ) : out_(out), model_(model) {}
+
+    explicit SIRPrinter(
+        std::ostream &out,
+        const std::unordered_map<std::string, SymbolicExecutor::Result::ModelVal> &model,
+        const std::unordered_map<std::string, std::vector<SymbolicExecutor::Result::ModelVal>>
+            &vecModel
+    ) : out_(out), model_(model), vecModel_(vecModel) {}
 
     void print(const Program &p);
 
   private:
     std::ostream &out_;
     std::unordered_map<std::string, SymbolicExecutor::Result::ModelVal> model_;
+    // [v0.2.1] Per-lane concrete values for vector syms produced by the
+    // solver. References to a vec sym `%?v` are rewritten to a synthetic
+    // local `%v__solved` whose init list carries these lane values.
+    std::unordered_map<std::string, std::vector<SymbolicExecutor::Result::ModelVal>> vecModel_;
     int indent_level_ = 0;
+
+    // Translate `%?v` / `@?v` to a corresponding local identifier suitable
+    // for substituting concrete vector-sym references. Result starts with
+    // `%` (locals are function-scoped, which is the only scope vec syms
+    // live in for now).
+    std::string vecSymLocalName(const std::string &symName) const;
 
     void indent();
     void printType(const TypePtr &t);
