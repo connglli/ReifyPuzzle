@@ -1,0 +1,98 @@
+// COMPILER_ARGS:
+// EXPECT: PASS
+// Intention: Range Clamp with float casts and pointer
+
+fun @main() : i32 {
+
+  let mut %loop_idx: i32 = 0;
+  let mut %loop_idx2: i32 = 0;
+  let %two: i32 = 2;
+  let mut %v_val: <4> i32 = {1, 2, 3, 4};
+  let mut %f_val: <4> f32 = {1.0, 2.0, 3.0, 4.0};
+  let mut %cond: i1 = 0;
+  let mut %cond2: i1 = 0;
+  let %one_i32: i32 = 1;
+  let %two_i32: i32 = 2;
+  let %three_i32: i32 = 3;
+  let %four_i32: i32 = 4;
+  let %zero_i32: i32 = 0;
+  let %one_f32: f32 = 1.0;
+  let %two_f32: f32 = 2.0;
+  let %three_f32: f32 = 3.0;
+  let %four_f32: f32 = 4.0;
+  let %zero_f32: f32 = 0.0;
+  let mut %v_int: <4> i32 = {-10, 150, 50, 120};
+  let mut %v_float: <4> f32 = {0.0, 0.0, 0.0, 0.0};
+  let %lo: <4> f32 = {0.0, 0.0, 0.0, 0.0};
+  let %hi: <4> f32 = {100.0, 100.0, 100.0, 100.0};
+  let mut %too_low: <4> i1 = {0, 0, 0, 0};
+  let mut %too_high: <4> i1 = {0, 0, 0, 0};
+  let mut %back_to_int: <4> i32 = {0, 0, 0, 0};
+
+^entry:
+  %v_float = %v_int as <4> f32;
+  %too_low = cmp < %v_float, %lo;
+  %f_val = 1.0 * %v_float;
+  br ^l1_cond;
+
+^l1_cond:
+  %cond = cmp < %loop_idx, %two;
+  %cond2 = cmp < %loop_idx2, %two;
+  %f_val = 1.0 * %v_float;
+  br %cond != 0, ^l1_body, ^mid1;
+
+^l1_body:
+  %too_high = cmp > %v_float, %hi;
+  %v_float = select %too_low, %lo, %v_float;
+  %v_float = select %too_high, %hi, %v_float;
+  br ^l1_latch;
+
+^l1_latch:
+  %loop_idx = %loop_idx + %one_i32;
+  %f_val[1] = 2.0;
+  %f_val = 1.0 * %v_float;
+  br ^l1_cond;
+
+^mid1:
+  %back_to_int = %v_float as <4> i32;
+  %f_val[2] = 3.0;
+  %f_val = 1.0 * %v_float;
+  br ^mid2;
+
+^mid2:
+  %f_val = %v_float;
+  %f_val[3] = 4.0;
+  %f_val = 1.0 * %v_float;
+  br ^l2_cond;
+
+^l2_cond:
+  %cond2 = cmp < %loop_idx2, %two;
+  %f_val[0] = 5.0;
+  %f_val = 1.0 * %v_float;
+  br %cond2 != 0, ^l2_body, ^exit;
+
+^l2_body:
+  %too_low = cmp < %v_float, %lo;
+  %too_high = cmp > %v_float, %hi;
+  %v_float = select %too_low, %lo, %v_float;
+  %v_float = select %too_high, %hi, %v_float;
+  br ^l2_latch;
+
+^l2_latch:
+  %loop_idx2 = %loop_idx2 + %one_i32;
+  %f_val[1] = 6.0;
+  %f_val = 1.0 * %v_float;
+  br ^l2_cond;
+
+^exit:
+  require %v_float[0] == 0.0;
+  require %v_float[1] == 100.0;
+  %f_val = 1.0 * %f_val;
+  br ^post1;
+
+^post1:
+  %f_val = %v_float;
+  %f_val[2] = 7.0;
+  %f_val = 1.0 * %v_float;
+  ret 0;
+}

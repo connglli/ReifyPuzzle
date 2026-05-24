@@ -1,0 +1,99 @@
+// SOLVER_ARGS: --main @main --path '^entry,^pre1,^pre2,^loop_cond,^body_start,^body_then,^body_merge,^latch,^loop_cond,^body_start,^body_then,^body_merge,^latch,^loop_cond,^exit,^post1'
+// EXPECT: PASS
+// Intention: Matrix Multiplication step with Casts
+
+fun @main() : i32 {
+
+  let mut %loop_idx: i32 = 0;
+  let %two: i32 = 2;
+  let mut %v_val: <4> i32 = {1, 2, 3, 4};
+  let mut %f_val: <4> f32 = {1.0, 2.0, 3.0, 4.0};
+  let mut %cond: i1 = 0;
+  let mut %cond2: i1 = 0;
+  let mut %branch_cond: i1 = 0;
+  let %one_i32: i32 = 1;
+  let %two_i32: i32 = 2;
+  let %three_i32: i32 = 3;
+  let %four_i32: i32 = 4;
+  let %zero_i32: i32 = 0;
+  let %one_f32: f32 = 1.0;
+  let %two_f32: f32 = 2.0;
+  let %three_f32: f32 = 3.0;
+  let %four_f32: f32 = 4.0;
+  let %zero_f32: f32 = 0.0;
+  let mut %v_int: <4> i32 = {2, 3, 0, 0};
+  let mut %v_float: <4> f32 = {0.0, 0.0, 0.0, 0.0};
+  let %row0: <4> f32 = {1.5, 2.5, 0.0, 0.0};
+  let %row1: <4> f32 = {3.5, 4.5, 0.0, 0.0};
+  let mut %res: <4> f32 = {0.0, 0.0, 0.0, 0.0};
+  let mut %r0_val: f32 = 0.0;
+  let mut %r1_val: f32 = 0.0;
+  let mut %scalar_cast: f32 = 0.0;
+
+^entry:
+  %v_float = %v_int as <4> f32;
+  %r0_val = %row0[0];
+  %res[0] = %r0_val * %v_float[0];
+  %f_val = 1.0 * %res;
+  br ^pre1;
+
+^pre1:
+  %r1_val = %row1[0];
+  %res[1] = %r1_val * %v_float[0];
+  %scalar_cast = %loop_idx as f32;
+  br ^pre2;
+
+^pre2:
+  %branch_cond = cmp < %res[0], %res[1];
+  %f_val[2] = 3.0;
+  %f_val = 1.0 * %res;
+  br ^loop_cond;
+
+^loop_cond:
+  %cond = cmp < %loop_idx, %two;
+  %res[0] = %res[0] + %scalar_cast;
+  %f_val = 1.0 * %res;
+  br %cond != 0, ^body_start, ^exit;
+
+^body_start:
+  %res[1] = %res[1] + 1.0;
+  %f_val[3] = 4.0;
+  %f_val = 1.0 * %res;
+  br %branch_cond != 0, ^body_then, ^body_else;
+
+^body_then:
+  %res[0] = %res[0] + 5.0;
+  %f_val[0] = 5.0;
+  %f_val = 1.0 * %res;
+  br ^body_merge;
+
+^body_else:
+  %res[1] = %res[1] + 5.0;
+  %f_val[1] = 6.0;
+  %f_val = 1.0 * %res;
+  br ^body_merge;
+
+^body_merge:
+  %res[0] = 1.0 * %res[0];
+  %f_val[2] = 7.0;
+  %f_val = 1.0 * %res;
+  br ^latch;
+
+^latch:
+  %loop_idx = %loop_idx + 1;
+  %res[1] = 1.0 * %res[1];
+  %f_val = 1.0 * %res;
+  br ^loop_cond;
+
+^exit:
+  require %res[0] > 0.0;
+  require %res[1] > 0.0;
+  %f_val = 1.0 * %f_val;
+  br ^post1;
+
+^post1:
+  %f_val = %res;
+  %f_val[3] = 9.0;
+  %f_val = 1.0 * %res;
+  ret 0;
+}

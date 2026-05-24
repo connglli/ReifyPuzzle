@@ -1,0 +1,97 @@
+// COMPILER_ARGS:
+// EXPECT: PASS
+// Intention: Vector Normalization & Pointer Storing
+
+fun @main() : i32 {
+
+  let mut %loop_idx: i32 = 0;
+  let %two: i32 = 2;
+  let mut %v_val: <4> i32 = {1, 2, 3, 4};
+  let mut %f_val: <4> f32 = {1.0, 2.0, 3.0, 4.0};
+  let mut %cond: i1 = 0;
+  let mut %cond2: i1 = 0;
+  let mut %branch_cond: i1 = 0;
+  let %one_i32: i32 = 1;
+  let %two_i32: i32 = 2;
+  let %three_i32: i32 = 3;
+  let %four_i32: i32 = 4;
+  let %zero_i32: i32 = 0;
+  let %one_f32: f32 = 1.0;
+  let %two_f32: f32 = 2.0;
+  let %three_f32: f32 = 3.0;
+  let %four_f32: f32 = 4.0;
+  let %zero_f32: f32 = 0.0;
+  let mut %coords: <4> f32 = {3.0, 4.0, 0.0, 0.0};
+  let mut %out_arr: [8] f32 = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  let mut %p_out: ptr f32 = null;
+  let mut %len: <4> f32 = {5.0, 5.0, 5.0, 5.0};
+  let mut %val1: f32 = 0.0;
+  let mut %val2: f32 = 0.0;
+  let mut %val3: f32 = 0.0;
+
+^entry:
+  %p_out = addr %out_arr[0];
+  %f_val = 1.0 * %len;
+  %f_val[0] = 1.0;
+  br ^pre1;
+
+^pre1:
+  %val1 = %coords[0];
+  store %p_out, %val1;
+  %p_out = %p_out + %one_i32;
+  br ^pre2;
+
+^pre2:
+  %branch_cond = cmp < %one_f32, %two_f32;
+  %f_val[2] = 3.0;
+  %f_val = 1.0 * %len;
+  br ^loop_cond;
+
+^loop_cond:
+  %cond = cmp < %loop_idx, %two;
+  %len = %len + 1.0;
+  %f_val = 1.0 * %len;
+  br %cond != 0, ^body_start, ^exit;
+
+^body_start:
+  %len = %len - 1.0;
+  %f_val[3] = 4.0;
+  %f_val = 1.0 * %len;
+  br %branch_cond != 0, ^body_then, ^body_else;
+
+^body_then:
+  %val2 = %coords[1];
+  store %p_out, %val2;
+  %p_out = %p_out + %one_i32;
+  br ^body_merge;
+
+^body_else:
+  %val3 = %coords[2];
+  store %p_out, %val3;
+  %p_out = %p_out + %one_i32;
+  br ^body_merge;
+
+^body_merge:
+  %len = 1.0 * %len;
+  %f_val[2] = 7.0;
+  %f_val = 1.0 * %len;
+  br ^latch;
+
+^latch:
+  %loop_idx = %loop_idx + 1;
+  %len = %len + 0.1;
+  %f_val = 1.0 * %len;
+  br ^loop_cond;
+
+^exit:
+  require %len[0] > 0.0;
+  require %len[1] > 0.0;
+  %f_val = 1.0 * %f_val;
+  br ^post1;
+
+^post1:
+  %f_val = %len;
+  %f_val[3] = 9.0;
+  %f_val = 1.0 * %len;
+  ret 0;
+}

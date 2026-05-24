@@ -1,0 +1,115 @@
+// EXPECT: PASS
+// Intention: Dot Product with aggregate array pointers and subtraction
+
+fun @main() : i32 {
+
+  let mut %loop_idx: i32 = 0;
+  let %two: i32 = 2;
+  let mut %v_val: <4> i32 = {1, 2, 3, 4};
+  let mut %f_val: <4> f32 = {1.0, 2.0, 3.0, 4.0};
+  let mut %cond: i1 = 0;
+  let mut %cond2: i1 = 0;
+  let %one_i32: i32 = 1;
+  let %two_i32: i32 = 2;
+  let %three_i32: i32 = 3;
+  let %four_i32: i32 = 4;
+  let %zero_i32: i32 = 0;
+  let %one_f32: f32 = 1.0;
+  let %two_f32: f32 = 2.0;
+  let %three_f32: f32 = 3.0;
+  let %four_f32: f32 = 4.0;
+  let %zero_f32: f32 = 0.0;
+  let mut %arr1: [8] i32 = {1, 2, 3, 4, 0, 0, 0, 0};
+  let mut %arr2: [8] i32 = {5, 6, 7, 8, 0, 0, 0, 0};
+  let mut %p1: ptr i32 = null;
+  let mut %p2: ptr i32 = null;
+  let mut %dot: i32 = 0;
+  let mut %v1: i32 = 0;
+  let mut %v2: i32 = 0;
+  let mut %v3: i32 = 0;
+  let mut %v4: i32 = 0;
+  let mut %v5: i32 = 0;
+  let mut %v6: i32 = 0;
+  let mut %v7: i32 = 0;
+  let mut %v8: i32 = 0;
+  let mut %p1_end: ptr i32 = null;
+  let mut %dist: i64 = 0;
+
+^entry:
+  %p1 = addr %arr1[0];
+  %p2 = addr %arr2[0];
+  %p1_end = addr %arr1[7];
+  br ^pre1;
+
+^pre1:
+  %v1 = load %p1;
+  %v2 = load %p2;
+  %dot = %v1 * %v2;
+  br ^pre2;
+
+^pre2:
+  %p1 = %p1 + %one_i32;
+  %p2 = %p2 + %one_i32;
+  %dist = %p1_end - %p1;
+  br ^pre3;
+
+^pre3:
+  %v3 = load %p1;
+  %v4 = load %p2;
+  %dot = %dot + %v3 * %v4;
+  br ^pre4;
+
+^pre4:
+  %p1 = %p1 + %one_i32;
+  %p2 = %p2 + %one_i32;
+  %v_val = 1 * %v_val;
+  br ^pre5;
+
+^pre5:
+  %v5 = load %p1;
+  %v6 = load %p2;
+  %dot = %dot + %v5 * %v6;
+  br ^pre6;
+
+^pre6:
+  %p1 = %p1 + %one_i32;
+  %p2 = %p2 + %one_i32;
+  %v_val = 1 * %v_val;
+  br ^loop_cond;
+
+^loop_cond:
+  %cond = cmp < %loop_idx, %two;
+  %dot = %dot + 1;
+  %v_val = 1 * %v_val;
+  br %cond != 0, ^body1, ^exit;
+
+^body1:
+  %v7 = load %p1;
+  %v8 = load %p2;
+  %dot = %dot + %v7 * %v8;
+  br ^body2;
+
+^body2:
+  %p1 = %p1 + %one_i32;
+  %p2 = %p2 + %one_i32;
+  %v_val = 1 * %v_val;
+  br ^body3;
+
+^body3:
+  %v_val[0] = %dot;
+  %v_val[1] = %dot;
+  %v_val = 1 * %v_val;
+  br ^latch;
+
+^latch:
+  %loop_idx = %loop_idx + 1;
+  %dot = %dot + 1;
+  %v_val = 1 * %v_val;
+  br ^loop_cond;
+
+^exit:
+  require %dot > 0;
+  require %v_val[0] > 0;
+  require %dist > 0;
+  ret 0;
+}

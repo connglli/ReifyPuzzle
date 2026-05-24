@@ -1,0 +1,99 @@
+// EXPECT: FAIL:UndefinedBehavior
+// Intention: Solver check: path forces vector lane access out of bounds
+// SOLVER_ARGS: --main @main --path '^entry,^outer_cond,^outer_body1,^inner_cond,^inner_body1,^inner_body2,^inner_latch,^inner_cond,^inner_body1,^inner_body2,^inner_latch,^inner_cond,^outer_latch,^outer_cond,^exit,^post1,^post2,^post3'
+
+fun @main() : i32 {
+  sym %?i: index i32 in [0, 10];
+  let mut %loop_idx: i32 = 0;
+  let mut %inner_idx: i32 = 0;
+  let %two: i32 = 2;
+  let mut %v_val: <4> i32 = {1, 2, 3, 4};
+  let mut %f_val: <4> f32 = {1.0, 2.0, 3.0, 4.0};
+  let mut %cond: i1 = 0;
+  let mut %cond2: i1 = 0;
+  let mut %inner_cond_val: i1 = 0;
+  let %one_i32: i32 = 1;
+  let %two_i32: i32 = 2;
+  let %three_i32: i32 = 3;
+  let %four_i32: i32 = 4;
+  let %zero_i32: i32 = 0;
+  let %one_f32: f32 = 1.0;
+  let %two_f32: f32 = 2.0;
+  let %three_f32: f32 = 3.0;
+  let %four_f32: f32 = 4.0;
+  let %zero_f32: f32 = 0.0;
+  let mut %x: <4> i32 = 0;
+  let mut %y: i32 = 0;
+
+^entry:
+  %x[0] = 1;
+  %x[1] = 2;
+  %x[2] = 3;
+  br ^outer_cond;
+
+^outer_cond:
+  %cond = cmp < %loop_idx, %two;
+  %inner_cond_val = cmp < %inner_idx, %two;
+  %v_val[0] = 4;
+  br %cond != 0, ^outer_body1, ^exit;
+
+^outer_body1:
+  %x[3] = 4;
+  %v_val[1] = 5;
+  %v_val[2] = 6;
+  br ^inner_cond;
+
+^inner_cond:
+  %inner_cond_val = cmp < %inner_idx, %two;
+  %v_val[3] = 7;
+  %v_val[0] = 8;
+  br %inner_cond_val != 0, ^inner_body1, ^outer_latch;
+
+^inner_body1:
+  assume %?i == 5;
+  %y = %x[%?i]; // Forced UB: %?i is 5, causing lane OOB
+  %v_val[1] = 9;
+  br ^inner_body2;
+
+^inner_body2:
+  %x[1] = 5;
+  %v_val[3] = 11;
+  %v_val[0] = 12;
+  br ^inner_latch;
+
+^inner_latch:
+  %inner_idx = %inner_idx + 1;
+  %v_val[1] = 13;
+  %v_val[2] = 14;
+  br ^inner_cond;
+
+^outer_latch:
+  %loop_idx = %loop_idx + 1;
+  %inner_idx = 0;
+  %v_val[3] = 15;
+  br ^outer_cond;
+
+^exit:
+  %v_val[0] = 16;
+  %v_val[1] = 17;
+  %v_val[2] = 18;
+  br ^post1;
+
+^post1:
+  %v_val[3] = 19;
+  %v_val[0] = 20;
+  %v_val[1] = 21;
+  br ^post2;
+
+^post2:
+  %v_val[2] = 22;
+  %v_val[3] = 23;
+  %v_val[0] = 24;
+  br ^post3;
+
+^post3:
+  %v_val[1] = 25;
+  %v_val[2] = 26;
+  %v_val[3] = 27;
+  ret 0;
+}

@@ -1,0 +1,101 @@
+// COMPILER_ARGS:
+// EXPECT: PASS
+// Intention: Vector Standard Deviation with Casts
+
+fun @main() : i32 {
+
+  let mut %loop_idx: i32 = 0;
+  let mut %inner_idx: i32 = 0;
+  let %two: i32 = 2;
+  let mut %v_val: <4> i32 = {1, 2, 3, 4};
+  let mut %f_val: <4> f32 = {1.0, 2.0, 3.0, 4.0};
+  let mut %cond: i1 = 0;
+  let mut %cond2: i1 = 0;
+  let mut %inner_cond_val: i1 = 0;
+  let %one_i32: i32 = 1;
+  let %two_i32: i32 = 2;
+  let %three_i32: i32 = 3;
+  let %four_i32: i32 = 4;
+  let %zero_i32: i32 = 0;
+  let %one_f32: f32 = 1.0;
+  let %two_f32: f32 = 2.0;
+  let %three_f32: f32 = 3.0;
+  let %four_f32: f32 = 4.0;
+  let %zero_f32: f32 = 0.0;
+  let mut %sum_v: <4> i32 = {1, 2, 3, 4};
+  let mut %sum_f: <4> f32 = {0.0, 0.0, 0.0, 0.0};
+  let mut %mean: <4> f32 = {0.0, 0.0, 0.0, 0.0};
+  let %four_f: <4> f32 = {4.0, 4.0, 4.0, 4.0};
+
+^entry:
+  %sum_f = %sum_v as <4> f32;
+  %mean = %sum_f / %four_f;
+  %f_val = 1.0 * %mean;
+  br ^outer_cond;
+
+^outer_cond:
+  %cond = cmp < %loop_idx, %two;
+  %inner_cond_val = cmp < %inner_idx, %two;
+  %f_val = 1.0 * %mean;
+  br %cond != 0, ^outer_body1, ^exit;
+
+^outer_body1:
+  %mean = %mean + 1.0;
+  %f_val[1] = 2.0;
+  %f_val = 1.0 * %mean;
+  br ^inner_cond;
+
+^inner_cond:
+  %inner_cond_val = cmp < %inner_idx, %two;
+  %f_val[2] = 3.0;
+  %f_val = 1.0 * %mean;
+  br %inner_cond_val != 0, ^inner_body1, ^outer_latch;
+
+^inner_body1:
+  %sum_f = %sum_f + 2.0;
+  %f_val[3] = 4.0;
+  %f_val = 1.0 * %mean;
+  br ^inner_body2;
+
+^inner_body2:
+  %mean = %mean - 0.5;
+  %f_val[0] = 5.0;
+  %f_val = 1.0 * %mean;
+  br ^inner_latch;
+
+^inner_latch:
+  %inner_idx = %inner_idx + %one_i32;
+  %f_val[1] = 6.0;
+  %f_val = 1.0 * %mean;
+  br ^inner_cond;
+
+^outer_latch:
+  %loop_idx = %loop_idx + %one_i32;
+  %inner_idx = 0;
+  %f_val = 1.0 * %mean;
+  br ^outer_cond;
+
+^exit:
+  require %mean[0] > 0.0;
+  require %sum_f[0] > 0.0;
+  %f_val = 1.0 * %f_val;
+  br ^post1;
+
+^post1:
+  %f_val = %mean;
+  %f_val[2] = 7.0;
+  %f_val = 1.0 * %mean;
+  br ^post2;
+
+^post2:
+  %f_val[3] = 8.0;
+  %f_val = %sum_f;
+  %f_val = 1.0 * %mean;
+  br ^post3;
+
+^post3:
+  require %f_val[0] > 0.0;
+  require %f_val[1] > 0.0;
+  %f_val = 1.0 * %f_val;
+  ret 0;
+}

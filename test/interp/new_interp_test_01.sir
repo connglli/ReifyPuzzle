@@ -1,0 +1,95 @@
+// EXPECT: PASS
+// Intention: Vector Prefix Scan walking with Pointer
+
+fun @main() : i32 {
+
+  let mut %loop_idx: i32 = 0;
+  let %two: i32 = 2;
+  let mut %v_val: <4> i32 = {1, 2, 3, 4};
+  let mut %f_val: <4> f32 = {1.0, 2.0, 3.0, 4.0};
+  let mut %cond: i1 = 0;
+  let mut %cond2: i1 = 0;
+  let %one_i32: i32 = 1;
+  let %two_i32: i32 = 2;
+  let %three_i32: i32 = 3;
+  let %four_i32: i32 = 4;
+  let %zero_i32: i32 = 0;
+  let %one_f32: f32 = 1.0;
+  let %two_f32: f32 = 2.0;
+  let %three_f32: f32 = 3.0;
+  let %four_f32: f32 = 4.0;
+  let %zero_f32: f32 = 0.0;
+  let mut %arr: [8] i32 = {1, 2, 3, 4, 5, 6, 7, 8};
+  let mut %p: ptr i32 = null;
+  let mut %accum: <4> i32 = {0, 0, 0, 0};
+  let %one_v: <4> i32 = {1, 1, 1, 1};
+  let mut %val1: i32 = 0;
+  let mut %val2: i32 = 0;
+  let mut %val3: i32 = 0;
+
+^entry:
+  %p = addr %arr[0];
+  %accum = %v_val;
+  %v_val[0] = 2;
+  br ^loop_cond;
+
+^loop_cond:
+  %cond = cmp < %loop_idx, %two;
+  %accum = %accum + %v_val;
+  %v_val = 1 * %accum;
+  br %cond != 0, ^body1, ^exit;
+
+^body1:
+  %val1 = load %p;
+  %p = %p + %one_i32;
+  %accum[1] = %accum[1] + %val1;
+  br ^body2;
+
+^body2:
+  %val2 = load %p;
+  %p = %p + %one_i32;
+  %accum[2] = %accum[2] + %val2;
+  br ^body3;
+
+^body3:
+  %val3 = load %p;
+  %p = %p + %one_i32;
+  %accum[3] = %accum[3] + %val3;
+  br ^body4;
+
+^body4:
+  %v_val = %accum;
+  %accum = %one_v + %v_val;
+  %v_val = 1 * %accum;
+  br ^latch;
+
+^latch:
+  %loop_idx = %loop_idx + 1;
+  %accum[0] = %accum[0] + 1;
+  %v_val = 1 * %accum;
+  br ^loop_cond;
+
+^exit:
+  require %accum[0] > 0;
+  require %accum[1] > 0;
+  %v_val = 1 * %accum;
+  br ^post1;
+
+^post1:
+  %accum[2] = 22;
+  %accum[3] = 33;
+  %v_val = 1 * %accum;
+  br ^post2;
+
+^post2:
+  %v_val = %accum;
+  %v_val[0] = 5;
+  %v_val = 1 * %v_val;
+  br ^post3;
+
+^post3:
+  require %v_val[0] == 5;
+  require %v_val[2] == 22;
+  %v_val = 1 * %v_val;
+  ret 0;
+}

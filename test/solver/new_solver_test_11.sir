@@ -1,0 +1,106 @@
+// Outer loop bound (two = 2) requires two outer_latch increments before
+// outer_cond falls through to exit. Original generated path had only one
+// outer_latch and was infeasible — added one full outer iteration.
+// SOLVER_ARGS: --main @main --path '^entry,^outer_cond,^outer_body1,^inner_cond,^inner_body1,^inner_body2,^inner_latch,^inner_cond,^inner_body1,^inner_body2,^inner_latch,^inner_cond,^outer_latch,^outer_cond,^outer_body1,^inner_cond,^inner_body1,^inner_body2,^inner_latch,^inner_cond,^inner_body1,^inner_body2,^inner_latch,^inner_cond,^outer_latch,^outer_cond,^exit,^post1,^post2,^post3'
+// EXPECT: PASS
+// Intention: Bitwise Hashing and Pointer store
+
+fun @main() : i32 {
+
+  let mut %loop_idx: i32 = 0;
+  let mut %inner_idx: i32 = 0;
+  let %two: i32 = 2;
+  let mut %v_val: <4> i32 = {1, 2, 3, 4};
+  let mut %f_val: <4> f32 = {1.0, 2.0, 3.0, 4.0};
+  let mut %cond: i1 = 0;
+  let mut %cond2: i1 = 0;
+  let mut %inner_cond_val: i1 = 0;
+  let %one_i32: i32 = 1;
+  let %two_i32: i32 = 2;
+  let %three_i32: i32 = 3;
+  let %four_i32: i32 = 4;
+  let %zero_i32: i32 = 0;
+  let %one_f32: f32 = 1.0;
+  let %two_f32: f32 = 2.0;
+  let %three_f32: f32 = 3.0;
+  let %four_f32: f32 = 4.0;
+  let %zero_f32: f32 = 0.0;
+  let mut %hash_table: [8] i32 = {0, 0, 0, 0, 0, 0, 0, 0};
+  let mut %p: ptr i32 = null;
+  let mut %keys: <4> i32 = {111, 222, 333, 444};
+  let %mask_v: <4> i32 = {127, 127, 127, 127};
+  let mut %hash: <4> i32 = 0;
+  let mut %h0: i32 = 0;
+
+^entry:
+  %p = addr %hash_table[0];
+  %hash = %keys ^ %mask_v;
+  %v_val = 1 * %hash;
+  br ^outer_cond;
+
+^outer_cond:
+  %cond = cmp < %loop_idx, %two;
+  %inner_cond_val = cmp < %inner_idx, %two;
+  %v_val = 1 * %hash;
+  br %cond != 0, ^outer_body1, ^exit;
+
+^outer_body1:
+  %hash = %hash & %mask_v;
+  %v_val[1] = 2;
+  %v_val = 1 * %hash;
+  br ^inner_cond;
+
+^inner_cond:
+  %inner_cond_val = cmp < %inner_idx, %two;
+  %v_val[2] = 3;
+  %v_val = 1 * %hash;
+  br %inner_cond_val != 0, ^inner_body1, ^outer_latch;
+
+^inner_body1:
+  %hash = ~ %hash;
+  %v_val[3] = 4;
+  %v_val = 1 * %hash;
+  br ^inner_body2;
+
+^inner_body2:
+  %h0 = %hash[0];
+  store %p, %h0;
+  %p = %p + %one_i32;
+  br ^inner_latch;
+
+^inner_latch:
+  %inner_idx = %inner_idx + %one_i32;
+  %v_val[1] = 6;
+  %v_val = 1 * %hash;
+  br ^inner_cond;
+
+^outer_latch:
+  %loop_idx = %loop_idx + %one_i32;
+  %inner_idx = 0;
+  %v_val = 1 * %hash;
+  br ^outer_cond;
+
+^exit:
+  require %hash_table[0] != 0;
+  require %hash[0] != 0;
+  %v_val = 1 * %hash;
+  br ^post1;
+
+^post1:
+  %v_val = %hash;
+  %v_val[2] = 7;
+  %v_val = 1 * %hash;
+  br ^post2;
+
+^post2:
+  %v_val[3] = 8;
+  %v_val = %mask_v;
+  %v_val[0] = %mask_v[0];
+  br ^post3;
+
+^post3:
+  require %v_val[0] == 127;
+  require %v_val[1] == 127;
+  %v_val = 1 * %hash;
+  ret 0;
+}

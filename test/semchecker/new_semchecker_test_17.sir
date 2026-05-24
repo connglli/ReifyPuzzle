@@ -1,0 +1,91 @@
+// EXPECT: FAIL:StaticError
+// Intention: Semchecker error: mutating an immutable local variable inside a loop
+
+fun @main() : i32 {
+
+  let mut %loop_idx: i32 = 0;
+  let %two: i32 = 2;
+  let mut %v_val: <4> i32 = {1, 2, 3, 4};
+  let mut %f_val: <4> f32 = {1.0, 2.0, 3.0, 4.0};
+  let mut %cond: i1 = 0;
+  let mut %cond2: i1 = 0;
+  let mut %branch_cond: i1 = 0;
+  let %one_i32: i32 = 1;
+  let %two_i32: i32 = 2;
+  let %three_i32: i32 = 3;
+  let %four_i32: i32 = 4;
+  let %zero_i32: i32 = 0;
+  let %one_f32: f32 = 1.0;
+  let %two_f32: f32 = 2.0;
+  let %three_f32: f32 = 3.0;
+  let %four_f32: f32 = 4.0;
+  let %zero_f32: f32 = 0.0;
+  let %x: <4> i32 = 0;
+  // Immutable local;
+
+^entry:
+  %v_val[0] = 1;
+  %v_val[1] = 2;
+  %v_val[2] = 3;
+  br ^pre1;
+
+^pre1:
+  %v_val[0] = 5;
+  %v_val[1] = 6;
+  %v_val[2] = 7;
+  br ^pre2;
+
+^pre2:
+  %branch_cond = cmp < %one_i32, %two_i32;
+  %v_val[2] = 7;
+  %v_val[3] = 8;
+  br ^loop_cond;
+
+^loop_cond:
+  %cond = cmp < %loop_idx, %two;
+  %v_val[0] = 9;
+  %v_val[1] = 10;
+  br %cond != 0, ^body_start, ^exit;
+
+^body_start:
+  %v_val[2] = 11;
+  %v_val[3] = 12;
+  %v_val[0] = 13;
+  br %branch_cond != 0, ^body_then, ^body_else;
+
+^body_then:
+  %x = %v_val; // Semcheck error: mutating immutable local
+  %v_val[1] = 14;
+  %v_val[2] = 15;
+  br ^body_merge;
+
+^body_else:
+  %v_val[1] = 16;
+  %v_val[2] = 17;
+  %v_val[3] = 18;
+  br ^body_merge;
+
+^body_merge:
+  %v_val[3] = 18;
+  %v_val[0] = 19;
+  %v_val[1] = 20;
+  br ^latch;
+
+^latch:
+  %loop_idx = %loop_idx + 1;
+  %v_val[1] = 20;
+  %v_val[2] = 21;
+  br ^loop_cond;
+
+^exit:
+  %v_val[3] = 22;
+  %v_val[0] = 23;
+  %v_val[1] = 24;
+  br ^post1;
+
+^post1:
+  %v_val[2] = 25;
+  %v_val[3] = 26;
+  %v_val[0] = 27;
+  ret 0;
+}

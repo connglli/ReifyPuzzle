@@ -1,0 +1,66 @@
+// EXPECT: FAIL:ParseError
+// Intention: Lexer error: unterminated block comment in basic block body1
+
+fun @main() : i32 {
+
+  let mut %loop_idx: i32 = 0;
+  let %two: i32 = 2;
+  let mut %v_val: <4> i32 = {1, 2, 3, 4};
+  let mut %f_val: <4> f32 = {1.0, 2.0, 3.0, 4.0};
+  let mut %cond: i1 = 0;
+  let mut %cond2: i1 = 0;
+  let mut %early_cond: i1 = 0;
+  let %one_i32: i32 = 1;
+  let %two_i32: i32 = 2;
+  let %three_i32: i32 = 3;
+  let %four_i32: i32 = 4;
+  let %zero_i32: i32 = 0;
+  let %one_f32: f32 = 1.0;
+  let %two_f32: f32 = 2.0;
+  let %three_f32: f32 = 3.0;
+  let %four_f32: f32 = 4.0;
+  let %zero_f32: f32 = 0.0;
+  let mut %x: <4> i32 = 0;
+
+^entry:
+  %x[0] = 1;
+  %v_val[0] = 1;
+  %v_val[1] = 2;
+  br ^loop_cond;
+
+^loop_cond:
+  %cond = cmp < %loop_idx, %two;
+  %early_cond = cmp < %one_i32, %zero_i32;
+  %v_val[2] = 3;
+  br %cond != 0, ^body1, ^exit;
+
+^body1:
+  /* Unterminated block comment
+  %x[1] = 2;
+  %v_val[3] = 4;
+  br ^body2;
+
+^body2:
+  %v_val[0] = 5;
+  %v_val[1] = 6;
+  %v_val[2] = 7;
+  br %early_cond != 0, ^early_exit, ^latch;
+
+^latch:
+  %loop_idx = %loop_idx + 1;
+  %v_val[3] = 8;
+  %v_val[0] = 9;
+  br ^loop_cond;
+
+^early_exit:
+  %v_val[1] = 10;
+  %v_val[2] = 11;
+  %v_val[3] = 12;
+  ret 0;
+
+^exit:
+  %v_val[0] = 13;
+  %v_val[1] = 14;
+  %v_val[2] = 15;
+  ret 0;
+}
