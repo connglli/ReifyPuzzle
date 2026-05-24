@@ -510,15 +510,56 @@ namespace symir {
                 smt::Term valTerm =
                     evalExpr(arg.val, solver, store, pathConstraints, std::optional(pointeeSort));
 
+                auto bv64 = solver.make_bv_sort(kPtrBits);
                 for (const auto &l: currentFun_->lets) {
-                  if (!typeMatch(l.type, pointeeType))
+                  // Scalar local of matching pointee type.
+                  if (typeMatch(l.type, pointeeType)) {
+                    auto tagTerm = solver.make_bv_value_int64(
+                        bv64, static_cast<int64_t>(tagOfLocal(l.name.name))
+                    );
+                    auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, tagTerm});
+                    auto &sv = store.at(l.name.name);
+                    sv.term = solver.make_term(smt::Kind::ITE, {cond, valTerm, sv.term});
                     continue;
-                  auto tagTerm = solver.make_bv_value_int64(
-                      solver.make_bv_sort(kPtrBits), static_cast<int64_t>(tagOfLocal(l.name.name))
-                  );
-                  auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, tagTerm});
-                  auto &sv = store.at(l.name.name);
-                  sv.term = solver.make_term(smt::Kind::ITE, {cond, valTerm, sv.term});
+                  }
+                  // [v0.2.1] Array local — update each element conditionally
+                  // based on whether the pointer matches that element's tag.
+                  if (auto at = std::get_if<ArrayType>(&l.type->v)) {
+                    if (typeMatch(at->elem, pointeeType)) {
+                      auto &sv = store.at(l.name.name);
+                      uint64_t baseTag = tagOfLocal(l.name.name);
+                      for (size_t k = 0; k < at->size && k < sv.arrayVal.size(); ++k) {
+                        auto kTag =
+                            solver.make_bv_value_int64(bv64, static_cast<int64_t>(baseTag + k));
+                        auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, kTag});
+                        sv.arrayVal[k].term =
+                            solver.make_term(smt::Kind::ITE, {cond, valTerm, sv.arrayVal[k].term});
+                      }
+                    }
+                    continue;
+                  }
+                  // [v0.2.1] Struct local — update each field whose type
+                  // matches the pointee, conditional on the field's tag.
+                  if (auto st = std::get_if<StructType>(&l.type->v)) {
+                    auto sIt = structs_.find(st->name.name);
+                    if (sIt == structs_.end())
+                      continue;
+                    auto &sv = store.at(l.name.name);
+                    uint64_t baseTag = tagOfLocal(l.name.name);
+                    size_t fIdx = 0;
+                    for (const auto &f: sIt->second->fields) {
+                      if (typeMatch(f.type, pointeeType)) {
+                        auto fTag =
+                            solver.make_bv_value_int64(bv64, static_cast<int64_t>(baseTag + fIdx));
+                        auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, fTag});
+                        auto fIt = sv.structVal.find(f.name);
+                        if (fIt != sv.structVal.end())
+                          fIt->second.term =
+                              solver.make_term(smt::Kind::ITE, {cond, valTerm, fIt->second.term});
+                      }
+                      ++fIdx;
+                    }
+                  }
                 }
               }
             },
@@ -1038,7 +1079,22 @@ namespace symir {
             }
             return {};
           } else if constexpr (std::is_same_v<T, SelectAtom>) {
-            smt::Term cond = evalCond(*arg.cond, solver, store, pc);
+            // Two forms: cond form (relational predicate) or mask form
+            // (scalar i1 expression here; vector masks go through the
+            // vector path).
+            smt::Term cond;
+            if (arg.cond) {
+              cond = evalCond(*arg.cond, solver, store, pc);
+            } else if (arg.maskExpr) {
+              smt::Term m = evalExpr(*arg.maskExpr, solver, store, pc);
+              auto mSort = solver.get_sort(m);
+              if (solver.is_fp_sort(mSort))
+                throw std::runtime_error("scalar select: mask must be integral");
+              auto zero = solver.make_bv_zero(mSort);
+              cond = solver.make_term(smt::Kind::DISTINCT, {m, zero});
+            } else {
+              throw std::runtime_error("SelectAtom: neither cond nor maskExpr set");
+            }
             smt::Term vt = evalSelectVal(arg.vtrue, solver, store, pc, expectedSort);
             smt::Term vf = evalSelectVal(arg.vfalse, solver, store, pc, expectedSort);
             auto vtSort = solver.get_sort(vt);
@@ -1127,25 +1183,136 @@ namespace symir {
             } else {
               return solver.make_term(smt::Kind::BV_EXTRACT, {src}, {dstWidth - 1, 0});
             }
+          } else if constexpr (std::is_same_v<T, CmpAtom>) {
+            // [v0.2.1] Scalar `cmp <op> a, b` reifies the comparison as i1.
+            // The CFG's br evaluates a Cond directly via evalCond; this
+            // branch lets cmp also appear on the RHS of an assignment.
+            auto loadOperand = [&](const SelectVal &sv) -> smt::Term {
+              if (auto rv = std::get_if<RValue>(&sv))
+                return evalLValue(*rv, solver, store, pc).term;
+              return evalCoef(std::get<Coef>(sv), solver, store, expectedSort);
+            };
+            smt::Term l = loadOperand(arg.lhs);
+            smt::Term r = loadOperand(arg.rhs);
+            // Reconcile widths/sorts before applying the relational op.
+            auto lSort = solver.get_sort(l);
+            auto rSort = solver.get_sort(r);
+            if (solver.is_fp_sort(lSort) != solver.is_fp_sort(rSort))
+              throw std::runtime_error("scalar cmp: mixed FP/BV operands");
+            if (!solver.is_fp_sort(lSort)) {
+              uint32_t lw = solver.get_bv_width(lSort);
+              uint32_t rw = solver.get_bv_width(rSort);
+              if (lw != rw) {
+                uint32_t target = std::max(lw, rw);
+                if (lw < target)
+                  l = solver.make_term(smt::Kind::BV_SIGN_EXTEND, {l}, {target - lw});
+                if (rw < target)
+                  r = solver.make_term(smt::Kind::BV_SIGN_EXTEND, {r}, {target - rw});
+              }
+            }
+            bool isFp = solver.is_fp_sort(solver.get_sort(l));
+            smt::Kind k = smt::Kind::EQUAL;
+            switch (arg.op) {
+              case RelOp::EQ:
+                k = smt::Kind::EQUAL;
+                break;
+              case RelOp::NE:
+                k = smt::Kind::DISTINCT;
+                break;
+              case RelOp::LT:
+                k = isFp ? smt::Kind::FP_LT : smt::Kind::BV_SLT;
+                break;
+              case RelOp::LE:
+                k = isFp ? smt::Kind::FP_LEQ : smt::Kind::BV_SLE;
+                break;
+              case RelOp::GT:
+                k = isFp ? smt::Kind::FP_GT : smt::Kind::BV_SGT;
+                break;
+              case RelOp::GE:
+                k = isFp ? smt::Kind::FP_GEQ : smt::Kind::BV_SGE;
+                break;
+            }
+            smt::Term cond = solver.make_term(k, {l, r});
+            smt::Sort i1 = solver.make_bv_sort(1);
+            smt::Term one = solver.make_bv_value(i1, "1", 10);
+            smt::Term zero = solver.make_bv_value(i1, "0", 10);
+            return solver.make_term(smt::Kind::ITE, {cond, one, zero});
           } else if constexpr (std::is_same_v<T, AddrAtom>) {
-            // addr %v — encode as a BV64 tag identifying the target local.
-            // `addr %arr[0]` is equivalent to `addr %arr` (same first-element
-            // address). Other element indices and field paths require true
-            // offset tracking and are still left to a future revision.
+            // [v0.2.1] Pointers are encoded as `tag(%local) + element_offset`
+            // (in lower bits of BV64). For `addr %local`, offset = 0.
+            // For `addr %arr[k]` (with %arr: [N] T), offset is the lit/sym
+            // index. Pointer arithmetic (e.g. `%p + 1`) is just BV_ADD on
+            // top of this encoding, so the offset propagates naturally.
+            //
+            // Field addressing (`addr %s.f`) still throws — struct layout
+            // and field offsets aren't part of the pointer model yet.
+            const std::string targetName = arg.lv.base.name;
+            auto bv64 = solver.make_bv_sort(kPtrBits);
+            smt::Term tag =
+                solver.make_bv_value_int64(bv64, static_cast<int64_t>(tagOfLocal(targetName)));
             for (const auto &acc: arg.lv.accesses) {
               if (auto ai = std::get_if<AccessIndex>(&acc)) {
-                auto il = std::get_if<IntLit>(&ai->index);
-                if (il && il->value == 0)
-                  continue; // benign: same as base address
+                if (auto il = std::get_if<IntLit>(&ai->index)) {
+                  if (il->value != 0) {
+                    auto off = solver.make_bv_value_int64(bv64, il->value);
+                    tag = solver.make_term(smt::Kind::BV_ADD, {tag, off});
+                  }
+                  continue;
+                }
+                if (auto id = std::get_if<LocalOrSymId>(&ai->index)) {
+                  smt::Term idxT = std::visit([&](auto &&v) { return store.at(v.name).term; }, *id);
+                  // Widen idx to 64 bits if needed.
+                  auto idxSort = solver.get_sort(idxT);
+                  uint32_t iw = solver.get_bv_width(idxSort);
+                  if (iw < kPtrBits)
+                    idxT = solver.make_term(smt::Kind::BV_SIGN_EXTEND, {idxT}, {kPtrBits - iw});
+                  tag = solver.make_term(smt::Kind::BV_ADD, {tag, idxT});
+                  continue;
+                }
               }
-              throw std::runtime_error(
-                  "'addr' with non-zero field/index accesses not yet supported in solver"
-              );
+              if (auto af = std::get_if<AccessField>(&acc)) {
+                // [v0.2.1] addr %s.f — encode as tag(%s) + field_index.
+                // The struct lookup uses currentFun_->lets to find the
+                // struct binding for %s.
+                TypePtr baseType;
+                if (currentFun_) {
+                  for (const auto &l: currentFun_->lets)
+                    if (l.name.name == targetName) {
+                      baseType = l.type;
+                      break;
+                    }
+                  if (!baseType)
+                    for (const auto &p: currentFun_->params)
+                      if (p.name.name == targetName) {
+                        baseType = p.type;
+                        break;
+                      }
+                }
+                if (!baseType || !std::holds_alternative<StructType>(baseType->v))
+                  throw std::runtime_error("'addr' field access on non-struct base: " + targetName);
+                auto sIt = structs_.find(std::get<StructType>(baseType->v).name.name);
+                if (sIt == structs_.end())
+                  throw std::runtime_error("unknown struct in addr field access");
+                size_t fieldIdx = 0;
+                bool found = false;
+                for (const auto &f: sIt->second->fields) {
+                  if (f.name == af->field) {
+                    found = true;
+                    break;
+                  }
+                  ++fieldIdx;
+                }
+                if (!found)
+                  throw std::runtime_error("addr: unknown field " + af->field);
+                if (fieldIdx > 0) {
+                  auto off = solver.make_bv_value_int64(bv64, static_cast<int64_t>(fieldIdx));
+                  tag = solver.make_term(smt::Kind::BV_ADD, {tag, off});
+                }
+                continue;
+              }
+              throw std::runtime_error("'addr' with this access kind not yet supported in solver");
             }
-            const std::string targetName = arg.lv.base.name;
-            return solver.make_bv_value_int64(
-                solver.make_bv_sort(kPtrBits), static_cast<int64_t>(tagOfLocal(targetName))
-            );
+            return tag;
           } else if constexpr (std::is_same_v<T, LoadAtom>) {
             // load %p — dispatch over candidate targets of the pointee type.
             // Build a chain of ites: ite(p == tag_v, value_of_v, fallback).
@@ -1190,15 +1357,52 @@ namespace symir {
               result = solver.make_bv_value(pointeeSort, "0", 10);
             }
 
+            auto bv64 = solver.make_bv_sort(kPtrBits);
             for (const auto &l: currentFun_->lets) {
-              if (!typeMatch(l.type, pointeeType))
+              // Scalar local of matching pointee type: tag(l) at offset 0.
+              if (typeMatch(l.type, pointeeType)) {
+                auto tagTerm =
+                    solver.make_bv_value_int64(bv64, static_cast<int64_t>(tagOfLocal(l.name.name)));
+                auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, tagTerm});
+                auto &sv = store.at(l.name.name);
+                result = solver.make_term(smt::Kind::ITE, {cond, sv.term, result});
                 continue;
-              auto tagTerm = solver.make_bv_value_int64(
-                  solver.make_bv_sort(kPtrBits), static_cast<int64_t>(tagOfLocal(l.name.name))
-              );
-              auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, tagTerm});
-              auto &sv = store.at(l.name.name);
-              result = solver.make_term(smt::Kind::ITE, {cond, sv.term, result});
+              }
+              // [v0.2.1] Array local with matching element type — enumerate
+              // each element as a candidate target at tag(l) + k.
+              if (auto at = std::get_if<ArrayType>(&l.type->v)) {
+                if (typeMatch(at->elem, pointeeType)) {
+                  auto &sv = store.at(l.name.name);
+                  uint64_t baseTag = tagOfLocal(l.name.name);
+                  for (size_t k = 0; k < at->size && k < sv.arrayVal.size(); ++k) {
+                    auto kTag = solver.make_bv_value_int64(bv64, static_cast<int64_t>(baseTag + k));
+                    auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, kTag});
+                    result = solver.make_term(smt::Kind::ITE, {cond, sv.arrayVal[k].term, result});
+                  }
+                }
+                continue;
+              }
+              // [v0.2.1] Struct local — enumerate fields with matching
+              // pointee type at tag(%s) + field_index.
+              if (auto st = std::get_if<StructType>(&l.type->v)) {
+                auto sIt = structs_.find(st->name.name);
+                if (sIt == structs_.end())
+                  continue;
+                auto &sv = store.at(l.name.name);
+                uint64_t baseTag = tagOfLocal(l.name.name);
+                size_t fIdx = 0;
+                for (const auto &f: sIt->second->fields) {
+                  if (typeMatch(f.type, pointeeType)) {
+                    auto fTag =
+                        solver.make_bv_value_int64(bv64, static_cast<int64_t>(baseTag + fIdx));
+                    auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, fTag});
+                    auto fIt = sv.structVal.find(f.name);
+                    if (fIt != sv.structVal.end())
+                      result = solver.make_term(smt::Kind::ITE, {cond, fIt->second.term, result});
+                  }
+                  ++fIdx;
+                }
+              }
             }
             return result;
           }

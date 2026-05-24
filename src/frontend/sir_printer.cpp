@@ -296,6 +296,11 @@ namespace symir {
           } else if constexpr (std::is_same_v<T, LoadAtom>) {
             out_ << "load ";
             printLValue(arg.rval);
+          } else if constexpr (std::is_same_v<T, CmpAtom>) {
+            out_ << "cmp " << relOpToString(arg.op) << " ";
+            printSelectVal(arg.lhs);
+            out_ << ", ";
+            printSelectVal(arg.rhs);
           }
         },
         a.v
