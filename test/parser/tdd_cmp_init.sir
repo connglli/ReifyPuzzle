@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SKIP: COMPILER
+fun @main(): i32 {
+  let mut %x: i32 = 42;
+  let mut %y: i32 = 24;
+  let %cond: i1 = cmp < %x, %y;
+^entry:
+  ret 0;
+}

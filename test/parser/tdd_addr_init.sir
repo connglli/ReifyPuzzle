@@ -1,0 +1,7 @@
+// EXPECT: PASS
+fun @main(): i32 {
+  let mut %x: i32 = 42;
+  let %p: ptr i32 = addr %x;
+^entry:
+  ret 0;
+}
