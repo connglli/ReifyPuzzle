@@ -1,9 +1,7 @@
 // EXPECT: FAIL:UndefinedBehavior
-// SKIP: SOLVER, COMPILER, INTERPRETER
+// SKIP: SOLVER, COMPILER
 //
-// Rule 15b typed-access mismatch on store. The interpreter doesn't yet
-// validate that the runtime offset coincides with a T-typed cell.
-// Re-enable when rule 15b is implemented in the interpreter.
+// Rule 15b typed-access mismatch on store.
 // Expected Behavior: Interpreter aborts with typed-access mismatch UB.
 // Actual Behavior: Interpreter succeeds and exits with 0.
 

@@ -1,5 +1,4 @@
 // EXPECT: PASS
-// SKIP: INTERPRETER
 // SKIP: COMPILER
 // SOLVER_ARGS: --main @main --path '^entry'
 //

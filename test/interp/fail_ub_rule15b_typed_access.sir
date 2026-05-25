@@ -1,12 +1,9 @@
 // EXPECT: FAIL
-// SKIP: SOLVER, COMPILER, INTERPRETER
+// SKIP: SOLVER, COMPILER
 //
 // Rule 15b typed-access mismatch. `addr %t.a` gives ptr i32 with
 // provenance = struct @T. Advancing by 1 element lands on field b
 // (i64). Loading i32 from an i64 cell is UB per rule 15b.
-// The interpreter doesn't yet validate that the runtime offset
-// coincides with a T-typed cell — it only checks bounds. Re-enable
-// when rule 15b typed-access validation is implemented.
 // Exposes: Incorrect UB detection (aborts with wrong UB reason).
 // Expected Behavior: symiri aborts with exit code 5 (UB: Typed-access mismatch).
 // Actual Behavior: symiri aborts with wrong error "UB: Load out of bounds" instead.

@@ -135,10 +135,14 @@ namespace symir {
   }
 
   const Interpreter::ObjectInfo *Interpreter::findObject(std::uint64_t addr) const {
+    // Prefer the most specific (smallest) ObjectInfo containing the address.
+    // This ensures field-level ObjectInfos win over whole-struct ones.
+    const ObjectInfo *best = nullptr;
     for (const auto &o: objects_)
       if (addr >= o.base && addr < o.end)
-        return &o;
-    return nullptr;
+        if (!best || (o.end - o.base) < (best->end - best->base))
+          best = &o;
+    return best;
   }
 
   // Like findObject, but also matches the one-past-the-end address (valid for arithmetic).
@@ -600,6 +604,25 @@ namespace symir {
                   throw UndefinedBehaviorError("UB: Store to unknown address");
                 if (ptrVal.ptrVal < obj->base || ptrVal.ptrVal >= obj->end)
                   throw UndefinedBehaviorError("UB: Store out of bounds");
+                // [v0.2.1] Rule 15b: typed-access mismatch on store.
+                const ObjectInfo *cellObj = findObject(ptrVal.ptrVal);
+                if (cellObj && cellObj->fieldName.size() > 0) {
+                  auto tit = typeMap_.find(
+                      std::get_if<RValueAtom>(&i.ptr.first.v)
+                          ? std::get_if<RValueAtom>(&i.ptr.first.v)->rval.base.name
+                          : ""
+                  );
+                  if (tit != typeMap_.end()) {
+                    TypePtr ptrTy = tit->second;
+                    if (auto pt = std::get_if<PtrType>(&ptrTy->v)) {
+                      uint64_t ptrElemSize = sizeofType(pt->pointee);
+                      if (ptrElemSize != cellObj->elemSize)
+                        throw UndefinedBehaviorError(
+                            "UB: Typed-access mismatch (rule 15b) on store"
+                        );
+                    }
+                  }
+                }
                 // SPEC §6.4: enforce destination precision. The pointee object
                 // has an elemSize that reflects the pointee type; for f32 this
                 // is 4, for f64 it is 8. Round float values to f32 if the
@@ -613,22 +636,26 @@ namespace symir {
                 }
                 heap_[ptrVal.ptrVal] = val;
                 // Sync back to store for Store/Heap consistency.
-                if (!obj->fieldName.empty()) {
-                  if (obj->arrayIdx != static_cast<std::uint64_t>(-1) &&
-                      store.count(obj->varName) &&
-                      store.at(obj->varName).kind == RuntimeValue::Kind::Array) {
-                    // Array-of-struct field pointer: sync into the right
-                    // element's struct field.
-                    auto &arr = store[obj->varName].arrayVal;
-                    if (obj->arrayIdx < arr.size() &&
-                        arr[obj->arrayIdx].kind == RuntimeValue::Kind::Struct)
-                      arr[obj->arrayIdx].structVal[obj->fieldName] = val;
-                  } else if (store.count(obj->varName) &&
-                             store.at(obj->varName).kind == RuntimeValue::Kind::Struct) {
-                    // Plain struct-field pointer.
-                    store[obj->varName].structVal[obj->fieldName] = val;
+                // Strategy: find the most specific ObjectInfo that
+                // contains the store address. If it's a field-level
+                // ObjectInfo, sync to that field. If it's a whole-struct
+                // ObjectInfo (from ptrfield provenance), find the field
+                // ObjectInfo that contains the address and sync there.
+                const ObjectInfo *syncObj = findObject(ptrVal.ptrVal);
+                if (syncObj && !syncObj->fieldName.empty()) {
+                  if (syncObj->arrayIdx != static_cast<std::uint64_t>(-1) &&
+                      store.count(syncObj->varName) &&
+                      store.at(syncObj->varName).kind == RuntimeValue::Kind::Array) {
+                    auto &arr = store[syncObj->varName].arrayVal;
+                    if (syncObj->arrayIdx < arr.size() &&
+                        arr[syncObj->arrayIdx].kind == RuntimeValue::Kind::Struct)
+                      arr[syncObj->arrayIdx].structVal[syncObj->fieldName] = val;
+                  } else if (store.count(syncObj->varName) &&
+                             store.at(syncObj->varName).kind == RuntimeValue::Kind::Struct) {
+                    store[syncObj->varName].structVal[syncObj->fieldName] = val;
                   }
-                } else if (obj->count == 1) {
+                } else if (obj->count == 1 && obj->fieldName.empty() &&
+                           obj->arrayIdx == static_cast<std::uint64_t>(-1)) {
                   store[obj->varName] = val;
                 } else {
                   uint64_t idx = (ptrVal.ptrVal - obj->base) / obj->elemSize;
@@ -1235,7 +1262,9 @@ namespace symir {
                 addr = ptrBase + idx * obj->elemSize;
                 // ptrBase stays at the array's base (arithmetic walks the array).
               } else if (auto af = std::get_if<AccessField>(&acc)) {
-                // addr lv.f: field pointer has provenance over one element (spec rule 15).
+                // addr lv.f: per spec rule 15, provenance = the immediate
+                // containing struct. The result pointer can roam over the
+                // whole struct's byte range.
                 auto tit2 = typeMap_.find(varName);
                 if (tit2 == typeMap_.end())
                   throw std::runtime_error("No type info for field access on " + varName);
@@ -1248,8 +1277,8 @@ namespace symir {
                 // materializeStruct is idempotent; ensures per-field ObjectInfos exist.
                 uint64_t structBase = materializeStruct(varName, *sit->second, store);
                 addr = structBase + fieldOffset(*sit->second, af->field);
-                // Field pointer provenance = field's own ObjectInfo base.
-                ptrBase = addr;
+                // Provenance = the struct's base (whole-struct ObjectInfo).
+                ptrBase = structBase;
               }
             }
 
@@ -1274,6 +1303,31 @@ namespace symir {
               throw UndefinedBehaviorError("UB: Load from unknown address");
             if (ptrRv.ptrVal < obj->base || ptrRv.ptrVal >= obj->end)
               throw UndefinedBehaviorError("UB: Load out of bounds");
+            // [v0.2.1] Rule 15b: typed-access mismatch. The load address
+            // must coincide with the start of a cell whose declared type
+            // matches the pointer's static type. We check by finding the
+            // most specific (field-level) ObjectInfo at the address; if
+            // the pointer's elemSize doesn't match that ObjectInfo's
+            // elemSize, the types disagree.
+            const ObjectInfo *cellObj = findObject(ptrRv.ptrVal);
+            if (cellObj && cellObj->fieldName.size() > 0) {
+              // The pointer's element size comes from the provenance obj.
+              // If the field cell's elemSize differs, it's a type mismatch.
+              // (e.g., ptr i32 landing on an i64 field cell.)
+              auto tit = typeMap_.find(arg.rval.base.name);
+              if (tit != typeMap_.end()) {
+                TypePtr ptrTy = tit->second;
+                if (auto pt = std::get_if<PtrType>(&ptrTy->v)) {
+                  uint64_t ptrElemSize = sizeofType(pt->pointee);
+                  if (ptrElemSize != cellObj->elemSize)
+                    throw UndefinedBehaviorError(
+                        "UB: Typed-access mismatch (rule 15b): pointer element size " +
+                        std::to_string(ptrElemSize) + " != cell size " +
+                        std::to_string(cellObj->elemSize)
+                    );
+                }
+              }
+            }
             auto hit = heap_.find(ptrRv.ptrVal);
             if (hit == heap_.end())
               throw UndefinedBehaviorError("UB: Load from uninitialized memory");
