@@ -1,0 +1,25 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @main --path '^entry'
+// SKIP: COMPILER
+
+// Provenance propagation: cross-object compare through copy chain.
+// addr %a → %pa → %pa2; addr %b → %pb → %pb2.
+// Relational compare %pa2 < %pb2 is UB (rule 14) because the
+// provenance of %pa2 and %pb2 come from different objects.
+fun @main() : i32 {
+  let mut %a: i32 = 1;
+  let mut %b: i32 = 2;
+  let mut %pa: ptr i32 = null;
+  let mut %pa2: ptr i32 = null;
+  let mut %pb: ptr i32 = null;
+  let mut %pb2: ptr i32 = null;
+  let mut %res: i1 = 0;
+^entry:
+  %pa = addr %a;
+  %pa2 = %pa;
+  %pb = addr %b;
+  %pb2 = %pb;
+  // Relational compare through copies — provenance must propagate.
+  %res = cmp < %pa2, %pb2;
+  ret 0;
+}

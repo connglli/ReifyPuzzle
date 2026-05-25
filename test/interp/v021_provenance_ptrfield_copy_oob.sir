@@ -1,0 +1,21 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @main --path '^entry'
+// SKIP: COMPILER
+
+// Provenance propagation: ptrfield copy chain then OOB.
+// ptrfield %p, a → %pa → %pa2. Provenance = struct @Pair (size 2
+// fields = 8 bytes). %pa2 + 3 exceeds the struct range (only 2 i32
+// slots, one-past-end = 2) → UB (rule 10).
+struct @Pair { a: i32; b: i32; }
+fun @main() : i32 {
+  let mut %s: @Pair = {10, 20};
+  let mut %p: ptr @Pair = null;
+  let mut %pa: ptr i32 = null;
+  let mut %pa2: ptr i32 = null;
+^entry:
+  %p = addr %s;
+  %pa = ptrfield %p, a;
+  %pa2 = %pa;
+  %pa2 = %pa2 + 3;   // UB: past one-past-end of struct (2 fields)
+  ret 0;
+}

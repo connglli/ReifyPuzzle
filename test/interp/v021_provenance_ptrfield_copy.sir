@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+// SKIP: COMPILER
+
+// Provenance propagation through struct field pointer copy.
+// ptrfield %p, a → %pa → %pa2 → %pa3. Provenance = the struct.
+// %pa3 + 1 lands on field b (same type i32) → valid load.
+struct @Pair { a: i32; b: i32; }
+fun @main() : i32 {
+  let mut %s: @Pair = {10, 20};
+  let mut %p: ptr @Pair = null;
+  let mut %pa: ptr i32 = null;
+  let mut %pa2: ptr i32 = null;
+  let mut %pa3: ptr i32 = null;
+  let mut %val: i32 = 0;
+^entry:
+  %p = addr %s;
+  %pa = ptrfield %p, a;
+  %pa2 = %pa;
+  %pa3 = %pa2;
+  %pa3 = %pa3 + 1;
+  %val = load %pa3;
+  require %val == 20, "pa3 should read field b";
+  ret 0;
+}

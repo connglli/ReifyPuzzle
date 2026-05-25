@@ -1,0 +1,23 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @main --path '^entry'
+// SKIP: COMPILER
+
+// Provenance propagation: long copy chain (5 hops) then OOB.
+// addr %arr[0] → %a → %b → %c → %d → %e. Provenance = array [3].
+// %e + 4 exceeds the array (only 3 elements, one-past-end = 3) → UB.
+fun @main() : i32 {
+  let mut %arr: [3] i32 = {1, 2, 3};
+  let mut %a: ptr i32 = null;
+  let mut %b: ptr i32 = null;
+  let mut %c: ptr i32 = null;
+  let mut %d: ptr i32 = null;
+  let mut %e: ptr i32 = null;
+^entry:
+  %a = addr %arr[0];
+  %b = %a;
+  %c = %b;
+  %d = %c;
+  %e = %d;
+  %e = %e + 4;   // UB: 4 > 3 (array size)
+  ret 0;
+}
