@@ -555,8 +555,10 @@ namespace symir {
                   // (rules 6/7). UBSan catches some FP issues but not NaN
                   // from 0.0/0.0; emit an explicit `isfinite` check after
                   // FP assignments so the spec's semantics are enforced.
-                  if (lhsTy && std::holds_alternative<FloatType>(lhsTy->v) &&
-                      arg.lhs.accesses.empty()) {
+                  // Also fires for FP element writes (array element / struct
+                  // field / vector lane) — the check uses the LHS in place.
+                  bool lhsIsFp = lhsTy && std::holds_alternative<FloatType>(lhsTy->v);
+                  if (lhsIsFp) {
                     indent();
                     out_ << "if (!__builtin_isfinite(";
                     emitLValue(arg.lhs);
@@ -796,8 +798,18 @@ namespace symir {
             out_ << "&";
             emitLValue(arg.lv);
           } else if constexpr (std::is_same_v<T, LoadAtom>) {
-            out_ << "*";
+            // [v0.2.1] Rule 15b (typed-access mismatch): load through a
+            // pointer that doesn't have enough room for the pointee. Use
+            // __builtin_object_size so we trap when the pointer has been
+            // walked past its originating field/array.
+            out_ << "({ __typeof__(";
             emitLValue(arg.rval);
+            out_ << ") _pl = ";
+            emitLValue(arg.rval);
+            out_ << "; if (!_pl) __builtin_trap();"
+                 << " if (__builtin_object_size(_pl, 0) != (size_t)-1 &&"
+                 << "     __builtin_object_size(_pl, 0) < sizeof(*_pl)) __builtin_trap();"
+                 << " *_pl; })";
           } else if constexpr (std::is_same_v<T, PtrIndexAtom>) {
             // [v0.2.1] ptrindex p, i → element pointer. Rule 17 (null nav),
             // rule 18 (undef nav — relies on UBSan), rule 16 (index bounds).
@@ -1426,6 +1438,8 @@ namespace symir {
       if (std::holds_alternative<AccessIndex>(acc)) {
         if (auto at = std::get_if<ArrayType>(&cur->v))
           cur = at->elem;
+        else if (auto vt = std::get_if<VecType>(&cur->v))
+          cur = vt->elem;
         else if (auto pt = std::get_if<PtrType>(&cur->v))
           cur = pt->pointee;
         else

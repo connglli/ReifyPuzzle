@@ -1,0 +1,19 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+//
+// Intention: Expose missing FP invalid (NaN) check (inf - inf) in compiled C when writing to an array or struct element.
+// Exposes: Missing __builtin_isfinite check in C backend for non-empty accesses.
+// Expected Behavior: Compiled code traps/aborts due to NaN (exit code non-zero).
+// Actual Behavior: Compiled code succeeds (exit code 0).
+
+fun @main() : i32 {
+  let mut %arr: [3] f32 = {0.0, 0.0, 0.0};
+  let mut %a: f32 = 3.0e38;
+  let mut %b: f32 = 3.0e38;
+^entry:
+  %arr[0] = %a + %b;            // inf
+  %arr[1] = %a + %b;            // inf
+  %arr[2] = %arr[0] - %arr[1];  // inf - inf = NaN, should trap!
+  ret 0;
+}

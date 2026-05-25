@@ -1,0 +1,20 @@
+// EXPECT: FAIL
+// SKIP: SOLVER, COMPILER
+//
+// Intention: Expose the missing Rule 15b (typed-access mismatch) check in interpreter.
+// COMPILER skip: the C backend's `__builtin_object_size` guard only
+// fires at -O2; the harness runs at -O0.
+// Exposes: Incorrect UB detection (aborts with wrong UB reason).
+// Expected Behavior: symiri aborts with exit code 5 (UB: Typed-access mismatch).
+// Actual Behavior: symiri aborts with wrong error "UB: Load out of bounds" instead.
+
+struct @T { a: i32; b: i64; }
+
+fun @main() : i32 {
+  let mut %t: @T = {10, 20};
+  let mut %pa: ptr i32 = null;
+^entry:
+  %pa = addr %t.a;
+  %pa = %pa + 1; // pa points to offset 4 (t.b, which is i64)
+  ret load %pa;  // UB: typed-access mismatch!
+}

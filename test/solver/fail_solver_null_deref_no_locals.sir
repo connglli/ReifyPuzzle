@@ -1,0 +1,17 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+//
+// Intention: Expose solver missing null pointer dereference check when no locals of matching pointee type exist.
+// Exposes: Solver bug where load/store through null is allowed without UNSAT when no candidate targets exist to trigger anyMatch.
+// Expected Behavior: Solver flags load from null as UB (returns UNSAT).
+// Actual Behavior: Solver allows it, returning SAT.
+
+fun @main() : i32 {
+  let mut %p: ptr i32 = null;
+^entry:
+  // Dereferencing null pointer %p is UB under Rule 11/17.
+  // Because no locals of type i32 are declared in @main, matchConds is empty,
+  // letting the solver skip the anyMatch check and return SAT.
+  ret load %p;
+}

@@ -1,0 +1,17 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+//
+// Intention: Expose missing FP multiplication overflow-to-inf check in compiled C when writing to an array or struct element.
+// Exposes: Missing __builtin_isfinite check in C backend for non-empty accesses.
+// Expected Behavior: Compiled code traps/aborts due to overflow (exit code non-zero).
+// Actual Behavior: Compiled code succeeds (exit code 0).
+
+fun @main() : i32 {
+  let mut %arr: [1] f32 = {0.0};
+  let mut %a: f32 = 2.0e38;
+  let mut %b: f32 = 2.0;
+^entry:
+  %arr[0] = %a * %b; // overflows to inf, should trap
+  ret 0;
+}

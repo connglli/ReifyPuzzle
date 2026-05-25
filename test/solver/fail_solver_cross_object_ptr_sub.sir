@@ -1,0 +1,22 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+//
+// Intention: Expose solver missing cross-object pointer subtraction check.
+// Exposes: Solver bug where pointer subtraction between pointers to different objects is allowed without UNSAT UB constraints.
+// Expected Behavior: Solver flags subtraction of pointers to different objects as UB (returns UNSAT).
+// Actual Behavior: Solver allows it, returning SAT.
+
+fun @main() : i32 {
+  let mut %x: i32 = 1;
+  let mut %y: i32 = 2;
+  let mut %px: ptr i32 = null;
+  let mut %py: ptr i32 = null;
+  let mut %d: i64 = 0;
+^entry:
+  %px = addr %x;
+  %py = addr %y;
+  // Subtraction of pointers to different objects is UB.
+  %d = %px - %py;
+  ret 0;
+}

@@ -1,0 +1,20 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+//
+// Intention: Expose solver missing pointer arithmetic bounds check (Rule 10).
+// Exposes: Solver bug where pointer arithmetic adding/subtracting past originating object size is allowed (returns SAT instead of UNSAT).
+// Expected Behavior: Solver flags out-of-bounds pointer arithmetic as UB (returns UNSAT).
+// Actual Behavior: Solver allows it, returning SAT.
+
+fun @main() : i32 {
+  let mut %x: i32 = 1;
+  let mut %p: ptr i32 = null;
+  let mut %p2: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  // Offset of 2 elements is out of bounds for a single-element local variable %x.
+  // This is UB under Rule 10, but solver does not check it, returning SAT.
+  %p2 = %p + 2;
+  ret 0;
+}

@@ -77,13 +77,47 @@ namespace symir {
     objects_.push_back(ObjectInfo{varName, "", base, base + totalSize, elemSize, count});
     addrMap_[varName] = base;
 
-    // Sync current store value into heap
+    // Sync current store value into heap. For arrays-of-structs the
+    // element storage isn't itself a flat scalar — we recurse so that
+    // every leaf field has its own per-byte heap entry and ObjectInfo.
+    // This lets `ptrfield %p, f` for `%p = addr %arr[k]` resolve to a
+    // valid object-bound load address even when %p has been advanced
+    // via pointer arithmetic.
     auto sit = store.find(varName);
     if (sit != store.end()) {
       const RuntimeValue &sv = sit->second;
       if (sv.kind == RuntimeValue::Kind::Array) {
-        for (std::size_t i = 0; i < sv.arrayVal.size(); ++i)
-          heap_[base + i * elemSize] = sv.arrayVal[i];
+        auto at = std::get_if<ArrayType>(&t->v);
+        auto elemTy = at ? at->elem : t;
+        bool elemIsStruct = elemTy && std::holds_alternative<StructType>(elemTy->v);
+        const StructDecl *sd = nullptr;
+        if (elemIsStruct) {
+          auto sIt = structs_.find(std::get<StructType>(elemTy->v).name.name);
+          if (sIt != structs_.end())
+            sd = sIt->second;
+        }
+        for (std::size_t i = 0; i < sv.arrayVal.size(); ++i) {
+          uint64_t elemBase = base + i * elemSize;
+          if (sd) {
+            // Per-element struct: materialize each field's ObjectInfo
+            // and populate heap_ at the field address.
+            uint64_t off = 0;
+            for (const auto &f: sd->fields) {
+              uint64_t fSize = sizeofType(f.type);
+              objects_.push_back(
+                  ObjectInfo{varName, f.name, elemBase + off, elemBase + off + fSize, fSize, 1, i}
+              );
+              if (sv.arrayVal[i].kind == RuntimeValue::Kind::Struct) {
+                auto fit = sv.arrayVal[i].structVal.find(f.name);
+                if (fit != sv.arrayVal[i].structVal.end())
+                  heap_[elemBase + off] = fit->second;
+              }
+              off += fSize;
+            }
+          } else {
+            heap_[elemBase] = sv.arrayVal[i];
+          }
+        }
       } else {
         heap_[base] = sv;
       }
@@ -552,10 +586,20 @@ namespace symir {
                 heap_[ptrVal.ptrVal] = val;
                 // Sync back to store for Store/Heap consistency.
                 if (!obj->fieldName.empty()) {
-                  // Struct-field pointer: sync to structVal.
-                  if (store.count(obj->varName) &&
-                      store.at(obj->varName).kind == RuntimeValue::Kind::Struct)
+                  if (obj->arrayIdx != static_cast<std::uint64_t>(-1) &&
+                      store.count(obj->varName) &&
+                      store.at(obj->varName).kind == RuntimeValue::Kind::Array) {
+                    // Array-of-struct field pointer: sync into the right
+                    // element's struct field.
+                    auto &arr = store[obj->varName].arrayVal;
+                    if (obj->arrayIdx < arr.size() &&
+                        arr[obj->arrayIdx].kind == RuntimeValue::Kind::Struct)
+                      arr[obj->arrayIdx].structVal[obj->fieldName] = val;
+                  } else if (store.count(obj->varName) &&
+                             store.at(obj->varName).kind == RuntimeValue::Kind::Struct) {
+                    // Plain struct-field pointer.
                     store[obj->varName].structVal[obj->fieldName] = val;
+                  }
                 } else if (obj->count == 1) {
                   store[obj->varName] = val;
                 } else {
@@ -808,6 +852,8 @@ namespace symir {
                     if (rL.intVal < 0 || (uint64_t) rL.intVal >= (uint64_t) laneRes.bits)
                       throw UndefinedBehaviorError("UB: vector lane overshift");
                     if (arg.op == AtomOpKind::Shl) {
+                      if (cL.intVal < 0)
+                        throw UndefinedBehaviorError("UB: vector lane left shift of negative");
                       __int128 p = (__int128) cL.intVal << rL.intVal;
                       if (p > (__int128) bw_smax || p < (__int128) bw_smin)
                         throw UndefinedBehaviorError("UB: vector lane overflow in <<");
@@ -890,9 +936,11 @@ namespace symir {
                   throw UndefinedBehaviorError("UB: Overshift");
                 }
                 if (arg.op == AtomOpKind::Shl) {
-                  // SPEC §7.1 rule 4: SHL result overflow is signed-integer
-                  // overflow UB, on the same footing as `+`/`-`/`*`. Compute
-                  // in __int128 to detect bit-width overflow safely.
+                  // SPEC §7.1 rule 4: SHL on a negative operand is UB, and
+                  // result overflow on a non-negative operand is also UB
+                  // (signed-integer overflow, same footing as +/-/*).
+                  if (c.intVal < 0)
+                    throw UndefinedBehaviorError("UB: Left shift of negative");
                   __int128 prod = (__int128) c.intVal << r.intVal;
                   if (prod > (__int128) bw_smax || prod < (__int128) bw_smin)
                     throw UndefinedBehaviorError("UB: Signed integer overflow in shift");
@@ -1001,6 +1049,39 @@ namespace symir {
             auto cmpScalar = [&](const RuntimeValue &a, const RuntimeValue &b) -> bool {
               if (a.kind == RuntimeValue::Kind::Undef || b.kind == RuntimeValue::Kind::Undef)
                 throw UndefinedBehaviorError("UB: undef in cmp");
+              // [v0.2.1] Rule 14: relational compare of pointers from
+              // different objects (or null vs non-null in a relational
+              // op) is UB. Equality / inequality remain legal.
+              if (a.kind == RuntimeValue::Kind::Ptr || b.kind == RuntimeValue::Kind::Ptr) {
+                bool relational = arg.op == RelOp::LT || arg.op == RelOp::LE ||
+                                  arg.op == RelOp::GT || arg.op == RelOp::GE;
+                if (relational) {
+                  uint64_t aBase = (a.kind == RuntimeValue::Kind::Ptr) ? a.ptrBase : 0;
+                  uint64_t bBase = (b.kind == RuntimeValue::Kind::Ptr) ? b.ptrBase : 0;
+                  if (a.kind != b.kind)
+                    throw UndefinedBehaviorError(
+                        "UB: relational compare between pointer and non-pointer"
+                    );
+                  if (aBase != bBase)
+                    throw UndefinedBehaviorError("UB: relational compare of cross-object pointers");
+                }
+                bool eq = a.ptrVal == b.ptrVal;
+                switch (arg.op) {
+                  case RelOp::EQ:
+                    return eq;
+                  case RelOp::NE:
+                    return !eq;
+                  case RelOp::LT:
+                    return a.ptrVal < b.ptrVal;
+                  case RelOp::LE:
+                    return a.ptrVal <= b.ptrVal;
+                  case RelOp::GT:
+                    return a.ptrVal > b.ptrVal;
+                  case RelOp::GE:
+                    return a.ptrVal >= b.ptrVal;
+                }
+                return false;
+              }
               double af = (a.kind == RuntimeValue::Kind::Float) ? a.floatVal
                                                                 : static_cast<double>(a.intVal);
               double bf = (b.kind == RuntimeValue::Kind::Float) ? b.floatVal
@@ -1275,13 +1356,17 @@ namespace symir {
             RuntimeValue rv;
             rv.kind = RuntimeValue::Kind::Ptr;
             rv.bits = 64;
-            rv.ptrVal = ptrRv.ptrBase + off;
+            // The field address is relative to the *current* struct the
+            // pointer is pointing into. For `addr %arr[k]; %p = %p + n;
+            // ptrfield %p, f`, that's `ptrVal + off`, not `ptrBase + off`
+            // — ptrBase still refers to the containing array's start.
+            rv.ptrVal = ptrRv.ptrVal + off;
             // Provenance: field pointer's provenance is the struct (spec
             // rule 15) — i.e., arithmetic on the result roams over the
             // whole struct. We model that by keeping ptrBase at the
             // struct's base; load through the result later restricts to
             // the field cell via the type-matched ObjectInfo lookup.
-            rv.ptrBase = ptrRv.ptrBase + off;
+            rv.ptrBase = ptrRv.ptrVal + off;
             return rv;
           } else if constexpr (std::is_same_v<T, CastAtom>) {
             RuntimeValue v = std::visit(

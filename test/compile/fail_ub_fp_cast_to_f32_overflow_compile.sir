@@ -1,0 +1,16 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+//
+// Intention: Expose missing FP cast bounds checks (f64 as f32) in compiled C when writing to an array or struct element.
+// Exposes: Missing __builtin_isfinite check in C backend for non-empty accesses after type casts.
+// Expected Behavior: Compiled code traps/aborts due to overflow (exit code non-zero).
+// Actual Behavior: Compiled code succeeds (exit code 0).
+
+fun @main() : i32 {
+  let mut %arr: [1] f32 = {0.0};
+  let mut %val: f64 = 1.0e100;
+^entry:
+  %arr[0] = %val as f32; // f64 as f32 overflows, should trap
+  ret 0;
+}

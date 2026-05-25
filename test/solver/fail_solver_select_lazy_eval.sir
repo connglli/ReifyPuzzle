@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+//
+// Intention: Expose the solver's lack of lazy evaluation for select arms.
+// Exposes: Solver bug where unselected select arms are evaluated unconditionally, adding their UB constraints to path constraints.
+// Expected Behavior: Solver treats select as lazy, ignores the UB in the unselected arm, and solves successfully (returns SAT).
+// Actual Behavior: Solver evaluates the unselected arm, triggers out-of-bounds array UB, and fails (returns UNSAT).
+
+fun @main() : i32 {
+  let mut %arr: [1] i32 = {42};
+  let mut %idx: i32 = 10;
+  let mut %safe: i32 = 42;
+  let mut %cond: i1 = 1;
+  let mut %res: i32 = 0;
+^entry:
+  %res = select %cond, %safe, %arr[%idx];
+  require %res == 42, "select must return safe value";
+  ret 0;
+}

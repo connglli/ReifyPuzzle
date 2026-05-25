@@ -1,0 +1,19 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+//
+// Intention: Expose solver missing relational pointer compare against null check.
+// Exposes: Solver bug where relational compares against null constant bypass Rule 14 checks.
+// Expected Behavior: Solver flags relational comparison against null as UB (returns UNSAT).
+// Actual Behavior: Solver allows it, returning SAT.
+
+fun @main() : i32 {
+  let mut %x: i32 = 1;
+  let mut %px: ptr i32 = null;
+^entry:
+  %px = addr %x;
+  // Relational comparison (<, >, etc.) against null is UB.
+  // Solver misses this because null is not a local variable name.
+  require %px < null, "trigger comparison";
+  ret 0;
+}

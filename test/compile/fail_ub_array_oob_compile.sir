@@ -1,0 +1,17 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER, SOLVER
+//
+// Intention: Expose C compiler missing native array bounds checking (Rule 2).
+// Exposes: C backend bug where array indices are compiled directly to C bracket syntax without any native traps, relying solely on sanitizer flags.
+// Expected Behavior: Compiled C code traps on array out-of-bounds access.
+// Actual Behavior: Compiled C code (without sanitizer flags) runs successfully and exits with 0.
+
+fun @main() : i32 {
+  let mut %arr: [2] i32 = {10, 20};
+  let mut %val: i32 = 0;
+^entry:
+  // Array out-of-bounds access: index 5 on [2] i32 is UB under Rule 2.
+  // C backend generates raw _arr[5] without checks.
+  %val = %arr[5];
+  ret 0;
+}

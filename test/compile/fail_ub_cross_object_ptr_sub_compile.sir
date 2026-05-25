@@ -1,0 +1,21 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+//
+// Intention: Expose missing cross-object pointer subtraction check in compiled C.
+// Exposes: Missing runtime check / sanitizer failure in compiled C for pointer subtraction.
+// Expected Behavior: Compiled C code traps/aborts on cross-object pointer subtraction.
+// Actual Behavior: Compiled C code runs successfully and exits with 0.
+
+fun @main() : i32 {
+  let mut %x: i32 = 1;
+  let mut %y: i32 = 2;
+  let mut %px: ptr i32 = null;
+  let mut %py: ptr i32 = null;
+  let mut %d: i64 = 0;
+^entry:
+  %px = addr %x;
+  %py = addr %y;
+  %d = %px - %py; // UB: cross-object pointer subtraction!
+  ret 0;
+}

@@ -1,0 +1,16 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+//
+// Intention: Expose solver missing FP cast overflow check on vector operations.
+// Exposes: Solver bug where fp.isInfinite checks are missing for vector FP cast operations.
+// Expected Behavior: Solver detects that casting vector float lanes to out-of-range types (f64 as f32) resulting in infinity triggers UB, making path infeasible (UNSAT).
+// Actual Behavior: Solver allows it, returning SAT.
+
+fun @main() : i32 {
+  let mut %v1: <4> f64 = {1.0e100, 0.0, 0.0, 0.0};
+  let mut %res: <4> f32 = {0.0, 0.0, 0.0, 0.0};
+^entry:
+  %res = %v1 as <4> f32; // overflows to inf, should be UNSAT
+  ret 0;
+}

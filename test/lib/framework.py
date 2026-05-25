@@ -45,7 +45,13 @@ def get_metadata(file_path):
         args["SOLVER_ARGS"].extend(parts)
 
       if "// SKIP:" in line:
-        skips.append(line.split("SKIP:")[1].strip())
+        # Allow comma-separated tags on a single line:
+        #   // SKIP: SOLVER, COMPILER
+        raw = line.split("SKIP:")[1].strip()
+        for tag in raw.split(","):
+          tag = tag.strip()
+          if tag:
+            skips.append(tag)
   return expectation, args, skips
 
 

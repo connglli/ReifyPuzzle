@@ -1,0 +1,20 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: SOLVER, COMPILER
+//
+// Intention: Expose interpreter missing Rule 15b typed-access check on pointer stores.
+// Exposes: Interpreter bug where store through a pointer whose type does not match the accessed cell's type is permitted without UB.
+// Expected Behavior: Interpreter aborts with typed-access mismatch UB.
+// Actual Behavior: Interpreter succeeds and exits with 0.
+
+struct @T { a: i32; b: i64; }
+
+fun @main() : i32 {
+  let mut %t: @T = {10, 20};
+  let mut %pa: ptr i32 = null;
+^entry:
+  %pa = addr %t.a;
+  %pa = %pa + 1; // pa points to offset 4 (t.b, which is i64)
+  // Store i32 value into i64 cell - UB typed-access mismatch!
+  store %pa, 42;
+  ret 0;
+}

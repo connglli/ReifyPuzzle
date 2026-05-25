@@ -1,0 +1,17 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER, SOLVER
+//
+// Intention: Expose C compiler missing FP division by zero check on array write.
+// Exposes: Compiler bug in c_backend.cpp where isfinite checks are omitted if lhs has accesses, allowing OOB/infinity values to be written to arrays without trapping.
+// Expected Behavior: Compiled C code traps on float division by zero written to array.
+// Actual Behavior: Compiled C code runs successfully and exits with 0.
+
+fun @main() : i32 {
+  let mut %arr: [1] f32 = {0.0};
+  let mut %a: f32 = 1.0;
+  let mut %b: f32 = 0.0;
+^entry:
+  // Division by zero is UB. Written to array, so compiler misses the isfinite check.
+  %arr[0] = %a / %b;
+  ret 0;
+}

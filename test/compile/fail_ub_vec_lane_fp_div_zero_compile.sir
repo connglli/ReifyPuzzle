@@ -1,0 +1,17 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+//
+// Intention: Expose missing vector lane FP division-by-zero check in compiled C.
+// Exposes: Missing __builtin_isfinite check in C backend when writing to a vector lane.
+// Expected Behavior: Compiled code traps/aborts due to division by zero (exit code non-zero).
+// Actual Behavior: Compiled code succeeds (exit code 0).
+
+fun @main() : i32 {
+  let mut %v: <4> f32 = {0.0, 0.0, 0.0, 0.0};
+  let mut %a: f32 = 1.0;
+  let mut %b: f32 = 0.0;
+^entry:
+  %v[0] = %a / %b; // division by zero, should trap
+  ret 0;
+}

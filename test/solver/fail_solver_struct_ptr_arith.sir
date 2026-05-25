@@ -1,0 +1,26 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER
+// SKIP: COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+//
+// Intention: Pointer arithmetic on `ptr @S` advances by sizeof(@S),
+// so `addr %s; %p + 1` lands one-past-end of `%s`. Per spec rule 19
+// navigating (ptrfield/ptrindex) through a one-past-end pointer is UB
+// — the path constraint is unsatisfiable. (Original draft expected
+// PASS, which conflicted with rule 19.)
+
+struct @Pair { a: i32; b: i32; }
+
+fun @main() : i32 {
+  let mut %s: @Pair = {10, 20};
+  let mut %p: ptr @Pair = null;
+  let mut %pa: ptr i32 = null;
+  let mut %pb: ptr i32 = null;
+^entry:
+  %p = addr %s;
+  %p = %p + 1;            // Should advance by sizeof(@Pair) = 2 fields (base + 2)
+  %pa = ptrfield %p, a;   // pa = base + 2 + 0 = base + 2
+  %pb = addr %s.b;        // pb = base + 1
+  require %pa != %pb, "pointers must not be equal";
+  ret 0;
+}

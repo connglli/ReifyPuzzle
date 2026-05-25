@@ -1,0 +1,17 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+// COMPILER_ARGS: --sym %?i=4
+//
+// Intention: Expose compiler lvalue error on dynamic vector lane writes.
+// Exposes: Compiler bug where dynamic lane writes generate invalid C code or fail to compile.
+// Expected Behavior: Compilation succeeds, bounds checking occurs, runs to completion.
+// Actual Behavior: Compiler error (lvalue required as left operand of assignment) or compiler crash.
+
+fun @main() : i32 {
+  sym %?i: index i32 in [0, 4];
+  let mut %v: <4> i32 = {10, 20, 30, 40};
+^entry:
+  %v[%?i] = 99;
+  ret 0;
+}

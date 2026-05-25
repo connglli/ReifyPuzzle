@@ -1,0 +1,22 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: SOLVER, COMPILER
+//
+// Intention: Expose interpreter pointer comparison mismatch in cmp atom (Rule 14).
+// Exposes: Interpreter bug where CmpAtom evaluation uses cmpScalar which only handles Float and Int, extracting 0 for pointers and bypassing Rule 14 relational checks.
+// Expected Behavior: Interpreter aborts with UB error on relational pointer comparison across different objects.
+// Actual Behavior: Interpreter evaluates successfully and exits with 0.
+
+fun @main() : i32 {
+  let mut %x: i32 = 1;
+  let mut %y: i32 = 2;
+  let mut %px: ptr i32 = null;
+  let mut %py: ptr i32 = null;
+  let mut %res: i1 = 0;
+^entry:
+  %px = addr %x;
+  %py = addr %y;
+  // Relational comparison (<) between pointers to different objects is UB under Rule 14.
+  // The interpreter's CmpAtom compares extracted intVal (0) for both, returning false without UB.
+  %res = cmp < %px, %py;
+  ret 0;
+}

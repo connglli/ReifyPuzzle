@@ -61,6 +61,11 @@ namespace symir {
       std::uint64_t end;      // base + totalSize (exclusive)
       std::uint64_t elemSize; // sizeof(element type) in bytes
       std::uint64_t count;    // number of elements
+      // [v0.2.1] For array-of-struct field cells: the element index of
+      // the containing struct (i.e. `%arr[k].fld`'s k). -1 / SIZE_MAX
+      // when not array-nested. Used by StoreInstr to mirror the heap
+      // write back into the right `store["%arr"].arrayVal[k]` cell.
+      std::uint64_t arrayIdx = static_cast<std::uint64_t>(-1);
     };
 
     // heap_: flat address → RuntimeValue (one slot per element)

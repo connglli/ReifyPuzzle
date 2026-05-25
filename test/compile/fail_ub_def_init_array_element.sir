@@ -1,0 +1,22 @@
+// EXPECT: FAIL:StaticError
+// SKIP: INTERPRETER, SOLVER, COMPILER
+//
+// Intention: Expose definite initialization analysis aggregate bypass (Static checker gap).
+// Current status: detecting this requires per-element / per-field
+// init tracking. The existing single-bit-per-local analysis can't
+// represent "%arr[0] initialized, %arr[1] still undef". Adding the
+// finer-grained lattice is non-trivial — flagged for a future pass.
+// Exposes: Semantic checker bug where writing to a single array element (or struct field) marks the entire base local variable as definitely initialized, bypassing static warnings for uninitialized reads.
+// Expected Behavior: Semantic checker rejects read of uninitialized element %arr[1] (returns StaticError).
+// Actual Behavior: Semantic checker accepts it, and symirc compiles successfully.
+
+fun @main() : i32 {
+  let mut %arr: [2] i32 = undef;
+  let mut %val: i32 = 0;
+^entry:
+  // Write to a single element. Marks entire variable %arr as initialized in definite_init transfer.
+  %arr[0] = 1;
+  // %arr[1] remains uninitialized! Reading it is UB, and should be flagged statically.
+  %val = %arr[1];
+  ret 0;
+}

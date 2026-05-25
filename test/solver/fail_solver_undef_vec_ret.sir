@@ -1,0 +1,21 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+//
+// Intention: Expose the solver's lack of is_defined checking on whole vector returns / select result lanes.
+// Exposes: Solver bug where vector select results are hardcoded to have defined lanes (is_defined = true), leaking undef through select.
+// Expected Behavior: Solver detects that reading an undef lane via select is UB, making the path infeasible (returns UNSAT).
+// Actual Behavior: Solver treats select result lanes as defined, solves it successfully (returns SAT).
+
+fun @main() : i32 {
+  let mut %v_undef: <4> i32 = undef;
+  let mut %v_def: <4> i32 = {0, 0, 0, 0};
+  let mut %mask: <4> i1 = {1, 1, 1, 1};
+  let mut %res: <4> i32 = {0, 0, 0, 0};
+  let mut %x: i32 = 0;
+^entry:
+  %res = select %mask, %v_undef, %v_def;
+  %x = %res[0]; // reading select result lane (which is undef but marked defined by solver)
+  require %x == 0, "should fail due to undef UB";
+  ret 0;
+}

@@ -1,0 +1,17 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+//
+// Intention: Expose missing vector FP division-by-zero check in compiled C when writing to an array or struct.
+// Exposes: Missing __builtin_isfinite check in C backend for vector operations when writing to non-empty accesses.
+// Expected Behavior: Compiled code traps/aborts due to division by zero (exit code non-zero).
+// Actual Behavior: Compiled code succeeds (exit code 0).
+
+fun @main() : i32 {
+  let mut %arr: [1] <4> f32 = {{0.0, 0.0, 0.0, 0.0}};
+  let mut %v1: <4> f32 = {1.0, 1.0, 1.0, 1.0};
+  let mut %v2: <4> f32 = {0.0, 0.0, 0.0, 0.0};
+^entry:
+  %arr[0] = %v1 / %v2; // division by zero, should trap
+  ret 0;
+}

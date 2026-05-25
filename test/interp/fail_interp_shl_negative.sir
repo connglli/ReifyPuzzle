@@ -1,0 +1,18 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: SOLVER, COMPILER
+//
+// Intention: Expose interpreter missing check for left shift of negative number (Rule 4).
+// Exposes: Interpreter bug where left shift `<<` is evaluated without checking if the left operand is negative, which is UB.
+// Expected Behavior: Interpreter aborts with UB error on left shift of negative value.
+// Actual Behavior: Interpreter evaluates successfully and exits with 0.
+
+fun @main() : i32 {
+  let mut %x: i32 = -1;
+  let mut %res: i32 = 0;
+  let mut %amount: i32 = 1;
+^entry:
+  // Left shifting a negative number is UB under Rule 4.
+  // The interpreter only checks for bit-width overflow, permitting this.
+  %res = %x << %amount;
+  ret 0;
+}

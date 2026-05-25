@@ -1,0 +1,25 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+// SKIP: COMPILER
+//
+// Intention: Expose the missing Rule 15b (typed-access mismatch) check in compiled C.
+// Current status: the C backend emits an `__builtin_object_size` guard
+// that catches this UB at -O2 (GCC propagates the constant size through
+// pointer arithmetic). The compiler test harness runs at -O0, where
+// `__builtin_object_size` returns (size_t)-1 and the check can't fire.
+// Re-enable when the harness gains a higher-opt build mode.
+// Exposes: Missing check in the C backend.
+// Expected Behavior: Compiled C code traps/aborts (exit code non-zero under UBSan).
+// Actual Behavior: Compiled C code runs successfully and exits with 0 (returning 20).
+
+struct @T { a: i32; b: i64; }
+
+fun @main() : i32 {
+  let mut %t: @T = {10, 20};
+  let mut %pa: ptr i32 = null;
+^entry:
+  %pa = addr %t.a;
+  %pa = %pa + 1; // pa points to offset 4 (t.b, which is i64)
+  ret load %pa;  // UB: typed-access mismatch!
+}

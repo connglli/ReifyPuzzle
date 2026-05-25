@@ -30,6 +30,45 @@ namespace symir {
     return h;
   }
 
+  // Size of a type measured in BV-tag units (one unit per scalar leaf).
+  // Used by the pointer encoding so that:
+  //   * `addr %arr[k]` on `[N] T` advances by `k * sizeofTagUnits(T)`
+  //   * pointer arithmetic on `ptr T` scales by `sizeofTagUnits(T)`
+  //   * `ptrfield`/`ptrindex` adds the right offset for nested aggregates
+  // Forward-declared so other helpers can refer to it; defined below.
+  static std::uint64_t sizeofTagUnits(
+      const TypePtr &t, const std::unordered_map<std::string, const StructDecl *> &structs
+  ) {
+    if (!t)
+      return 1;
+    if (auto at = std::get_if<ArrayType>(&t->v))
+      return at->size * sizeofTagUnits(at->elem, structs);
+    if (auto st = std::get_if<StructType>(&t->v)) {
+      auto sIt = structs.find(st->name.name);
+      if (sIt == structs.end())
+        return 1;
+      std::uint64_t sum = 0;
+      for (const auto &f: sIt->second->fields)
+        sum += sizeofTagUnits(f.type, structs);
+      return sum;
+    }
+    return 1; // scalar / ptr / vec
+  }
+
+  // Byte offset (in tag units) of the named struct field.
+  static std::uint64_t fieldOffsetTagUnits(
+      const StructDecl &s, const std::string &field,
+      const std::unordered_map<std::string, const StructDecl *> &structs
+  ) {
+    std::uint64_t off = 0;
+    for (const auto &f: s.fields) {
+      if (f.name == field)
+        return off;
+      off += sizeofTagUnits(f.type, structs);
+    }
+    return off;
+  }
+
   // Compare SymIR types for structural equality at the level we care about
   // (matters when enumerating candidate ptr targets in load/store dispatch).
   static bool typeMatch(const TypePtr &a, const TypePtr &b) {
@@ -469,21 +508,72 @@ namespace symir {
                 SymbolicValue val(SymbolicValue::Kind::Int, rhs, solver.make_true());
                 setLValue(arg.lhs, val, solver, store, pathConstraints);
                 // [v0.2.1] Track ptr provenance for cross-object and one-
-                // past-end UB checks. The LHS must be a whole-local ptr;
-                // mirror the RHS atom's provenance (addr / ptrindex /
-                // ptrfield set a known provenance, pointer arithmetic
-                // preserves it, load-derived ptrs are unknown).
-                if (arg.lhs.accesses.empty() && currentFun_) {
-                  auto isPtrLocal = [&](const std::string &n) -> bool {
+                // past-end UB checks. The LHS is either a whole-local ptr
+                // or a ptr-typed struct field path (`%s.p1`); we mirror
+                // the RHS atom's provenance (addr / ptrindex / ptrfield
+                // set a known provenance, pointer arithmetic preserves
+                // it, load-derived ptrs are unknown).
+                if (currentFun_) {
+                  // Resolve the LHS type by walking accesses.
+                  auto resolveLhsType = [&]() -> TypePtr {
+                    TypePtr cur;
                     for (const auto &l: currentFun_->lets)
-                      if (l.name.name == n)
-                        return l.type && std::holds_alternative<PtrType>(l.type->v);
-                    for (const auto &p: currentFun_->params)
-                      if (p.name.name == n)
-                        return p.type && std::holds_alternative<PtrType>(p.type->v);
-                    return false;
+                      if (l.name.name == arg.lhs.base.name) {
+                        cur = l.type;
+                        break;
+                      }
+                    if (!cur)
+                      for (const auto &p: currentFun_->params)
+                        if (p.name.name == arg.lhs.base.name) {
+                          cur = p.type;
+                          break;
+                        }
+                    for (const auto &acc: arg.lhs.accesses) {
+                      if (!cur)
+                        return nullptr;
+                      if (auto af = std::get_if<AccessField>(&acc)) {
+                        auto st = std::get_if<StructType>(&cur->v);
+                        if (!st)
+                          return nullptr;
+                        auto sIt = structs_.find(st->name.name);
+                        if (sIt == structs_.end())
+                          return nullptr;
+                        cur = nullptr;
+                        for (const auto &f: sIt->second->fields)
+                          if (f.name == af->field) {
+                            cur = f.type;
+                            break;
+                          }
+                      } else if (auto ai = std::get_if<AccessIndex>(&acc)) {
+                        (void) ai;
+                        if (auto at = std::get_if<ArrayType>(&cur->v))
+                          cur = at->elem;
+                        else if (auto vt = std::get_if<VecType>(&cur->v))
+                          cur = vt->elem;
+                        else
+                          return nullptr;
+                      }
+                    }
+                    return cur;
                   };
-                  if (isPtrLocal(arg.lhs.base.name)) {
+                  auto isPtr = [&]() {
+                    auto t = resolveLhsType();
+                    return t && std::holds_alternative<PtrType>(t->v);
+                  };
+                  auto buildLhsKey = [&]() -> std::string {
+                    // Only field-keyed accesses (no dynamic indices).
+                    std::string key = arg.lhs.base.name;
+                    for (const auto &acc: arg.lhs.accesses) {
+                      if (auto af = std::get_if<AccessField>(&acc)) {
+                        key += "." + af->field;
+                      } else {
+                        return {};
+                      }
+                    }
+                    return key;
+                  };
+                  std::string lhsKey = isPtr() ? buildLhsKey() : "";
+                  if (!lhsKey.empty()) {
                     auto provFromName =
                         [&](const std::string &src) -> std::optional<PtrProvenance> {
                       auto it = ptrProv_.find(src);
@@ -495,10 +585,12 @@ namespace symir {
                       if (arg.rhs.rest.empty()) {
                         const auto &a = arg.rhs.first.v;
                         if (auto addr = std::get_if<AddrAtom>(&a)) {
-                          // Provenance = the addressed local's tag; size
-                          // depends on its declared type.
+                          // Provenance = the addressed local; size is the
+                          // immediate containing object's total tag-unit
+                          // span (spec rule 15). For `addr %arr[k]` that
+                          // remains the whole array; for `addr %s.f` the
+                          // whole struct.
                           uint64_t baseTag = tagOfLocal(addr->lv.base.name);
-                          uint64_t size = 1;
                           TypePtr ty;
                           for (const auto &l: currentFun_->lets)
                             if (l.name.name == addr->lv.base.name) {
@@ -511,18 +603,7 @@ namespace symir {
                                 ty = p.type;
                                 break;
                               }
-                          if (ty) {
-                            if (auto at = std::get_if<ArrayType>(&ty->v))
-                              size = at->size;
-                            else if (auto st = std::get_if<StructType>(&ty->v)) {
-                              auto sIt = structs_.find(st->name.name);
-                              if (sIt != structs_.end())
-                                size = sIt->second->fields.size();
-                            }
-                          }
-                          // For aggregate-element addressing (addr %arr[k],
-                          // addr %s.f), the provenance stays the immediate
-                          // container per spec rule 15.
+                          std::uint64_t size = sizeofTagUnits(ty, structs_);
                           return PtrProvenance{baseTag, size};
                         }
                         if (auto pi = std::get_if<PtrIndexAtom>(&a))
@@ -556,9 +637,9 @@ namespace symir {
                     };
                     auto newProv = compute();
                     if (newProv)
-                      ptrProv_[arg.lhs.base.name] = *newProv;
+                      ptrProv_[lhsKey] = *newProv;
                     else
-                      ptrProv_.erase(arg.lhs.base.name);
+                      ptrProv_.erase(lhsKey);
                   }
                 }
               } else if constexpr (std::is_same_v<T, AssumeInstr>) {
@@ -609,55 +690,45 @@ namespace symir {
                     evalExpr(arg.val, solver, store, pathConstraints, std::optional(pointeeSort));
 
                 auto bv64 = solver.make_bv_sort(kPtrBits);
-                for (const auto &l: currentFun_->lets) {
-                  // Scalar local of matching pointee type.
-                  if (typeMatch(l.type, pointeeType)) {
-                    auto tagTerm = solver.make_bv_value_int64(
-                        bv64, static_cast<int64_t>(tagOfLocal(l.name.name))
-                    );
+                // Mirror the load enumeration: recurse over (type, value,
+                // offset) so a store can target any scalar leaf of a
+                // nested aggregate — array-of-structs, struct-of-arrays.
+                std::function<void(const TypePtr &, SymbolicValue &, std::uint64_t, std::uint64_t)>
+                    enumStore;
+                enumStore = [&](const TypePtr &ty, SymbolicValue &sv, std::uint64_t baseTag,
+                                std::uint64_t off) {
+                  if (!ty)
+                    return;
+                  if (typeMatch(ty, pointeeType)) {
+                    auto tagTerm =
+                        solver.make_bv_value_int64(bv64, static_cast<int64_t>(baseTag + off));
                     auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, tagTerm});
-                    auto &sv = store.at(l.name.name);
                     sv.term = solver.make_term(smt::Kind::ITE, {cond, valTerm, sv.term});
-                    continue;
+                    return;
                   }
-                  // [v0.2.1] Array local — update each element conditionally
-                  // based on whether the pointer matches that element's tag.
-                  if (auto at = std::get_if<ArrayType>(&l.type->v)) {
-                    if (typeMatch(at->elem, pointeeType)) {
-                      auto &sv = store.at(l.name.name);
-                      uint64_t baseTag = tagOfLocal(l.name.name);
-                      for (size_t k = 0; k < at->size && k < sv.arrayVal.size(); ++k) {
-                        auto kTag =
-                            solver.make_bv_value_int64(bv64, static_cast<int64_t>(baseTag + k));
-                        auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, kTag});
-                        sv.arrayVal[k].term =
-                            solver.make_term(smt::Kind::ITE, {cond, valTerm, sv.arrayVal[k].term});
-                      }
-                    }
-                    continue;
+                  if (auto at = std::get_if<ArrayType>(&ty->v)) {
+                    std::uint64_t stride = sizeofTagUnits(at->elem, structs_);
+                    for (std::uint64_t k = 0; k < at->size && k < sv.arrayVal.size(); ++k)
+                      enumStore(at->elem, sv.arrayVal[k], baseTag, off + k * stride);
+                    return;
                   }
-                  // [v0.2.1] Struct local — update each field whose type
-                  // matches the pointee, conditional on the field's tag.
-                  if (auto st = std::get_if<StructType>(&l.type->v)) {
+                  if (auto st = std::get_if<StructType>(&ty->v)) {
                     auto sIt = structs_.find(st->name.name);
                     if (sIt == structs_.end())
-                      continue;
-                    auto &sv = store.at(l.name.name);
-                    uint64_t baseTag = tagOfLocal(l.name.name);
-                    size_t fIdx = 0;
+                      return;
+                    std::uint64_t fOff = 0;
                     for (const auto &f: sIt->second->fields) {
-                      if (typeMatch(f.type, pointeeType)) {
-                        auto fTag =
-                            solver.make_bv_value_int64(bv64, static_cast<int64_t>(baseTag + fIdx));
-                        auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, fTag});
-                        auto fIt = sv.structVal.find(f.name);
-                        if (fIt != sv.structVal.end())
-                          fIt->second.term =
-                              solver.make_term(smt::Kind::ITE, {cond, valTerm, fIt->second.term});
-                      }
-                      ++fIdx;
+                      auto fIt = sv.structVal.find(f.name);
+                      if (fIt != sv.structVal.end())
+                        enumStore(f.type, fIt->second, baseTag, off + fOff);
+                      fOff += sizeofTagUnits(f.type, structs_);
                     }
+                    return;
                   }
+                };
+                for (const auto &l: currentFun_->lets) {
+                  std::uint64_t baseTag = tagOfLocal(l.name.name);
+                  enumStore(l.type, store.at(l.name.name), baseTag, 0);
                 }
               }
             },
@@ -856,8 +927,20 @@ namespace symir {
         smt::Term idx;
         if (auto lit = std::get_if<IntLit>(&ai->index)) {
           idx = solver.make_bv_value(solver.make_bv_sort(32), std::to_string(lit->value), 10);
-          SymbolicValue next = res.arrayVal.at(lit->value);
-          res = std::move(next);
+          // [v0.2.1] Out-of-range literal index is UB at compile time —
+          // emit the bounds constraint (it'll be false → UNSAT) without
+          // crashing in arrayVal.at().
+          if (lit->value < 0 || static_cast<uint64_t>(lit->value) >= array_size) {
+            pc.push_back(solver.make_false());
+            // Use the last element as a dummy value (we won't be used).
+            if (!res.arrayVal.empty())
+              res = res.arrayVal.back();
+            else
+              res = SymbolicValue{SymbolicValue::Kind::Undef};
+          } else {
+            SymbolicValue next = res.arrayVal.at(lit->value);
+            res = std::move(next);
+          }
         } else {
           auto id = std::get<LocalOrSymId>(ai->index);
           idx = std::visit([&](auto &&v) { return store.at(v.name).term; }, id);
@@ -1047,7 +1130,86 @@ namespace symir {
     if (!chainSort)
       chainSort = solver.get_sort(res);
 
+    // [v0.2.1] Detect pointer arithmetic (`ptr T + i`) so the scaling and
+    // OOB checks fire. The first atom must be a CoefAtom / RValueAtom
+    // that resolves to a ptr-typed local; pull the pointee type out so
+    // we can compute the element step (in BV-tag units).
+    uint64_t ptrStep = 0; // 0 → not pointer arith
+    TypePtr ptrPointee;
+    std::string ptrSourceName;
+    if (!e.rest.empty() && currentFun_) {
+      auto resolveBase = [&]() -> std::string {
+        if (auto ca = std::get_if<CoefAtom>(&e.first.v))
+          if (auto id = std::get_if<LocalOrSymId>(&ca->coef))
+            if (auto lid = std::get_if<LocalId>(id))
+              return lid->name;
+        if (auto rv = std::get_if<RValueAtom>(&e.first.v))
+          if (rv->rval.accesses.empty())
+            return rv->rval.base.name;
+        return {};
+      };
+      std::string src = resolveBase();
+      if (!src.empty()) {
+        TypePtr ty;
+        for (const auto &l: currentFun_->lets)
+          if (l.name.name == src) {
+            ty = l.type;
+            break;
+          }
+        if (!ty)
+          for (const auto &p: currentFun_->params)
+            if (p.name.name == src) {
+              ty = p.type;
+              break;
+            }
+        if (ty)
+          if (auto pt = std::get_if<PtrType>(&ty->v)) {
+            ptrPointee = pt->pointee;
+            ptrSourceName = src;
+            // Step size in BV-tag units matches the addr / load
+            // candidate enumeration's scalar-leaf granularity.
+            ptrStep = sizeofTagUnits(ptrPointee, structs_);
+          }
+      }
+    }
+
     for (const auto &tail: e.rest) {
+      // [v0.2.1] Distinguish pointer arithmetic styles to know whether
+      // to scale the rhs and apply rule-10 OOB / rule-12 cross-object
+      // checks. For `ptr T + i` the rhs atom resolves to a non-pointer
+      // local; for `ptr T - ptr T` it resolves to another ptr-typed
+      // local. We figure that out before the BV widths get muddled.
+      std::string rhsPtrName;
+      if (ptrStep > 0 && currentFun_) {
+        auto resolveBase = [&](const Atom &a) -> std::string {
+          if (auto ca = std::get_if<CoefAtom>(&a.v))
+            if (auto id = std::get_if<LocalOrSymId>(&ca->coef))
+              if (auto lid = std::get_if<LocalId>(id))
+                return lid->name;
+          if (auto rv = std::get_if<RValueAtom>(&a.v))
+            if (rv->rval.accesses.empty())
+              return rv->rval.base.name;
+          return {};
+        };
+        std::string nm = resolveBase(tail.atom);
+        if (!nm.empty()) {
+          TypePtr ty;
+          for (const auto &l: currentFun_->lets)
+            if (l.name.name == nm) {
+              ty = l.type;
+              break;
+            }
+          if (!ty)
+            for (const auto &p: currentFun_->params)
+              if (p.name.name == nm) {
+                ty = p.type;
+                break;
+              }
+          if (ty && std::holds_alternative<PtrType>(ty->v))
+            rhsPtrName = nm;
+        }
+      }
+
       smt::Term right = evalAtom(tail.atom, solver, store, pc, chainSort);
       auto lSort = solver.get_sort(res);
       auto rSort = solver.get_sort(right);
@@ -1070,6 +1232,17 @@ namespace symir {
           right = solver.make_term(smt::Kind::BV_SIGN_EXTEND, {right}, {lWidth - rWidth});
         }
 
+        bool isPtrIntArith = ptrStep > 0 && rhsPtrName.empty();
+        bool isPtrSub = ptrStep > 0 && !rhsPtrName.empty() && tail.op == AddOp::Minus;
+        // [v0.2.1] Pointer arithmetic: scale the rhs by sizeof(pointee)
+        // for ptr+int / ptr-int. For ptr-ptr subtraction the rhs is
+        // another pointer; no scaling.
+        if (isPtrIntArith && ptrStep != 1) {
+          auto stepTerm =
+              solver.make_bv_value_int64(solver.get_sort(right), static_cast<int64_t>(ptrStep));
+          right = solver.make_term(smt::Kind::BV_MUL, {right, stepTerm});
+        }
+
         if (tail.op == AddOp::Plus) {
           auto overflow = solver.make_term(smt::Kind::BV_SADD_OVERFLOW, {res, right});
           pc.push_back(solver.make_term(smt::Kind::NOT, {overflow}));
@@ -1078,6 +1251,31 @@ namespace symir {
           auto overflow = solver.make_term(smt::Kind::BV_SSUB_OVERFLOW, {res, right});
           pc.push_back(solver.make_term(smt::Kind::NOT, {overflow}));
           res = solver.make_term(smt::Kind::BV_SUB, {res, right});
+        }
+        // [v0.2.1] Rule 10 (ptr arith OOB): for ptr ± int, the result
+        // must stay within [base, base + size]. Skip for ptr - ptr —
+        // that result is an integer distance, not an address.
+        if (isPtrIntArith) {
+          auto pit = ptrProv_.find(ptrSourceName);
+          if (pit != ptrProv_.end()) {
+            auto bv64 = solver.make_bv_sort(kPtrBits);
+            auto base = solver.make_bv_value_int64(bv64, static_cast<int64_t>(pit->second.baseTag));
+            auto end = solver.make_bv_value_int64(
+                bv64, static_cast<int64_t>(pit->second.baseTag + pit->second.size)
+            );
+            pc.push_back(solver.make_term(smt::Kind::BV_ULE, {base, res}));
+            pc.push_back(solver.make_term(smt::Kind::BV_ULE, {res, end}));
+          }
+        }
+        // [v0.2.1] Rule 12: pointer subtraction across objects is UB —
+        // assert both pointers' provenances match.
+        if (isPtrSub) {
+          auto lp = ptrProv_.find(ptrSourceName);
+          auto rp = ptrProv_.find(rhsPtrName);
+          if (lp != ptrProv_.end() && rp != ptrProv_.end()) {
+            if (lp->second.baseTag != rp->second.baseTag)
+              pc.push_back(solver.make_false());
+          }
         }
       }
     }
@@ -1173,17 +1371,24 @@ namespace symir {
             }
             if (arg.op == AtomOpKind::Shl || arg.op == AtomOpKind::Shr ||
                 arg.op == AtomOpKind::LShr) {
-              // Overshift UB: amount < width
+              // Overshift UB: amount in [0, width). Negative amounts and
+              // amounts >= width are both UB (rule 5). We assert `r` is in
+              // range by reading it as signed (>= 0) AND unsigned (< width)
+              // — the conjunction covers both cases regardless of sort.
               uint32_t width = solver.get_bv_width(solver.get_sort(c));
               auto width_term = solver.make_bv_value(solver.get_sort(r), std::to_string(width), 10);
+              auto zero = solver.make_bv_zero(solver.get_sort(r));
+              pc.push_back(solver.make_term(smt::Kind::BV_SLE, {zero, r}));
               pc.push_back(solver.make_term(smt::Kind::BV_ULT, {r, width_term}));
 
               if (arg.op == AtomOpKind::Shl) {
-                // SPEC §7.1 rule 4: SHL result overflow is UB. There is no
-                // built-in BV_SHL_OVERFLOW, so we construct it: overflow iff
-                // arithmetic-right-shifting the result by n doesn't recover
-                // the original c (i.e., bits shifted past the sign bit
-                // disagreed with the sign).
+                // SPEC §7.1 rule 4: SHL on a negative operand is UB, and
+                // result overflow is UB. The result-overflow path was
+                // already checked via `(ashr (shl c, r), r) == c`; we now
+                // also require `c >= 0` to catch `-1 << 1` which the
+                // overflow check otherwise accepts (ashr-shl round-trips
+                // on `-1` since the sign bit dominates).
+                pc.push_back(solver.make_term(smt::Kind::BV_SLE, {zero, c}));
                 auto shifted = solver.make_term(smt::Kind::BV_SHL, {c, r});
                 auto unshifted = solver.make_term(smt::Kind::BV_ASHR, {shifted, r});
                 pc.push_back(solver.make_term(smt::Kind::EQUAL, {unshifted, c}));
@@ -1218,8 +1423,18 @@ namespace symir {
             } else {
               throw std::runtime_error("SelectAtom: neither cond nor maskExpr set");
             }
-            smt::Term vt = evalSelectVal(arg.vtrue, solver, store, pc, expectedSort);
-            smt::Term vf = evalSelectVal(arg.vfalse, solver, store, pc, expectedSort);
+            // [v0.2.1] §6.4 select is lazy: only the chosen arm's UB
+            // constraints participate in the path condition. Evaluate
+            // each arm into a private constraint list, then gate them
+            // with the appropriate side of `cond` before pushing to pc.
+            std::vector<smt::Term> tPc, fPc;
+            smt::Term vt = evalSelectVal(arg.vtrue, solver, store, tPc, expectedSort);
+            smt::Term vf = evalSelectVal(arg.vfalse, solver, store, fPc, expectedSort);
+            auto notCond = solver.make_term(smt::Kind::NOT, {cond});
+            for (auto &t: tPc)
+              pc.push_back(solver.make_term(smt::Kind::IMPLIES, {cond, t}));
+            for (auto &t: fPc)
+              pc.push_back(solver.make_term(smt::Kind::IMPLIES, {notCond, t}));
             auto vtSort = solver.get_sort(vt);
             auto vfSort = solver.get_sort(vf);
             if (solver.is_bv_sort(vtSort) && solver.is_bv_sort(vfSort)) {
@@ -1288,12 +1503,20 @@ namespace symir {
             if (!srcIsFp && dstIsFp) { // BV -> FP
               auto [exp, sig] = solver.get_fp_dims(dstSort);
               auto rmRNE = solver.make_rm_value(smt::RoundingMode::RNE);
-              return solver.make_term(smt::Kind::FP_TO_FP_FROM_SBV, {rmRNE, src}, {exp, sig});
+              auto res = solver.make_term(smt::Kind::FP_TO_FP_FROM_SBV, {rmRNE, src}, {exp, sig});
+              // [v0.2.1] FP rule 6/7: result must be finite. Catches
+              // BV→FP overflow (e.g., huge i64 not representable in f32).
+              assertFPFinite(res, solver, pc);
+              return res;
             }
             if (srcIsFp && dstIsFp) { // FP -> FP
               auto [exp, sig] = solver.get_fp_dims(dstSort);
               auto rmRNE = solver.make_rm_value(smt::RoundingMode::RNE);
-              return solver.make_term(smt::Kind::FP_TO_FP_FROM_FP, {rmRNE, src}, {exp, sig});
+              auto res = solver.make_term(smt::Kind::FP_TO_FP_FROM_FP, {rmRNE, src}, {exp, sig});
+              // [v0.2.1] FP rule 6/7: result must be finite. Catches
+              // f64→f32 overflow that produces ±inf.
+              assertFPFinite(res, solver, pc);
+              return res;
             }
 
             // BV -> BV resizing
@@ -1361,76 +1584,81 @@ namespace symir {
             smt::Term zero = solver.make_bv_value(i1, "0", 10);
             return solver.make_term(smt::Kind::ITE, {cond, one, zero});
           } else if constexpr (std::is_same_v<T, AddrAtom>) {
-            // [v0.2.1] Pointers are encoded as `tag(%local) + element_offset`
-            // (in lower bits of BV64). For `addr %local`, offset = 0.
-            // For `addr %arr[k]` (with %arr: [N] T), offset is the lit/sym
-            // index. Pointer arithmetic (e.g. `%p + 1`) is just BV_ADD on
-            // top of this encoding, so the offset propagates naturally.
-            //
-            // Field addressing (`addr %s.f`) still throws — struct layout
-            // and field offsets aren't part of the pointer model yet.
+            // [v0.2.1] Pointers are encoded as `tag(%local) + offset` (in
+            // tag-units, where one unit is a scalar leaf). Walking the
+            // access chain, every AccessIndex scales by sizeofTagUnits of
+            // the element type and every AccessField adds the offset of
+            // the named field (= sum of preceding fields' sizeofTagUnits).
             const std::string targetName = arg.lv.base.name;
             auto bv64 = solver.make_bv_sort(kPtrBits);
             smt::Term tag =
                 solver.make_bv_value_int64(bv64, static_cast<int64_t>(tagOfLocal(targetName)));
+            // Resolve the base local's type so we can walk down it.
+            TypePtr cur;
+            if (currentFun_) {
+              for (const auto &l: currentFun_->lets)
+                if (l.name.name == targetName) {
+                  cur = l.type;
+                  break;
+                }
+              if (!cur)
+                for (const auto &p: currentFun_->params)
+                  if (p.name.name == targetName) {
+                    cur = p.type;
+                    break;
+                  }
+            }
             for (const auto &acc: arg.lv.accesses) {
               if (auto ai = std::get_if<AccessIndex>(&acc)) {
+                auto at = std::get_if<ArrayType>(&cur->v);
+                if (!at)
+                  throw std::runtime_error("addr: index on non-array");
+                std::uint64_t stride = sizeofTagUnits(at->elem, structs_);
                 if (auto il = std::get_if<IntLit>(&ai->index)) {
-                  if (il->value != 0) {
-                    auto off = solver.make_bv_value_int64(bv64, il->value);
-                    tag = solver.make_term(smt::Kind::BV_ADD, {tag, off});
+                  std::uint64_t off = static_cast<std::uint64_t>(il->value) * stride;
+                  if (off != 0) {
+                    auto ofT = solver.make_bv_value_int64(bv64, static_cast<int64_t>(off));
+                    tag = solver.make_term(smt::Kind::BV_ADD, {tag, ofT});
                   }
+                  cur = at->elem;
                   continue;
                 }
                 if (auto id = std::get_if<LocalOrSymId>(&ai->index)) {
                   smt::Term idxT = std::visit([&](auto &&v) { return store.at(v.name).term; }, *id);
-                  // Widen idx to 64 bits if needed.
                   auto idxSort = solver.get_sort(idxT);
                   uint32_t iw = solver.get_bv_width(idxSort);
                   if (iw < kPtrBits)
                     idxT = solver.make_term(smt::Kind::BV_SIGN_EXTEND, {idxT}, {kPtrBits - iw});
+                  if (stride != 1) {
+                    auto stT = solver.make_bv_value_int64(bv64, static_cast<int64_t>(stride));
+                    idxT = solver.make_term(smt::Kind::BV_MUL, {idxT, stT});
+                  }
                   tag = solver.make_term(smt::Kind::BV_ADD, {tag, idxT});
+                  cur = at->elem;
                   continue;
                 }
               }
               if (auto af = std::get_if<AccessField>(&acc)) {
-                // [v0.2.1] addr %s.f — encode as tag(%s) + field_index.
-                // The struct lookup uses currentFun_->lets to find the
-                // struct binding for %s.
-                TypePtr baseType;
-                if (currentFun_) {
-                  for (const auto &l: currentFun_->lets)
-                    if (l.name.name == targetName) {
-                      baseType = l.type;
-                      break;
-                    }
-                  if (!baseType)
-                    for (const auto &p: currentFun_->params)
-                      if (p.name.name == targetName) {
-                        baseType = p.type;
-                        break;
-                      }
-                }
-                if (!baseType || !std::holds_alternative<StructType>(baseType->v))
+                auto st = std::get_if<StructType>(&cur->v);
+                if (!st)
                   throw std::runtime_error("'addr' field access on non-struct base: " + targetName);
-                auto sIt = structs_.find(std::get<StructType>(baseType->v).name.name);
+                auto sIt = structs_.find(st->name.name);
                 if (sIt == structs_.end())
                   throw std::runtime_error("unknown struct in addr field access");
-                size_t fieldIdx = 0;
-                bool found = false;
-                for (const auto &f: sIt->second->fields) {
+                std::uint64_t off = fieldOffsetTagUnits(*sIt->second, af->field, structs_);
+                TypePtr fieldTy;
+                for (const auto &f: sIt->second->fields)
                   if (f.name == af->field) {
-                    found = true;
+                    fieldTy = f.type;
                     break;
                   }
-                  ++fieldIdx;
-                }
-                if (!found)
+                if (!fieldTy)
                   throw std::runtime_error("addr: unknown field " + af->field);
-                if (fieldIdx > 0) {
-                  auto off = solver.make_bv_value_int64(bv64, static_cast<int64_t>(fieldIdx));
-                  tag = solver.make_term(smt::Kind::BV_ADD, {tag, off});
+                if (off != 0) {
+                  auto ofT = solver.make_bv_value_int64(bv64, static_cast<int64_t>(off));
+                  tag = solver.make_term(smt::Kind::BV_ADD, {tag, ofT});
                 }
+                cur = fieldTy;
                 continue;
               }
               throw std::runtime_error("'addr' with this access kind not yet supported in solver");
@@ -1453,7 +1681,7 @@ namespace symir {
               );
               pc.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, endAddr}));
             }
-            // Index → BV64.
+            // Index → BV64 (raw, unscaled).
             smt::Term idxT;
             if (auto il = std::get_if<IntLit>(&arg.index)) {
               idxT = solver.make_bv_value_int64(bv64, il->value);
@@ -1464,6 +1692,42 @@ namespace symir {
               if (rw < kPtrBits)
                 raw = solver.make_term(smt::Kind::BV_SIGN_EXTEND, {raw}, {kPtrBits - rw});
               idxT = raw;
+            }
+            // Resolve the source's element type so the index can scale by
+            // sizeofTagUnits(elem) — required for arrays-of-aggregates.
+            std::uint64_t elemUnits = 1;
+            std::uint64_t arrSize = 0;
+            if (currentFun_) {
+              TypePtr baseType;
+              for (const auto &l: currentFun_->lets)
+                if (l.name.name == arg.rval.base.name) {
+                  baseType = l.type;
+                  break;
+                }
+              if (!baseType)
+                for (const auto &p: currentFun_->params)
+                  if (p.name.name == arg.rval.base.name) {
+                    baseType = p.type;
+                    break;
+                  }
+              if (baseType)
+                if (auto pt = std::get_if<PtrType>(&baseType->v))
+                  if (auto at = std::get_if<ArrayType>(&pt->pointee->v)) {
+                    elemUnits = sizeofTagUnits(at->elem, structs_);
+                    arrSize = at->size;
+                  }
+            }
+            // [v0.2.1] Rule 16: ptrindex with index outside [0, N] is UB.
+            if (arrSize > 0) {
+              auto zero = solver.make_bv_value_int64(bv64, 0);
+              auto N = solver.make_bv_value_int64(bv64, static_cast<int64_t>(arrSize));
+              pc.push_back(solver.make_term(smt::Kind::BV_SLE, {zero, idxT}));
+              pc.push_back(solver.make_term(smt::Kind::BV_SLE, {idxT, N}));
+            }
+            // Scale the index by element size in tag units, then add.
+            if (elemUnits != 1) {
+              auto stride = solver.make_bv_value_int64(bv64, static_cast<int64_t>(elemUnits));
+              idxT = solver.make_term(smt::Kind::BV_MUL, {idxT, stride});
             }
             return solver.make_term(smt::Kind::BV_ADD, {ptrTerm, idxT});
           } else if constexpr (std::is_same_v<T, PtrFieldAtom>) {
@@ -1517,21 +1781,19 @@ namespace symir {
             auto sIt = structs_.find(st.name.name);
             if (sIt == structs_.end())
               throw std::runtime_error("ptrfield: unknown struct " + st.name.name);
-            size_t fieldIdx = 0;
             bool found = false;
-            for (const auto &f: sIt->second->fields) {
+            for (const auto &f: sIt->second->fields)
               if (f.name == arg.field) {
                 found = true;
                 break;
               }
-              ++fieldIdx;
-            }
             if (!found)
               throw std::runtime_error("ptrfield: unknown field " + arg.field);
-            if (fieldIdx == 0)
+            std::uint64_t off = fieldOffsetTagUnits(*sIt->second, arg.field, structs_);
+            if (off == 0)
               return ptrTerm;
-            auto off = solver.make_bv_value_int64(bv64, static_cast<int64_t>(fieldIdx));
-            return solver.make_term(smt::Kind::BV_ADD, {ptrTerm, off});
+            auto offT = solver.make_bv_value_int64(bv64, static_cast<int64_t>(off));
+            return solver.make_term(smt::Kind::BV_ADD, {ptrTerm, offT});
           } else if constexpr (std::is_same_v<T, LoadAtom>) {
             // load %p — dispatch over candidate targets of the pointee type.
             // Build a chain of ites: ite(p == tag_v, value_of_v, fallback).
@@ -1581,60 +1843,54 @@ namespace symir {
             // *some* tag matches — load through an address that doesn't
             // correspond to any reachable cell is UB (rule 11 / 13).
             std::vector<smt::Term> matchConds;
-            for (const auto &l: currentFun_->lets) {
-              // Scalar local of matching pointee type: tag(l) at offset 0.
-              if (typeMatch(l.type, pointeeType)) {
+            // Recursive walk over `(TypePtr, SymbolicValue, offset)` so
+            // arrays-of-structs (and any deeper aggregate) materialize a
+            // load candidate at every matching scalar leaf.
+            std::function<void(const TypePtr &, SymbolicValue &, std::uint64_t, std::uint64_t)>
+                enumLoad;
+            enumLoad = [&](const TypePtr &ty, SymbolicValue &sv, std::uint64_t baseTag,
+                           std::uint64_t off) {
+              if (!ty)
+                return;
+              if (typeMatch(ty, pointeeType)) {
                 auto tagTerm =
-                    solver.make_bv_value_int64(bv64, static_cast<int64_t>(tagOfLocal(l.name.name)));
+                    solver.make_bv_value_int64(bv64, static_cast<int64_t>(baseTag + off));
                 auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, tagTerm});
                 matchConds.push_back(cond);
-                auto &sv = store.at(l.name.name);
                 result = solver.make_term(smt::Kind::ITE, {cond, sv.term, result});
-                continue;
+                return;
               }
-              // [v0.2.1] Array local with matching element type — enumerate
-              // each element as a candidate target at tag(l) + k.
-              if (auto at = std::get_if<ArrayType>(&l.type->v)) {
-                if (typeMatch(at->elem, pointeeType)) {
-                  auto &sv = store.at(l.name.name);
-                  uint64_t baseTag = tagOfLocal(l.name.name);
-                  for (size_t k = 0; k < at->size && k < sv.arrayVal.size(); ++k) {
-                    auto kTag = solver.make_bv_value_int64(bv64, static_cast<int64_t>(baseTag + k));
-                    auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, kTag});
-                    matchConds.push_back(cond);
-                    result = solver.make_term(smt::Kind::ITE, {cond, sv.arrayVal[k].term, result});
-                  }
-                }
-                continue;
+              if (auto at = std::get_if<ArrayType>(&ty->v)) {
+                std::uint64_t stride = sizeofTagUnits(at->elem, structs_);
+                for (std::uint64_t k = 0; k < at->size && k < sv.arrayVal.size(); ++k)
+                  enumLoad(at->elem, sv.arrayVal[k], baseTag, off + k * stride);
+                return;
               }
-              // [v0.2.1] Struct local — enumerate fields with matching
-              // pointee type at tag(%s) + field_index.
-              if (auto st = std::get_if<StructType>(&l.type->v)) {
+              if (auto st = std::get_if<StructType>(&ty->v)) {
                 auto sIt = structs_.find(st->name.name);
                 if (sIt == structs_.end())
-                  continue;
-                auto &sv = store.at(l.name.name);
-                uint64_t baseTag = tagOfLocal(l.name.name);
-                size_t fIdx = 0;
+                  return;
+                std::uint64_t fOff = 0;
                 for (const auto &f: sIt->second->fields) {
-                  if (typeMatch(f.type, pointeeType)) {
-                    auto fTag =
-                        solver.make_bv_value_int64(bv64, static_cast<int64_t>(baseTag + fIdx));
-                    auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, fTag});
-                    matchConds.push_back(cond);
-                    auto fIt = sv.structVal.find(f.name);
-                    if (fIt != sv.structVal.end())
-                      result = solver.make_term(smt::Kind::ITE, {cond, fIt->second.term, result});
-                  }
-                  ++fIdx;
+                  auto fIt = sv.structVal.find(f.name);
+                  if (fIt != sv.structVal.end())
+                    enumLoad(f.type, fIt->second, baseTag, off + fOff);
+                  fOff += sizeofTagUnits(f.type, structs_);
                 }
+                return;
               }
+            };
+            for (const auto &l: currentFun_->lets) {
+              std::uint64_t baseTag = tagOfLocal(l.name.name);
+              enumLoad(l.type, store.at(l.name.name), baseTag, 0);
             }
             // Rule 11/13: the load must land on a valid cell — otherwise
             // UB. If we got no candidates (no local of matching pointee
-            // type), skip the constraint and let the default-zero stand —
-            // the existing tests rely on that fallback when the pointer
-            // is from a function-arg or other opaque source.
+            // type), at minimum still assert the pointer is non-null
+            // (rule 13). The OR-match is the stronger form; null check
+            // is the floor.
+            auto nullPtr = solver.make_bv_value_int64(bv64, 0);
+            pc.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullPtr}));
             if (!matchConds.empty()) {
               smt::Term anyMatch = matchConds[0];
               for (size_t i = 1; i < matchConds.size(); ++i)
@@ -1702,10 +1958,20 @@ namespace symir {
           smt::Kind opK;
           if (fpLane)
             opK = term.op == AddOp::Plus ? smt::Kind::FP_ADD : smt::Kind::FP_SUB;
-          else
+          else {
+            // [v0.2.1] Per-lane signed BV add/sub overflow is UB
+            // (rule 1 / 2 lifted to lanes).
+            auto ovK =
+                term.op == AddOp::Plus ? smt::Kind::BV_SADD_OVERFLOW : smt::Kind::BV_SSUB_OVERFLOW;
+            auto ov = solver.make_term(ovK, {acc[k], next[k]});
+            pc.push_back(solver.make_term(smt::Kind::NOT, {ov}));
             opK = term.op == AddOp::Plus ? smt::Kind::BV_ADD : smt::Kind::BV_SUB;
+          }
           acc[k] = fpLane ? solver.make_term(opK, {rmRNE, acc[k], next[k]})
                           : solver.make_term(opK, {acc[k], next[k]});
+          // [v0.2.1] Per-lane FP result must be finite (rule 6/7 lifted).
+          if (fpLane)
+            assertFPFinite(acc[k], solver, pc);
         }
       }
       std::vector<SymbolicValue> lanes;
@@ -1867,7 +2133,19 @@ namespace symir {
               smt::Term chosen = solver.make_term(
                   smt::Kind::ITE, {cond, vtArm.arrayVal[k].term, vfArm.arrayVal[k].term}
               );
-              lanes.emplace_back(SymbolicValue::Kind::Int, chosen, solver.make_true());
+              // [v0.2.1] Propagate per-lane is_defined: select on an undef
+              // lane is still undef. Use the lane's source is_defined if
+              // present; default to "defined" otherwise.
+              smt::Term chosenDef;
+              if (vtArm.arrayVal[k].is_defined.internal && vfArm.arrayVal[k].is_defined.internal) {
+                chosenDef = solver.make_term(
+                    smt::Kind::ITE,
+                    {cond, vtArm.arrayVal[k].is_defined, vfArm.arrayVal[k].is_defined}
+                );
+              } else {
+                chosenDef = solver.make_true();
+              }
+              lanes.emplace_back(SymbolicValue::Kind::Int, chosen, chosenDef);
             }
             return buildVec(std::move(lanes));
           } else if constexpr (std::is_same_v<T, OpAtom>) {
@@ -1926,7 +2204,21 @@ namespace symir {
                   default:
                     throw std::runtime_error("Vec FP OpAtom: only mul/div supported on FP lanes");
                 }
+                // [v0.2.1] Per-lane FP rule 6/7: each lane must be finite.
+                assertFPFinite(out, solver, pc);
               } else {
+                // [v0.2.1] Per-lane shift UB: amount in [0, width) and Shl
+                // requires non-negative operand (rule 4/5).
+                auto sortR = solver.get_sort(r);
+                auto sortC = solver.get_sort(c);
+                auto bvZeroR = solver.make_bv_zero(sortR);
+                auto bvZeroC = solver.make_bv_zero(sortC);
+                uint32_t laneWidth = solver.get_bv_width(sortC);
+                auto widthTerm = solver.make_bv_value(sortR, std::to_string(laneWidth), 10);
+                auto addShiftBounds = [&]() {
+                  pc.push_back(solver.make_term(smt::Kind::BV_SLE, {bvZeroR, r}));
+                  pc.push_back(solver.make_term(smt::Kind::BV_ULT, {r, widthTerm}));
+                };
                 switch (arg.op) {
                   case AtomOpKind::Mul: {
                     auto ov = solver.make_term(smt::Kind::BV_SMUL_OVERFLOW, {c, r});
@@ -1935,14 +2227,12 @@ namespace symir {
                     break;
                   }
                   case AtomOpKind::Div: {
-                    auto zero = solver.make_bv_zero(solver.get_sort(r));
-                    pc.push_back(solver.make_term(smt::Kind::DISTINCT, {r, zero}));
+                    pc.push_back(solver.make_term(smt::Kind::DISTINCT, {r, bvZeroR}));
                     out = solver.make_term(smt::Kind::BV_SDIV, {c, r});
                     break;
                   }
                   case AtomOpKind::Mod: {
-                    auto zero = solver.make_bv_zero(solver.get_sort(r));
-                    pc.push_back(solver.make_term(smt::Kind::DISTINCT, {r, zero}));
+                    pc.push_back(solver.make_term(smt::Kind::DISTINCT, {r, bvZeroR}));
                     out = solver.make_term(smt::Kind::BV_SREM, {c, r});
                     break;
                   }
@@ -1955,13 +2245,21 @@ namespace symir {
                   case AtomOpKind::Xor:
                     out = solver.make_term(smt::Kind::BV_XOR, {c, r});
                     break;
-                  case AtomOpKind::Shl:
-                    out = solver.make_term(smt::Kind::BV_SHL, {c, r});
+                  case AtomOpKind::Shl: {
+                    addShiftBounds();
+                    pc.push_back(solver.make_term(smt::Kind::BV_SLE, {bvZeroC, c}));
+                    auto shifted = solver.make_term(smt::Kind::BV_SHL, {c, r});
+                    auto unshifted = solver.make_term(smt::Kind::BV_ASHR, {shifted, r});
+                    pc.push_back(solver.make_term(smt::Kind::EQUAL, {unshifted, c}));
+                    out = shifted;
                     break;
+                  }
                   case AtomOpKind::Shr:
+                    addShiftBounds();
                     out = solver.make_term(smt::Kind::BV_ASHR, {c, r});
                     break;
                   case AtomOpKind::LShr:
+                    addShiftBounds();
                     out = solver.make_term(smt::Kind::BV_SHR, {c, r});
                     break;
                 }
@@ -2014,10 +2312,15 @@ namespace symir {
                 auto [exp, sig] = solver.get_fp_dims(dstSort);
                 auto rmRNE = solver.make_rm_value(smt::RoundingMode::RNE);
                 out = solver.make_term(smt::Kind::FP_TO_FP_FROM_SBV, {rmRNE, lane}, {exp, sig});
+                // [v0.2.1] Per-lane finite (rule 6/7 lifted).
+                assertFPFinite(out, solver, pc);
               } else if (srcIsFp && dstIsFp) {
                 auto [exp, sig] = solver.get_fp_dims(dstSort);
                 auto rmRNE = solver.make_rm_value(smt::RoundingMode::RNE);
                 out = solver.make_term(smt::Kind::FP_TO_FP_FROM_FP, {rmRNE, lane}, {exp, sig});
+                // [v0.2.1] Per-lane finite (rule 6/7 lifted) — catches
+                // f64→f32 overflow producing ±inf.
+                assertFPFinite(out, solver, pc);
               } else { // BV -> BV
                 uint32_t sw = solver.get_bv_width(srcSort);
                 uint32_t dw = solver.get_bv_width(dstSort);
@@ -2086,33 +2389,64 @@ namespace symir {
   ) {
     // [v0.2.1] Rule 14: cross-object pointer comparison. For relational
     // compares (<, <=, >, >=), both operands must come from the same
-    // allocation. We detect this when both sides are simple ptr-local
-    // refs with a recorded provenance: if the base tags differ, the
-    // path is UB → push `false` to prune.
+    // allocation. Detection looks at the AST of each side:
+    //   - Bare ptr-local with known provenance → use ptrProv_.
+    //   - Struct-field access (`%s.p1`) → look up `%s.p1` in ptrProv_.
+    //   - `null` literal → declare UB unconditionally (any relational
+    //     compare against null is UB; addresses are all > 0 and
+    //     unequal-to-null, so the comparison isn't meaningful).
     if (c.op == RelOp::LT || c.op == RelOp::LE || c.op == RelOp::GT || c.op == RelOp::GE) {
-      auto extractPtrLocal = [](const Expr &e) -> std::optional<std::string> {
+      enum class Kind { Unknown, Null, Tagged };
+
+      struct Side {
+        Kind k = Kind::Unknown;
+        std::uint64_t baseTag = 0;
+      };
+
+      auto extractSide = [&](const Expr &e) -> Side {
         if (!e.rest.empty())
-          return std::nullopt;
-        if (auto ca = std::get_if<CoefAtom>(&e.first.v))
+          return {};
+        auto lookupProv = [&](const std::string &name) -> Side {
+          auto it = ptrProv_.find(name);
+          if (it != ptrProv_.end())
+            return {Kind::Tagged, it->second.baseTag};
+          return {};
+        };
+        auto buildAccessKey = [](const LValue &lv) -> std::string {
+          // Build a dotted/indexed key matching ptrProv_ entries below.
+          std::string key = lv.base.name;
+          for (const auto &acc: lv.accesses) {
+            if (auto af = std::get_if<AccessField>(&acc))
+              key += "." + af->field;
+            else
+              return {}; // Don't yet key on dynamic indices.
+          }
+          return key;
+        };
+        if (auto ca = std::get_if<CoefAtom>(&e.first.v)) {
+          if (std::get_if<NullLit>(&ca->coef))
+            return {Kind::Null, 0};
           if (auto id = std::get_if<LocalOrSymId>(&ca->coef))
             if (auto lid = std::get_if<LocalId>(id))
-              return lid->name;
-        if (auto rv = std::get_if<RValueAtom>(&e.first.v))
-          if (rv->rval.accesses.empty())
-            return rv->rval.base.name;
-        return std::nullopt;
-      };
-      auto lhsName = extractPtrLocal(c.lhs);
-      auto rhsName = extractPtrLocal(c.rhs);
-      if (lhsName && rhsName) {
-        auto lIt = ptrProv_.find(*lhsName);
-        auto rIt = ptrProv_.find(*rhsName);
-        if (lIt != ptrProv_.end() && rIt != ptrProv_.end() &&
-            lIt->second.baseTag != rIt->second.baseTag) {
-          // Distinct provenance — relational compare is UB. Constrain
-          // the path to false so the solver returns UNSAT.
-          pc.push_back(solver.make_false());
+              return lookupProv(lid->name);
         }
+        if (auto rv = std::get_if<RValueAtom>(&e.first.v)) {
+          if (rv->rval.accesses.empty())
+            return lookupProv(rv->rval.base.name);
+          auto key = buildAccessKey(rv->rval);
+          if (!key.empty())
+            return lookupProv(key);
+        }
+        return {};
+      };
+      Side lhs = extractSide(c.lhs);
+      Side rhs = extractSide(c.rhs);
+      auto isPtrSide = [](Kind k) { return k == Kind::Null || k == Kind::Tagged; };
+      if (isPtrSide(lhs.k) && isPtrSide(rhs.k)) {
+        // Both sides are pointers. Cross-object (or null-vs-tagged) compare
+        // is UB.
+        if (lhs.k == Kind::Null || rhs.k == Kind::Null || lhs.baseTag != rhs.baseTag)
+          pc.push_back(solver.make_false());
       }
     }
 

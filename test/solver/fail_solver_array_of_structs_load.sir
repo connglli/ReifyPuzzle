@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SKIP: COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+//
+// Intention: Expose the solver's lack of support for candidate target resolution on nested struct arrays.
+// Exposes: Missing array-of-structs pointer candidate target lookup.
+// Expected Behavior: Solver successfully resolves candidate target and solves target requirement (PASS).
+// Actual Behavior: Solver fails to resolve pointer target, returning UNSAT (FAIL).
+
+struct @Point { x: i32; y: i32; }
+
+fun @main() : i32 {
+  sym %?idx : value i32 in [0, 1];
+  let mut %arr: [2] @Point = {{10, 20}, {30, 40}};
+  let mut %p: ptr @Point = null;
+  let mut %pa: ptr i32 = null;
+^entry:
+  %p = addr %arr[0];
+  %p = %p + %?idx;
+  %pa = ptrfield %p, x;
+  store %pa, 99;
+  require %arr[1].x == 99, "must be able to write to arr[1].x";
+  ret 0;
+}

@@ -1,0 +1,17 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+//
+// Intention: Expose solver missing signed left shift of negative number check.
+// Exposes: Solver bug where shifting a negative number (e.g. -1 << 1) is allowed because unshifted == c is true.
+// Expected Behavior: Solver detects that shifting a negative number is UB, making path infeasible (returns UNSAT).
+// Actual Behavior: Solver allows it, returning SAT.
+
+fun @main() : i32 {
+  let mut %x: i32 = -1;
+  let %one: i32 = 1;
+  let mut %res: i32 = 0;
+^entry:
+  %res = %x << %one; // UB: shifting negative number!
+  ret 0;
+}

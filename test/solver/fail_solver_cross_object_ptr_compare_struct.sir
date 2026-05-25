@@ -1,0 +1,23 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+//
+// Intention: Expose solver missing Rule 14 cross-object pointer compare check when pointers are in structs.
+// Exposes: Solver bug where extractPtrLocal returns nullopt for accesses, bypassing Rule 14 checks.
+// Expected Behavior: Solver flags compare of pointers to different objects as UB (returns UNSAT).
+// Actual Behavior: Solver allows it, returning SAT.
+
+struct @S { p1: ptr i32; p2: ptr i32; }
+
+fun @main() : i32 {
+  let mut %x: i32 = 1;
+  let mut %y: i32 = 2;
+  let mut %s: @S = {null, null};
+^entry:
+  %s.p1 = addr %x;
+  %s.p2 = addr %y;
+  // Relational comparison (<) between pointers to different objects is UB.
+  // Solver misses this because %s.p1 and %s.p2 have accesses, bypassing the check.
+  require %s.p1 < %s.p2, "trigger comparison";
+  ret 0;
+}

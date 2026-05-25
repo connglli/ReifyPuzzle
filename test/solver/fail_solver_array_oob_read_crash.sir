@@ -1,0 +1,18 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+//
+// Intention: Expose solver crash on static out-of-bounds array read (Rule 2).
+// Exposes: Solver bug where evalLValue uses std::vector::at with out-of-bounds literal index on arrays, causing a C++ std::out_of_range crash instead of returning UNSAT.
+// Expected Behavior: Solver flags out-of-bounds array access as UB (returns UNSAT).
+// Actual Behavior: Solver crashes with std::out_of_range C++ exception.
+
+fun @main() : i32 {
+  let mut %v: [4] i32 = {1, 2, 3, 4};
+  let mut %x: i32 = 0;
+^entry:
+  // Out of bounds read: element 5 of [4] i32.
+  // Solver crashes on array bounds check during constraint generation.
+  %x = %v[5];
+  ret 0;
+}

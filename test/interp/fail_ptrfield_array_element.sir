@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SKIP: SOLVER
+//
+// Intention: Expose the interpreter's `ptrfield` array element bug where field pointers on elements of struct arrays resolve back to the first struct's field.
+// Exposes: Mismatch between interpreter and compiler.
+// Expected Behavior: load %pb == 40, require passes and test returns 0 (PASS).
+// Actual Behavior: load %pb == 20, causing require to fail and test to abort with UB error (FAIL).
+
+struct @Pair { a: i32; b: i32; }
+
+fun @main() : i32 {
+  let mut %arr: [2] @Pair = {{10, 20}, {30, 40}};
+  let mut %p: ptr @Pair = null;
+  let mut %pb: ptr i32 = null;
+^entry:
+  %p = addr %arr[0];
+  %p = %p + 1;           // %p points to %arr[1]
+  %pb = ptrfield %p, b;  // should point to %arr[1].b (value 40)
+  require load %pb == 40, "must point to arr[1].b";
+  ret 0;
+}

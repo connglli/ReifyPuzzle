@@ -1,0 +1,20 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+//
+// Intention: Expose solver missing ptrindex bounds check (Rule 16).
+// Exposes: Solver bug where ptrindex index values outside [0, N] are allowed without conjoining UB constraints (returns SAT).
+// Expected Behavior: Solver flags out-of-bounds ptrindex as UB (returns UNSAT).
+// Actual Behavior: Solver allows it, returning SAT.
+
+fun @main() : i32 {
+  let mut %arr: [2] i32 = {1, 2};
+  let mut %p: ptr [2] i32 = null;
+  let mut %pe: ptr i32 = null;
+^entry:
+  %p = addr %arr;
+  // ptrindex with index 3 is out of bounds (N = 2, max allowed is 2).
+  // This is UB under Rule 16, but solver does not assert index <= N, returning SAT.
+  %pe = ptrindex %p, 3;
+  ret 0;
+}
