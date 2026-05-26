@@ -958,21 +958,12 @@ namespace symir {
   // [v0.2.1] cmp on vector operands lowers to a lane-wise loop. We need a
   // C-expression string for each side; SelectVal's parts can be either an
   // RValue (local name) or a Coef (literal / local / sym).
-  static std::string sirMangle(const std::string &name) {
-    if (name.empty())
-      return name;
-    size_t start = (name[0] == '@' || name[0] == '%' || name[0] == '^') ? 1 : 0;
-    if (start && name.size() > start && name[start] == '?')
-      ++start;
-    return "symir_" + name.substr(start);
-  }
-
   // [v0.2.1] Per-lane C expression for a SelectVal. Delegates lane access
   // to the active VecLowering so each strategy picks its lane syntax.
   std::string
   CBackend::sirSelectValLane(const SelectVal &sv, const VecType &vt, const std::string &kExpr) {
     if (auto rv = std::get_if<RValue>(&sv)) {
-      return vecLowering_->emitLaneRead(sirMangle(rv->base.name), vt, kExpr);
+      return vecLowering_->emitLaneRead(mangleName(rv->base.name), vt, kExpr);
     }
     if (auto cf = std::get_if<Coef>(&sv)) {
       if (auto i = std::get_if<IntLit>(cf))
@@ -985,14 +976,14 @@ namespace symir {
       }
       if (auto id = std::get_if<LocalOrSymId>(cf)) {
         std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
-        return sirMangle(nm);
+        return mangleName(nm);
       }
     }
     return "/*?*/";
   }
 
   void CBackend::emitVecCmpAssign(const LValue &lhs, const CmpAtom &c, const VecType &vt) {
-    std::string dst = sirMangle(lhs.base.name);
+    std::string dst = mangleName(lhs.base.name);
     const char *op = nullptr;
     switch (c.op) {
       case RelOp::EQ:
@@ -1036,7 +1027,7 @@ namespace symir {
 
   void
   CBackend::emitVecMaskSelectAssign(const LValue &lhs, const SelectAtom &s, const VecType &vt) {
-    std::string dst = sirMangle(lhs.base.name);
+    std::string dst = mangleName(lhs.base.name);
     if (!s.maskExpr->rest.empty())
       throw std::runtime_error("Mask-form select: complex mask expressions not yet lowered to C");
     auto maskRv = std::get_if<RValueAtom>(&s.maskExpr->first.v);
@@ -1046,7 +1037,7 @@ namespace symir {
     if (!maskTy || !std::holds_alternative<VecType>(maskTy->v))
       throw std::runtime_error("Mask-form select: mask must have vector type");
     auto &maskVt = std::get<VecType>(maskTy->v);
-    std::string maskName = sirMangle(maskRv->rval.base.name);
+    std::string maskName = mangleName(maskRv->rval.base.name);
 
     VecType armVt = vt;
     if (auto rv = std::get_if<RValue>(&s.vtrue)) {
@@ -1080,7 +1071,7 @@ namespace symir {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, RValueAtom>) {
             // Vector lvalue → lane k via strategy.
-            std::string base = sirMangle(arg.rval.base.name);
+            std::string base = mangleName(arg.rval.base.name);
             if (arg.rval.accesses.empty()) {
               return vecLowering_->emitLaneRead(base, vt, kS);
             }
@@ -1103,9 +1094,9 @@ namespace symir {
               auto vinfo = varTypes_.find(nm);
               if (vinfo != varTypes_.end() && std::holds_alternative<VecType>(vinfo->second->v)) {
                 auto &vvt = std::get<VecType>(vinfo->second->v);
-                return vecLowering_->emitLaneRead(sirMangle(nm), vvt, kS);
+                return vecLowering_->emitLaneRead(mangleName(nm), vvt, kS);
               }
-              return sirMangle(nm);
+              return mangleName(nm);
             }
             return "/*?coef*/";
           } else if constexpr (std::is_same_v<T, OpAtom>) {
@@ -1124,15 +1115,15 @@ namespace symir {
               auto vinfo = varTypes_.find(nm);
               if (vinfo != varTypes_.end() && std::holds_alternative<VecType>(vinfo->second->v)) {
                 auto &vvt = std::get<VecType>(vinfo->second->v);
-                coefLane = vecLowering_->emitLaneRead(sirMangle(nm), vvt, kS);
+                coefLane = vecLowering_->emitLaneRead(mangleName(nm), vvt, kS);
               } else {
-                coefLane = sirMangle(nm);
+                coefLane = mangleName(nm);
               }
             } else {
               coefLane = "/*?coef*/";
             }
             std::string rvalLane =
-                vecLowering_->emitLaneRead(sirMangle(arg.rval.base.name), vt, kS);
+                vecLowering_->emitLaneRead(mangleName(arg.rval.base.name), vt, kS);
             const char *op = nullptr;
             switch (arg.op) {
               case AtomOpKind::Mul:
@@ -1191,7 +1182,7 @@ namespace symir {
             return "((" + coefLane + ") " + op + " (" + rvalLane + "))";
           } else if constexpr (std::is_same_v<T, UnaryAtom>) {
             std::string rvalLane =
-                vecLowering_->emitLaneRead(sirMangle(arg.rval.base.name), vt, kS);
+                vecLowering_->emitLaneRead(mangleName(arg.rval.base.name), vt, kS);
             return "(~(" + rvalLane + "))";
           } else if constexpr (std::is_same_v<T, CastAtom>) {
             // src is LValue (or literal/sym, but those aren't vectors).
@@ -1202,7 +1193,7 @@ namespace symir {
             if (!srcTy || !std::holds_alternative<VecType>(srcTy->v))
               return "/*?cast2*/";
             auto &srcVt = std::get<VecType>(srcTy->v);
-            std::string srcLane = vecLowering_->emitLaneRead(sirMangle(lv->base.name), srcVt, kS);
+            std::string srcLane = vecLowering_->emitLaneRead(mangleName(lv->base.name), srcVt, kS);
             // C cast on scalar lane.
             std::ostringstream os;
             os << "((";
@@ -1244,7 +1235,7 @@ namespace symir {
   }
 
   void CBackend::emitVecAssign(const LValue &lhs, const Expr &rhs, const VecType &vt) {
-    std::string dst = sirMangle(lhs.base.name);
+    std::string dst = mangleName(lhs.base.name);
     // Whole-vector copy fast path: RHS is a single bare RValueAtom of
     // the same vector type — let the strategy emit one copy statement.
     if (rhs.rest.empty()) {
@@ -1252,7 +1243,7 @@ namespace symir {
         if (rv->rval.accesses.empty()) {
           auto srcTy = getLValueType(rv->rval);
           if (srcTy && std::holds_alternative<VecType>(srcTy->v)) {
-            vecLowering_->emitWholeCopy(out_, dst, sirMangle(rv->rval.base.name), vt);
+            vecLowering_->emitWholeCopy(out_, dst, mangleName(rv->rval.base.name), vt);
             out_ << ";\n";
             return;
           }

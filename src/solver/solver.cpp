@@ -30,6 +30,26 @@ namespace symir {
     return h;
   }
 
+  // Map RelOp to the appropriate SMT comparison kind, choosing BV or FP
+  // variants based on isFp.
+  static smt::Kind relOpToSmtKind(RelOp op, bool isFp) {
+    switch (op) {
+      case RelOp::EQ:
+        return smt::Kind::EQUAL;
+      case RelOp::NE:
+        return smt::Kind::DISTINCT;
+      case RelOp::LT:
+        return isFp ? smt::Kind::FP_LT : smt::Kind::BV_SLT;
+      case RelOp::LE:
+        return isFp ? smt::Kind::FP_LEQ : smt::Kind::BV_SLE;
+      case RelOp::GT:
+        return isFp ? smt::Kind::FP_GT : smt::Kind::BV_SGT;
+      case RelOp::GE:
+        return isFp ? smt::Kind::FP_GEQ : smt::Kind::BV_SGE;
+    }
+    return smt::Kind::EQUAL;
+  }
+
   // Size of a type measured in BV-tag units (one unit per scalar leaf).
   // Used by the pointer encoding so that:
   //   * `addr %arr[k]` on `[N] T` advances by `k * sizeofTagUnits(T)`
@@ -1591,27 +1611,7 @@ namespace symir {
               }
             }
             bool isFp = solver.is_fp_sort(solver.get_sort(l));
-            smt::Kind k = smt::Kind::EQUAL;
-            switch (arg.op) {
-              case RelOp::EQ:
-                k = smt::Kind::EQUAL;
-                break;
-              case RelOp::NE:
-                k = smt::Kind::DISTINCT;
-                break;
-              case RelOp::LT:
-                k = isFp ? smt::Kind::FP_LT : smt::Kind::BV_SLT;
-                break;
-              case RelOp::LE:
-                k = isFp ? smt::Kind::FP_LEQ : smt::Kind::BV_SLE;
-                break;
-              case RelOp::GT:
-                k = isFp ? smt::Kind::FP_GT : smt::Kind::BV_SGT;
-                break;
-              case RelOp::GE:
-                k = isFp ? smt::Kind::FP_GEQ : smt::Kind::BV_SGE;
-                break;
-            }
+            smt::Kind k = relOpToSmtKind(arg.op, isFp);
             smt::Term cond = solver.make_term(k, {l, r});
             smt::Sort i1 = solver.make_bv_sort(1);
             smt::Term one = solver.make_bv_value(i1, "1", 10);
@@ -2099,27 +2099,7 @@ namespace symir {
             for (std::uint64_t k = 0; k < vt.size; ++k) {
               const auto &l = lhsV.arrayVal[k].term;
               const auto &r = rhsV.arrayVal[k].term;
-              smt::Kind opKind = smt::Kind::EQUAL;
-              switch (arg.op) {
-                case RelOp::EQ:
-                  opKind = smt::Kind::EQUAL;
-                  break;
-                case RelOp::NE:
-                  opKind = smt::Kind::DISTINCT;
-                  break;
-                case RelOp::LT:
-                  opKind = fpLane ? smt::Kind::FP_LT : smt::Kind::BV_SLT;
-                  break;
-                case RelOp::LE:
-                  opKind = fpLane ? smt::Kind::FP_LEQ : smt::Kind::BV_SLE;
-                  break;
-                case RelOp::GT:
-                  opKind = fpLane ? smt::Kind::FP_GT : smt::Kind::BV_SGT;
-                  break;
-                case RelOp::GE:
-                  opKind = fpLane ? smt::Kind::FP_GEQ : smt::Kind::BV_SGE;
-                  break;
-              }
+              smt::Kind opKind = relOpToSmtKind(arg.op, fpLane);
               smt::Term cond = solver.make_term(opKind, {l, r});
               smt::Term laneBit = solver.make_term(smt::Kind::ITE, {cond, one, zero});
               lanes.emplace_back(SymbolicValue::Kind::Int, laneBit, solver.make_true());

@@ -17,175 +17,107 @@ namespace symir {
       }
     };
 
-    auto collectExpr = [&](const Expr &e, auto &self) -> void {
-      auto collectAtom = [&](const Atom &a) {
-        std::visit(
-            [&](auto &&arg) {
-              using T = std::decay_t<decltype(arg)>;
-              if constexpr (std::is_same_v<T, OpAtom>) {
-                if (auto lsid = std::get_if<LocalOrSymId>(&arg.coef)) {
-                  std::visit([&](auto &&id) { used.insert(id.name); }, *lsid);
-                }
-                collectLValue(arg.rval);
-              } else if constexpr (std::is_same_v<T, SelectAtom>) {
-                // [v0.2.1] Two forms: cond=Cond form; maskExpr=mask form.
-                if (arg.cond) {
-                  self(arg.cond->lhs, self);
-                  self(arg.cond->rhs, self);
-                } else if (arg.maskExpr) {
-                  self(*arg.maskExpr, self);
-                }
-                auto handleSv = [&](const SelectVal &sv) {
-                  if (auto rv = std::get_if<RValue>(&sv)) {
-                    collectLValue(*rv);
-                  } else {
-                    const auto &coef = std::get<Coef>(sv);
-                    if (auto lsid = std::get_if<LocalOrSymId>(&coef)) {
-                      std::visit([&](auto &&id) { used.insert(id.name); }, *lsid);
-                    }
-                  }
-                };
-                handleSv(arg.vtrue);
-                handleSv(arg.vfalse);
-              } else if constexpr (std::is_same_v<T, CmpAtom>) {
-                // [v0.2.1] cmp: walk both SelectVal operands.
-                auto handleSv = [&](const SelectVal &sv) {
-                  if (auto rv = std::get_if<RValue>(&sv)) {
-                    collectLValue(*rv);
-                  } else if (auto cf = std::get_if<Coef>(&sv)) {
-                    if (auto lsid = std::get_if<LocalOrSymId>(cf)) {
-                      std::visit([&](auto &&id) { used.insert(id.name); }, *lsid);
-                    }
-                  }
-                };
-                handleSv(arg.lhs);
-                handleSv(arg.rhs);
-              } else if constexpr (std::is_same_v<T, CoefAtom>) {
-                if (auto lsid = std::get_if<LocalOrSymId>(&arg.coef)) {
-                  std::visit([&](auto &&id) { used.insert(id.name); }, *lsid);
-                }
-              } else if constexpr (std::is_same_v<T, RValueAtom>) {
-                collectLValue(arg.rval);
-              } else if constexpr (std::is_same_v<T, CastAtom>) {
-                std::visit(
-                    [&](auto &&src) {
-                      using S = std::decay_t<decltype(src)>;
-                      if constexpr (std::is_same_v<S, LValue>) {
-                        collectLValue(src);
-                      } else if constexpr (std::is_same_v<S, SymId>) {
-                        used.insert(src.name);
-                      }
-                    },
-                    arg.src
-                );
-              } else if constexpr (std::is_same_v<T, UnaryAtom>) {
-                collectLValue(arg.rval);
-              } else if constexpr (std::is_same_v<T, AddrAtom>) {
-                collectLValue(arg.lv);
-              } else if constexpr (std::is_same_v<T, LoadAtom>) {
-                collectLValue(arg.rval);
-              } else if constexpr (std::is_same_v<T, PtrIndexAtom>) {
-                collectLValue(arg.rval);
-                std::visit(
-                    [&](auto &&iv) {
-                      using IV = std::decay_t<decltype(iv)>;
-                      if constexpr (std::is_same_v<IV, LocalOrSymId>) {
-                        std::visit([&](auto &&id) { used.insert(id.name); }, iv);
-                      }
-                    },
-                    arg.index
-                );
-              } else if constexpr (std::is_same_v<T, PtrFieldAtom>) {
-                collectLValue(arg.rval);
+    // Shared atom visitor — walks all names referenced by any atom variant.
+    // `recurseExpr` handles embedded expressions (SelectAtom cond / maskExpr).
+    auto collectAtom = [&](const Atom &a, auto &recurseExpr) {
+      std::visit(
+          [&](auto &&arg) {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, OpAtom>) {
+              if (auto lsid = std::get_if<LocalOrSymId>(&arg.coef))
+                std::visit([&](auto &&id) { used.insert(id.name); }, *lsid);
+              collectLValue(arg.rval);
+            } else if constexpr (std::is_same_v<T, SelectAtom>) {
+              if (arg.cond) {
+                recurseExpr(arg.cond->lhs, recurseExpr);
+                recurseExpr(arg.cond->rhs, recurseExpr);
+              } else if (arg.maskExpr) {
+                recurseExpr(*arg.maskExpr, recurseExpr);
               }
-            },
-            a.v
-        );
-      };
-      collectAtom(e.first);
-      for (const auto &t: e.rest)
-        collectAtom(t.atom);
+              auto handleSv = [&](const SelectVal &sv) {
+                if (auto rv = std::get_if<RValue>(&sv))
+                  collectLValue(*rv);
+                else if (auto cf = std::get_if<Coef>(&sv))
+                  if (auto lsid = std::get_if<LocalOrSymId>(cf))
+                    std::visit([&](auto &&id) { used.insert(id.name); }, *lsid);
+              };
+              handleSv(arg.vtrue);
+              handleSv(arg.vfalse);
+            } else if constexpr (std::is_same_v<T, CmpAtom>) {
+              auto handleSv = [&](const SelectVal &sv) {
+                if (auto rv = std::get_if<RValue>(&sv))
+                  collectLValue(*rv);
+                else if (auto cf = std::get_if<Coef>(&sv))
+                  if (auto lsid = std::get_if<LocalOrSymId>(cf))
+                    std::visit([&](auto &&id) { used.insert(id.name); }, *lsid);
+              };
+              handleSv(arg.lhs);
+              handleSv(arg.rhs);
+            } else if constexpr (std::is_same_v<T, CoefAtom>) {
+              if (auto lsid = std::get_if<LocalOrSymId>(&arg.coef))
+                std::visit([&](auto &&id) { used.insert(id.name); }, *lsid);
+            } else if constexpr (std::is_same_v<T, RValueAtom>) {
+              collectLValue(arg.rval);
+            } else if constexpr (std::is_same_v<T, CastAtom>) {
+              std::visit(
+                  [&](auto &&src) {
+                    using S = std::decay_t<decltype(src)>;
+                    if constexpr (std::is_same_v<S, LValue>)
+                      collectLValue(src);
+                    else if constexpr (std::is_same_v<S, SymId>)
+                      used.insert(src.name);
+                  },
+                  arg.src
+              );
+            } else if constexpr (std::is_same_v<T, UnaryAtom>) {
+              collectLValue(arg.rval);
+            } else if constexpr (std::is_same_v<T, AddrAtom>) {
+              collectLValue(arg.lv);
+            } else if constexpr (std::is_same_v<T, LoadAtom>) {
+              collectLValue(arg.rval);
+            } else if constexpr (std::is_same_v<T, PtrIndexAtom>) {
+              collectLValue(arg.rval);
+              std::visit(
+                  [&](auto &&iv) {
+                    using IV = std::decay_t<decltype(iv)>;
+                    if constexpr (std::is_same_v<IV, LocalOrSymId>)
+                      std::visit([&](auto &&id) { used.insert(id.name); }, iv);
+                  },
+                  arg.index
+              );
+            } else if constexpr (std::is_same_v<T, PtrFieldAtom>) {
+              collectLValue(arg.rval);
+            }
+          },
+          a.v
+      );
     };
 
-    // [v0.2.1] Walk let-declaration init values so that a local referenced
-    // only in another local's initialiser (e.g. `let %p = addr %x`) is
-    // correctly marked as used.
+    auto collectExpr = [&](const Expr &e, auto &self) -> void {
+      collectAtom(e.first, self);
+      for (const auto &t: e.rest)
+        collectAtom(t.atom, self);
+    };
+
     std::function<void(const InitVal &)> collectInitVal = [&](const InitVal &iv) {
       switch (iv.kind) {
-        case InitVal::Kind::Local: {
-          auto &lid = std::get<LocalId>(iv.value);
-          used.insert(lid.name);
+        case InitVal::Kind::Local:
+          used.insert(std::get<LocalId>(iv.value).name);
           break;
-        }
-        case InitVal::Kind::Sym: {
-          auto &sid = std::get<SymId>(iv.value);
-          used.insert(sid.name);
+        case InitVal::Kind::Sym:
+          used.insert(std::get<SymId>(iv.value).name);
           break;
-        }
-        case InitVal::Kind::Aggregate: {
-          auto &children = std::get<std::vector<InitValPtr>>(iv.value);
-          for (const auto &child: children)
+        case InitVal::Kind::Aggregate:
+          for (const auto &child: std::get<std::vector<InitValPtr>>(iv.value))
             if (child)
               collectInitVal(*child);
           break;
-        }
-        case InitVal::Kind::Atom: {
-          // Atom-form init (addr, load, cmp, ptrindex, select, etc.):
-          // directly visit the atom using collectAtom (from collectExpr).
-          auto &atomPtr = std::get<AtomPtr>(iv.value);
-          if (atomPtr) {
-            // collectAtom is the inner lambda of collectExpr; call
-            // collectExpr with a view that only visits first.
-            auto collectAtom = [&](const Atom &a) {
-              std::visit(
-                  [&](auto &&arg) {
-                    using T = std::decay_t<decltype(arg)>;
-                    if constexpr (std::is_same_v<T, OpAtom>) {
-                      if (auto lsid = std::get_if<LocalOrSymId>(&arg.coef))
-                        std::visit([&](auto &&id) { used.insert(id.name); }, *lsid);
-                      collectLValue(arg.rval);
-                    } else if constexpr (std::is_same_v<T, RValueAtom>) {
-                      collectLValue(arg.rval);
-                    } else if constexpr (std::is_same_v<T, AddrAtom>) {
-                      collectLValue(arg.lv);
-                    } else if constexpr (std::is_same_v<T, LoadAtom>) {
-                      collectLValue(arg.rval);
-                    } else if constexpr (std::is_same_v<T, CoefAtom>) {
-                      if (auto lsid = std::get_if<LocalOrSymId>(&arg.coef))
-                        std::visit([&](auto &&id) { used.insert(id.name); }, *lsid);
-                    } else if constexpr (std::is_same_v<T, PtrIndexAtom>) {
-                      collectLValue(arg.rval);
-                      std::visit(
-                          [&](auto &&iv2) {
-                            using IV = std::decay_t<decltype(iv2)>;
-                            if constexpr (std::is_same_v<IV, LocalOrSymId>)
-                              std::visit([&](auto &&id) { used.insert(id.name); }, iv2);
-                          },
-                          arg.index
-                      );
-                    } else if constexpr (std::is_same_v<T, PtrFieldAtom>) {
-                      collectLValue(arg.rval);
-                    } else if constexpr (std::is_same_v<T, CmpAtom>) {
-                      auto handleSv = [&](const SelectVal &sv) {
-                        if (auto rv = std::get_if<RValue>(&sv))
-                          collectLValue(*rv);
-                        else if (auto cf = std::get_if<Coef>(&sv))
-                          if (auto lsid = std::get_if<LocalOrSymId>(cf))
-                            std::visit([&](auto &&id) { used.insert(id.name); }, *lsid);
-                      };
-                      handleSv(arg.lhs);
-                      handleSv(arg.rhs);
-                    }
-                  },
-                  a.v
-              );
-            };
-            collectAtom(*atomPtr);
-          }
+        case InitVal::Kind::Atom:
+          if (auto &atomPtr = std::get<AtomPtr>(iv.value))
+            collectAtom(*atomPtr, collectExpr);
           break;
-        }
         default:
-          break; // Int, Float, Undef, Null — no names to collect
+          break;
       }
     };
     for (const auto &l: f.lets) {
