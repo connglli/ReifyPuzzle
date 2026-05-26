@@ -614,39 +614,63 @@ namespace symir::reify {
         // [v0.2.1] Vec atom generation.
         auto vecs = vars.vecsOf(targetType);
         const auto &vt = std::get<VecType>(targetType->v);
-        std::uniform_int_distribution<int> slot(0, 99);
-        int s = slot(rng);
 
-        if (s < hp::kVecCopyEnd && !vecs.empty()) {
-          // Whole-vec copy from another vec var of same type.
-          auto *v = pickOne(rng, vecs);
-          a = rvalAtom(localLV(v->name));
-        } else if (s < hp::kVecSymMulEnd && !vecs.empty() && onPath && sym) {
-          // OpAtom: sym * vec (broadcast-scalar multiply).
-          auto *v = pickOne(rng, vecs);
-          a = opAtom(AtomOpKind::Mul, symCoef(sym->nextCoef(vt.elem)), localLV(v->name));
-        } else if (s < hp::kVecConcMulEnd && !vecs.empty()) {
-          // OpAtom: concrete coef * vec (off-path safe).
-          auto *v = pickOne(rng, vecs);
-          int64_t c = std::uniform_int_distribution<int64_t>(-4, 4)(rng);
-          if (c == 0)
-            c = 1;
-          a = opAtom(AtomOpKind::Mul, intCoef(c), localLV(v->name));
-        } else if (!vecs.empty()) {
-          // Fallback: copy from any same-typed vec var.
-          auto *v = pickOne(rng, vecs);
-          a = rvalAtom(localLV(v->name));
-        } else {
-          // No vec vars available — this shouldn't happen for whole-vec
-          // assignments (genBlockStmts guards against it), but as a
-          // safety net produce a self-referencing RValueAtom. The caller
-          // should only reach here for lane-write targets (scalar type).
-          CoefAtom ca;
-          if (isFpType(vt.elem))
-            ca.coef = FloatLit{0.0, {}};
-          else
+        if (i == 0) {
+          // First atom MUST be vec-typed (RValueAtom or OpAtom on a vec var).
+          // A bare scalar literal as first atom would fail the typechecker.
+          if (!vecs.empty()) {
+            std::uniform_int_distribution<int> slot(0, 99);
+            int s = slot(rng);
+            if (s < hp::kVecCopyEnd) {
+              auto *v = pickOne(rng, vecs);
+              a = rvalAtom(localLV(v->name));
+            } else if (s < hp::kVecSymMulEnd && onPath && sym) {
+              auto *v = pickOne(rng, vecs);
+              a = opAtom(AtomOpKind::Mul, symCoef(sym->nextCoef(vt.elem)), localLV(v->name));
+            } else if (s < hp::kVecConcMulEnd) {
+              auto *v = pickOne(rng, vecs);
+              int64_t c = std::uniform_int_distribution<int64_t>(-4, 4)(rng);
+              if (c == 0)
+                c = 1;
+              a = opAtom(AtomOpKind::Mul, intCoef(c), localLV(v->name));
+            } else {
+              auto *v = pickOne(rng, vecs);
+              a = rvalAtom(localLV(v->name));
+            }
+          } else {
+            // No vec vars — shouldn't happen for whole-vec assign (guarded
+            // by genBlockStmts), but safety fallback.
+            CoefAtom ca;
             ca.coef = IntLit{0, {}};
-          a = Atom{std::move(ca), {}};
+            a = Atom{std::move(ca), {}};
+          }
+        } else {
+          // Tail atom (i > 0): can be vec-typed OR a broadcast scalar literal.
+          std::uniform_int_distribution<int> tailSlot(0, 99);
+          int ts = tailSlot(rng);
+          if (ts < 40 && !vecs.empty()) {
+            // Vec copy (lane-wise +/- with another vec var).
+            auto *v = pickOne(rng, vecs);
+            a = rvalAtom(localLV(v->name));
+          } else if (ts < 60 && !vecs.empty()) {
+            // OpAtom on vec var.
+            auto *v = pickOne(rng, vecs);
+            int64_t c = std::uniform_int_distribution<int64_t>(-4, 4)(rng);
+            if (c == 0)
+              c = 1;
+            a = opAtom(AtomOpKind::Mul, intCoef(c), localLV(v->name));
+          } else {
+            // Broadcast scalar literal (valid in +/- tail position).
+            CoefAtom ca;
+            if (isFpType(vt.elem)) {
+              std::uniform_int_distribution<std::size_t> fd(0, hp::kFloatLitPoolSize - 1);
+              ca.coef = FloatLit{hp::kFloatLitPool[fd(rng)], {}};
+            } else {
+              int64_t c = std::uniform_int_distribution<int64_t>(-8, 8)(rng);
+              ca.coef = IntLit{c, {}};
+            }
+            a = Atom{std::move(ca), {}};
+          }
         }
       } else {
         // Unknown type (e.g. struct) — fallback to i32 concrete atom
@@ -986,8 +1010,7 @@ namespace symir::reify {
         // rejects scalar RHS). Fall back to lane write.
         const auto &vt = std::get<VecType>(lhsVar->type->v);
         auto sameVecs = vars.vecsOf(lhsVar->type);
-        bool canWholeVec =
-            sameVecs.size() > 1 || (sameVecs.size() == 1 && sameVecs[0]->name != lhsVar->name);
+        bool canWholeVec = !sameVecs.empty();
         std::uniform_int_distribution<int> vslot(0, 99);
         if (canWholeVec && vslot(rng) >= hp::kVecLaneWriteProb) {
           // Whole-vec assign (copy or broadcast-mul)

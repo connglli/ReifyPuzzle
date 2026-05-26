@@ -96,8 +96,12 @@ namespace symir::reify {
       return aa.size == ab.size && typeEquals(aa.elem, ab.elem);
     }
     if (std::holds_alternative<StructType>(a->v)) {
-      // struct equality by name
       return std::get<StructType>(a->v).name.name == std::get<StructType>(b->v).name.name;
+    }
+    if (std::holds_alternative<VecType>(a->v)) {
+      const auto &va = std::get<VecType>(a->v);
+      const auto &vb = std::get<VecType>(b->v);
+      return va.size == vb.size && typeEquals(va.elem, vb.elem);
     }
     return false;
   }

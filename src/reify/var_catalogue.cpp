@@ -264,6 +264,35 @@ namespace symir::reify {
       }
     }
 
+    // [v0.2.1] Phase 4: aggregate-pointer vars (ptr [N] T, ptr @S).
+    // Each points to an existing array or struct var.
+    if (tcfg.enableAggPtr && tcfg.maxPtrDepth >= 1) {
+      struct AggTarget {
+        std::string name;
+        TypePtr type; // the array or struct type
+      };
+
+      std::vector<AggTarget> aggTargets;
+      for (const auto &v: cat.vars) {
+        if (std::holds_alternative<ArrayType>(v.type->v))
+          aggTargets.push_back({v.name, v.type});
+        else if (std::holds_alternative<StructType>(v.type->v))
+          aggTargets.push_back({v.name, v.type});
+      }
+      int nAggPtr = std::max(0, (int) (cfg.nVars * hp::kFracAggPtrVars));
+      for (int i = 0; i < nAggPtr && !aggTargets.empty(); i++) {
+        std::uniform_int_distribution<int> ad(0, (int) aggTargets.size() - 1);
+        const auto &tgt = aggTargets[ad(rng)];
+        VarEntry apv;
+        apv.name = "%ap" + std::to_string(i);
+        apv.ptrTarget = tgt.name;
+        PtrType pt;
+        pt.pointee = tgt.type;
+        apv.type = std::make_shared<Type>(Type{pt, {}});
+        cat.vars.push_back(std::move(apv));
+      }
+    }
+
     return cat;
   }
 

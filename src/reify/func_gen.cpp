@@ -139,8 +139,30 @@ namespace symir::reify {
     };
 
     for (const auto &v: vars.vars) {
-      if (isPtrType(v.type))
+      if (isPtrType(v.type)) {
+        // [v0.2.1] Load through scalar pointers into the checksum.
+        // These are initialized via addr in the entry block and always
+        // point to a valid in-bounds target.
+        auto ptee = pointeeType(v.type);
+        if (ptee && isScalarType(ptee) && !isPtrType(ptee)) {
+          // Emit: %_chk = %_chk + load %p (if i32)
+          //    or: %_chk = (load %p) as i32 + %_chk (if other scalar)
+          LoadAtom la;
+          la.rval = localLV(v.name);
+          if (isIntType(ptee) && intBitWidth(ptee) == 32) {
+            emitChkAccum(Atom{std::move(la), {}}, /*isCast=*/false);
+          } else {
+            // For non-i32: we can't nest load inside CastAtom, so we
+            // just use the load atom directly — the checksum will
+            // truncate/extend at runtime. This is safe because the
+            // checksum is only used for differential testing (both
+            // symiri and C will compute the same truncated value).
+            // Actually, the typechecker requires the expr to be i32.
+            // Skip non-i32 ptr loads for now.
+          }
+        }
         continue;
+      }
 
       if (isScalarType(v.type)) {
         emitScalarLV(localLV(v.name), v.type);
