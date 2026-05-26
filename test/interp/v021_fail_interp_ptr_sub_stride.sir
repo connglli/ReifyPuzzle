@@ -1,0 +1,27 @@
+// EXPECT: PASS
+// Rationale: SPEC §6.8.6: 'ptr T - ptr T' yields element distance.
+// Stride must match the pointer's static type T.
+
+struct @S {
+  f1: i8;
+  f2: i32;
+  f3: i32;
+}
+
+fun @main() : i64 {
+  let mut %s: @S = {1, 10, 20};
+  let mut %p: ptr @S = null;
+  let mut %pf2: ptr i32 = null;
+  let mut %pf3: ptr i32 = null;
+  let mut %diff: i64 = 0;
+^entry:
+  %p = addr %s;
+  %pf2 = ptrfield %p, f2; // offset 1
+  %pf3 = ptrfield %p, f3; // offset 5
+
+  // byte diff = 4. sizeof(i32) = 4.
+  // Element distance should be 1.
+  %diff = %pf3 - %pf2;
+  require %diff == 1;
+  ret %diff; // Should return 1
+}

@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// Rationale: Verify addr lv.f stride in interpreter.
+
+struct @S {
+  f1: i8;
+  f2: i32;
+  f3: i32;
+}
+
+fun @main() : i32 {
+  let mut %s: @S = {1, 10, 20};
+  let mut %p: ptr i32 = null;
+  let mut %v: i32 = 0;
+^entry:
+  %p = addr %s.f2; // offset 1, ptr i32
+
+  // Advance by 1 unit (4 bytes) to offset 5.
+  %p = %p + 1;
+
+  %v = load %p;
+  ret %v; // Should return 20
+}

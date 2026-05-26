@@ -1,0 +1,30 @@
+// EXPECT: PASS
+// Rationale: SPEC §2.10: Pointer arithmetic stride must match the pointer's
+// static pointee type.
+// If %pf is 'ptr i32', %pf + 1 must advance by 4 bytes, even if the
+// provenance is a struct with different layout.
+
+struct @S {
+  f1: i8;
+  f2: i32;
+  f3: i32;
+}
+
+fun @main() : i32 {
+  let mut %s: @S = {1, 10, 20};
+  let mut %p: ptr @S = null;
+  let mut %pf: ptr i32 = null;
+  let mut %v: i32 = 0;
+^entry:
+  %p = addr %s;
+  %pf = ptrfield %p, f2; // Points to f2 (offset 1)
+
+  // Advance by 1 unit (4 bytes) to offset 5.
+  // This must use sizeof(i32) = 4 as stride.
+  %pf = %pf + 1;
+
+  // Offset 5 is field f3 (type i32).
+  %v = load %pf;
+  require %v == 20;
+  ret %v; // Should return 20
+}

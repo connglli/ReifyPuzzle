@@ -953,7 +953,7 @@ namespace symir {
         const ObjectInfo *obj = findObjectByProvId(v.ptrBase);
         if (!obj)
           throw UndefinedBehaviorError("UB: Pointer arithmetic on out-of-bounds pointer");
-        uint64_t elemSize = obj->elemSize;
+        uint64_t elemSize = v.elemSize;
         int64_t delta = right.intVal * static_cast<int64_t>(elemSize);
         int64_t newAddr = (tail.op == AddOp::Plus) ? static_cast<int64_t>(v.ptrVal) + delta
                                                    : static_cast<int64_t>(v.ptrVal) - delta;
@@ -967,8 +967,7 @@ namespace symir {
           throw std::runtime_error("Cannot add two pointers");
         if (v.ptrBase != right.ptrBase)
           throw UndefinedBehaviorError("UB: Pointer subtraction across different objects");
-        const ObjectInfo *obj = findObjectByProvId(v.ptrBase);
-        uint64_t elemSize = obj ? obj->elemSize : 1;
+        uint64_t elemSize = v.elemSize;
         int64_t diff = static_cast<int64_t>(v.ptrVal) - static_cast<int64_t>(right.ptrVal);
         v.kind = RuntimeValue::Kind::Int;
         v.intVal = diff / static_cast<int64_t>(elemSize);
@@ -1474,6 +1473,7 @@ namespace symir {
             rv.kind = RuntimeValue::Kind::Ptr;
             rv.ptrVal = addr;
             rv.ptrBase = provId;
+            rv.elemSize = curType ? sizeofType(curType) : 1;
             rv.bits = 64;
             return rv;
           } else if constexpr (std::is_same_v<T, LoadAtom>) {
@@ -1606,6 +1606,7 @@ namespace symir {
             rv.ptrVal = elemAddr;
             // Provenance = the containing array's provId!
             rv.ptrBase = containingArrayObj->provId;
+            rv.elemSize = elemSize;
             return rv;
           } else if constexpr (std::is_same_v<T, PtrFieldAtom>) {
             // [v0.2.1] §6.8.10: ptrfield <ptr>, <fld> navigates ptr @S to
@@ -1682,12 +1683,21 @@ namespace symir {
               );
             }
 
+            TypePtr fieldType;
+            for (const auto &f: sit->second->fields) {
+              if (f.name == arg.field) {
+                fieldType = f.type;
+                break;
+              }
+            }
+
             RuntimeValue rv;
             rv.kind = RuntimeValue::Kind::Ptr;
             rv.bits = 64;
             rv.ptrVal = ptrRv.ptrVal + off;
             // Provenance = the containing struct's provId!
             rv.ptrBase = containingStructObj->provId;
+            rv.elemSize = fieldType ? sizeofType(fieldType) : 1;
             return rv;
           } else if constexpr (std::is_same_v<T, CastAtom>) {
             RuntimeValue v = std::visit(

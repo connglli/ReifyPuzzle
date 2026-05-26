@@ -1,0 +1,29 @@
+// EXPECT: PASS
+// Rationale: SPEC §7.5 Rule 15: ptrfield provenance is the whole struct.
+// Pointer arithmetic from a field pointer can roam over the whole struct.
+// Rule 15b: load/store is valid if it lands on a cell of matching type.
+
+struct @S {
+  a: i8;
+  b: i32;
+  c: i32;
+}
+
+fun @main() : i32 {
+  let mut %s: @S = {1, 2, 3};
+  let mut %p: ptr @S = null;
+  let mut %pb: ptr i32 = null;
+  let mut %pc_alias: ptr i32 = null;
+  let mut %v: i32 = 0;
+^entry:
+  %p = addr %s;
+  %pb = ptrfield %p, b; // offset 1
+
+  // Advance by 1 unit (4 bytes) to offset 5.
+  %pc_alias = %pb + 1;
+
+  // Offset 5 in @S is field 'c', which is type i32.
+  // So load through %pc_alias should be valid and return 3.
+  %v = load %pc_alias;
+  ret %v; // Should return 3
+}
