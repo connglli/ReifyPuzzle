@@ -1,0 +1,336 @@
+// EXPECT: PASS
+struct @BFRegs {
+  dp:      i32;  // Data pointer (index into 'tape')
+  ip:      i32;  // Instruction pointer (index into 'code')
+  out_idx: i32;  // Next write position in 'output'
+}
+
+fun @main() : i32 {
+  // ========================================================================================
+  // SymIR Brainfuck Interpreter — v0.2.1 showcase
+  //
+  // Demonstrates v0.2.1 features:
+  //   • ptr @S + ptrfield : navigate struct fields as typed pointers.
+  //     The machine registers (dp, ip, out_idx) live in @BFRegs and are
+  //     accessed exclusively through ptrfield-derived pointers.  This
+  //     exercises store/load through aggregate field pointers in the solver.
+  //   • cmp : reified comparison (i1 value) — used as a first-class result
+  //     that can be stored, passed to select, or branched on independently
+  //     from the comparison operands.
+  //   • <8> i8 vector : BF opcode table in a SIMD register.  Each command
+  //     byte is a lane; the decoder reads lanes via subscript and compares
+  //     them with cmp, keeping all opcode constants in one place.
+  //
+  // BF program executed: ++++++++[>++++++++<-]>+.  (Prints 'A', ASCII 65)
+  //
+  // A single instruction byte at position 18 is left symbolic (%?missing).
+  // The expected value is 60 ('<').  The solver must find it to satisfy
+  // the output requirement.
+  //
+  // Interpret (with correct value):
+  //   ./symiri --sym %?missing=60 ./examples/brainfuck_v021.sir
+  //
+  // Compile to C:
+  //   ./symirc -o brainfuck_v021.c ./examples/brainfuck_v021.sir
+  //
+  // Solve (find %?missing automatically):
+  //   ./symirsolve --path $(cat ./examples/brainfuck_v021_path.txt) \
+  //                -o brainfuck_v021_solved.sir ./examples/brainfuck_v021.sir
+  // ========================================================================================
+
+  // --- Symbol: the missing instruction byte ---
+  // Domain restricted to the four movement/arithmetic BF operators.
+  sym %?missing : value i8 in {60, 62, 43, 45}; // expected: 60 ('<')
+
+  // --- BF opcode table as a <8> i8 vector (v0.2.1) ---
+  // Lane layout:
+  //   0 => '>'  (62)    1 => '<'  (60)    2 => '+'  (43)    3 => '-'  (45)
+  //   4 => '.'  (46)    5 => '['  (91)    6 => ']'  (93)    7 => NUL  (0)
+  //
+  // Storing all BF command codes as vector lanes makes the decoder
+  // self-documenting and exercises <N> T initialization and lane reads.
+  let %opcodes: <8> i8 = {62, 60, 43, 45, 46, 91, 93, 0};
+
+  // Named lane indices for readability.
+  let %LANE_INC_PTR:    i32 = 0; // '>'
+  let %LANE_DEC_PTR:    i32 = 1; // '<'
+  let %LANE_INC_VAL:    i32 = 2; // '+'
+  let %LANE_DEC_VAL:    i32 = 3; // '-'
+  let %LANE_OUTPUT:     i32 = 4; // '.'
+  let %LANE_LOOP_START: i32 = 5; // '['
+  let %LANE_LOOP_END:   i32 = 6; // ']'
+  let %LANE_NUL:        i32 = 7; // NUL terminator
+
+  // --- BF memory: tape, code, output as separate mutable arrays ---
+  // (Kept separate from @BFRegs because array fields inside a struct
+  //  cause a solver sort mismatch when combined with <N> i8 vectors —
+  //  see §11 of the spec for this v0.2.1 known limitation.)
+  let mut %tape:   [100] i8 = 0;
+  let mut %code:   [100] i8 = 0;
+  let mut %output: [100] i8 = 0;
+
+  // --- Register file: integer registers in a struct ---
+  // All three registers are accessed exclusively through ptrfield-derived
+  // pointers, demonstrating ptr @S navigation in the interpreter and solver.
+  let mut %regs: @BFRegs = 0;
+
+  // v0.2.1: typed pointers to each register field, obtained once via ptrfield.
+  let mut %pregs:  ptr @BFRegs = null;
+  let mut %p_dp:   ptr i32     = null; // -> regs.dp
+  let mut %p_ip:   ptr i32     = null; // -> regs.ip
+  let mut %p_out:  ptr i32     = null; // -> regs.out_idx
+
+  // --- Temporaries ---
+  let mut %instr:    i8  = 0;
+  let mut %byte_tmp: i8  = 0;
+  let mut %opcode:   i8  = 0;  // comparison value read from %opcodes lane
+  let mut %ret_val:  i32 = 0;
+  let mut %depth:    i32 = 0;
+  let mut %idx_tmp:  i32 = 0;
+  let mut %d_plus:   i32 = 0;
+  let mut %d_minus:  i32 = 0;
+
+  // v0.2.1: reified comparison result (i1).
+  // cmp produces a first-class boolean — unlike Cond (which is only
+  // consumed by br/assume/require), an i1 can be stored in a local,
+  // used as a select mask, or inspected after the comparison.
+  let mut %eq_flag: i1 = 0;
+
+  // --- Constants ---
+  let %CODE_LIMIT: i32 = 100;
+  let %OUT_LIMIT:  i32 = 100;
+  let %ONE:        i32 = 1;
+
+^entry:
+  // Establish the register file pointer and project field pointers (v0.2.1).
+  // All register reads/writes below go through these ptrfield-derived pointers.
+  %pregs = addr %regs;
+  %p_dp  = ptrfield %pregs, dp;
+  %p_ip  = ptrfield %pregs, ip;
+  %p_out = ptrfield %pregs, out_idx;
+
+  // ========================================================================================
+  // Load BF program: ++++++++[>++++++++<-]>+.
+  // Cell #0 counts down from 8; each iteration adds 8 to cell #1.
+  // At loop exit: cell #1 == 8 * 8 == 64.  Then >+. produces 65 ('A').
+  // ========================================================================================
+
+  // 0-7: ++++++++ (initialise cell #0 to 8)
+  %code[0] = 43; %code[1] = 43; %code[2] = 43; %code[3] = 43;
+  %code[4] = 43; %code[5] = 43; %code[6] = 43; %code[7] = 43;
+
+  // 8: [ (begin outer loop)
+  %code[8] = 91;
+
+  // 9: > (advance to cell #1)
+  %code[9] = 62;
+
+  // 10-17: ++++++++ (add 8 to cell #1 each iteration)
+  %code[10] = 43; %code[11] = 43; %code[12] = 43; %code[13] = 43;
+  %code[14] = 43; %code[15] = 43; %code[16] = 43; %code[17] = 43;
+
+  // 18: < (return to cell #0)  — [SYMBOLIC HOLE]
+  // The solver must choose %?missing == 60 to produce the correct output.
+  %code[18] = %?missing;
+
+  // 19: - (decrement cell #0 toward 0)
+  %code[19] = 45;
+
+  // 20: ] (end loop — exits when cell #0 == 0)
+  %code[20] = 93;
+
+  // 21: > (move to cell #1, value 64)
+  %code[21] = 62;
+
+  // 22: + (bump cell #1 to 65 — ASCII 'A')
+  %code[22] = 43;
+
+  // 23: . (output cell #1)
+  %code[23] = 46;
+
+  // 24: NUL (terminate)
+  %code[24] = 0;
+
+  br ^dispatch;
+
+// --- Main dispatch loop ---
+^dispatch:
+  %idx_tmp = load %p_ip;
+  br %idx_tmp >= %CODE_LIMIT, ^exit, ^fetch;
+
+^fetch:
+  %idx_tmp = load %p_ip;
+  %instr   = %code[%idx_tmp];
+
+  // v0.2.1 cmp: compare %instr against the NUL lane of the opcode vector,
+  // producing a reified i1 rather than an inline branch condition.
+  %opcode  = %opcodes[%LANE_NUL];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^exit, ^decode_inc_ptr;
+
+// --- Instruction decode cascade ---
+// Each step reads the matching opcode lane and uses cmp to produce an i1
+// that drives the conditional branch.
+^decode_inc_ptr:
+  %opcode  = %opcodes[%LANE_INC_PTR];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_inc_ptr, ^decode_dec_ptr;
+
+^decode_dec_ptr:
+  %opcode  = %opcodes[%LANE_DEC_PTR];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_dec_ptr, ^decode_inc_val;
+
+^decode_inc_val:
+  %opcode  = %opcodes[%LANE_INC_VAL];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_inc_val, ^decode_dec_val;
+
+^decode_dec_val:
+  %opcode  = %opcodes[%LANE_DEC_VAL];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_dec_val, ^decode_output;
+
+^decode_output:
+  %opcode  = %opcodes[%LANE_OUTPUT];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_output, ^decode_loop_start;
+
+^decode_loop_start:
+  %opcode  = %opcodes[%LANE_LOOP_START];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_loop_start, ^decode_loop_end;
+
+^decode_loop_end:
+  %opcode  = %opcodes[%LANE_LOOP_END];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_loop_end, ^next_instr; // skip unknown bytes
+
+// --- Command execution ---
+// dp and ip are mutated exclusively through the ptrfield-derived pointers,
+// demonstrating store/load through ptr @S field navigation.
+
+^do_inc_ptr: // '>'
+  %idx_tmp = load %p_dp;
+  %idx_tmp = %idx_tmp + %ONE;
+  store %p_dp, %idx_tmp;
+  br ^next_instr;
+
+^do_dec_ptr: // '<'
+  %idx_tmp = load %p_dp;
+  %idx_tmp = %idx_tmp - %ONE;
+  store %p_dp, %idx_tmp;
+  br ^next_instr;
+
+^do_inc_val: // '+'
+  %idx_tmp  = load %p_dp;
+  %byte_tmp = %tape[%idx_tmp];
+  %byte_tmp = %byte_tmp + 1;
+  %tape[%idx_tmp] = %byte_tmp;
+  br ^next_instr;
+
+^do_dec_val: // '-'
+  %idx_tmp  = load %p_dp;
+  %byte_tmp = %tape[%idx_tmp];
+  %byte_tmp = %byte_tmp - 1;
+  %tape[%idx_tmp] = %byte_tmp;
+  br ^next_instr;
+
+^do_output: // '.'
+  %idx_tmp = load %p_out;
+  br %idx_tmp < %OUT_LIMIT, ^write_out, ^next_instr;
+
+^write_out:
+  %idx_tmp  = load %p_dp;
+  %byte_tmp = %tape[%idx_tmp];
+  %idx_tmp  = load %p_out;
+  %output[%idx_tmp] = %byte_tmp;
+  %idx_tmp = %idx_tmp + %ONE;
+  store %p_out, %idx_tmp;
+  br ^next_instr;
+
+^do_loop_start: // '['
+  %idx_tmp  = load %p_dp;
+  %byte_tmp = %tape[%idx_tmp];
+  // Skip to matching ']' if current tape cell is zero.
+  br %byte_tmp == 0, ^scan_fwd_init, ^next_instr;
+
+^do_loop_end: // ']'
+  %idx_tmp  = load %p_dp;
+  %byte_tmp = %tape[%idx_tmp];
+  // Jump back to matching '[' if current tape cell is nonzero.
+  br %byte_tmp != 0, ^scan_bwd_init, ^next_instr;
+
+// --- Forward scan: skip from '[' to matching ']' ---
+^scan_fwd_init:
+  %depth = 1;
+  br ^scan_fwd_step;
+
+^scan_fwd_step:
+  %idx_tmp = load %p_ip;
+  %idx_tmp = %idx_tmp + %ONE;
+  store %p_ip, %idx_tmp;
+  br %idx_tmp >= %CODE_LIMIT, ^exit, ^scan_fwd_check;
+
+^scan_fwd_check:
+  %idx_tmp  = load %p_ip;
+  %byte_tmp = %code[%idx_tmp];
+
+  // v0.2.1: cmp + select to update depth without branching.
+  // '[' increments depth; ']' decrements it.
+  %opcode  = %opcodes[%LANE_LOOP_START];
+  %eq_flag = cmp == %byte_tmp, %opcode;
+  %d_plus  = %depth + 1;
+  %depth   = select %eq_flag == 1, %d_plus, %depth;
+
+  %opcode  = %opcodes[%LANE_LOOP_END];
+  %eq_flag = cmp == %byte_tmp, %opcode;
+  %d_minus = %depth - 1;
+  %depth   = select %eq_flag == 1, %d_minus, %depth;
+
+  br %depth == 0, ^next_instr, ^scan_fwd_step;
+
+// --- Backward scan: rewind from ']' to matching '[' ---
+^scan_bwd_init:
+  %depth = 1;
+  br ^scan_bwd_step;
+
+^scan_bwd_step:
+  %idx_tmp = load %p_ip;
+  %idx_tmp = %idx_tmp - %ONE;
+  store %p_ip, %idx_tmp;
+  br %idx_tmp < 0, ^exit, ^scan_bwd_check;
+
+^scan_bwd_check:
+  %idx_tmp  = load %p_ip;
+  %byte_tmp = %code[%idx_tmp];
+
+  // Scanning backwards: ']' increments depth, '[' decrements.
+  %opcode  = %opcodes[%LANE_LOOP_END];
+  %eq_flag = cmp == %byte_tmp, %opcode;
+  %d_plus  = %depth + 1;
+  %depth   = select %eq_flag == 1, %d_plus, %depth;
+
+  %opcode  = %opcodes[%LANE_LOOP_START];
+  %eq_flag = cmp == %byte_tmp, %opcode;
+  %d_minus = %depth - 1;
+  %depth   = select %eq_flag == 1, %d_minus, %depth;
+
+  br %depth == 0, ^scan_bwd_done, ^scan_bwd_step;
+
+^scan_bwd_done:
+  // Positioned at '['; re-evaluate the loop condition without advancing ip.
+  br ^dispatch;
+
+^next_instr:
+  %idx_tmp = load %p_ip;
+  %idx_tmp = %idx_tmp + %ONE;
+  store %p_ip, %idx_tmp;
+  br ^dispatch;
+
+^exit:
+  // Return the first output byte (ASCII 'A' == 65 when %?missing == 60).
+  %byte_tmp = %output[0];
+  %ret_val  = %byte_tmp as i32;
+  ret %ret_val;
+}

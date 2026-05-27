@@ -27,7 +27,7 @@ The key design goals are:
 
 SymIR deliberately restricts expressions (flat, left-to-right, no parentheses) and uses **LLVM-style syntax** (`@`, `%`, `br`, basic blocks) while remaining language-agnostic.
 
-The current formal specification is **[./docs/SPEC_v0.2.0.md](./docs/SPEC_v0.2.0.md)** (adds pointer support: `ptr T`, `addr`, `load`, `store`, `null`, plus pointer arithmetic and the strict UB rules in §7.5). The pre-pointer baseline is preserved at [./docs/SPEC_v0.1.0.md](./docs/SPEC_v0.1.0.md) for reference.
+The current formal specification is **[./docs/SPEC_v0.2.1.md](./docs/SPEC_v0.2.1.md)** (adds aggregate pointers: `ptr [N] T`, `ptr @S`, `ptrindex`, `ptrfield`; SIMD vector types `<N> T` with lane-wise arithmetic and `cmp`; floating-point value model; mask-based `select`). The v0.2.0 pointer baseline is preserved at [./docs/SPEC_v0.2.0.md](./docs/SPEC_v0.2.0.md) and the pre-pointer baseline at [./docs/SPEC_v0.1.0.md](./docs/SPEC_v0.1.0.md) for reference.
 
 ## Language at a Glance
 
@@ -43,19 +43,40 @@ Key characteristics:
 - **Division/modulo**: round toward 0 (C / SMT `bvsdiv`, `bvsrem`)
 - **select** expression:
   - Lazy (only selected arm evaluated)
-  - Expression-level conditional
+  - Expression-level conditional; mask-based `select <N> i1` for per-lane blends (v0.2.1)
+- **Floating-point**:
+  - `f32` (IEEE 754 single) and `f64` (IEEE 754 double)
+  - Finite-only domain: ±∞ and NaN are UB
+  - `%` is C's `fmod` (truncated-quotient remainder)
+  - All operations use RNE rounding
 - **Pointers (v0.2.0)**:
-  - `ptr T` type, restricted to scalar/pointer pointees
+  - `ptr T` type, scalar/pointer pointees
   - `addr lv` produces `ptr T` (requires `let mut` root)
   - `load p`, `store p, v` for read/write through pointers
   - `null` literal (typed by context)
   - Pointer arithmetic: `ptr T ± iN → ptr T`, `ptr T - ptr T → i64` (element distance)
   - No `sym` of pointer type; no pointer/integer casts
+- **Aggregate pointers (v0.2.1)**:
+  - `ptr [N] T` / `ptr @S` — pointers to arrays and structs
+  - `ptrindex <ptr [N] T>, <idx>` → `ptr T` (navigate array element)
+  - `ptrfield <ptr @S>, <field>` → `ptr FieldType` (navigate struct field)
+  - Packed `sizeof(@S) = Σ sizeof(field_i)`; no padding
+  - No aggregate `load`/`store`; navigate to scalar/pointer leaves first
+- **Vector types (v0.2.1)**:
+  - `<N> T` — fixed-width SIMD vector of scalar elements
+  - Lane-wise arithmetic: all scalar operators lift to vectors
+  - `cmp <relop> lhs, rhs` — reified comparison → `i1` (scalar) or `<N> i1` (vector mask)
+  - Lane access via subscript: `%v[%i]` reads/writes lane `i`
+  - Whole-vector copy: `%v = %w;`
+  - Not addressable: no `ptr <N> T`, no `addr` on vector locals
+  - `sym` of vector type allowed (per-lane independent symbols)
 - **Strict UB**:
   - Division/modulo by zero
   - Out-of-bounds array access
   - Reading `undef`
   - Null/uninitialised/out-of-bounds pointer dereference, cross-object pointer arithmetic or relational comparison
+  - FP overflow/NaN, float-to-integer out-of-range
+  - Vector lane-wise UB, out-of-bounds lane access (v0.2.1)
 
 ## Toolchain Overview
 

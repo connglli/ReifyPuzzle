@@ -1,7 +1,7 @@
 # SymLang (SymIR): A CFG-Based Symbolic Language / Intermediate Representation
 
 > [!WARNING]
-> The project is under active development. APIs and IR details are still evolving, but semantic decisions in `docs/SPEC_v0.2.0.md` are authoritative for the current release (v0.2.0).
+> The project is under active development. APIs and IR details are still evolving, but semantic decisions in `docs/SPEC_v0.2.1.md` are authoritative for the current release (v0.2.1).
 
 SymIR (also referred to as SymLang) is a **CFG-based symbolic intermediate representation** designed for program synthesis, symbolic execution, and constraint generation for SMT solvers using **bit-vector (BV) logic**.
 
@@ -83,7 +83,6 @@ Provide concrete values for symbols at runtime:
 
 # Compile to WebAssembly
 ./symirc input.sir --target wasm -o out.wat
-
 ```
 
 #### Solve for Symbolic Values
@@ -97,7 +96,7 @@ Automatically find values for symbols that satisfy a specific execution path:
 ./symirsolve template.sir --path '^entry,^b1,^exit' -o concrete.sir
 ```
 
-#### Generate Random Programs with `rysmith`
+#### Generate Random Programs
 ```bash
 ./rysmith -n 100
 ```
@@ -121,293 +120,235 @@ make SOLVER=alivesmt
 
 ## 📝 SymLang Example
 
-A brainfuck interpreter example:
+A brainfuck interpreter showcasing v0.2.1 features:
+`ptr @S` + `ptrfield` for register-file navigation, `<N> T` vector opcode table with `cmp`-based decoding, and reified `i1` comparison results.
 
 ```rust
-struct @BFContext {
-  tape: [100] i8;    // Memory tape for Brainfuck cells
-  code: [100] i8;    // Memory for the Brainfuck bytecode
-  output: [100] i8;  // Buffer to store program output characters
-  dp: i32;           // Data Pointer (points into 'tape')
-  ip: i32;           // Instruction Pointer (points into 'code')
-  out_idx: i32;      // Index for the next output character
+struct @BFRegs {
+  dp:      i32;  // Data pointer (index into 'tape')
+  ip:      i32;  // Instruction pointer (index into 'code')
+  out_idx: i32;  // Next write position in 'output'
 }
 
 fun @main() : i32 {
-  // =========================================================================================
-  // SymIR Brainfuck Interpreter
-  //
-  // This program implements a simple Brainfuck interpreter.
-  // It executes a hardcoded Brainfuck program stored in the %code array.
-  // The code array contains a symbol %?missing whose expected value is 60.
-  // To solve the program, the path in ./brainfuck_path.txt is required.
-  //
-  // Interpret:
-  //   ./symiri --sym %?missing=60 ./examples/brainfuck.sir
-  //
-  // Compile:
-  //   ./symirc -o brainfuck.c ./examples/brainfuck.sir
-  //
-  // Solve:
-  //   ./symirsolve --path $(cat ./examples/brainfuck_path.txt) -o brainfuck.sir ./examples/brainfuck.sir
-  //
-  // Configuration:
-  // - Tape Size: Defined by the size of %tape (default 100) and %TAPE_LIMIT.
-  // - Code Size: Defined by the size of %code (default 100) and %CODE_LIMIT.
-  // - Output Size: Defined by the size of %output (default 100).
-  //
-  // To change the program:
-  // 1. Modify the array sizes below if your program is larger than 100 bytes.
-  // 2. Update %CODE_LIMIT and %TAPE_LIMIT constants to match.
-  // 3. Edit the "^entry" block to load your Brainfuck bytecode into %code.
-  // =========================================================================================
+  // Missing instruction byte — solver must find 60 ('<').
+  sym %?missing : value i8 in {60, 62, 43, 45};
 
-  // --- 0. Symbol Definition ---
-  // [SYMBOL] Missing instruction at %code[18].
-  // Domain restricted to common BF operators to keep solving efficient.
-  sym %?missing : value i8 in {60, 62, 43, 45}; // 60 is expected
+  // BF opcode table as a <8> i8 SIMD vector (v0.2.1).
+  // Each lane holds one command byte; the decoder reads lanes via subscript.
+  let %opcodes: <8> i8 = {62, 60, 43, 45, 46, 91, 93, 0};
+  let %LANE_INC_PTR:    i32 = 0; // '>'
+  let %LANE_DEC_PTR:    i32 = 1; // '<'
+  let %LANE_INC_VAL:    i32 = 2; // '+'
+  let %LANE_DEC_VAL:    i32 = 3; // '-'
+  let %LANE_OUTPUT:     i32 = 4; // '.'
+  let %LANE_LOOP_START: i32 = 5; // '['
+  let %LANE_LOOP_END:   i32 = 6; // ']'
+  let %LANE_NUL:        i32 = 7; // NUL
 
-  // --- 1. Memory Configuration ---
-  // [USER-CONFIG] Change array sizes here if needed.
-  // Broadcast 0 to all members of the context struct
-  let mut %ctx: @BFContext = 0;
+  let mut %tape:   [100] i8 = 0;
+  let mut %code:   [100] i8 = 0;
+  let mut %output: [100] i8 = 0;
 
-  // --- 2. State Variables ---
-  // Pointers and Indices (Now fields in %ctx)
+  // Register file in a struct; accessed exclusively through ptrfield (v0.2.1).
+  let mut %regs:  @BFRegs = 0;
+  let mut %pregs: ptr @BFRegs = null;
+  let mut %p_dp:  ptr i32     = null;
+  let mut %p_ip:  ptr i32     = null;
+  let mut %p_out: ptr i32     = null;
 
-  // Temporary Variables for Logic
-  let mut %instr:    i8 = 0;
+  let mut %instr:   i8  = 0;
   let mut %byte_tmp: i8 = 0;
-  let mut %ret_val:  i32 = 0;
-
-  // Depth calculation temps for loop scanning
+  let mut %opcode:  i8  = 0;
+  let mut %ret_val: i32 = 0;
+  let mut %depth:   i32 = 0;
+  let mut %idx_tmp: i32 = 0;
   let mut %d_plus:  i32 = 0;
   let mut %d_minus: i32 = 0;
+  // v0.2.1: reified comparison — i1 value produced by cmp.
+  let mut %eq_flag: i1  = 0;
 
-  // Intermediate indices (SymIR doesn't allow nested indexing like %a.b[%c.d])
-  let mut %idx_tmp: i32 = 0;
-
-  // --- 3. Constants ---
-  // [USER-CONFIG] Update limits to match array sizes above.
   let %CODE_LIMIT: i32 = 100;
-  // let %TAPE_LIMIT: i32 = 100; // Unused in this simple version (we rely on UB for out-of-bounds)
-
-  let %ONE: i32 = 1;
-  // let %ZERO: i32 = 0; // Unused
-
-  // --- 4. Brainfuck Command Set ---
-  let %CMD_INC_PTR:    i8 = 62; // >
-  let %CMD_DEC_PTR:    i8 = 60; // <
-  let %CMD_INC_VAL:    i8 = 43; // +
-  let %CMD_DEC_VAL:    i8 = 45; // -
-  let %CMD_OUTPUT:     i8 = 46; // .
-  // let %CMD_INPUT:      i8 = 44; // , (Implemented as no-op, commented out to avoid unused warning)
-  let %CMD_LOOP_START: i8 = 91; // [
-  let %CMD_LOOP_END:   i8 = 93; // ]
-
-  // Bracket scanning depth counter
-  let mut %depth: i32 = 0;
+  let %OUT_LIMIT:  i32 = 100;
+  let %ONE:        i32 = 1;
 
 ^entry:
-  // =========================================================================================
-  // [USER-CODE] Load Brainfuck Program Here
-  // Current Program: ++++++++[>++++++++<-]>+. (Prints 'A')
-  // =========================================================================================
+  // v0.2.1 ptrfield: project typed pointers to each register field.
+  %pregs = addr %regs;
+  %p_dp  = ptrfield %pregs, dp;
+  %p_ip  = ptrfield %pregs, ip;
+  %p_out = ptrfield %pregs, out_idx;
 
-  // 0-7: ++++++++ (Set cell #0 to 8)
-  %ctx.code[0] = 43; %ctx.code[1] = 43; %ctx.code[2] = 43; %ctx.code[3] = 43;
-  %ctx.code[4] = 43; %ctx.code[5] = 43; %ctx.code[6] = 43; %ctx.code[7] = 43;
-
-  // 8: [ (Start loop)
-  %ctx.code[8] = 91;
-
-  // 9: > (Move to cell #1)
-  %ctx.code[9] = 62;
-
-  // 10-17: ++++++++ (Add 8 to cell #1)
-  %ctx.code[10] = 43; %ctx.code[11] = 43; %ctx.code[12] = 43; %ctx.code[13] = 43;
-  %ctx.code[14] = 43; %ctx.code[15] = 43; %ctx.code[16] = 43; %ctx.code[17] = 43;
-
-  // 18: < (Move back to cell #0)
-  // [SYMBOLIC HOLE]
-  // Originally this was '<' (60). The solver must find this to satisfy the output requirement.
-  %ctx.code[18] = %?missing;
-
-  // 19: - (Decrement cell #0)
-  %ctx.code[19] = 45;
-
-  // 20: ] (End loop - repeat until cell #0 is 0)
-  // Loop logic: cell #1 += 8 for each iteration. Total cell #1 = 8 * 8 = 64.
-  %ctx.code[20] = 93;
-
-  // 21: > (Move to cell #1, which is now 64)
-  %ctx.code[21] = 62;
-
-  // 22: + (Increment cell #1 to 65)
-  %ctx.code[22] = 43;
-
-  // 23: . (Output cell #1 - ASCII 'A')
-  %ctx.code[23] = 46;
-
-  // 24: Terminate (0)
-  %ctx.code[24] = 0;
-
-  // End of Program Loading
+  // Load BF program: ++++++++[>++++++++<-]>+.  (Prints 'A')
+  %code[0] = 43; %code[1] = 43; %code[2] = 43; %code[3] = 43;
+  %code[4] = 43; %code[5] = 43; %code[6] = 43; %code[7] = 43;
+  %code[8] = 91; %code[9] = 62;
+  %code[10] = 43; %code[11] = 43; %code[12] = 43; %code[13] = 43;
+  %code[14] = 43; %code[15] = 43; %code[16] = 43; %code[17] = 43;
+  %code[18] = %?missing; // [SYMBOLIC HOLE] — expected: 60 ('<')
+  %code[19] = 45; %code[20] = 93; %code[21] = 62;
+  %code[22] = 43; %code[23] = 46; %code[24] = 0;
   br ^dispatch;
 
-  // --- Main Dispatch Loop ---
 ^dispatch:
-  // Check code bounds
-  %idx_tmp = %ctx.ip;
+  %idx_tmp = load %p_ip;
   br %idx_tmp >= %CODE_LIMIT, ^exit, ^fetch;
 
 ^fetch:
-  %idx_tmp = %ctx.ip;
-  %instr = %ctx.code[%idx_tmp];
-  // 0 terminates execution
-  br %instr == 0, ^exit, ^decode_inc_ptr;
+  %idx_tmp = load %p_ip;
+  %instr   = %code[%idx_tmp];
+  // v0.2.1 cmp: compare against NUL lane — produces a reified i1.
+  %opcode  = %opcodes[%LANE_NUL];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^exit, ^decode_inc_ptr;
 
-// --- Instruction Decoding ---
 ^decode_inc_ptr:
-  br %instr == %CMD_INC_PTR, ^do_inc_ptr, ^decode_dec_ptr;
+  %opcode  = %opcodes[%LANE_INC_PTR];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_inc_ptr, ^decode_dec_ptr;
 
 ^decode_dec_ptr:
-  br %instr == %CMD_DEC_PTR, ^do_dec_ptr, ^decode_inc_val;
+  %opcode  = %opcodes[%LANE_DEC_PTR];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_dec_ptr, ^decode_inc_val;
 
 ^decode_inc_val:
-  br %instr == %CMD_INC_VAL, ^do_inc_val, ^decode_dec_val;
+  %opcode  = %opcodes[%LANE_INC_VAL];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_inc_val, ^decode_dec_val;
 
 ^decode_dec_val:
-  br %instr == %CMD_DEC_VAL, ^do_dec_val, ^decode_output;
+  %opcode  = %opcodes[%LANE_DEC_VAL];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_dec_val, ^decode_output;
 
 ^decode_output:
-  br %instr == %CMD_OUTPUT, ^do_output, ^decode_loop_start;
+  %opcode  = %opcodes[%LANE_OUTPUT];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_output, ^decode_loop_start;
 
 ^decode_loop_start:
-  br %instr == %CMD_LOOP_START, ^do_loop_start, ^decode_loop_end;
+  %opcode  = %opcodes[%LANE_LOOP_START];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_loop_start, ^decode_loop_end;
 
 ^decode_loop_end:
-  br %instr == %CMD_LOOP_END, ^do_loop_end, ^next_instr; // Skip unknown/comments
+  %opcode  = %opcodes[%LANE_LOOP_END];
+  %eq_flag = cmp == %instr, %opcode;
+  br %eq_flag == 1, ^do_loop_end, ^next_instr;
 
-// --- Command Execution ---
-
-^do_inc_ptr: // >
-  %idx_tmp = %ctx.dp;
-  %ctx.dp = %idx_tmp + %ONE;
+// Register mutations go through ptrfield-derived pointers.
+^do_inc_ptr:
+  %idx_tmp = load %p_dp;
+  %idx_tmp = %idx_tmp + %ONE;
+  store %p_dp, %idx_tmp;
   br ^next_instr;
 
-^do_dec_ptr: // <
-  %idx_tmp = %ctx.dp;
-  %ctx.dp = %idx_tmp - %ONE;
+^do_dec_ptr:
+  %idx_tmp = load %p_dp;
+  %idx_tmp = %idx_tmp - %ONE;
+  store %p_dp, %idx_tmp;
   br ^next_instr;
 
-^do_inc_val: // +
-  %idx_tmp = %ctx.dp;
-  %byte_tmp = %ctx.tape[%idx_tmp];
-  %ctx.tape[%idx_tmp] = %byte_tmp + 1;
+^do_inc_val:
+  %idx_tmp  = load %p_dp;
+  %byte_tmp = %tape[%idx_tmp];
+  %byte_tmp = %byte_tmp + 1;
+  %tape[%idx_tmp] = %byte_tmp;
   br ^next_instr;
 
-^do_dec_val: // -
-  %idx_tmp = %ctx.dp;
-  %byte_tmp = %ctx.tape[%idx_tmp];
-  %ctx.tape[%idx_tmp] = %byte_tmp - 1;
+^do_dec_val:
+  %idx_tmp  = load %p_dp;
+  %byte_tmp = %tape[%idx_tmp];
+  %byte_tmp = %byte_tmp - 1;
+  %tape[%idx_tmp] = %byte_tmp;
   br ^next_instr;
 
-^do_output: // .
-  // Hardcoded output limit check (100)
-  %idx_tmp = %ctx.out_idx;
-  br %idx_tmp < 100, ^write_out, ^next_instr;
+^do_output:
+  %idx_tmp = load %p_out;
+  br %idx_tmp < %OUT_LIMIT, ^write_out, ^next_instr;
+
 ^write_out:
-  %idx_tmp = %ctx.dp;
-  %byte_tmp = %ctx.tape[%idx_tmp];
-  %idx_tmp = %ctx.out_idx;
-  %ctx.output[%idx_tmp] = %byte_tmp;
-  %ctx.out_idx = %idx_tmp + %ONE;
+  %idx_tmp  = load %p_dp;
+  %byte_tmp = %tape[%idx_tmp];
+  %idx_tmp  = load %p_out;
+  %output[%idx_tmp] = %byte_tmp;
+  %idx_tmp = %idx_tmp + %ONE;
+  store %p_out, %idx_tmp;
   br ^next_instr;
 
-^do_loop_start: // [
-  %idx_tmp = %ctx.dp;
-  %byte_tmp = %ctx.tape[%idx_tmp];
-  // If current tape value is 0, jump to matching ]
+^do_loop_start:
+  %idx_tmp  = load %p_dp;
+  %byte_tmp = %tape[%idx_tmp];
   br %byte_tmp == 0, ^scan_fwd_init, ^next_instr;
 
-^do_loop_end: // ]
-  %idx_tmp = %ctx.dp;
-  %byte_tmp = %ctx.tape[%idx_tmp];
-  // If current tape value is nonzero, jump back to matching [
+^do_loop_end:
+  %idx_tmp  = load %p_dp;
+  %byte_tmp = %tape[%idx_tmp];
   br %byte_tmp != 0, ^scan_bwd_init, ^next_instr;
 
-// --- Loop Skipping Logic (Forward Scan [ -> ]) ---
 ^scan_fwd_init:
-  %depth = 1;
-  br ^scan_fwd_step;
+  %depth = 1; br ^scan_fwd_step;
 
 ^scan_fwd_step:
-  %idx_tmp = %ctx.ip;
-  %ctx.ip = %idx_tmp + %ONE;
-  %idx_tmp = %ctx.ip;
+  %idx_tmp = load %p_ip;
+  %idx_tmp = %idx_tmp + %ONE;
+  store %p_ip, %idx_tmp;
   br %idx_tmp >= %CODE_LIMIT, ^exit, ^scan_fwd_check;
 
 ^scan_fwd_check:
-  %idx_tmp = %ctx.ip;
-  %byte_tmp = %ctx.code[%idx_tmp];
-
-  // depth++ if we see another [
-  %d_plus = %depth + 1;
-  %depth = select %byte_tmp == %CMD_LOOP_START, %d_plus, %depth;
-
-  // depth-- if we see a ]
+  %idx_tmp  = load %p_ip;
+  %byte_tmp = %code[%idx_tmp];
+  // cmp + select to update bracket depth without branching.
+  %opcode  = %opcodes[%LANE_LOOP_START];
+  %eq_flag = cmp == %byte_tmp, %opcode;
+  %d_plus  = %depth + 1;
+  %depth   = select %eq_flag == 1, %d_plus, %depth;
+  %opcode  = %opcodes[%LANE_LOOP_END];
+  %eq_flag = cmp == %byte_tmp, %opcode;
   %d_minus = %depth - 1;
-  %depth = select %byte_tmp == %CMD_LOOP_END, %d_minus, %depth;
-
-  // If depth is 0, we found the matching ]
+  %depth   = select %eq_flag == 1, %d_minus, %depth;
   br %depth == 0, ^next_instr, ^scan_fwd_step;
 
-// --- Loop Rewinding Logic (Backward Scan ] -> [) ---
 ^scan_bwd_init:
-  %depth = 1;
-  br ^scan_bwd_step;
+  %depth = 1; br ^scan_bwd_step;
 
 ^scan_bwd_step:
-  %idx_tmp = %ctx.ip;
-  %ctx.ip = %idx_tmp - %ONE;
-  %idx_tmp = %ctx.ip;
+  %idx_tmp = load %p_ip;
+  %idx_tmp = %idx_tmp - %ONE;
+  store %p_ip, %idx_tmp;
   br %idx_tmp < 0, ^exit, ^scan_bwd_check;
 
 ^scan_bwd_check:
-  %idx_tmp = %ctx.ip;
-  %byte_tmp = %ctx.code[%idx_tmp];
-
-  // depth++ if we see a ] (since we are going backwards)
-  %d_plus = %depth + 1;
-  %depth = select %byte_tmp == %CMD_LOOP_END, %d_plus, %depth;
-
-  // depth-- if we see a [
+  %idx_tmp  = load %p_ip;
+  %byte_tmp = %code[%idx_tmp];
+  %opcode  = %opcodes[%LANE_LOOP_END];
+  %eq_flag = cmp == %byte_tmp, %opcode;
+  %d_plus  = %depth + 1;
+  %depth   = select %eq_flag == 1, %d_plus, %depth;
+  %opcode  = %opcodes[%LANE_LOOP_START];
+  %eq_flag = cmp == %byte_tmp, %opcode;
   %d_minus = %depth - 1;
-  %depth = select %byte_tmp == %CMD_LOOP_START, %d_minus, %depth;
-
-  // If depth is 0, we found the matching [.
+  %depth   = select %eq_flag == 1, %d_minus, %depth;
   br %depth == 0, ^scan_bwd_done, ^scan_bwd_step;
 
 ^scan_bwd_done:
-  // We are at [. We want to execute it again (re-evaluate condition).
-  // Jump directly to dispatch to avoid incrementing %ip in ^next_instr
   br ^dispatch;
 
-
 ^next_instr:
-  %idx_tmp = %ctx.ip;
-  %ctx.ip = %idx_tmp + %ONE;
+  %idx_tmp = load %p_ip;
+  %idx_tmp = %idx_tmp + %ONE;
+  store %p_ip, %idx_tmp;
   br ^dispatch;
 
 ^exit:
-  // Return the first byte of output (helpful for testing)
-  %byte_tmp = %ctx.output[0];
-  %ret_val = %byte_tmp as i32;
+  %byte_tmp = %output[0];
+  %ret_val  = %byte_tmp as i32;
   ret %ret_val;
 }
 ```
 
+The full annotated source is at [./examples/brainfuck_v021.sir](./examples/brainfuck_v021.sir).
 Find more examples in [./examples](./examples/) and [./test/](./test/).
 
 ## 📁 Project Structure
@@ -420,7 +361,7 @@ Find more examples in [./examples](./examples/) and [./test/](./test/).
 │   ├── analysis/     # CFG, Dataflow, Pass Manager
 │   ├── backend/      # C and WASM backends
 │   ├── solver/       # SMT integration
-│   └── solver/       # Reify generator
+│   └── reify/        # Reify generator
 ├── src/              # Implementation files
 ├── docs/             # Tool and language documentation
 ├── test/             # Test suite and regression tests
@@ -429,7 +370,8 @@ Find more examples in [./examples](./examples/) and [./test/](./test/).
 
 ## 📚 Documentation
 
-- **[Language Specification (v0.2.0, current)](./docs/SPEC_v0.2.0.md)** — the current normative spec, including the v0.2.0 pointer additions (`ptr T`, `addr`, `load`, `store`, `null`).
+- **[Language Specification (v0.2.1, current)](./docs/SPEC_v0.2.1.md)** — the current normative spec, including v0.2.1 additions: aggregate pointers (`ptr [N] T`, `ptr @S`, `ptrindex`, `ptrfield`), SIMD vector types (`<N> T`), and `cmp` expressions.
+- **[Language Specification (v0.2.0, archived)](./docs/SPEC_v0.2.0.md)** — the pointer baseline (`ptr T`, `addr`, `load`, `store`, `null`).
 - **[Language Specification (v0.1.0, archived)](./docs/SPEC_v0.1.0.md)** — the pre-pointer baseline, kept for reference.
 - **[Undefined Behaviour reference](./docs/UB.md)**
 - **[Semantic Reification / `rysmith` design notes](./docs/reify.md)**
