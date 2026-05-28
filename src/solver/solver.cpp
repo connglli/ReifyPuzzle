@@ -8,6 +8,7 @@
 #include <random>
 #include <stdexcept>
 #include <thread>
+#include <unordered_set>
 #include "analysis/cfg.hpp"
 #include "analysis/type_utils.hpp"
 
@@ -373,6 +374,146 @@ namespace symir {
     return broadcast(t, val, solver);
   }
 
+  // [v0.2.2] §9.6.1 — symbolic interprocedural call. Phase 6: the
+  // callee is restricted to straight-line CFG (single entry block whose
+  // terminator is ret). Multi-block callees with conditional branches
+  // would require a sub-path specification (deferred). Pointer-arg
+  // havoc is also deferred to Phase 8's contract path.
+  SymbolicExecutor::SymbolicValue SymbolicExecutor::callFunction(
+      const FunDecl &callee, std::vector<SymbolicValue> args, smt::ISolver &solver,
+      std::vector<smt::Term> &pc
+  ) {
+    // Save caller frame state.
+    const FunDecl *prevFun = currentFun_;
+    auto savedProv = std::move(ptrProv_);
+    ptrProv_.clear();
+
+    currentFun_ = &callee;
+
+    SymbolicStore calleeStore;
+
+    auto restoreFrame = [&]() {
+      currentFun_ = prevFun;
+      ptrProv_ = std::move(savedProv);
+    };
+
+    try {
+      // Bind parameters.
+      if (args.size() != callee.params.size())
+        throw std::runtime_error(
+            "Solver: arity mismatch calling " + callee.name.name + ": expected " +
+            std::to_string(callee.params.size()) + ", got " + std::to_string(args.size())
+        );
+      for (size_t i = 0; i < callee.params.size(); ++i) {
+        calleeStore[callee.params[i].name.name] = args[i];
+      }
+
+      // Bind syms via the shared per-FunDecl cache (one hole, one value).
+      auto &symCache = calleeSyms_[&callee];
+      for (const auto &s: callee.syms) {
+        auto it = symCache.find(s.name.name);
+        if (it == symCache.end()) {
+          auto sv = createSymbolicValue(s.type, callee.name.name + "$" + s.name.name, solver, true);
+          symCache[s.name.name] = sv;
+          calleeStore[s.name.name] = sv;
+        } else {
+          calleeStore[s.name.name] = it->second;
+        }
+      }
+
+      // Init lets.
+      for (const auto &l: callee.lets) {
+        if (l.init) {
+          calleeStore[l.name.name] = evalInit(*l.init, l.type, solver, calleeStore, pc);
+        } else {
+          calleeStore[l.name.name] = makeUndef(l.type, solver);
+        }
+      }
+
+      // Build CFG and walk straight-line. Start at the first block; the
+      // terminator must be either an unconditional br (chase it) or a
+      // ret (capture the value). Conditional br on a non-constant cond
+      // makes the call non-resolvable in Phase 6.
+      DiagBag diags;
+      CFG cfg = CFG::build(callee, diags);
+      if (diags.hasErrors())
+        throw std::runtime_error("CFG build failed for callee " + callee.name.name);
+
+      std::size_t pcIdx = cfg.entry;
+      std::unordered_set<std::size_t> seen;
+      SymbolicValue retVal(SymbolicValue::Kind::Undef);
+      bool returned = false;
+
+      while (!returned) {
+        if (!seen.insert(pcIdx).second)
+          throw std::runtime_error(
+              "Solver: callee " + callee.name.name +
+              " has a loop -- multi-block paths require an explicit sub-path spec (Phase 6 "
+              "supports "
+              "straight-line CFG only)"
+          );
+        const Block &block = callee.blocks[pcIdx];
+
+        for (const auto &ins: block.instrs) {
+          std::visit(
+              [&](auto &&arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, AssignInstr>) {
+                  auto rhs = evalExpr(arg.rhs, solver, calleeStore, pc);
+                  setLValue(arg.lhs, rhs, solver, calleeStore, pc);
+                } else if constexpr (std::is_same_v<T, AssumeInstr>) {
+                  pc.push_back(evalCond(arg.cond, solver, calleeStore, pc));
+                } else if constexpr (std::is_same_v<T, RequireInstr>) {
+                  if (currentReq_)
+                    currentReq_->push_back(evalCond(arg.cond, solver, calleeStore, pc));
+                } else if constexpr (std::is_same_v<T, StoreInstr>) {
+                  // Simplified: evaluate ptr and val and rely on the
+                  // path machinery to push UB constraints. Full
+                  // typed-mem havoc / store enumeration is reused from
+                  // the top-level solver path -- deferred for callees.
+                  (void) evalExpr(arg.ptr, solver, calleeStore, pc);
+                  (void) evalExpr(arg.val, solver, calleeStore, pc);
+                }
+              },
+              ins
+          );
+        }
+
+        std::visit(
+            [&](auto &&t) {
+              using T = std::decay_t<decltype(t)>;
+              if constexpr (std::is_same_v<T, RetTerm>) {
+                if (t.value) {
+                  retVal = evalExpr(*t.value, solver, calleeStore, pc);
+                }
+                returned = true;
+              } else if constexpr (std::is_same_v<T, BrTerm>) {
+                if (!t.isConditional) {
+                  pcIdx = cfg.indexOf.at(t.dest.name);
+                } else {
+                  throw std::runtime_error(
+                      "Solver: callee " + callee.name.name +
+                      " has a conditional branch -- sub-path spec required (Phase 6 supports "
+                      "straight-line CFG only)"
+                  );
+                }
+              } else if constexpr (std::is_same_v<T, UnreachableTerm>) {
+                pc.push_back(solver.make_false());
+                returned = true;
+              }
+            },
+            block.term
+        );
+      }
+
+      restoreFrame();
+      return retVal;
+    } catch (...) {
+      restoreFrame();
+      throw;
+    }
+  }
+
   SymbolicExecutor::Result SymbolicExecutor::solve(
       const std::string &funcName, const std::vector<std::string> &path,
       const std::unordered_map<std::string, int64_t> &fixedSyms
@@ -405,6 +546,27 @@ namespace symir {
     SymbolicStore store;
     std::vector<smt::Term> pathConstraints;
     std::vector<smt::Term> requirements;
+
+    // [v0.2.2 Phase 6] Make `requirements` reachable from nested callees.
+    currentReq_ = &requirements;
+
+    struct ReqGuard {
+      std::vector<smt::Term> **slot;
+
+      ~ReqGuard() { *slot = nullptr; }
+    } reqGuard{&currentReq_};
+
+    // [v0.2.2 Phase 6] Reset shared sym cache for each solve call so
+    // independent paths don't reuse stale sym constants. Clear at
+    // start AND on scope exit so the smt::Term destructors fire while
+    // their owning solver is still alive (declared above).
+    calleeSyms_.clear();
+
+    struct CacheGuard {
+      std::unordered_map<const FunDecl *, std::unordered_map<std::string, SymbolicValue>> &cache;
+
+      ~CacheGuard() { cache.clear(); }
+    } cacheGuard{calleeSyms_};
 
     // [v0.2.1] Reset per-solve provenance tracking. Each call to solve()
     // walks a fresh CFG path, so prior provenance state must not leak.
@@ -1951,16 +2113,25 @@ namespace symir {
                 intr = &i;
                 break;
               }
-            if (!intr) {
-              throw std::runtime_error(
-                  "Solver: only intrinsic calls are supported in Phase 4: " + arg.callee.name
-              );
-            }
-            // Evaluate arguments left-to-right.
+            // Evaluate arguments left-to-right. §2.12 strict commit.
             std::vector<SymbolicValue> argVals;
             argVals.reserve(arg.args.size());
             for (const auto &ap: arg.args) {
               argVals.push_back(evalExpr(*ap, solver, store, pc));
+            }
+            if (!intr) {
+              // [v0.2.2 Phase 6] `fun` target -- nested symbolic exec.
+              for (const auto &f: prog_.funs)
+                if (f.name.name == arg.callee.name) {
+                  return callFunction(f, std::move(argVals), solver, pc);
+                }
+              // Unmatched: must be a link- or contract-form decl. Phase 8 will
+              // handle contracts; link-form is resolved at -I time so should
+              // not appear here unless the resolver failed.
+              throw std::runtime_error(
+                  "Solver: call target is not a fun or intrinsic: " + arg.callee.name +
+                  " (contract-form decl handling is Phase 8)"
+              );
             }
             uint32_t N = 32;
             if (auto pb = TypeUtils::getBitWidth(intr->retType))

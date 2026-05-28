@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit -I test/lib/std/scalar
+// [v0.2.2] Phase 6 + 7: solver synthesizes a value through the stdlib's
+// straight-line @avg_safe helper resolved via -I.
+decl @avg_safe(%a: i32, %b: i32) : i32;
+
+fun @main() : i32 {
+  sym %?k: value i32 in [0, 100];
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @avg_safe(%?k, 10);
+  require %r == 15, "avg_safe(k, 10) == 15 implies k == 20";
+  br ^exit;
+^exit:
+  ret %?k;
+}

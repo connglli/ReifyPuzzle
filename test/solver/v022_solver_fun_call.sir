@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+// [v0.2.2] Phase 6: solver-side `fun` call. The straight-line helper @double
+// is symbolically inlined; the solver synthesizes %?k such that
+// @double(%?k) == 8.
+fun @double(%x: i32) : i32 {
+^entry:
+  ret %x + %x;
+}
+
+fun @main() : i32 {
+  sym %?k: value i32 in [-100, 100];
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @double(%?k);
+  require %r == 8, "double k must equal 8";
+  br ^exit;
+^exit:
+  ret %?k;
+}

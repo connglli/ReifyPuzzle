@@ -213,6 +213,25 @@ namespace symir {
     };
 
     std::unordered_map<std::string, PtrProvenance> ptrProv_;
+
+    // [v0.2.2] §9.6.1 shared sym cache: a `sym` declared in a `fun`
+    // body becomes one solver constant reused across every call to
+    // that function on the path. Keyed by FunDecl*.
+    std::unordered_map<const FunDecl *, std::unordered_map<std::string, SymbolicValue>> calleeSyms_;
+
+    // [v0.2.2] Symbolic interprocedural call. Evaluates the callee
+    // body on its straight-line CFG path and returns the symbolic
+    // value of the ret expression. Caller-side store stays unchanged
+    // for non-pointer locals; pointer-argument havoc (full §9.6.1
+    // step 5) is reserved for Phase 8's contract-form path.
+    SymbolicValue callFunction(
+        const FunDecl &callee, std::vector<SymbolicValue> args, smt::ISolver &solver,
+        std::vector<smt::Term> &pc
+    );
+
+    // [v0.2.2] Currently active requirements vector (so nested callees
+    // can push REQ terms). Set by solve() and consumed by callFunction.
+    std::vector<smt::Term> *currentReq_ = nullptr;
   };
 
 } // namespace symir
