@@ -1,6 +1,6 @@
 # SymIR Strict Undefined Behavior (UB)
 
-This document is a per-rule companion to the formal spec (§7 of `SPEC_v0.2.1.md`). Each section names the rule, the spec reference, and how each of `symiri` (interpreter), `symirc` (compiler), and `symirsolve` (solver) enforces it.
+This document is a per-rule companion to the formal spec (§7 of `SPEC_v0.2.2.md`). Each section names the rule, the spec reference, and how each of `symiri` (interpreter), `symirc` (compiler), and `symirsolve` (solver) enforces it.
 
 SymIR uses **strict UB**: if any operation on the executed path triggers UB, the entire path is **infeasible**.
 
@@ -206,6 +206,31 @@ Reading a lane whose value is `undef` is UB — either from a vector initialised
 
 ---
 
+## Function call UB (§7.7) **[New in v0.2.2]**
+
+### Rule 23 — Contract precondition violation
+`call @f(...)` where `@f` is a contract-form `decl`, and any `pre` clause evaluates to `false` at the call site, is UB. The path becomes infeasible.
+
+- **symiri:** contract-form `decl` calls are rejected before execution begins (see "not UB" below), so this rule is never reached.
+- **symirc:** the emitted C/WASM checks each `pre` clause before the call; a failed precondition calls `abort()` / `unreachable`.
+- **symirsolve:** each `pre` clause is evaluated with arguments bound to parameters. A clause evaluating to `false` conjoins `false` to `PC`, pruning the path.
+
+### Rule 24 — Callee UB propagation
+UB encountered during symbolic execution of a `fun` callee makes the **caller's** path infeasible. UB is not sandboxed by call boundaries — if any statement, condition, or nested `call` inside the callee triggers any other UB rule (1–23, 25), the calling path is pruned.
+
+- **symiri:** UB in a callee is a C++ exception that unwinds through the interpreter's call stack; the top-level catches it and terminates.
+- **symirc:** the emitted code is monomorphised into a single C/WASM function, so UB in the inlined callee body is caught by the usual UBSan instrumentation. No special cross-function handling needed.
+- **symirsolve:** the callee's `PC` is conjoined to the caller's `PC`. If the callee's `PC` becomes `false`, the caller's `PC` also becomes `false`.
+
+### Rule 25 — Intrinsic result-overflow
+Any intrinsic whose result is not representable in its declared return type is UB. Examples: `@abs(INT_MIN)` (since `-INT_MIN` overflows `iN`). Per-intrinsic UB-preconditions (e.g., `@ctz`/`@clz` require `%x != 0`) are listed in §12.
+
+- **symiri:** the intrinsic implementation checks the precondition (e.g., `x != INT_MIN` for `@abs`, `x != 0` for `@ctz`/`@clz`) and raises a UB exception if violated.
+- **symirc:** the lowering emits the precondition check before computing the result; a failed check calls `abort()` / `unreachable`.
+- **symirsolve:** the UB-precondition (e.g., `x != INT_MIN`, `x != 0`) is conjoined to `PC` at the call site. Violations prune the path.
+
+---
+
 ## What's *not* UB in SymIR
 
 For completeness, a few choices SymIR deliberately makes well-defined where other languages don't:
@@ -215,6 +240,8 @@ For completeness, a few choices SymIR deliberately makes well-defined where othe
 - **Whole-vector copy.** `%v = %w` for `%v, %w : <N> T` is always well-defined (lane-by-lane copy; no overflow or aliasing concerns).
 - **`fmod` semantics for FP `%`.** Aligned with integer `%` (truncate toward zero), not IEEE `fp.rem` (round to nearest even). No UB cases beyond rule 7 (divisor zero → NaN result).
 - **Signed `<<` of `x >= 0` whose result fits.** Well-defined arithmetic shift; only `x < 0` or overflow is UB (rule 4).
+- **Static call-site checks [v0.2.2].** The following are semantic errors caught before execution, not runtime UB: call to an undeclared function, argument-parameter count/type mismatch, recursion cycle in the call graph, and contract-form `decl` call in `symiri` (which rejects it before execution). These never reach the UB machinery.
+- **Argument evaluation UB [v0.2.2].** If an argument expression itself triggers UB (e.g., `call @f(load %null_ptr)`), the UB fires during left-to-right argument evaluation before the call transfers control. This is covered by the existing scalar/pointer/vector UB rules; no new call-specific UB rule is needed.
 
 ---
 
@@ -245,3 +272,6 @@ For completeness, a few choices SymIR deliberately makes well-defined where othe
 | 20 | OOB vector lane access **[v0.2.1]** | §7.6 |
 | 21 | Lane-wise scalar UB **[v0.2.1]** | §7.6 |
 | 22 | Reading `undef` vector lane **[v0.2.1]** | §7.6 |
+| 23 | Contract precondition violation **[v0.2.2]** | §7.7 |
+| 24 | Callee UB propagation **[v0.2.2]** | §7.7 |
+| 25 | Intrinsic result-overflow **[v0.2.2]** | §7.7 |
