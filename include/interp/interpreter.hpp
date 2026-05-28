@@ -118,6 +118,23 @@ namespace symir {
         const FunDecl &f, const std::vector<RuntimeValue> &args, const SymBindings &symBindings
     );
 
+    // [v0.2.2] Nested function call (`call @fun(...)`). Evaluates the
+    // callee's body with a fresh local frame and returns its `ret`
+    // value. Heap state (objects, addresses) is preserved across the
+    // call so pointer arguments remain valid. typeMap_ entries that
+    // collide with callee parameter/local names are saved and restored.
+    RuntimeValue callFunction(const FunDecl &f, std::vector<RuntimeValue> args);
+
+    // [v0.2.2] Run the body of a function whose Store has already been
+    // populated. Used by both execFunction (top-level) and callFunction
+    // (nested). When `outRet` is non-null, the ret value is written
+    // there and no "Result:" line is printed.
+    void runBlocks(const FunDecl &f, Store &store, RuntimeValue *outRet);
+
+    // [v0.2.2] Sym bindings live on the interpreter (so nested calls
+    // share the same SAT model). Captured in run() / execFunction.
+    const SymBindings *symBindings_ = nullptr;
+
     RuntimeValue evalExpr(const Expr &e, const Store &store);
     RuntimeValue evalAtom(const Atom &a, const Store &store);
     // [v0.2.2] Execute a built-in intrinsic. Argument values are already

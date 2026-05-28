@@ -387,6 +387,33 @@ namespace symir {
     for (const auto &d: prog.extDecls) {
       emitExtDecl(d);
     }
+    // Forward decls for every `fun` so cross-references work regardless
+    // of source order.
+    for (const auto &f: prog.funs) {
+      emitType(f.retType);
+      out_ << " " << mangleName(f.name.name) << "(";
+      if (f.params.empty()) {
+        out_ << "void";
+      } else {
+        for (size_t i = 0; i < f.params.size(); ++i) {
+          if (i)
+            out_ << ", ";
+          TypePtr cur = f.params[i].type;
+          std::vector<uint64_t> dims;
+          while (auto at = std::get_if<ArrayType>(&cur->v)) {
+            dims.push_back(at->size);
+            cur = at->elem;
+          }
+          emitType(cur);
+          out_ << " " << mangleName(f.params[i].name.name);
+          for (auto d: dims)
+            out_ << "[" << d << "]";
+        }
+      }
+      out_ << ");\n";
+    }
+    if (!prog.funs.empty())
+      out_ << "\n";
 
     // 2. Struct definitions
     for (const auto &s: prog.structs) {

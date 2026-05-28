@@ -444,7 +444,9 @@ namespace symir {
     }
 
     std::vector<RuntimeValue> args;
+    symBindings_ = &symBindings;
     execFunction(*entry, args, symBindings);
+    symBindings_ = nullptr;
   }
 
   std::string Interpreter::rvToString(const RuntimeValue &rv) const {
@@ -838,6 +840,106 @@ namespace symir {
       }
     }
 
+    runBlocks(f, store, /*outRet=*/nullptr);
+  }
+
+  Interpreter::RuntimeValue
+  Interpreter::callFunction(const FunDecl &f, std::vector<RuntimeValue> args) {
+    // [v0.2.2] §9.6.1 — interprocedural execution in the interpreter.
+    // Memory state (heap_, objects_, addrMap_) is preserved across the
+    // call: pointer arguments must remain valid in the callee. typeMap_
+    // entries that share a name with a callee parameter or local are
+    // saved here and restored on return.
+
+    Store store;
+    std::vector<std::pair<std::string, TypePtr>> savedTypes;
+    auto pushType = [&](const std::string &name, const TypePtr &t) {
+      auto it = typeMap_.find(name);
+      if (it != typeMap_.end())
+        savedTypes.emplace_back(name, it->second);
+      else
+        savedTypes.emplace_back(name, TypePtr{});
+      typeMap_[name] = t;
+    };
+    auto restoreTypes = [&]() {
+      for (auto it = savedTypes.rbegin(); it != savedTypes.rend(); ++it) {
+        if (it->second)
+          typeMap_[it->first] = it->second;
+        else
+          typeMap_.erase(it->first);
+      }
+    };
+
+    // Bind parameters.
+    if (args.size() != f.params.size())
+      throw std::runtime_error(
+          "Interpreter: call to " + f.name.name + " expected " + std::to_string(f.params.size()) +
+          " args, got " + std::to_string(args.size())
+      );
+    for (size_t i = 0; i < f.params.size(); ++i) {
+      pushType(f.params[i].name.name, f.params[i].type);
+      RuntimeValue v = args[i];
+      v.bits = TypeUtils::getBitWidth(f.params[i].type).value_or(v.bits ? v.bits : 64);
+      if (v.kind == RuntimeValue::Kind::Int)
+        v.intVal = canonicalize(v.intVal, v.bits);
+      store[f.params[i].name.name] = v;
+    }
+
+    // Bind syms from the shared bindings map.
+    for (const auto &s: f.syms) {
+      pushType(s.name.name, s.type);
+      if (!symBindings_)
+        throw std::runtime_error("Interpreter: no sym bindings available for nested call");
+      auto it = symBindings_->find(s.name.name);
+      if (it == symBindings_->end())
+        throw std::runtime_error(
+            "Symbol " + s.name.name + " has no binding (callee=" + f.name.name + ")"
+        );
+      RuntimeValue v;
+      std::visit(
+          [&](auto &&val) {
+            using T = std::decay_t<decltype(val)>;
+            if (std::holds_alternative<IntType>(s.type->v)) {
+              v.kind = RuntimeValue::Kind::Int;
+              v.intVal = static_cast<std::int64_t>(val);
+              v.bits = TypeUtils::getBitWidth(s.type).value_or(64);
+              v.intVal = canonicalize(v.intVal, v.bits);
+            } else if (std::holds_alternative<FloatType>(s.type->v)) {
+              v.kind = RuntimeValue::Kind::Float;
+              if constexpr (std::is_same_v<T, double>)
+                v.floatVal = val;
+              else
+                v.floatVal = static_cast<double>(val);
+              v.bits = (std::get<FloatType>(s.type->v).kind == FloatType::Kind::F32) ? 32 : 64;
+            }
+          },
+          it->second
+      );
+      store[s.name.name] = v;
+    }
+
+    // Init lets.
+    for (const auto &l: f.lets) {
+      pushType(l.name.name, l.type);
+      if (l.init)
+        store[l.name.name] = evalInit(*l.init, l.type, store);
+      else
+        store[l.name.name] = makeUndef(l.type);
+    }
+
+    RuntimeValue ret;
+    try {
+      runBlocks(f, store, &ret);
+    } catch (...) {
+      restoreTypes();
+      throw;
+    }
+    restoreTypes();
+    return ret;
+  }
+
+  void Interpreter::runBlocks(const FunDecl &f, Store &store, RuntimeValue *outRet) {
+    DiagBag diags;
     CFG cfg = CFG::build(f, diags);
     if (diags.hasErrors())
       throw std::runtime_error("CFG Build failed during interp");
@@ -1005,6 +1107,10 @@ namespace symir {
                 RuntimeValue res = evalExpr(*t.value, store);
                 if (res.kind == RuntimeValue::Kind::Undef)
                   throw UndefinedBehaviorError("UB: Reading undef in ret");
+                if (outRet) {
+                  *outRet = res;
+                  return;
+                }
                 if (res.kind == RuntimeValue::Kind::Int)
                   std::cout << "Result: " << res.intVal << "\n";
                 else if (res.kind == RuntimeValue::Kind::Float) {
@@ -2019,12 +2125,10 @@ namespace symir {
             if (intr) {
               return callIntrinsic(*intr, argVals, arg.span);
             }
-            // fun / decl targets: defer to later phases.
+            // [v0.2.2 Phase 5] `fun` target: nested call frame.
             for (const auto &f: prog_.funs)
               if (f.name.name == arg.callee.name) {
-                throw std::runtime_error(
-                    "Interpreter: `fun` calls are not yet implemented (Phase 5): " + arg.callee.name
-                );
+                return callFunction(f, argVals);
               }
             for (const auto &d: prog_.extDecls)
               if (d.name.name == arg.callee.name) {
