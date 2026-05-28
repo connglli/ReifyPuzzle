@@ -1,5 +1,6 @@
 // EXPECT: PASS
 // INTERP_ARGS: -I test/lib/std/scalar
+// COMPILER_ARGS: -I test/lib/std/scalar
 decl @sign(%x: i32) : i32;
 
 fun @main() : i32 {

@@ -1,9 +1,7 @@
-#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "analysis/cfg.hpp"
@@ -14,119 +12,11 @@
 #include "cxxopts.hpp"
 #include "error.hpp"
 #include "frontend/lexer.hpp"
+#include "frontend/link_resolver.hpp"
 #include "frontend/parser.hpp"
 #include "frontend/semchecker.hpp"
 #include "frontend/typechecker.hpp"
 #include "interp/interpreter.hpp"
-
-namespace {
-  // [v0.2.2] Load every .sir file under each -I directory (recursively).
-  // Returns a vector of (path, parsed Program) pairs. Lifetime of the
-  // Programs must extend over the interpreter run.
-  std::vector<symir::Program> loadIncludeDirs(const std::vector<std::string> &dirs) {
-    std::vector<symir::Program> libs;
-    for (const auto &dir: dirs) {
-      if (!std::filesystem::exists(dir))
-        throw std::runtime_error("-I path does not exist: " + dir);
-      for (const auto &entry: std::filesystem::recursive_directory_iterator(dir)) {
-        if (!entry.is_regular_file())
-          continue;
-        if (entry.path().extension() != ".sir")
-          continue;
-        std::ifstream ifs(entry.path());
-        std::stringstream ss;
-        ss << ifs.rdbuf();
-        std::string libSrc = ss.str();
-        try {
-          symir::Lexer lx(libSrc);
-          auto toks = lx.lexAll();
-          symir::Parser ps(std::move(toks));
-          libs.push_back(ps.parseProgram());
-        } catch (const symir::LexError &e) {
-          std::cerr << "Error in -I file " << entry.path() << ": " << e.what() << "\n";
-          throw;
-        } catch (const symir::ParseError &e) {
-          std::cerr << "Error in -I file " << entry.path() << ": " << e.what() << "\n";
-          throw;
-        }
-      }
-    }
-    return libs;
-  }
-
-  // [v0.2.2] Resolve every link-form `decl @name` in main against the
-  // loaded -I library programs. For each match, copy the lib's `fun` into
-  // main.funs and drop the matching link-form decl. Contract-form decls
-  // are left alone (their bodies are not expected anywhere).
-  void resolveLinkDecls(symir::Program &main, std::vector<symir::Program> &libs) {
-    std::unordered_set<std::string> mainFunNames;
-    for (const auto &f: main.funs)
-      mainFunNames.insert(f.name.name);
-
-    std::vector<symir::ExtDecl> keep;
-    for (auto &d: main.extDecls) {
-      if (d.contract) {
-        keep.push_back(std::move(d));
-        continue;
-      }
-      if (mainFunNames.count(d.name.name)) {
-        // Already defined in main as a fun -- the link-form decl is a
-        // duplicate global name. Keep both so SemChecker reports it.
-        keep.push_back(std::move(d));
-        continue;
-      }
-      bool found = false;
-      for (auto &lib: libs) {
-        for (auto it = lib.funs.begin(); it != lib.funs.end(); ++it) {
-          if (it->name.name == d.name.name) {
-            main.funs.push_back(std::move(*it));
-            lib.funs.erase(it);
-            mainFunNames.insert(d.name.name);
-            found = true;
-            break;
-          }
-        }
-        if (found)
-          break;
-      }
-      if (!found)
-        keep.push_back(std::move(d));
-    }
-    main.extDecls = std::move(keep);
-
-    // Pull in struct decls from libs that aren't already in main.
-    std::unordered_set<std::string> mainStructNames;
-    for (const auto &s: main.structs)
-      mainStructNames.insert(s.name.name);
-    for (auto &lib: libs) {
-      for (auto it = lib.structs.begin(); it != lib.structs.end();) {
-        if (!mainStructNames.count(it->name.name)) {
-          main.structs.push_back(std::move(*it));
-          mainStructNames.insert(main.structs.back().name.name);
-          it = lib.structs.erase(it);
-        } else {
-          ++it;
-        }
-      }
-    }
-
-    // Pull in intrinsic decls from libs (lib funs may call them).
-    std::unordered_set<std::string> mainIntrNames;
-    for (const auto &i: main.intrinsics)
-      mainIntrNames.insert(i.name.name);
-    for (auto &lib: libs) {
-      for (auto it = lib.intrinsics.begin(); it != lib.intrinsics.end();) {
-        if (!mainIntrNames.count(it->name.name)) {
-          main.intrinsics.push_back(*it);
-          mainIntrNames.insert(it->name.name);
-          it = lib.intrinsics.erase(it);
-        } else {
-          ++it;
-        }
-      }
-    }
-  }
-} // namespace
 
 int main(int argc, char **argv) {
   using namespace symir;

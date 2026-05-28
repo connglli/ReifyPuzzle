@@ -10,6 +10,7 @@
 #include "cxxopts.hpp"
 #include "error.hpp"
 #include "frontend/lexer.hpp"
+#include "frontend/link_resolver.hpp"
 #include "frontend/parser.hpp"
 #include "frontend/semchecker.hpp"
 #include "frontend/typechecker.hpp"
@@ -51,6 +52,7 @@ int main(int argc, char **argv) {
     ("num-smt-threads", "Number of threads for the SMT solver backend (Bitwuzla/Z3 internal parallelism)", cxxopts::value<uint32_t>()->default_value("1"))
     ("emit-model", "Emit symbol assignments to a JSON-like file", cxxopts::value<std::string>())
     ("sym", "Fix a symbol to a value (name=val)", cxxopts::value<std::vector<std::string>>())
+    ("I", "Include path for resolving link-form `decl`s (may repeat)", cxxopts::value<std::vector<std::string>>())
     ("h,help", "Print usage");
   options.parse_positional({"input"});
   // clang-format on
@@ -105,6 +107,13 @@ int main(int argc, char **argv) {
     auto toks = lx.lexAll();
     Parser ps(std::move(toks));
     Program prog = ps.parseProgram();
+
+    // [v0.2.2] -I link-form resolution.
+    std::vector<Program> libs;
+    if (result.count("I")) {
+      libs = loadIncludeDirs(result["I"].as<std::vector<std::string>>());
+    }
+    resolveLinkDecls(prog, libs);
 
     DiagBag diags;
     PassManager pm(diags);

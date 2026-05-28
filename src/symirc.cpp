@@ -13,6 +13,7 @@
 #include "cxxopts.hpp"
 #include "error.hpp"
 #include "frontend/lexer.hpp"
+#include "frontend/link_resolver.hpp"
 #include "frontend/parser.hpp"
 #include "frontend/semchecker.hpp"
 #include "frontend/typechecker.hpp"
@@ -33,6 +34,7 @@ int main(int argc, char **argv) {
     ("no-module-tags", "Omit (module ...) tags in WASM output", cxxopts::value<bool>()->default_value("false"))
     ("no-require", "Omit require checks from emitted code (useful for compiler testing)", cxxopts::value<bool>()->default_value("false"))
     ("vec-lowering", "C-backend vector lowering: vecext|scalars|array|structscalars|structarray", cxxopts::value<std::string>()->default_value("vecext"))
+    ("I", "Include path for resolving link-form `decl`s (may repeat)", cxxopts::value<std::vector<std::string>>())
     ("h,help", "Print usage");
   options.parse_positional({"input"});
   // clang-format on
@@ -66,6 +68,13 @@ int main(int argc, char **argv) {
     auto toks = lx.lexAll();
     Parser ps(std::move(toks));
     Program prog = ps.parseProgram();
+
+    // 1b. [v0.2.2] -I link-form resolution.
+    std::vector<Program> libs;
+    if (result.count("I")) {
+      libs = loadIncludeDirs(result["I"].as<std::vector<std::string>>());
+    }
+    resolveLinkDecls(prog, libs);
 
     if (result["dump-ast"].as<bool>()) {
       ASTDumper dumper(std::cout);

@@ -128,6 +128,16 @@ def run_symirc_test(symirc_path, target="c"):
     cmd = [symirc_path, file_path, "--target", target, "-o", gen_out, "-w"]
     if target == "wasm":
       cmd.append("--no-module-tags")
+    # [v0.2.2] Pass through -I include paths from COMPILER_ARGS so tests
+    # that consume the test/lib/std library can find their bodies.
+    compiler_args_pass = args.get("COMPILER_ARGS", [])
+    i = 0
+    while i < len(compiler_args_pass):
+      if compiler_args_pass[i] == "-I" and i + 1 < len(compiler_args_pass):
+        cmd.extend(["-I", compiler_args_pass[i + 1]])
+        i += 2
+      else:
+        i += 1
 
     result, err = run_command(cmd, timeout=10)
     if err == "TIMEOUT":

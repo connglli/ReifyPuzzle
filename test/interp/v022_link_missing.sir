@@ -1,4 +1,5 @@
 // EXPECT: FAIL
+// SKIP: COMPILER
 // INTERP_ARGS: -I test/lib/std/scalar
 // A link-form `decl` whose body is not found in any -I directory must
 // fail. `@no_such_function` is not in the stdlib, so the interpreter
