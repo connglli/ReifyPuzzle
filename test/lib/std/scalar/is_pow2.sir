@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/is_pow2 -- power-of-two test.
 
 intrinsic @popcount(%x: i32) : i32;

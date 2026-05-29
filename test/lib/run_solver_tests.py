@@ -7,6 +7,8 @@ from test.lib.framework import TestResult, run_command, run_test_suite
 
 def run_symirsolve_test(symirsolve_path, symiri_path=None):
   def test_func(file_path, expectation, args, skips):
+    if "ALL" in skips:
+      return TestResult.SKIP, "Skipped by ALL tag (library file)"
     if "SOLVER" in skips:
       return TestResult.SKIP, "Skipped by SOLVER tag"
 

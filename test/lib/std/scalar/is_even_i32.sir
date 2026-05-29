@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/is_even_i32 -- evenness test.
 //
 // Consumers add `decl @is_even_i32(%x: i32) : i32;` and pass

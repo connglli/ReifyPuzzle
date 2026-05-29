@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // A valid sibling fn next to the malformed file.
 fun @bm_malformed_sibling(%x: i32) : i32 {
 ^entry:

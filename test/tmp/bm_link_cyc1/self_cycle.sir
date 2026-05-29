@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // Single-file self recursion (cycle entirely within one -I file).
 fun @bm_self_cycle(%x: i32) : i32 {
   let mut %y: i32 = 0;

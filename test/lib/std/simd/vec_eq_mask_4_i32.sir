@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/simd/vec_eq_mask_4_i32 -- per-lane equality mask.
 //
 // Consumers add

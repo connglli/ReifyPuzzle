@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/fract_f32 -- fractional part of a float.
 //
 // Consumers add `decl @fract_f32(%x: f32) : f32;` and pass

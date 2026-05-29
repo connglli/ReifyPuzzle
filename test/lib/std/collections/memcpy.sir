@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/collections/memcpy -- memory copy.
 //
 // Consumers add `decl @memcpy(%dst: ptr i8, %src: ptr i8, %n: i32): i32;` and pass

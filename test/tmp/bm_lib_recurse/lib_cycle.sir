@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // Library that participates in a recursion cycle when linked.
 decl @bm_cycle_main() : i32;
 fun @bm_cycle_lib() : i32 {

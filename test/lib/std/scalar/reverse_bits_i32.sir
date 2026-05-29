@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/reverse_bits_i32 -- bit reversal of an i32.
 //
 // Consumers add `decl @reverse_bits_i32(%x: i32) : i32;` and pass

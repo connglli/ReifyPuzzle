@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/simd/dot_4_i32 -- dot product of two 4-lane i32 vectors.
 //
 // Consumers add `decl @dot_4_i32(%a: <4> i32, %b: <4> i32) : i32;` and

@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/collections/array_is_sorted_i32 -- non-decreasing test.
 //
 // Consumers add `decl @array_is_sorted_i32(%p: ptr i32, %n: i32) : i32;`

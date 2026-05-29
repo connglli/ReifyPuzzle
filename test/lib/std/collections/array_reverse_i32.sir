@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/collections/array_reverse_i32 -- in-place reverse via pointers.
 //
 // Consumers add `decl @array_reverse_i32(%p: ptr i32, %n: i32) : i32;`

@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/gcd -- greatest common divisor.
 //
 // Consumers add `decl @gcd(%a: i32, %b: i32): i32;` and pass

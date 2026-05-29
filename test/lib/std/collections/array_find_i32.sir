@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/collections/array_find_i32 -- linear search.
 //
 // Consumers add

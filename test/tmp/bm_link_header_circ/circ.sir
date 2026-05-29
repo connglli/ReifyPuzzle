@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // Two funs in one file forming a cycle.
 fun @bm_hcirc_a(%x: i32) : i32 {
   let mut %y: i32 = 0;

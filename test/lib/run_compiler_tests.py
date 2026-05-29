@@ -110,6 +110,8 @@ def run_symirc_test(symirc_path, target="c"):
       wasm_runtime = "wasmer"
 
   def test_func(file_path, expectation, args, skips):
+    if "ALL" in skips:
+      return TestResult.SKIP, "Skipped by ALL tag (library file)"
     if "COMPILER" in skips:
       return TestResult.SKIP, "Skipped by COMPILER tag"
 

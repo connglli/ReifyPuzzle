@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // Calls @bm_inc -- both in same dir; verifies nested call across helper file
 decl @bm_inc(%x: i32) : i32;
 

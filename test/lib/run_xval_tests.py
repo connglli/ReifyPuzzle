@@ -55,6 +55,8 @@ def _parse_expect_rc(sir_path):
 
 def run_xval_test(symiri_path, symirc_path, gcc_path, symirc_extra=None):
   def test_func(file_path, expectation, args, skips):
+    if "ALL" in skips:
+      return TestResult.SKIP, "Skipped by ALL tag (library file)"
     if "XVAL" in skips:
       return TestResult.SKIP, "Skipped by XVAL tag"
     if expectation != "PASS":

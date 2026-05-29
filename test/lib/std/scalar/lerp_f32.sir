@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/lerp_f32 -- floating-point linear interpolation.
 //
 // Consumers add `decl @lerp_f32(%a: f32, %b: f32, %t: f32) : f32;` and

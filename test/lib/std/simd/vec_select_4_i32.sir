@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/simd/vec_select_4_i32 -- mask-based per-lane blend.
 //
 // Consumers add

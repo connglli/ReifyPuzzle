@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/collections/array_min_4_i32 -- min of a length-4 i32 array.
 //
 // Consumers add `decl @array_min_4_i32(%p: ptr [4] i32) : i32;` and

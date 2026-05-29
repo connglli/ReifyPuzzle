@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/log2_floor -- integer base-2 logarithm.
 
 intrinsic @clz(%x: i32) : i32;

@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/wrapping_add_i32 -- 2's-complement wrapping addition.
 //
 // Consumers add `decl @wrapping_add_i32(%a: i32, %b: i32) : i32;`

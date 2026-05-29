@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/collections/array_lower_bound_i32 -- binary search lower_bound.
 //
 // Consumers add

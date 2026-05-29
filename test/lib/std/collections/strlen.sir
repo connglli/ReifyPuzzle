@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/collections/strlen -- string length.
 //
 // Consumers add `decl @strlen(%s: ptr i8): i32;` and pass

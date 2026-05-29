@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/simd/vec_clamp_4_i32 -- lane-wise clamp into [lo, hi].
 //
 // Consumers add

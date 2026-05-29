@@ -1,1 +1,2 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 decl @main() : i32; fun @cross_module_recurse() : i32 { ^entry: ret call @main(); }

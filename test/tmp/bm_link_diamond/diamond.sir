@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // Diamond DAG of calls; all 4 funs in one helper file.
 fun @bm_diamond_d(%x: i32) : i32 {
 ^entry:

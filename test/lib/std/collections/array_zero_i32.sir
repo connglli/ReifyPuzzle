@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/collections/array_zero_i32 -- zero out an i32 buffer.
 //
 // Consumers add `decl @array_zero_i32(%p: ptr i32, %n: i32) : i32;`

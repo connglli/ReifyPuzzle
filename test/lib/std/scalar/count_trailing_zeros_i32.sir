@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/count_trailing_zeros_i32 -- safe wrapper over @ctz.
 //
 // Consumers add `decl @count_trailing_zeros_i32(%x: i32) : i32;` and

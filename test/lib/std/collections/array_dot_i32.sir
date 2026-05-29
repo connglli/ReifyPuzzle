@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/collections/array_dot_i32 -- dot product of two i32 arrays.
 //
 // Consumers add

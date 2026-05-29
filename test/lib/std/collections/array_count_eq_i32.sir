@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/collections/array_count_eq_i32 -- count matching elements.
 //
 // Consumers add

@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/count_ones_i32 -- population count of an i32.
 //
 // Consumers add `decl @count_ones_i32(%x: i32) : i32;` and pass

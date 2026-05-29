@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/sign -- signum of an i32.
 
 // sign(x) -- the sign function.

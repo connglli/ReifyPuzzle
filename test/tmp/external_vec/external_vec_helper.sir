@@ -1,1 +1,2 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 fun @external_vec_helper(%x: i32) : i32 { ^entry: ret 2 * %x; }

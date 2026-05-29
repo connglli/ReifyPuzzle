@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/collections/array_sum -- sum an array via pointer parameter.
 
 // array_sum_4_i32(p) -- sum the four i32 elements of an array.

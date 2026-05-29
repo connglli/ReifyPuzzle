@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/collections/swap_i32 -- swap two i32 cells through pointers.
 //
 // Consumers add `decl @swap_i32(%a: ptr i32, %b: ptr i32) : i32;` and

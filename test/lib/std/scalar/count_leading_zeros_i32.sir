@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/count_leading_zeros_i32 -- safe wrapper over @clz.
 //
 // Consumers add `decl @count_leading_zeros_i32(%x: i32) : i32;` and

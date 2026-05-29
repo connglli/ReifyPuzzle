@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/clamp_f32 -- clamp a float to a closed interval.
 //
 // Consumers add `decl @clamp_f32(%x: f32, %lo: f32, %hi: f32) : f32;`

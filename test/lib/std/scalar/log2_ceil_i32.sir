@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/log2_ceil_i32 -- ceiling of log2(x) for x >= 1.
 //
 // Consumers add `decl @log2_ceil_i32(%x: i32) : i32;` and pass

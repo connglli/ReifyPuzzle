@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/simd/reduce_add_4_f32 -- horizontal float sum across lanes.
 //
 // Consumers add `decl @reduce_add_4_f32(%v: <4> f32) : f32;` and pass

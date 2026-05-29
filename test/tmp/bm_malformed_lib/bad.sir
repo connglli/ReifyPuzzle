@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // Intentionally malformed -- missing closing brace, unknown tokens.
 fun @bm_malformed(%x: i32) : i32 {
 ^entry:

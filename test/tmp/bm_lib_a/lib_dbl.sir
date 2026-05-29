@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // Library helper for v0.2.2 sem-check bug mining.
 fun @bm_dbl(%x: i32) : i32 {
 ^entry:

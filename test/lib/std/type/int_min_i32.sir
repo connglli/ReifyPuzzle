@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/type/int_min_i32 -- minimum signed value of i32 (-2147483648).
 //
 // Consumers add `decl @int_min_i32() : i32;` and pass

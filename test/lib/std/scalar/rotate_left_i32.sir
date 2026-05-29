@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/rotate_left_i32 -- 32-bit circular left rotation.
 //
 // Consumers add `decl @rotate_left_i32(%x: i32, %n: i32) : i32;` and

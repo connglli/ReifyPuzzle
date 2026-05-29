@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/next_pow2_i32 -- smallest power of two >= x.
 //
 // Consumers add `decl @next_pow2_i32(%x: i32) : i32;` and pass

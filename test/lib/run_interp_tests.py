@@ -14,6 +14,8 @@ FAIL_EXIT_CODES = {
 
 def run_symiri_test(binary_cmd_parts):
   def test_func(file_path, expectation, args, skips):
+    if "ALL" in skips:
+      return TestResult.SKIP, "Skipped by ALL tag (library file)"
     if "INTERPRETER" in skips:
       return TestResult.SKIP, "Skipped by INTERPRETER tag"
 

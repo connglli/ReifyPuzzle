@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/type/bitwidth_i8 -- bit-width of i8 (returns 8).
 //
 // Consumers add `decl @bitwidth_i8() : i32;` and pass

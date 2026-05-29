@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/scalar/abs_clamp -- bounded clamp built atop @min / @max.
 //
 // Consumers add `decl @clamp(...): i32;` and pass

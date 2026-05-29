@@ -1,1 +1,2 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 fun @abs(%x: i32) : i32 { ^entry: ret %x; }

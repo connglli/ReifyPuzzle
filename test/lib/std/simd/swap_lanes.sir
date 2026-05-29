@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 // stdlib/simd/swap_lanes -- lane permutation primitives.
 
 // reverse_4_i32(v) -- reverse the lane order of a 4-lane vector.

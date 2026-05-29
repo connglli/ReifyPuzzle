@@ -1,3 +1,4 @@
+// SKIP: ALL — library / fixture file; not a standalone test
 fun @bm_only_b(%x: i32) : i32 {
   let %three: i32 = 3;
 ^entry:
