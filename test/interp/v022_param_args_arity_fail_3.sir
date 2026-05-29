@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// INTERP_ARGS: --main @add -- 3
+// SKIP: COMPILER — symiri-only CLI feature
+// SKIP: SOLVER — symiri-only CLI feature
+// SPEC v0.2.2 §3 — wrong positional-arg count must fail with a clear error
+// Intention: `@add` declares two params; supplying one positional arg
+// is a CLI-level error before interpretation begins.
+fun @add(%a: i32, %b: i32) : i32 {
+^entry:
+  ret %a + %b;
+}

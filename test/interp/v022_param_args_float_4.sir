@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// INTERP_ARGS: --main @mul_f -- 2.5 4.0
+// SKIP: COMPILER — symiri-only CLI feature
+// SKIP: SOLVER — symiri-only CLI feature
+// SPEC v0.2.2 §3 — float positional args
+// Intention: parses 2.5 and 4.0 as f32, returns 10.0.
+fun @mul_f(%a: f32, %b: f32) : f32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = 1.0 * %a;
+  %r = %r * %b;
+  require %r == 10.0, "2.5 * 4.0 must be 10.0";
+  br ^exit;
+^exit:
+  ret %r;
+}

@@ -28,6 +28,16 @@ namespace symir {
      */
     void emit(const Program &prog);
 
+    // [v0.2.2] Split emission: write `<outDir>/<stem>.c` for the
+    // primary translation unit (stem = primaryStem) and one
+    // `<outDir>/<libStem>.c` per distinct `FunDecl::sourceStem` that
+    // arrived from an -I lib, plus `<outDir>/common.h` carrying
+    // shared struct typedefs, intrinsic helpers, and extern
+    // prototypes. Each per-source `.c` does `#include "common.h"`.
+    // Returns the list of files written.
+    std::vector<std::string>
+    emitSplit(const Program &prog, const std::string &outDir, const std::string &primaryStem);
+
     void setNoRequire(bool val) { noRequire_ = val; }
 
     /// [v0.2.1] Set the vector-lowering strategy. Takes ownership. If
@@ -36,6 +46,15 @@ namespace symir {
 
   private:
     std::ostream &out_;
+    // [v0.2.2] When non-empty, restrict per-fun body emission to funs
+    // whose sourceStem matches; used by emitSplit() to write one .c
+    // per source-file stem.
+    std::string emitOnlySourceStem_;
+    // [v0.2.2] When true, suppress the global preamble (#include,
+    // struct typedefs, intrinsic helpers, extern prototypes). Used
+    // when emitting a non-primary `.c` whose preamble lives in
+    // `common.h`.
+    bool suppressPreamble_ = false;
     int indent_level_ = 0;
     bool noRequire_ = false;
     const Program *prog_ = nullptr; // [v0.2.2] for callee lookup in emitAtom

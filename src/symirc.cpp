@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -35,6 +36,7 @@ int main(int argc, char **argv) {
     ("no-require", "Omit require checks from emitted code (useful for compiler testing)", cxxopts::value<bool>()->default_value("false"))
     ("vec-lowering", "C-backend vector lowering: vecext|scalars|array|structscalars|structarray", cxxopts::value<std::string>()->default_value("vecext"))
     ("I", "Include path for resolving link-form `decl`s (may repeat)", cxxopts::value<std::vector<std::string>>())
+    ("split-by-source", "C target: emit one <stem>.c per source file plus common.h into the directory given by -o (instead of a single bundled .c)", cxxopts::value<bool>()->default_value("false"))
     ("h,help", "Print usage");
   options.parse_positional({"input"});
   // clang-format on
@@ -118,7 +120,11 @@ int main(int argc, char **argv) {
     std::ostream *outStream = &std::cout;
     std::ofstream ofs;
 
-    if (result.count("output")) {
+    bool splitBySource = result.count("split-by-source") && result["split-by-source"].as<bool>();
+    if (result.count("output") && !splitBySource) {
+      // In split-by-source mode the -o argument is a directory; the
+      // split path opens its own per-file streams. Skip opening a
+      // single-file output here.
       std::string outPath = result["output"].as<std::string>();
       ofs.open(outPath);
       if (!ofs) {
@@ -130,18 +136,46 @@ int main(int argc, char **argv) {
 
     bool noRequire = result["no-require"].as<bool>();
     if (target == "c") {
-      CBackend cb(*outStream);
-      cb.setNoRequire(noRequire);
-      // [v0.2.1] Set up the vector-lowering strategy.
-      std::string vlName = result["vec-lowering"].as<std::string>();
-      auto vl = makeVecLowering(vlName);
-      if (!vl) {
-        std::cerr << "Error: unknown --vec-lowering '" << vlName
-                  << "' (try vecext|scalars|array|structscalars|structarray)\n";
-        return 1;
+      // [v0.2.2] --split-by-source: emit one <stem>.c per source file
+      // + common.h into the directory specified by -o.
+      if (result["split-by-source"].as<bool>()) {
+        if (!result.count("output")) {
+          std::cerr << "Error: --split-by-source requires -o <directory>\n";
+          return 1;
+        }
+        std::string outDir = result["output"].as<std::string>();
+        // We don't write to outStream in this branch; close the file if
+        // -o opened one (it pointed at outDir as if it were a file).
+        if (ofs.is_open())
+          ofs.close();
+        // Compute the primary file's stem from the input path.
+        std::string primaryStem = std::filesystem::path(inputPath).stem().string();
+        CBackend cb(std::cout); // sink; unused — emitSplit opens its own streams
+        cb.setNoRequire(noRequire);
+        std::string vlName = result["vec-lowering"].as<std::string>();
+        auto vl = makeVecLowering(vlName);
+        if (!vl) {
+          std::cerr << "Error: unknown --vec-lowering '" << vlName << "'\n";
+          return 1;
+        }
+        cb.setVecLowering(std::move(vl));
+        auto files = cb.emitSplit(prog, outDir, primaryStem);
+        for (const auto &p: files)
+          std::cerr << "wrote " << p << "\n";
+      } else {
+        CBackend cb(*outStream);
+        cb.setNoRequire(noRequire);
+        // [v0.2.1] Set up the vector-lowering strategy.
+        std::string vlName = result["vec-lowering"].as<std::string>();
+        auto vl = makeVecLowering(vlName);
+        if (!vl) {
+          std::cerr << "Error: unknown --vec-lowering '" << vlName
+                    << "' (try vecext|scalars|array|structscalars|structarray)\n";
+          return 1;
+        }
+        cb.setVecLowering(std::move(vl));
+        cb.emit(prog);
       }
-      cb.setVecLowering(std::move(vl));
-      cb.emit(prog);
     } else if (target == "wasm") {
       WasmBackend wb(*outStream);
       if (result.count("no-module-tags")) {

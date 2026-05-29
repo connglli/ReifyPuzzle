@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// INTERP_ARGS: --main @branchy -- 5
+// SKIP: COMPILER — symiri-only CLI feature
+// SKIP: SOLVER — symiri-only CLI feature
+// SPEC v0.2.2 §3 — param value drives a conditional branch
+// Intention: %x=5 → takes ^pos path → returns 25 (5 * 5).
+fun @branchy(%x: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  br %x > 0, ^pos, ^neg;
+^pos:
+  %r = %x * %x;
+  br ^exit;
+^neg:
+  %r = 0 - %x;
+  br ^exit;
+^exit:
+  require %r == 25, "5 * 5 must be 25";
+  ret %r;
+}

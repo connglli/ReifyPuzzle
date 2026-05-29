@@ -144,5 +144,6 @@ test: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH)
 	$(PY) -m test.lib.run_c_preamble_test ./$(TARGET_COMPILER)
 	$(PY) -m test.lib.run_xval_tests test/xval ./$(TARGET_INTERP) ./$(TARGET_COMPILER)
 	$(PY) -m test.lib.run_solver_tests test/solver ./$(TARGET_SOLVER) ./$(TARGET_INTERP)
+	$(PY) -m test.lib.run_param_features_tests ./$(TARGET_INTERP) ./$(TARGET_COMPILER) ./$(TARGET_SOLVER)
 	$(PY) -m test.lib.run_example_tests examples ./$(TARGET_SOLVER) ./$(TARGET_INTERP)
 	$(PY) -m test.lib.run_reify_diff_tests --rysmith ./$(TARGET_RYSMITH) --symiri ./$(TARGET_INTERP) --symirc ./$(TARGET_COMPILER) --n 100 --seed 1234

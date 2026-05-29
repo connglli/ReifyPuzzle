@@ -210,6 +210,35 @@ int main(int argc, char **argv) {
                     << std::endl;
           return 1;
         }
+        // [v0.2.2] SOLVED header: structured comment line carrying the
+        // values the solver chose for each entry-fun parameter plus
+        // the value of the ret expression on the chosen path. Param
+        // names appear verbatim in the body of the function — the
+        // SIRPrinter does NOT substitute them. Consumers (e.g. rylink)
+        // read this header to pin entry-points without running the
+        // solver themselves.
+        auto fmtVal = [](const SymbolicExecutor::Result::ModelVal &v) {
+          std::ostringstream os;
+          if (std::holds_alternative<int64_t>(v))
+            os << std::get<int64_t>(v);
+          else {
+            os.precision(17);
+            os << std::get<double>(v);
+          }
+          return os.str();
+        };
+        if (!res.paramModel.empty() || res.retModel.has_value()) {
+          ofs << "// SOLVED:";
+          bool first = true;
+          for (const auto &[name, val]: res.paramModel) {
+            ofs << (first ? " " : ", ") << name << "=" << fmtVal(val);
+            first = false;
+          }
+          if (res.retModel.has_value()) {
+            ofs << (first ? " " : ", ") << "ret=" << fmtVal(*res.retModel);
+          }
+          ofs << "\n";
+        }
         SIRPrinter printer(ofs, res.model, res.vecModel);
         printer.print(prog);
       }

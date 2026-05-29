@@ -427,7 +427,8 @@ namespace symir {
   }
 
   void Interpreter::run(
-      const std::string &entryFuncName, const SymBindings &symBindings, bool dumpExec
+      const std::string &entryFuncName, const SymBindings &symBindings,
+      const std::vector<std::string> &paramArgs, bool dumpExec
   ) {
     // Ensure IEEE 754 RNE rounding mode regardless of process FP environment.
     std::fesetround(FE_TONEAREST);
@@ -443,7 +444,36 @@ namespace symir {
       throw std::runtime_error("Entry function not found: " + entryFuncName);
     }
 
+    // [v0.2.2] Bind positional arguments to entry-fun parameters.
+    if (paramArgs.size() != entry->params.size()) {
+      throw std::runtime_error(
+          "Entry function " + entryFuncName + " expects " + std::to_string(entry->params.size()) +
+          " parameter argument(s) but got " + std::to_string(paramArgs.size()) +
+          " — supply them as positional CLI args after the input file."
+      );
+    }
     std::vector<RuntimeValue> args;
+    args.reserve(entry->params.size());
+    for (size_t i = 0; i < entry->params.size(); ++i) {
+      const auto &p = entry->params[i];
+      RuntimeValue v;
+      auto bits = TypeUtils::getBitWidth(p.type);
+      if (p.type && std::holds_alternative<FloatType>(p.type->v)) {
+        v.kind = RuntimeValue::Kind::Float;
+        v.bits = (std::get<FloatType>(p.type->v).kind == FloatType::Kind::F32) ? 32 : 64;
+        v.floatVal = parseFloatLiteral(paramArgs[i]);
+      } else if (bits) {
+        v.kind = RuntimeValue::Kind::Int;
+        v.bits = *bits;
+        v.intVal = parseIntegerLiteral(paramArgs[i]);
+      } else {
+        throw std::runtime_error(
+            "Entry-fun parameter " + p.name.name +
+            ": unsupported type for CLI positional arg (only scalar int/float)"
+        );
+      }
+      args.push_back(v);
+    }
     symBindings_ = &symBindings;
     execFunction(*entry, args, symBindings);
     symBindings_ = nullptr;

@@ -26,6 +26,7 @@ int main(int argc, char **argv) {
   // clang-format off
   options.add_options()
     ("input", "Input .sir file", cxxopts::value<std::string>())
+    ("args", "Argument values for the entry function's parameters", cxxopts::value<std::vector<std::string>>())
     ("main", "Entry function to execute", cxxopts::value<std::string>()->default_value("@main"))
     ("sym", "Bind a symbol (name=value)", cxxopts::value<std::vector<std::string>>())
     ("check", "Check semantics only (do not execute)", cxxopts::value<bool>()->default_value("false"))
@@ -34,7 +35,7 @@ int main(int argc, char **argv) {
     ("Werror", "Make all warnings into errors", cxxopts::value<bool>()->default_value("false"))
     ("I", "Include path for resolving link-form `decl`s (may repeat)", cxxopts::value<std::vector<std::string>>())
     ("h,help", "Print usage");
-  options.parse_positional({"input"});
+  options.parse_positional({"input", "args"});
   // clang-format on
 
   auto result = options.parse(argc, argv);
@@ -130,8 +131,11 @@ int main(int argc, char **argv) {
     }
 
     // 4. Interpret
+    std::vector<std::string> paramArgs;
+    if (result.count("args"))
+      paramArgs = result["args"].as<std::vector<std::string>>();
     Interpreter interp(prog);
-    interp.run(mainFunc, symBindings, result["dump-trace"].as<bool>());
+    interp.run(mainFunc, symBindings, paramArgs, result["dump-trace"].as<bool>());
 
   } catch (const UndefinedBehaviorError &e) {
     std::cerr << e.what() << "\n";

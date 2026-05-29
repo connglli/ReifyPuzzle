@@ -25,8 +25,12 @@ namespace symir {
      */
     using SymBindings = std::unordered_map<std::string, std::variant<std::int64_t, double>>;
 
+    // [v0.2.2] `paramArgs` supplies one decimal-int / hex-float string
+    // per parameter of the entry function. Empty when the entry is
+    // parameterless (the common case).
     void
-    run(const std::string &entryFuncName, const SymBindings &symBindings, bool dumpExec = false);
+    run(const std::string &entryFuncName, const SymBindings &symBindings,
+        const std::vector<std::string> &paramArgs = {}, bool dumpExec = false);
 
   private:
     const Program &prog_;

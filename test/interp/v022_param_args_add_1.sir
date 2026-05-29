@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// INTERP_ARGS: --main @add -- 3 4
+// SKIP: COMPILER — entry-point param-args is a symiri CLI feature; symirc's harness has its own entry contract
+// SKIP: SOLVER — same as COMPILER, solver invocation entry-point is separate
+// SPEC v0.2.2 §3 — entry-fun parameters are bound by positional CLI args after `--`
+// Intention: `symiri --main @add -- 3 4` runs @add(3, 4) and returns 7.
+fun @add(%a: i32, %b: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = %a + %b;
+  require %r == 7, "3 + 4 must be 7";
+  br ^exit;
+^exit:
+  ret %r;
+}

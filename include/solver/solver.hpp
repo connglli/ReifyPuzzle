@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
@@ -47,6 +48,14 @@ namespace symir {
       // a single map type fits both `<N> iM` and `<N> fM` cases —
       // consumers reinterpret as needed).
       std::unordered_map<std::string, std::vector<ModelVal>> vecModel;
+      // [v0.2.2] Solved values for the entry function's parameters
+      // (treated as symbols by the solver but printed verbatim in the
+      // output). Empty when the entry has no parameters.
+      std::unordered_map<std::string, ModelVal> paramModel;
+      // [v0.2.2] Solved value for the entry function's `ret`
+      // expression on the chosen path. `has_value() == false` when the
+      // path's terminator is not a `ret <expr>;`.
+      std::optional<ModelVal> retModel;
     };
 
     /**
@@ -246,6 +255,13 @@ namespace symir {
     // [v0.2.2] Currently active requirements vector (so nested callees
     // can push REQ terms). Set by solve() and consumed by callFunction.
     std::vector<smt::Term> *currentReq_ = nullptr;
+
+    // [v0.2.2] Top-level entry-fun return-value term captured during
+    // path traversal. Used to populate Result::retModel after solving.
+    // Pointer to a local in solve() — set before the RetTerm visitor
+    // fires, cleared back to nullptr immediately after model extraction.
+    // No ownership: the smt::Term shared_ptr lives on solve()'s stack.
+    smt::Term *retTermSlot_ = nullptr;
 
     // [v0.2.2] Per-solve RNG used by callFunction to pick a branch when
     // a callee has a non-straight CFG. Seeded from config_.seed at the

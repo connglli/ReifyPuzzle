@@ -613,6 +613,12 @@ namespace symir {
     std::vector<LetDecl> lets;
     std::vector<Block> blocks;
     SourceSpan span;
+    // [v0.2.2] Stem of the .sir file this fun came from (no extension,
+    // no directory). Empty for the primary translation unit; populated
+    // by the link resolver when the fun is moved in from an -I lib.
+    // The C backend uses this to split per-source `<stem>.c` outputs
+    // when --split-by-source is enabled.
+    std::string sourceStem;
   };
 
   /**

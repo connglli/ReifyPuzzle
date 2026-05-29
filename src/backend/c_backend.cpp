@@ -2,10 +2,13 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <set>
 #include <sstream>
 #include "analysis/type_utils.hpp"
 
@@ -302,67 +305,73 @@ namespace symir {
     out_ << ");\n\n";
   }
 
+  // [v0.2.2] Split emission: write common.h + one <stem>.c per
+  // distinct source-file stem. Returns the list of written paths.
+  std::vector<std::string> CBackend::emitSplit(
+      const Program &prog, const std::string &outDir, const std::string &primaryStem
+  ) {
+    std::filesystem::create_directories(outDir);
+    std::vector<std::string> written;
+
+    // 1. common.h: the original preamble (includes, struct typedefs,
+    //    intrinsic helpers, extern decls, forward decls for every fun),
+    //    NO function bodies.
+    std::string commonPath = (std::filesystem::path(outDir) / "common.h").string();
+    {
+      std::ofstream cofs(commonPath);
+      if (!cofs)
+        throw std::runtime_error("Cannot open " + commonPath);
+      cofs << "#pragma once\n";
+      // Write the preamble (struct typedefs, intrinsic helpers, extern
+      // decls, fun forward decls) but NO fun bodies. The sentinel stem
+      // matches no fun, so the body loop emits nothing.
+      CBackend hdr(cofs);
+      hdr.noRequire_ = noRequire_;
+      hdr.vecLowering_ = makeVecLowering(vecLowering_ ? vecLowering_->name() : "vecext");
+      hdr.emitOnlySourceStem_ = "__symir_no_fun_bodies__";
+      hdr.emit(prog);
+      written.push_back(commonPath);
+    }
+
+    // 2. Collect distinct stems that have at least one fun. The primary
+    //    file always gets a `<primaryStem>.c` (even if empty of funs,
+    //    consumers expect it).
+    std::set<std::string> stems;
+    stems.insert(primaryStem);
+    for (const auto &f: prog.funs) {
+      stems.insert(f.sourceStem.empty() ? primaryStem : f.sourceStem);
+    }
+
+    for (const auto &stem: stems) {
+      std::string p = (std::filesystem::path(outDir) / (stem + ".c")).string();
+      std::ofstream cofs(p);
+      if (!cofs)
+        throw std::runtime_error("Cannot open " + p);
+      CBackend body(cofs);
+      body.noRequire_ = noRequire_;
+      body.vecLowering_ = makeVecLowering(vecLowering_ ? vecLowering_->name() : "vecext");
+      body.suppressPreamble_ = true;
+      // Map the primary stem to "" (empty sourceStem on FunDecl).
+      body.emitOnlySourceStem_ = (stem == primaryStem) ? std::string{} : stem;
+      // When emitting the primary stem's .c we still want funs whose
+      // sourceStem is empty (the primary's own funs). Use a magic
+      // marker the filter understands as "match empty stem".
+      if (stem == primaryStem)
+        body.emitOnlySourceStem_ = "__symir_primary__";
+      body.emit(prog);
+      written.push_back(p);
+    }
+    return written;
+  }
+
   void CBackend::emit(const Program &prog) {
     prog_ = &prog;
-    out_ << "#include <stdint.h>\n";
-    out_ << "#include <stddef.h>\n";
-    out_ << "#include <stdbool.h>\n";
-    out_ << "#include <float.h>\n";
-    out_ << "#include <math.h>\n";
-    out_ << "#include <string.h>\n";
-    if (!noRequire_)
-      out_ << "#include <assert.h>\n";
-    out_ << "\n";
-
-    // SPEC §2.9 conformance. C doesn't mandate IEEE 754 — the implementation
-    // declares conformance by predefining __STDC_IEC_559__ (C99 §F.1). We
-    // cannot define it ourselves; we MUST refuse to compile on a platform
-    // that doesn't conform, because SymIR's FP semantics (RNE rounding,
-    // finite-only domain, deterministic NaN/inf handling) all rest on
-    // IEC 60559 / IEEE 754. Also disable FP contraction — without this,
-    // GCC may fuse `a*b + c` into a single-rounding `fma`, which violates
-    // §2.9 "no contraction" and would diverge from the interpreter and WASM.
-    out_ << "#if !defined(__STDC_IEC_559__) || __STDC_IEC_559__ != 1\n";
-    out_ << "# error \"SymIR-lowered C requires an IEC 60559 / IEEE 754 conforming \"\\\n";
-    out_ << "          \"implementation (compiler must predefine __STDC_IEC_559__ to 1)\"\n";
-    out_ << "#endif\n";
-    out_ << "#if !defined(FLT_EVAL_METHOD) || FLT_EVAL_METHOD != 0\n";
-    out_
-        << "# error \"SymIR-lowered C requires an implementation with FLT_EVAL_METHOD == 0, \"\\\n";
-    out_ << "          \"i.e., do not promote float into double or long double for evaluation\"\n";
-    out_ << "#endif\n";
-    out_ << "#pragma STDC FP_CONTRACT OFF\n";
-    out_ << "\n";
-
-    // [v0.2.1] Vector-lowering strategy. Default to vecext.
-    if (!vecLowering_) {
-      vecLowering_ = makeVecLowering("vecext");
-    }
-    out_ << "// vec-lowering: " << vecLowering_->name() << "\n";
-    auto vecShapes = collectVecShapes(prog);
-    if (!vecShapes.empty()) {
-      // Validate fn-boundary capability before emitting anything.
-      if (!vecLowering_->canCrossFnBoundary()) {
-        for (const auto &f: prog.funs) {
-          if (f.retType && std::holds_alternative<VecType>(f.retType->v))
-            throw std::runtime_error(
-                "vec-lowering '" + vecLowering_->name() +
-                "' cannot cross function boundaries: function '" + f.name.name +
-                "' returns a vector"
-            );
-          for (const auto &p: f.params)
-            if (p.type && std::holds_alternative<VecType>(p.type->v))
-              throw std::runtime_error(
-                  "vec-lowering '" + vecLowering_->name() +
-                  "' cannot cross function boundaries: function '" + f.name.name +
-                  "' has a vector parameter"
-              );
-        }
-      }
-      vecLowering_->emitPreamble(out_, vecShapes);
-    }
-
-    // 0. Populate struct fields map (name + type in declaration order).
+    // [v0.2.2] Populate structFields_ before any emission so getLValueType
+    // / getCoefType work whether or not we end up writing the preamble.
+    // (The original code populated it inline at line ~365 below — we
+    // hoist it up so it runs even when `suppressPreamble_` is set, in
+    // which case the per-stem `.c` files emit only fun bodies but
+    // still need struct-field metadata to do so.)
     structFields_.clear();
     for (const auto &s: prog.structs) {
       std::vector<std::pair<std::string, TypePtr>> fields;
@@ -372,71 +381,139 @@ namespace symir {
       structFields_[s.name.name] = std::move(fields);
     }
 
-    // 1. Forward decls for structs
-    for (const auto &s: prog.structs) {
-      out_ << "struct " << mangleName(s.name.name) << ";\n";
+    if (suppressPreamble_) {
+      // [v0.2.2] Per-stem `.c` file: skip the include / pragma / struct
+      // / extern preamble (it lives in `common.h`, which the caller is
+      // responsible for `#include`-ing at the top of the file).
+      out_ << "#include \"common.h\"\n\n";
+    } else {
+      out_ << "#include <stdint.h>\n";
+      out_ << "#include <stddef.h>\n";
+      out_ << "#include <stdbool.h>\n";
+      out_ << "#include <float.h>\n";
+      out_ << "#include <math.h>\n";
+      out_ << "#include <string.h>\n";
+      if (!noRequire_)
+        out_ << "#include <assert.h>\n";
+      out_ << "\n";
     }
-    out_ << "\n";
+    if (!suppressPreamble_) {
 
-    // 1b. [v0.2.2] Emit intrinsic helpers and extern decls for link-form
-    //     `decl`s. Contract-form `decl`s lower with extern + a structured
-    //     comment summarizing the contract (§11.2).
-    for (const auto &intr: prog.intrinsics) {
-      emitIntrinsicHelper(intr);
-    }
-    for (const auto &d: prog.extDecls) {
-      emitExtDecl(d);
-    }
-    // Forward decls for every `fun` so cross-references work regardless
-    // of source order.
-    for (const auto &f: prog.funs) {
-      emitType(f.retType);
-      out_ << " " << mangleName(f.name.name) << "(";
-      if (f.params.empty()) {
-        out_ << "void";
-      } else {
-        for (size_t i = 0; i < f.params.size(); ++i) {
-          if (i)
-            out_ << ", ";
-          TypePtr cur = f.params[i].type;
+      // SPEC §2.9 conformance. C doesn't mandate IEEE 754 — the implementation
+      // declares conformance by predefining __STDC_IEC_559__ (C99 §F.1). We
+      // cannot define it ourselves; we MUST refuse to compile on a platform
+      // that doesn't conform, because SymIR's FP semantics (RNE rounding,
+      // finite-only domain, deterministic NaN/inf handling) all rest on
+      // IEC 60559 / IEEE 754. Also disable FP contraction — without this,
+      // GCC may fuse `a*b + c` into a single-rounding `fma`, which violates
+      // §2.9 "no contraction" and would diverge from the interpreter and WASM.
+      out_ << "#if !defined(__STDC_IEC_559__) || __STDC_IEC_559__ != 1\n";
+      out_ << "# error \"SymIR-lowered C requires an IEC 60559 / IEEE 754 conforming \"\\\n";
+      out_ << "          \"implementation (compiler must predefine __STDC_IEC_559__ to 1)\"\n";
+      out_ << "#endif\n";
+      out_ << "#if !defined(FLT_EVAL_METHOD) || FLT_EVAL_METHOD != 0\n";
+      out_ << "# error \"SymIR-lowered C requires an implementation with FLT_EVAL_METHOD == 0, "
+              "\"\\\n";
+      out_
+          << "          \"i.e., do not promote float into double or long double for evaluation\"\n";
+      out_ << "#endif\n";
+      out_ << "#pragma STDC FP_CONTRACT OFF\n";
+      out_ << "\n";
+
+      // [v0.2.1] Vector-lowering strategy. Default to vecext.
+      if (!vecLowering_) {
+        vecLowering_ = makeVecLowering("vecext");
+      }
+      out_ << "// vec-lowering: " << vecLowering_->name() << "\n";
+      auto vecShapes = collectVecShapes(prog);
+      if (!vecShapes.empty()) {
+        // Validate fn-boundary capability before emitting anything.
+        if (!vecLowering_->canCrossFnBoundary()) {
+          for (const auto &f: prog.funs) {
+            if (f.retType && std::holds_alternative<VecType>(f.retType->v))
+              throw std::runtime_error(
+                  "vec-lowering '" + vecLowering_->name() +
+                  "' cannot cross function boundaries: function '" + f.name.name +
+                  "' returns a vector"
+              );
+            for (const auto &p: f.params)
+              if (p.type && std::holds_alternative<VecType>(p.type->v))
+                throw std::runtime_error(
+                    "vec-lowering '" + vecLowering_->name() +
+                    "' cannot cross function boundaries: function '" + f.name.name +
+                    "' has a vector parameter"
+                );
+          }
+        }
+        vecLowering_->emitPreamble(out_, vecShapes);
+      }
+
+      // 1. Forward decls for structs
+      for (const auto &s: prog.structs) {
+        out_ << "struct " << mangleName(s.name.name) << ";\n";
+      }
+      out_ << "\n";
+
+      // 1b. [v0.2.2] Emit intrinsic helpers and extern decls for link-form
+      //     `decl`s. Contract-form `decl`s lower with extern + a structured
+      //     comment summarizing the contract (§11.2).
+      for (const auto &intr: prog.intrinsics) {
+        emitIntrinsicHelper(intr);
+      }
+      for (const auto &d: prog.extDecls) {
+        emitExtDecl(d);
+      }
+      // Forward decls for every `fun` so cross-references work regardless
+      // of source order.
+      for (const auto &f: prog.funs) {
+        emitType(f.retType);
+        out_ << " " << mangleName(f.name.name) << "(";
+        if (f.params.empty()) {
+          out_ << "void";
+        } else {
+          for (size_t i = 0; i < f.params.size(); ++i) {
+            if (i)
+              out_ << ", ";
+            TypePtr cur = f.params[i].type;
+            std::vector<uint64_t> dims;
+            while (auto at = std::get_if<ArrayType>(&cur->v)) {
+              dims.push_back(at->size);
+              cur = at->elem;
+            }
+            emitType(cur);
+            out_ << " " << mangleName(f.params[i].name.name);
+            for (auto d: dims)
+              out_ << "[" << d << "]";
+          }
+        }
+        out_ << ");\n";
+      }
+      if (!prog.funs.empty())
+        out_ << "\n";
+
+      // 2. Struct definitions
+      for (const auto &s: prog.structs) {
+        out_ << "struct " << mangleName(s.name.name) << " {\n";
+        indent_level_++;
+        for (const auto &f: s.fields) {
+          indent();
+          // Handle array fields
+          TypePtr cur = f.type;
           std::vector<uint64_t> dims;
           while (auto at = std::get_if<ArrayType>(&cur->v)) {
             dims.push_back(at->size);
             cur = at->elem;
           }
           emitType(cur);
-          out_ << " " << mangleName(f.params[i].name.name);
+          out_ << " " << f.name;
           for (auto d: dims)
             out_ << "[" << d << "]";
+          out_ << ";\n";
         }
+        indent_level_--;
+        out_ << "};\n\n";
       }
-      out_ << ");\n";
-    }
-    if (!prog.funs.empty())
-      out_ << "\n";
-
-    // 2. Struct definitions
-    for (const auto &s: prog.structs) {
-      out_ << "struct " << mangleName(s.name.name) << " {\n";
-      indent_level_++;
-      for (const auto &f: s.fields) {
-        indent();
-        // Handle array fields
-        TypePtr cur = f.type;
-        std::vector<uint64_t> dims;
-        while (auto at = std::get_if<ArrayType>(&cur->v)) {
-          dims.push_back(at->size);
-          cur = at->elem;
-        }
-        emitType(cur);
-        out_ << " " << f.name;
-        for (auto d: dims)
-          out_ << "[" << d << "]";
-        out_ << ";\n";
-      }
-      indent_level_--;
-      out_ << "};\n\n";
-    }
+    } // !suppressPreamble_
 
     auto getWidth = [](const TypePtr &t) -> std::uint32_t {
       if (auto it = std::get_if<IntType>(&t->v)) {
@@ -454,6 +531,19 @@ namespace symir {
 
     // 3. Functions
     for (const auto &f: prog.funs) {
+      // [v0.2.2] In --split-by-source mode emit only funs whose
+      // sourceStem matches this output file's stem. Two sentinel
+      // values: "__symir_no_fun_bodies__" skips every fun (used when
+      // writing common.h); "__symir_primary__" matches funs with an
+      // empty sourceStem (i.e. those that came from the primary file).
+      if (emitOnlySourceStem_ == "__symir_no_fun_bodies__")
+        continue;
+      if (emitOnlySourceStem_ == "__symir_primary__") {
+        if (!f.sourceStem.empty())
+          continue;
+      } else if (!emitOnlySourceStem_.empty() && f.sourceStem != emitOnlySourceStem_) {
+        continue;
+      }
       curFuncName_ = f.name.name;
       curFuncRetType_ = f.retType;
       varWidths_.clear();

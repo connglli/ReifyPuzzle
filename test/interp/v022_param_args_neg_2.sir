@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// INTERP_ARGS: --main @sub -- 10 -3
+// SKIP: COMPILER — symiri-only CLI feature
+// SKIP: SOLVER — symiri-only CLI feature
+// SPEC v0.2.2 §3 — negative positional args need `--` to escape cxxopts
+// Intention: `symiri … -- 10 -3` runs @sub(10, -3) and returns 13.
+// The single `--` puts cxxopts into positional-only mode so the
+// subsequent `-3` is taken literally, not parsed as a short option.
+fun @sub(%a: i32, %b: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = %a - %b;
+  require %r == 13, "10 - (-3) must be 13";
+  br ^exit;
+^exit:
+  ret %r;
+}

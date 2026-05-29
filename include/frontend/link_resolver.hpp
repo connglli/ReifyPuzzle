@@ -61,7 +61,15 @@ namespace symir {
           Lexer lx(libSrc);
           auto toks = lx.lexAll();
           Parser ps(std::move(toks));
-          libs.push_back(ps.parseProgram());
+          Program lib = ps.parseProgram();
+          // [v0.2.2] Tag every fun with its source-file stem so the
+          // C backend's --split-by-source mode knows where each fun
+          // came from once they're merged into main.
+          std::string stem = entry.path().stem().string();
+          for (auto &f: lib.funs)
+            if (f.sourceStem.empty())
+              f.sourceStem = stem;
+          libs.push_back(std::move(lib));
         } catch (const LexError &e) {
           std::cerr << "Error in -I file " << entry.path() << ": " << e.what() << "\n";
           throw;

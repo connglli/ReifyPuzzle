@@ -746,6 +746,17 @@ namespace symir {
     // [v0.2.1] Reset per-solve provenance tracking. Each call to solve()
     // walks a fresh CFG path, so prior provenance state must not leak.
     ptrProv_.clear();
+    // [v0.2.2] Local slot the RetTerm visitor writes into; cleared
+    // back to nullptr before solve() returns so the smt::Term doesn't
+    // outlive solve()'s stack frame.
+    smt::Term retTermLocal;
+    retTermSlot_ = &retTermLocal;
+
+    struct SlotGuard {
+      smt::Term *&slot;
+
+      ~SlotGuard() { slot = nullptr; }
+    } slotGuard{retTermSlot_};
 
     // 1. Declare symbols and fix values if requested
     for (const auto &s: entry->syms) {
@@ -1207,8 +1218,13 @@ namespace symir {
               // [v0.2.1] Evaluate the return value's expression so that
               // any UB checks it raises (div/mod by zero, signed overflow,
               // load OOB, read of undef, etc.) become path constraints.
+              // [v0.2.2] Stash the term into retTermSlot_ (set by the
+              // caller of this lambda) so the SOLVED header can extract
+              // its model value.
               if (term.value) {
-                (void) evalExpr(*term.value, solver, store, pathConstraints);
+                auto t = evalExpr(*term.value, solver, store, pathConstraints).term;
+                if (retTermSlot_)
+                  *retTermSlot_ = t;
               }
             } else {
               if (nextLabel)
@@ -1283,6 +1299,21 @@ namespace symir {
         }
         finalRes.model[s.name.name] = extractValue(sv.term);
       }
+
+      // [v0.2.2] Solved values for entry-fun params. We only handle
+      // scalar Int/Float here — aggregate / pointer / vector params
+      // are out of scope for the SOLVED header (printer leaves them
+      // verbatim).
+      for (const auto &p: entry->params) {
+        auto it = store.find(p.name.name);
+        if (it == store.end())
+          continue;
+        const auto &sv = it->second;
+        if (sv.kind == SymbolicValue::Kind::Int && sv.term.internal)
+          finalRes.paramModel[p.name.name] = extractValue(sv.term);
+      }
+      if (retTermLocal.internal)
+        finalRes.retModel = extractValue(retTermLocal);
     } else if (res == smt::Result::UNSAT) {
       finalRes.unsat = true;
     } else {
