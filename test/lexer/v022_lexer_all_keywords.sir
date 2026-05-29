@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// Rationale: [v0.2.2] §11 - Lexer support for all new keywords.
+
+decl @dummy() : i32;
+intrinsic @dummy_int() : i32;
+
+fun @main() : i32 {
+  // pre post ret call are keywords
+  let mut %v: i32 = 0;
+^entry:
+  %v = call @dummy();
+  ret %v;
+}

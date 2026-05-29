@@ -1,0 +1,6 @@
+// EXPECT: FAIL:ParseError
+// Intention: SPEC v0.2.2 §3.1 - `1.5f` suffix `f` is not in spec.
+fun @main() : f32 {
+^entry:
+  ret 1.5f;
+}

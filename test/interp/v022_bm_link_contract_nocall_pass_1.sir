@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.3
+// Intention: Contract-form decl present but never called -> interpreter must accept.
+decl @bm_unused_contract(%x: i32) : i32 {
+  pre %x >= 0, "nonneg";
+  post ret == %x, "id";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 42;
+}

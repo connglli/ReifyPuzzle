@@ -1,0 +1,12 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.12
+// Intention: literal that overflows declared i8 should fail when used as call argument.
+fun @f(%x: i8) : i8 {
+^entry:
+  ret %x;
+}
+
+fun @main() : i8 {
+^entry:
+  ret call @f(300);
+}

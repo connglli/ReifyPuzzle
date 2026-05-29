@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 §3.1 - `decl` reserved; cannot be used as a struct field name.
+struct @S { decl: i32; }
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

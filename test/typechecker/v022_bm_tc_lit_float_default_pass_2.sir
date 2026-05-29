@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.12
+// Intention: float literal defaults to f32 when used as call arg of f32 param.
+fun @f(%x: f32) : f32 {
+^entry:
+  ret %x;
+}
+
+fun @main() : f32 {
+^entry:
+  ret call @f(1.5);
+}

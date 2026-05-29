@@ -1,0 +1,6 @@
+// EXPECT: FAIL:ParseError
+// Intention: SPEC v0.2.2 §1 - Double `^^` label sigil is invalid.
+fun @main() : i32 {
+^^entry:
+  ret 0;
+}

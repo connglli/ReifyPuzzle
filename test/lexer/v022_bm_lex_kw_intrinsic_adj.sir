@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - `intrinsics` (with trailing s) is a single ident, not `intrinsic` + `s`.
+struct @S { intrinsics: i32; }
+fun @main() : i32 {
+  let mut %s: @S = { 3 };
+^entry:
+  ret %s.intrinsics;
+}

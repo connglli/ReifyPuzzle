@@ -1,0 +1,53 @@
+// EXPECT: PASS
+// INTERP_ARGS: -I test/lib/std/scalar
+// COMPILER_ARGS: -I test/lib/std/scalar
+// SPEC v0.2.2 §11.3 (link-form resolution)
+// Intention: gcd + clamp + sign + local helper across 5 blocks.
+decl @gcd(%a: i32, %b: i32) : i32;
+decl @clamp(%x: i32, %lo: i32, %hi: i32) : i32;
+decl @sign(%x: i32) : i32;
+
+fun @local_helper(%x: i32) : i32 {
+^entry:
+  ret %x + %x;
+}
+
+fun @main() : i32 {
+  let mut %g: i32 = 0;
+  let mut %c: i32 = 0;
+  let mut %s: i32 = 0;
+  let mut %h: i32 = 0;
+  let mut %t: i32 = 0;
+  let %zero: i32 = 0;
+  let %one: i32 = 1;
+^entry:
+  %g = call @gcd(48, 18); // 6
+  %c = call @clamp(%g, 0, 5); // 5
+  %s = %g + %c;
+  br %g == 6, ^b1, ^bad;
+^b1:
+  %s = call @sign(-5); // -1
+  %c = %c + %s; // 4
+  %t = %c + %one; // 5
+  br %c == 4, ^b2, ^bad;
+^b2:
+  %h = call @local_helper(%g); // 12
+  %t = %h - %g; // 6
+  %t = %t + %zero;
+  br %h == 12, ^b3, ^bad;
+^b3:
+  %t = %t * %one;
+  %t = %t - %zero;
+  %t = %t + %zero;
+  br %t == 6, ^ok, ^bad;
+^ok:
+  %t = %t - 6;
+  %t = %t + %zero;
+  %t = %t * %one;
+  ret %t;
+^bad:
+  %t = %t + %one;
+  %t = %t - %one;
+  %t = %t + %one;
+  ret 1;
+}

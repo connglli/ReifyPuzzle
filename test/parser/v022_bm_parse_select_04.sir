@@ -1,0 +1,10 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.3
+// Intention: call in true-arm of select is forbidden by SelectVal grammar.
+intrinsic @get() : i32;
+fun @main(%a: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = select %a == 0, call @get(), %a;
+  ret %y;
+}

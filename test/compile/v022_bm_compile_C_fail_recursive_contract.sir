@@ -1,0 +1,23 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §9.7
+// Intention: contract decl referencing itself in caller is fine, but a
+// fun that calls a contract decl that transitively cycles is a cycle.
+
+decl @cself(%x: i32) : i32 {
+  post ret == %x, "id";
+};
+
+fun @a(%x: i32) : i32 {
+^entry:
+  ret call @b(%x);
+}
+
+fun @b(%x: i32) : i32 {
+^entry:
+  ret call @a(%x);
+}
+
+fun @main() : i32 {
+^entry:
+  ret call @a(1) + call @cself(0);
+}

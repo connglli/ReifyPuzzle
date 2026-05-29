@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// SPEC v0.2.2 §11.3
+// Intention: Interpreter rejects call to contract-form decl (variant: integer return).
+decl @bm_oracle(%x: i32) : i32 {
+  post ret == %x + 1, "succ";
+};
+
+fun @main() : i32 {
+^entry:
+  ret call @bm_oracle(5);
+}

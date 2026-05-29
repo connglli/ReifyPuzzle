@@ -1,0 +1,11 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.3
+// Intention: ptrfield navigation.
+struct @S { x: i32; y: i32; }
+fun @main() : i32 {
+  let mut %s: @S = { 1, 2 };
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = ptrfield addr %s, y;
+  ret 0;
+}

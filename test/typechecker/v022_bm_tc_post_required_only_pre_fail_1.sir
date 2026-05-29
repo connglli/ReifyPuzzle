@@ -1,0 +1,11 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.11
+// Intention: contract must contain at least one post; only pre is present.
+decl @f(%x: i32) : i32 {
+  pre %x > 0, "positive";
+};
+
+fun @main(%a: i32) : i32 {
+^entry:
+  ret call @f(%a);
+}

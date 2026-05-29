@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// INTERP_ARGS: -I test/tmp/bm_link_nested
+// COMPILER_ARGS: -I test/tmp/bm_link_nested
+// Intention: Library fn defined before its callee in the same file works (pre-scan).
+decl @bm_nest_outer(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @bm_nest_outer(3);
+}

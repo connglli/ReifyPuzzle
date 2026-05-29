@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.1 @abs at i8
+// Intention: @abs(-128+1) = 127 fits in i8.
+intrinsic @abs(%x: i8) : i8;
+fun @main() : i32 {
+  let mut %r: i8 = 0;
+  let %neg: i8 = -127;
+^entry:
+  %r = call @abs(%neg);
+  br %r == 127, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

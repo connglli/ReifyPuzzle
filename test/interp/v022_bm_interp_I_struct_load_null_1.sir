@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §7.5 rule 9
+struct @Pt { x: i32; y: i32; }
+fun @deref(%p: ptr i32) : i32 {
+^entry:
+  ret load %p;
+}
+fun @main() : i32 {
+  let mut %np: ptr i32 = null;
+^entry:
+  ret call @deref(%np);
+}

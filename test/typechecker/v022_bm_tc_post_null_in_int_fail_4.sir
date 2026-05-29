@@ -1,0 +1,11 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.11 (post) and §6.12
+// Intention: `null` used against an integer ret is not type-correct; null is pointer-only.
+decl @f() : i32 {
+  post ret == null, "null vs i32";
+};
+
+fun @main() : i32 {
+^entry:
+  ret call @f();
+}

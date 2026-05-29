@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: contract with no pre clauses (allowed; at least one post required).
+decl @g(%x: i32) : i32 {
+  post ret == %x, "identity";
+};
+fun @main() : i32 { ^entry: ret 0; }

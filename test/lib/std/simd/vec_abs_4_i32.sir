@@ -1,0 +1,32 @@
+// stdlib/simd/vec_abs_4_i32 -- per-lane absolute value.
+//
+// Consumers add `decl @vec_abs_4_i32(%v: <4> i32) : <4> i32;` and pass
+//   `-I test/lib/std/simd`
+// to the tools.
+
+intrinsic @abs(%x: i32) : i32;
+
+// vec_abs_4_i32(v) -- the lane-wise absolute value of v.
+//
+// Semantics:
+//   We pull each lane into a scalar i32, apply @abs, then write the
+//   scalar back into the corresponding output lane. v0.2.2 has no
+//   lifted vector-absolute intrinsic.
+//
+// UB:
+//   Any lane equal to INT_MIN triggers @abs's per-lane signed-overflow
+//   UB (rule 25 + rule 4), making the path infeasible.
+fun @vec_abs_4_i32(%v: <4> i32) : <4> i32 {
+  let %i0: i32 = 0;
+  let %i1: i32 = 1;
+  let %i2: i32 = 2;
+  let %i3: i32 = 3;
+  let mut %r: <4> i32 = { 0, 0, 0, 0 };
+  let mut %t: i32 = 0;
+^entry:
+  %t = %v[%i0]; %r[%i0] = call @abs(%t);
+  %t = %v[%i1]; %r[%i1] = call @abs(%t);
+  %t = %v[%i2]; %r[%i2] = call @abs(%t);
+  %t = %v[%i3]; %r[%i3] = call @abs(%t);
+  ret %r;
+}

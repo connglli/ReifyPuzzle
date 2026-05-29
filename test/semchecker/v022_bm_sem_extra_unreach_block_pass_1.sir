@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §4.1
+// Intention: `unreachable` terminator on a side block is legal.
+fun @h(%x: i32) : i32 {
+^entry:
+  br %x > 0, ^ok, ^bad;
+^ok:
+  ret %x;
+^bad:
+  unreachable;
+}
+fun @main() : i32 { ^entry: ret call @h(1); }

@@ -1,0 +1,12 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SPEC v0.2.2 §7.7 rule 24 + rule 5
+fun @bad(%n: i32) : i32 {
+  let %x: i32 = 1;
+^entry:
+  ret %x << %n;
+}
+fun @main() : i32 {
+  let %n: i32 = -2;
+^entry:
+  ret call @bad(%n);
+}

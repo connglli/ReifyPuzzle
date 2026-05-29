@@ -1,0 +1,13 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// SPEC v0.2.2 §7.1 rule 3
+// Intention: callee loads from a let mut left as undef -> UB.
+fun @read(%p: ptr i32) : i32 {
+^entry:
+  ret load %p;
+}
+fun @main() : i32 {
+  let mut %u: i32 = undef;
+^entry:
+  ret call @read(addr %u);
+}

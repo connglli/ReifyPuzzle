@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - `postcondition` is one identifier (longest match).
+struct @S { postcondition: i32; }
+fun @main() : i32 {
+  let mut %s: @S = { 2 };
+^entry:
+  ret %s.postcondition;
+}

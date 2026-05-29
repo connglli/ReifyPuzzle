@@ -1,0 +1,6 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3
+// Intention: two contract-form decls with the same name.
+decl @foo(%x: i32) : i32 { post ret == %x; };
+decl @foo(%x: i32) : i32 { post ret >= 0; };
+fun @main() : i32 { ^entry: ret 0; }

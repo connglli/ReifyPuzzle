@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SKIP: COMPILER
+// SPEC v0.2.2 §11.1
+// INTERP_ARGS: -I test/tmp/bm_link_dir_a -I test/tmp/bm_link_dir_a
+// Intention: Same dir twice -- ambiguity should arise if resolver enumerates dirs without dedup.
+decl @bm_only_a(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @bm_only_a(3);
+}

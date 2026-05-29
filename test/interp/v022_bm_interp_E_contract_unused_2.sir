@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.3
+// Intention: multiple contract-form decls present, none called.
+decl @a(%x: i32) : i32 { post ret == 0, "zero"; };
+decl @b(%p: ptr i32) : i32 { pre %p != null, "nn"; post ret >= 0, "nn"; };
+decl @c() : i32 { post ret == 7, "lucky"; };
+fun @main() : i32 {
+  let mut %v: i32 = 100;
+^entry:
+  ret %v - 100;
+}

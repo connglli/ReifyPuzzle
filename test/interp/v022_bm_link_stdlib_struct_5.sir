@@ -1,0 +1,47 @@
+// EXPECT: PASS
+// EXPECT_RC: 18
+// SPEC v0.2.2 §11.1
+// INTERP_ARGS: -I test/lib/std/scalar
+// COMPILER_ARGS: -I test/lib/std/scalar
+// Intention: Struct fields fed to stdlib gcd/imax3 -- 2 intrinsics, 2 calls, struct ptr field.
+intrinsic @abs(%x: i32) : i32;
+decl @gcd(%a: i32, %b: i32) : i32;
+decl @imax3(%a: i32, %b: i32, %c: i32) : i32;
+
+struct @Pair { a: i32; b: i32; }
+
+fun @bm_local_pos(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @abs(%x);
+  br %y > 0, ^pos, ^zero;
+^pos:
+  ret %y;
+^zero:
+  ret 1;
+}
+
+fun @main() : i32 {
+  let mut %p: @Pair = {12, 18};
+  let mut %pp: ptr @Pair = null;
+  let mut %fa: ptr i32 = null;
+  let mut %fb: ptr i32 = null;
+  let mut %va: i32 = 0;
+  let mut %vb: i32 = 0;
+  let mut %g: i32 = 0;
+  let mut %m: i32 = 0;
+^entry:
+  %pp = addr %p;
+  %fa = ptrfield %pp, a;
+  %fb = ptrfield %pp, b;
+  %va = load %fa;
+  %vb = load %fb;
+  %va = call @bm_local_pos(%va);
+  br %vb > 0, ^run, ^bail;
+^run:
+  %g = call @gcd(%va, %vb);
+  %m = call @imax3(%g, %va, %vb);
+  ret %m;
+^bail:
+  ret 0;
+}

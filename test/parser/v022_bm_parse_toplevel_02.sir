@@ -1,0 +1,6 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: many fun decls in arbitrary order, all parseable.
+fun @a(%x: i32) : i32 { ^entry: ret %x; }
+fun @b(%x: i32) : i32 { ^entry: ret %x; }
+fun @main() : i32 { ^entry: ret 0; }

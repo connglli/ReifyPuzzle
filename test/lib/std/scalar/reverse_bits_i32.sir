@@ -1,0 +1,59 @@
+// stdlib/scalar/reverse_bits_i32 -- bit reversal of an i32.
+//
+// Consumers add `decl @reverse_bits_i32(%x: i32) : i32;` and pass
+//   `-I test/lib/std/scalar`
+// to the tools.
+
+// reverse_bits_i32(x) -- bit-reverse the 32-bit pattern of x.
+//
+// Inputs:
+//   %x : i32  -- any value.
+//
+// Output:
+//   i32 -- the bit pattern of x with bit i swapped to bit (31 - i).
+//
+// Semantics:
+//   We iterate i in [0, 32) at i64 width, extract bit i of the
+//   zero-extended x, and OR-into bit (31 - i) of the accumulator.
+//   i64 keeps the intermediate values away from i32 signed-shift UB.
+fun @reverse_bits_i32(%x: i32) : i32 {
+  let %low_mask: i64 = 4294967295;
+  let %thirty_one: i64 = 31;
+  let %zero64: i64 = 0;
+  let %one64: i64 = 1;
+  let mut %x64: i64 = 0;
+  let mut %xu: i64 = 0;
+  let mut %i: i64 = 0;
+  let mut %bit: i64 = 0;
+  let mut %dst: i64 = 0;
+  let mut %placed: i64 = 0;
+  let mut %acc: i64 = 0;
+  let mut %acc_low: i64 = 0;
+  let mut %res: i32 = 0;
+^entry:
+  %x64 = %x as i64;
+  %xu = %x64 & %low_mask;
+  %acc = %zero64;
+  %i = %zero64;
+  br %zero64 == %zero64, ^loop_cond, ^exit;
+
+^loop_cond:
+  br %i < 32, ^loop_body, ^done;
+
+^loop_body:
+  %bit = %xu >>> %i;
+  %bit = %bit & %one64;
+  %dst = %thirty_one - %i;
+  %placed = %bit << %dst;
+  %acc = %acc | %placed;
+  %i = %i + %one64;
+  br %zero64 == %zero64, ^loop_cond, ^exit;
+
+^done:
+  %acc_low = %acc & %low_mask;
+  %res = %acc_low as i32;
+  ret %res;
+
+^exit:
+  ret %zero64 as i32;
+}

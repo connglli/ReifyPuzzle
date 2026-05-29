@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12 negative return
+fun @neg(%x: i32) : i32 {
+^entry:
+  ret 0 - %x;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @neg(10);
+  br %r == -10, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.3 §2.12
+// Intention: call atom inside `br` condition.
+fun @flag() : i32 { ^entry: ret 1; }
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  br call @flag() > 0, ^t, ^f;
+^t:
+  %r = 1;
+  ret %r;
+^f:
+  %r = 0;
+  ret %r;
+}

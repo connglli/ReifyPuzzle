@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// EXPECT_RC: 1
+// SPEC v0.2.2 §11.5
+// Intention: widening-mask sanity for @abs at i32 on -1.
+
+intrinsic @abs(%x: i32) : i32;
+
+fun @main() : i32 {
+  let %x: i32 = -1;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @abs(%x);
+  ret %r as i32;
+}

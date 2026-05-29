@@ -1,0 +1,19 @@
+// stdlib/simd/vec_select_4_i32 -- mask-based per-lane blend.
+//
+// Consumers add
+//   `decl @vec_select_4_i32(%m: <4> i1, %a: <4> i32, %b: <4> i32) : <4> i32;`
+// and pass `-I test/lib/std/simd` to the tools.
+
+// vec_select_4_i32(m, a, b) -- per-lane "select": lane i is a[i] if
+// m[i] is 1, else b[i].
+//
+// Semantics:
+//   The mask form of `select` (§2.7) drives a per-lane blend. Only
+//   lanes whose mask bit is 1 read the corresponding lane of `a`;
+//   only lanes whose mask bit is 0 read the corresponding lane of `b`.
+fun @vec_select_4_i32(%m: <4> i1, %a: <4> i32, %b: <4> i32) : <4> i32 {
+  let mut %r: <4> i32 = { 0, 0, 0, 0 };
+^entry:
+  %r = select %m, %a, %b;
+  ret %r;
+}

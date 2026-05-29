@@ -1,0 +1,24 @@
+// stdlib/scalar/median3_i32 -- median of three i32 values.
+//
+// Consumers add `decl @median3_i32(%a: i32, %b: i32, %c: i32) : i32;`
+// and pass `-I test/lib/std/scalar` to the tools.
+
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+
+// median3_i32(a, b, c) -- middle value of {a, b, c}.
+//
+// Semantics:
+//   median = max(min(a, b), min(max(a, b), c)).
+//   This is the classical four-operation min/max formula. It needs no
+//   branches and is dominated by the @min / @max intrinsic costs.
+fun @median3_i32(%a: i32, %b: i32, %c: i32) : i32 {
+  let mut %lo_ab: i32 = 0;
+  let mut %hi_ab: i32 = 0;
+  let mut %hi_ab_c: i32 = 0;
+^entry:
+  %lo_ab = call @min(%a, %b);
+  %hi_ab = call @max(%a, %b);
+  %hi_ab_c = call @min(%hi_ab, %c);
+  ret call @max(%lo_ab, %hi_ab_c);
+}

@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.1 @min at i8
+intrinsic @min(%a: i8, %b: i8) : i8;
+fun @main() : i32 {
+  let mut %r: i8 = 0;
+  let %a: i8 = -128;
+  let %b: i8 = 127;
+^entry:
+  %r = call @min(%a, %b);
+  br %r == -128, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

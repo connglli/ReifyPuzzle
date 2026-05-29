@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - `Call` (capitalized) is NOT the keyword; usable as a struct field name.
+struct @S { Call: i32; }
+fun @main() : i32 {
+  let mut %s: @S = { 7 };
+^entry:
+  ret %s.Call;
+}

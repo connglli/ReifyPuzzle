@@ -1,0 +1,16 @@
+// EXPECT: FAIL
+// Rationale: [v0.2.2] §3.3 - A decl may not both provide a contract and have a corresponding fun.
+
+decl @foo(%x: i32) : i32 {
+  post ret == %x, "identity";
+};
+
+fun @foo(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

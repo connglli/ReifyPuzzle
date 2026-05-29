@@ -1,0 +1,8 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §3.3
+// Intention: unknown clause keyword `requires` inside contract.
+decl @h(%x: i32) : i32 {
+  requires %x > 0, "wrong kw";
+  post ret == %x, "id";
+};
+fun @main() : i32 { ^entry: ret 0; }

@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §5.1 §3.5.2
+// Intention: addr of a call expression (LValue base must be LocalId).
+fun @make(%x: i32) : i32 { ^entry: ret %x; }
+fun @use_p(%p: ptr i32) : i32 { ^entry: ret load %p; }
+fun @main() : i32 {
+^entry:
+  ret call @use_p(addr call @make(1));
+}

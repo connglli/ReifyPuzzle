@@ -1,0 +1,52 @@
+// EXPECT: PASS
+// INTERP_ARGS: -I test/lib/std/scalar
+// COMPILER_ARGS: -I test/lib/std/scalar
+// SPEC v0.2.2 §11.3
+decl @is_pow2(%x: i32) : i32;
+decl @log2_floor(%x: i32) : i32;
+decl @next_pow2_i32(%x: i32) : i32;
+
+fun @add1(%x: i32) : i32 {
+^entry:
+  ret %x + 1;
+}
+
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+  let mut %h: i32 = 0;
+  let mut %t: i32 = 0;
+  let %z: i32 = 0;
+  let %o: i32 = 1;
+^entry:
+  %a = call @is_pow2(16); // 1
+  %b = call @log2_floor(16); // 4
+  %t = %a + %b; // 5
+  br %a == 1, ^b1, ^bad;
+^b1:
+  %c = call @next_pow2_i32(10); // 16
+  %t = %c - %b; // 12
+  %t = %t + %z;
+  br %c == 16, ^b2, ^bad;
+^b2:
+  %h = call @add1(%b); // 5
+  %t = %h + %z;
+  %t = %t * %o;
+  br %h == 5, ^b3, ^bad;
+^b3:
+  %t = %t + %z;
+  %t = %t - %z;
+  %t = %t * %o;
+  br %t == 5, ^ok, ^bad;
+^ok:
+  %t = %t - 5;
+  %t = %t + %z;
+  %t = %t * %o;
+  ret %t;
+^bad:
+  %t = %t + %o;
+  %t = %t - %o;
+  %t = %t + %o;
+  ret 1;
+}

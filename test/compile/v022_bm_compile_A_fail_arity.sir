@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.10
+// Intention: wrong arg count is a type error.
+
+fun @one_arg(%x: i32) : i32 { ^entry: ret %x; }
+
+fun @main() : i32 {
+^entry:
+  ret call @one_arg(1, 2);
+}

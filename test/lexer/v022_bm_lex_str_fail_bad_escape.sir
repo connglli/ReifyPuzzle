@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - Unknown escape sequence `\q`.
+decl @f() : i32 { post ret == 0, "bad \q escape"; };
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

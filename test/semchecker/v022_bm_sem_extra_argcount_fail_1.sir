@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.10
+// Intention: call with too FEW arguments (arity mismatch, a type/sem error caught statically).
+fun @h(%x: i32, %y: i32) : i32 { ^entry: ret %x + %y; }
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @h(1);
+  ret %r;
+}

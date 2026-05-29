@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// EXPECT_RC: 124
+// Intention: SPEC v0.2.2 §12.2 - Intrinsics on i64 cross-validation.
+// Verifies clz/ctz on 64-bit integers.
+
+intrinsic @clz(%x: i64) : i64;
+intrinsic @ctz(%x: i64) : i64;
+
+fun @main() : i64 {
+  let %v: i64 = 0x000000000000000F; // 15
+^entry:
+  // clz(15) on i64 = 60
+  // ctz(15) on i64 = 0
+  ret call @clz(%v) + call @ctz(%v) + 64; // 60 + 0 + 64 = 124
+}

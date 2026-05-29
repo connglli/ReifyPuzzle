@@ -1,0 +1,14 @@
+// stdlib/scalar/imax3 -- maximum of three i32 values.
+//
+// Consumers add `decl @imax3(%a: i32, %b: i32, %c: i32) : i32;` and
+// pass `-I test/lib/std/scalar` to the tools.
+
+intrinsic @max(%a: i32, %b: i32) : i32;
+
+// imax3(a, b, c) -- maximum of three signed i32 values via two @max calls.
+fun @imax3(%a: i32, %b: i32, %c: i32) : i32 {
+  let mut %t: i32 = 0;
+^entry:
+  %t = call @max(%a, %b);
+  ret call @max(%t, %c);
+}

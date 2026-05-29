@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// INTERP_ARGS: -I test/tmp/bm_lib_a
+// SPEC v0.2.2 §3.3
+// Intention: decl link-form before call is fine; body resolution is a later concern (handled by --check?).
+decl @bm_inc(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @bm_inc(3);
+  ret %r;
+}

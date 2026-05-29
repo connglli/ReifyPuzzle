@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: call to link-form decl declared LATER.
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @bm_inc(2);
+  ret %r;
+}
+decl @bm_inc(%x: i32) : i32;

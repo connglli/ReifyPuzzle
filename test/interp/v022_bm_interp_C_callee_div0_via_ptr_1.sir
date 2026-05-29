@@ -1,0 +1,17 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §7.7 rule 24
+// Intention: callee divides loaded value by zero - UB propagates.
+fun @div_by(%p: ptr i32) : i32 {
+  let mut %v: i32 = 0;
+  let %z: i32 = 0;
+^entry:
+  %v = load %p;
+  ret %v / %z;
+}
+fun @main() : i32 {
+  let mut %x: i32 = 42;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @div_by(addr %x);
+  ret %r;
+}

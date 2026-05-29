@@ -1,0 +1,24 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.6.1 step 1
+// Intention: left arm writes via ptr; right arm reads through ptr and observes the new value.
+fun @write(%p: ptr i32, %x: i32) : i32 {
+^entry:
+  store %p, %x;
+  ret %x;
+}
+fun @read(%p: ptr i32) : i32 {
+^entry:
+  ret load %p;
+}
+fun @main() : i32 {
+  let mut %c: i32 = 0;
+  let mut %s: i32 = 0;
+^entry:
+  // left commits store=55, then right reads 55. sum = 55 + 55 = 110
+  %s = call @write(addr %c, 55) + call @read(addr %c);
+  br %s == 110, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

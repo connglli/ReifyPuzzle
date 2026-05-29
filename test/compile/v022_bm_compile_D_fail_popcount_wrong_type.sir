@@ -1,0 +1,8 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.10
+intrinsic @popcount(%x: i32) : i32;
+fun @main() : i32 {
+  let %f: f32 = 1.5;
+^entry:
+  ret call @popcount(%f);
+}

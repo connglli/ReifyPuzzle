@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.5
+// Intention: assignment from call result initializes mutable local later.
+fun @h(%x: i32) : i32 { ^entry: ret %x; }
+fun @main() : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @h(5);
+  ret %y;
+}

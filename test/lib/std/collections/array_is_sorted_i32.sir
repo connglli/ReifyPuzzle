@@ -1,0 +1,56 @@
+// stdlib/collections/array_is_sorted_i32 -- non-decreasing test.
+//
+// Consumers add `decl @array_is_sorted_i32(%p: ptr i32, %n: i32) : i32;`
+// and pass `-I test/lib/std/collections` to the tools.
+
+// array_is_sorted_i32(p, n) -- 1 if p[i] <= p[i+1] for all valid i,
+// else 0.
+//
+// Semantics:
+//   For n < 2 the buffer is trivially sorted -> 1.
+//   Otherwise iterate i in [0, n - 1) and abort on the first
+//   strictly-decreasing pair.
+fun @array_is_sorted_i32(%p: ptr i32, %n: i32) : i32 {
+  let %zero: i32 = 0;
+  let %one: i32 = 1;
+  let %two: i32 = 2;
+  let mut %i: i32 = 0;
+  let mut %end: i32 = 0;
+  let mut %cur: ptr i32 = null;
+  let mut %nxt: ptr i32 = null;
+  let mut %cv: i32 = 0;
+  let mut %nv: i32 = 0;
+^entry:
+  br %n < %two, ^trivial, ^loop_init;
+
+^trivial:
+  ret %one;
+
+^loop_init:
+  %i = %zero;
+  %end = %n - %one;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^loop_cond:
+  br %i < %end, ^loop_body, ^sorted;
+
+^loop_body:
+  %cur = %p + %i;
+  %nxt = %cur + %one;
+  %cv = load %cur;
+  %nv = load %nxt;
+  br %cv > %nv, ^unsorted, ^step;
+
+^step:
+  %i = %i + %one;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^sorted:
+  ret %one;
+
+^unsorted:
+  ret %zero;
+
+^exit:
+  ret %zero;
+}

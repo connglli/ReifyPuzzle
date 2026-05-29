@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.5.2 §6.6
+// Intention: pass addr of let mut local into fun expecting `ptr i32`.
+fun @bump(%p: ptr i32) : i32 {
+  let mut %v: i32 = 0;
+^entry:
+  %v = load %p;
+  store %p, %v + 1;
+  ret %v;
+}
+fun @main() : i32 {
+  let mut %x: i32 = 10;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @bump(addr %x);
+  ret %r;
+}

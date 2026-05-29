@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// EXPECT_RC: 14
+// SPEC v0.2.2 §11.2
+// Intention: fun call with multiple scalar args; verify left-to-right pass.
+
+fun @sum3(%a: i32, %b: i32, %c: i32) : i32 {
+^entry:
+  ret %a + %b + %c;
+}
+
+fun @main() : i32 {
+^entry:
+  ret call @sum3(2, 5, 7);
+}

@@ -1,0 +1,10 @@
+// EXPECT: FAIL:UndefinedBehavior
+// Intention: SPEC v0.2.2 Section 12.2 - @clz(0) is UB.
+intrinsic @clz(%x: i32) : i32;
+fun @main() : i32 {
+  let %zero: i32 = 0;
+  let mut %a: i32 = 0;
+^entry:
+  %a = call @clz(%zero);
+  ret %a;
+}

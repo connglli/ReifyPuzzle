@@ -1,0 +1,4 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: program with no @main function.
+fun @helper() : i32 { ^entry: ret 0; }

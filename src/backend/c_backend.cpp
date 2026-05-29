@@ -1107,9 +1107,32 @@ namespace symir {
               out_ << ")";
               return;
             }
+            // [v0.2.2 §2 / bug-mine fix] All `iN` types are SIGNED bit
+            // vectors. A narrow source (e.g. i1 = {0, -1}) stored in a
+            // wider C type loses its sign bit at the iN boundary —
+            // casting it directly with `(dst)(src)` zero-extends rather
+            // than sign-extending. Pre-extend the source from its
+            // declared iN bits up to int64_t with the shift-pair idiom
+            // so the cast preserves signed semantics.
+            std::optional<std::uint32_t> srcBits;
+            if (auto lv = std::get_if<LValue>(&arg.src)) {
+              if (lv->accesses.empty()) {
+                auto it = varTypes_.find(lv->base.name);
+                if (it != varTypes_.end() && std::holds_alternative<IntType>(it->second->v))
+                  srcBits = TypeUtils::getBitWidth(it->second);
+              }
+            }
+            const bool intDst = arg.dstType && std::holds_alternative<IntType>(arg.dstType->v);
+            const bool needSext = intDst && srcBits.has_value() && *srcBits < 64 && *srcBits > 0;
             out_ << "(";
             emitType(arg.dstType);
             out_ << ")(";
+            if (needSext) {
+              // Sign-extend via unsigned shift so UBSan doesn't trip on
+              // "left shift of negative value". `(int64_t)((uint64_t)x
+              // << K) >> K` widens unsigned, then arith-shifts right.
+              out_ << "(int64_t)((uint64_t)(";
+            }
             std::visit(
                 [&](auto &&src) {
                   using S = std::decay_t<decltype(src)>;
@@ -1128,6 +1151,10 @@ namespace symir {
                 },
                 arg.src
             );
+            if (needSext) {
+              std::uint32_t shift = 64u - *srcBits;
+              out_ << ") << " << shift << ") >> " << shift;
+            }
             out_ << ")";
           }
         },

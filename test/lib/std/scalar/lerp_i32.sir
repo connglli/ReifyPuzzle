@@ -1,0 +1,43 @@
+// stdlib/scalar/lerp_i32 -- integer linear interpolation in percent.
+//
+// Consumers add `decl @lerp_i32(%a: i32, %b: i32, %t: i32) : i32;` and
+// pass `-I test/lib/std/scalar` to the tools.
+
+// lerp_i32(a, b, t) -- linear interpolation a + (b - a) * t / 100.
+//
+// Inputs:
+//   %a, %b : i32  -- endpoints.
+//   %t     : i32  -- mix percentage in [0, 100] (caller obligation;
+//                    out-of-range values still compute the algebraic
+//                    extrapolation but may overflow).
+//
+// Output:
+//   i32 -- the interpolated value, truncated toward zero by the
+//   integer division.
+//
+// Semantics:
+//   We compute (b - a) * t exactly at i64 width to dodge intermediate
+//   overflow, divide by 100 at i64, then add to a after truncating
+//   back. Final addition is still subject to standard i32 overflow UB
+//   if the result would lie outside i32.
+fun @lerp_i32(%a: i32, %b: i32, %t: i32) : i32 {
+  let %hundred: i64 = 100;
+  let mut %a64: i64 = 0;
+  let mut %b64: i64 = 0;
+  let mut %t64: i64 = 0;
+  let mut %diff: i64 = 0;
+  let mut %scaled: i64 = 0;
+  let mut %delta: i64 = 0;
+  let mut %sum: i64 = 0;
+  let mut %res: i32 = 0;
+^entry:
+  %a64 = %a as i64;
+  %b64 = %b as i64;
+  %t64 = %t as i64;
+  %diff = %b64 - %a64;
+  %scaled = %diff * %t64;
+  %delta = %scaled / %hundred;
+  %sum = %a64 + %delta;
+  %res = %sum as i32;
+  ret %res;
+}

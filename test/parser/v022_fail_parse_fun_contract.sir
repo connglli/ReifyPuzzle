@@ -1,0 +1,15 @@
+// EXPECT: FAIL
+// Rationale: [v0.2.2] §3.3 - A fun may never have a contract.
+
+fun @foo(%x: i32) : i32 {
+  pre %x > 0, "positive";
+  post ret == %x, "never happens";
+} {
+^entry:
+  ret %x;
+}
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

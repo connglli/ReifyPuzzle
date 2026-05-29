@@ -1,0 +1,6 @@
+// EXPECT: FAIL:ParseError
+// Intention: SPEC v0.2.2 §3.1 - `0x1.5` is not a valid hex literal (no hex float support).
+fun @main() : i32 {
+^entry:
+  ret 0x1.5;
+}

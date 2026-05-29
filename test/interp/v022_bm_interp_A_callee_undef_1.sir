@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §7.7 rule 24 (undef in callee)
+fun @bad() : i32 {
+  let mut %u: i32 = undef;
+^entry:
+  ret %u + 1;
+}
+fun @main() : i32 {
+^entry:
+  ret call @bad();
+}

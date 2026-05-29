@@ -1,0 +1,17 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §7.6 rule 20 lane write OOB
+fun @bad_w(%v: <4> i32) : <4> i32 {
+  let mut %r: <4> i32 = { 0, 0, 0, 0 };
+  let %i: i32 = 100;
+^entry:
+  %r = %v;
+  %r[%i] = 7;
+  ret %r;
+}
+fun @main() : i32 {
+  let mut %v: <4> i32 = { 1, 2, 3, 4 };
+  let mut %r: <4> i32 = { 0, 0, 0, 0 };
+^entry:
+  %r = call @bad_w(%v);
+  ret %r[0];
+}

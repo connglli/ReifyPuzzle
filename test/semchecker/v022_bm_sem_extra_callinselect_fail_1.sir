@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §2.12 §5.3
+// Intention: `call` is NOT allowed as a select arm (select arms restricted to RValue/Coef).
+fun @h(%x: i32) : i32 { ^entry: ret %x; }
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let %c: i1 = 1;
+^entry:
+  %r = select %c == 1, call @h(1), call @h(2);
+  ret %r;
+}

@@ -1,0 +1,15 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// SPEC v0.2.2 §11.3
+// Intention: contract decl invoked inside a branch condition must be rejected.
+decl @ora() : i32 {
+  post ret == 1, "one";
+};
+fun @main() : i32 {
+^entry:
+  br call @ora() == 1, ^t, ^f;
+^t:
+  ret 0;
+^f:
+  ret 1;
+}

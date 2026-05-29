@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.3 / §2.12
+// Intention: equivalent rewrite using a temporary local for the call.
+fun @f() : i32 {
+^entry:
+  ret 1;
+}
+
+fun @main() : i32 {
+  let mut %t: i32 = 0;
+  let mut %y: i32 = 0;
+  let %c: i1 = 1;
+^entry:
+  %t = call @f();
+  %y = select %c, %t, 0;
+  ret %y;
+}

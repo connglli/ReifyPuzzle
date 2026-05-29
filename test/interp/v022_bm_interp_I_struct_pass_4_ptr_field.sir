@@ -1,0 +1,32 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12 - struct with pointer field passed to callee
+struct @Holder { p: ptr i32; }
+
+fun @deref_holder(%h: ptr @Holder) : i32 {
+  let mut %pp: ptr ptr i32 = null;
+  let mut %p: ptr i32 = null;
+^entry:
+  %pp = ptrfield %h, p;
+  %p = load %pp;
+  ret load %p;
+}
+
+fun @main() : i32 {
+  let mut %v: i32 = 42;
+  let mut %h: @Holder = { null };
+  let mut %fp: ptr ptr i32 = null;
+  let mut %r: i32 = 0;
+  let mut %ph: ptr @Holder = null;
+  let mut %pv: ptr i32 = null;
+^entry:
+  %ph = addr %h;
+  %pv = addr %v;
+  %fp = ptrfield %ph, p;
+  store %fp, %pv;
+  %r = call @deref_holder(%ph);
+  br %r == 42, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

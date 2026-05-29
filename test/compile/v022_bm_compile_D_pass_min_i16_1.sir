@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: -2
+// SPEC v0.2.2 §11.5, §12
+// Intention: intrinsic @min at width i16, case 1.
+
+intrinsic @min(%a: i16, %b: i16) : i16;
+
+fun @main() : i16 {
+^entry:
+  ret call @min(-1, -2);
+}

@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.3 / §2.12
+// Intention: branching on call result rather than embedding inside select.
+fun @f() : i32 {
+^entry:
+  ret 1;
+}
+
+fun @main() : i32 {
+  let mut %t: i32 = 0;
+  let mut %y: i32 = 0;
+^entry:
+  %t = call @f();
+  br %t > 0, ^pos, ^z;
+^pos:
+  %y = %t;
+  ret %y;
+^z:
+  %y = 0;
+  ret %y;
+}

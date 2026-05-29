@@ -1,0 +1,31 @@
+// stdlib/collections/array_zero_i32 -- zero out an i32 buffer.
+//
+// Consumers add `decl @array_zero_i32(%p: ptr i32, %n: i32) : i32;`
+// and pass `-I test/lib/std/collections` to the tools.
+
+// array_zero_i32(p, n) -- set p[0..n) to 0. Returns 0 (success).
+//
+// Semantics:
+//   memset-equivalent for the i32 element type. A loop over an index
+//   in [0, n) writes zero through p + i.
+fun @array_zero_i32(%p: ptr i32, %n: i32) : i32 {
+  let %zero: i32 = 0;
+  let %one: i32 = 1;
+  let mut %i: i32 = 0;
+  let mut %cur: ptr i32 = null;
+^entry:
+  %i = %zero;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^loop_cond:
+  br %i < %n, ^loop_body, ^exit;
+
+^loop_body:
+  %cur = %p + %i;
+  store %cur, %zero;
+  %i = %i + %one;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^exit:
+  ret %zero;
+}

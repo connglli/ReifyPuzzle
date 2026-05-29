@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: 5
+// SPEC v0.2.2 §5.3
+// Intention: call atom in - chain.
+
+fun @get(%x: i32) : i32 { ^entry: ret %x; }
+
+fun @main() : i32 {
+^entry:
+  ret call @get(10) - call @get(3) - call @get(2);
+}

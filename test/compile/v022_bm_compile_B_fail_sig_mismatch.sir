@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// COMPILER_ARGS: -I test/lib/std/scalar
+// INTERP_ARGS: -I test/lib/std/scalar
+// SPEC v0.2.2 §11.2
+// Intention: link-form decl signature mismatches resolved fun.
+
+decl @gcd(%a: i32, %b: i32, %c: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @gcd(1, 2, 3);
+}

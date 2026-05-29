@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.4
+// Intention: `ret` inside post has the declared return type i32.
+decl @f() : i32 {
+  post ret == 0, "zero";
+};
+
+fun @main() : i32 {
+^entry:
+  ret call @f();
+}

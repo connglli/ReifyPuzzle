@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.6
+// Intention: re-assign an immutable `let` initialized via call.
+fun @h(%x: i32) : i32 { ^entry: ret %x; }
+fun @main() : i32 {
+  let %y: i32 = call @h(1);
+^entry:
+  %y = call @h(2);
+  ret %y;
+}

@@ -1,0 +1,7 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §1 - `?` only allowed after @ or %. `decl?` is illegal.
+decl? @f() : i32;
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

@@ -1,0 +1,53 @@
+// stdlib/scalar/saturating_add_i32 -- saturating signed addition.
+//
+// Consumers add `decl @saturating_add_i32(%a: i32, %b: i32) : i32;`
+// and pass `-I test/lib/std/scalar` to the tools.
+
+// saturating_add_i32(a, b) -- a + b, clamped into [INT_MIN, INT_MAX].
+//
+// Inputs:
+//   %a, %b : i32
+//
+// Output:
+//   i32 -- a + b if representable, else INT_MAX (positive overflow)
+//   or INT_MIN (negative overflow).
+//
+// Semantics:
+//   We avoid triggering UB by computing the headroom before adding.
+//   - If b > 0 and a > INT_MAX - b, return INT_MAX.
+//   - If b < 0 and a < INT_MIN - b, return INT_MIN.
+//   - Otherwise the unguarded a + b is safe.
+fun @saturating_add_i32(%a: i32, %b: i32) : i32 {
+  let %imax: i32 = 2147483647;
+  let %imin_near: i32 = -2147483647;
+  let %one: i32 = 1;
+  let %zero: i32 = 0;
+  let mut %imin: i32 = 0;
+  let mut %hi_room: i32 = 0;
+  let mut %lo_room: i32 = 0;
+  let mut %res: i32 = 0;
+^entry:
+  %imin = %imin_near - %one;
+  br %b > %zero, ^pos, ^neg_or_zero;
+
+^pos:
+  %hi_room = %imax - %b;
+  br %a > %hi_room, ^sat_hi, ^normal;
+
+^neg_or_zero:
+  br %b < %zero, ^neg, ^normal;
+
+^neg:
+  %lo_room = %imin - %b;
+  br %a < %lo_room, ^sat_lo, ^normal;
+
+^normal:
+  %res = %a + %b;
+  ret %res;
+
+^sat_hi:
+  ret %imax;
+
+^sat_lo:
+  ret %imin;
+}

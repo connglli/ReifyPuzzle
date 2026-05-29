@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 §3.1 - `-` without trailing digit is not a valid IntLit.
+fun @main() : i32 {
+  let mut %x: i32 = -;
+^entry:
+  ret %x;
+}

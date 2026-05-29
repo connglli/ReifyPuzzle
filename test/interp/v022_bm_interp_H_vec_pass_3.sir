@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12 vector roundtrip through assignment
+fun @copy_v(%v: <4> i32) : <4> i32 {
+  let mut %r: <4> i32 = { 0, 0, 0, 0 };
+^entry:
+  %r = %v;
+  ret %r;
+}
+fun @main() : i32 {
+  let mut %v: <4> i32 = { 7, 8, 9, 10 };
+  let mut %r: <4> i32 = { 0, 0, 0, 0 };
+  let mut %s: i32 = 0;
+^entry:
+  %r = call @copy_v(%v);
+  %s = %r[2] + %r[3]; // 9+10
+  br %s == 19, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.4
+// Intention: Contract with no post clauses must be rejected (at least one post is required).
+decl @bm_no_post(%x: i32) : i32 {
+  pre %x >= 0, "nonneg";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

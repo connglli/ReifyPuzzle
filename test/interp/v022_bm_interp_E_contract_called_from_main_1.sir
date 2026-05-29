@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §11.3
+// Intention: calling contract-form decl from main must be rejected.
+decl @ora(%x: i32) : i32 {
+  post ret >= 0, "nn";
+};
+fun @main() : i32 {
+  ret call @ora(5);
+}

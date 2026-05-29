@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.2
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+// Intention: unused link-form decl still lowers cleanly to extern/import.
+
+decl @helper_unused(%x: i32) : i32;
+
+fun @main() : i32 { ^entry: ret 0; }

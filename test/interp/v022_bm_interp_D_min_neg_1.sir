@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.1 - min of two negatives
+intrinsic @min(%a: i32, %b: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @min(-100, -50);
+  br %r == -100, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

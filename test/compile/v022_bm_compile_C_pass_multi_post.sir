@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+// SPEC v0.2.2 §11.2
+// Intention: multiple post clauses.
+
+decl @bounded(%x: i32) : i32 {
+  pre %x >= 0, "nn";
+  post ret >= 0, "nn-out";
+  post ret <= %x + 100, "bounded";
+};
+
+fun @main() : i32 { ^entry: ret 0; }

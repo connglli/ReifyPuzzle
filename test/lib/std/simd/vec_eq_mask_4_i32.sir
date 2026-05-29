@@ -1,0 +1,18 @@
+// stdlib/simd/vec_eq_mask_4_i32 -- per-lane equality mask.
+//
+// Consumers add
+//   `decl @vec_eq_mask_4_i32(%a: <4> i32, %b: <4> i32) : <4> i1;`
+// and pass `-I test/lib/std/simd` to the tools.
+
+// vec_eq_mask_4_i32(a, b) -- a <4> i1 mask whose lane i is 1 if
+// a[i] == b[i], else 0.
+//
+// Semantics:
+//   The `cmp` atom reifies a relational comparison; on vector
+//   operands it produces a per-lane `<N> i1` mask (§2.11 / §5.3).
+fun @vec_eq_mask_4_i32(%a: <4> i32, %b: <4> i32) : <4> i1 {
+  let mut %m: <4> i1 = { 0, 0, 0, 0 };
+^entry:
+  %m = cmp == %a, %b;
+  ret %m;
+}

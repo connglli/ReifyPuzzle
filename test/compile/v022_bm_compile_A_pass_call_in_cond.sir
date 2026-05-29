@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// EXPECT_RC: 1
+// SPEC v0.2.2 §2.12, §11.2
+// Intention: call atom in br condition.
+
+fun @get5() : i32 { ^entry: ret 5; }
+
+fun @main() : i32 {
+^entry:
+  br call @get5() > 0, ^yes, ^no;
+^yes:
+  ret 1;
+^no:
+  ret 0;
+}

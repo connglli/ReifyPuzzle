@@ -1,0 +1,20 @@
+// stdlib/scalar/lerp_f32 -- floating-point linear interpolation.
+//
+// Consumers add `decl @lerp_f32(%a: f32, %b: f32, %t: f32) : f32;` and
+// pass `-I test/lib/std/scalar` to the tools.
+
+// lerp_f32(a, b, t) -- linear interpolation a + (b - a) * t.
+//
+// Caller obligations:
+//   All inputs finite, and the intermediate products / sums must
+//   themselves stay finite (otherwise FP overflow UB, §7.4 rule 6).
+fun @lerp_f32(%a: f32, %b: f32, %t: f32) : f32 {
+  let mut %diff: f32 = 0.0;
+  let mut %scaled: f32 = 0.0;
+  let mut %res: f32 = 0.0;
+^entry:
+  %diff = %b - %a;
+  %scaled = %diff * %t;
+  %res = %a + %scaled;
+  ret %res;
+}

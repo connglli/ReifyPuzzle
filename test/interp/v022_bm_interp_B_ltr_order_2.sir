@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.6.1 step 1
+// Intention: 3-way left-to-right call sequence with arithmetic.
+fun @inc_get(%p: ptr i32) : i32 {
+  let mut %v: i32 = 0;
+^entry:
+  %v = load %p;
+  %v = %v + 1;
+  store %p, %v;
+  ret %v;
+}
+fun @main() : i32 {
+  let mut %c: i32 = 10;
+  let mut %s: i32 = 0;
+^entry:
+  // 11 + 12 + 13 = 36
+  %s = call @inc_get(addr %c) + call @inc_get(addr %c) + call @inc_get(addr %c);
+  br %s == 36, ^chk, ^bad;
+^chk:
+  br %c == 13, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// SPEC v0.2.2 §11.5
+// Intention: ctz of 1 at uncommon i9; result should be 0 regardless of width.
+
+intrinsic @ctz(%x: i9) : i9;
+
+fun @main() : i32 {
+  let %x: i9 = 1;
+  let mut %r: i9 = 0;
+^entry:
+  %r = call @ctz(%x);
+  ret %r as i32;
+}

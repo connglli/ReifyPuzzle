@@ -1,0 +1,13 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §9.7
+// INTERP_ARGS: -I test/tmp/bm_lib_recurse
+// COMPILER_ARGS: -I test/tmp/bm_lib_recurse
+// Intention: recursion across modules via link-form decl (main -> lib -> main).
+decl @bm_cycle_lib() : i32;
+fun @bm_cycle_main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @bm_cycle_lib();
+  ret %r;
+}
+fun @main() : i32 { ^entry: ret call @bm_cycle_main(); }

@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// SPEC v0.2.2 §11.5, §12
+// Intention: intrinsic @ctz at width i8, case 0.
+
+intrinsic @ctz(%x: i8) : i8;
+
+fun @main() : i8 {
+^entry:
+  ret call @ctz(1);
+}

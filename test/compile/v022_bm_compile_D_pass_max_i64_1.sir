@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: -1
+// SPEC v0.2.2 §11.5, §12
+// Intention: intrinsic @max at width i64, case 1.
+
+intrinsic @max(%a: i64, %b: i64) : i64;
+
+fun @main() : i64 {
+^entry:
+  ret call @max(-1, -2);
+}

@@ -1,0 +1,10 @@
+// EXPECT: FAIL:UndefinedBehavior
+// Rationale: [v0.2.2] §12.1 - @abs(INT_MIN) is UB.
+
+intrinsic @abs(%x: i32) : i32;
+
+fun @main() : i32 {
+  let %min: i32 = -2147483648;
+^entry:
+  ret call @abs(%min);
+}

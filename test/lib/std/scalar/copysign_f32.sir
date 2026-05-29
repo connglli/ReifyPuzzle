@@ -1,0 +1,28 @@
+// stdlib/scalar/copysign_f32 -- compose a float from |x| and sign(y).
+//
+// Consumers add `decl @copysign_f32(%x: f32, %y: f32) : f32;` and pass
+//   `-I test/lib/std/scalar`
+// to the tools.
+
+// copysign_f32(x, y) -- returns a value with the magnitude of x and
+// the sign of y.
+//
+// Semantics:
+//   We have no bit-level float access in v0.2.2, so we rely on
+//   branching: compute |x|, then negate if y < 0.
+//   Note: this returns +|x| for y == +0.0 and +|x| also for y == -0.0
+//   (signed-zero detection requires bit inspection). This is the same
+//   pragmatic compromise C's `copysign` makes only on platforms that
+//   ignore the sign of zero.
+fun @copysign_f32(%x: f32, %y: f32) : f32 {
+  let %zero: f32 = 0.0;
+  let %neg_one: f32 = -1.0;
+  let mut %abs_x: f32 = 0.0;
+  let mut %neg_x: f32 = 0.0;
+  let mut %neg_abs_x: f32 = 0.0;
+^entry:
+  %neg_x = %neg_one * %x;
+  %abs_x = select %x < %zero, %neg_x, %x;
+  %neg_abs_x = %neg_one * %abs_x;
+  ret select %y < %zero, %neg_abs_x, %abs_x;
+}

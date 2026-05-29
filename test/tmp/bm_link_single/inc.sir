@@ -1,0 +1,6 @@
+// helper for bm_link basic resolution
+fun @bm_inc(%x: i32) : i32 {
+  let %one: i32 = 1;
+^entry:
+  ret %x + %one;
+}

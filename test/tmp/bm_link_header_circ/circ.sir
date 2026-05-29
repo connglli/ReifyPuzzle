@@ -1,0 +1,14 @@
+// Two funs in one file forming a cycle.
+fun @bm_hcirc_a(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @bm_hcirc_b(%x);
+  ret %y;
+}
+
+fun @bm_hcirc_b(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @bm_hcirc_a(%x);
+  ret %y;
+}

@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER, COMPILER
+// Bug-mining: The typechecker currently misses checking compatibility between Float and Bit-Vector in condition expressions.
+// Intention: SPEC v0.2.2 Section 6.11 - ret type mismatch in post (int vs float).
+decl @foo() : f32 {
+  post ret == 0, "type mismatch: ret is f32, 0 is i32";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: 5
+// SPEC v0.2.2 §11.5, §12
+// Intention: intrinsic @abs at width i8, case 1.
+
+intrinsic @abs(%x: i8) : i8;
+
+fun @main() : i8 {
+^entry:
+  ret call @abs(5);
+}

@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.6
+// Intention: reassign a parameter using call result.
+fun @h(%x: i32) : i32 { ^entry: ret %x; }
+fun @victim(%p: i32) : i32 {
+^entry:
+  %p = call @h(1);
+  ret %p;
+}
+fun @main() : i32 { ^entry: ret call @victim(0); }

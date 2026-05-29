@@ -1,0 +1,10 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.3
+// Intention: cmp with `call` in arm — SelectVal restriction also applies to cmp.
+intrinsic @get() : i32;
+fun @main(%a: i32) : i32 {
+  let mut %y: i1 = 0;
+^entry:
+  %y = cmp == call @get(), %a;
+  ret 0;
+}

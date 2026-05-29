@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.4
+// Intention: `ret` is rvalue-only inside post; subscripting `ret[0]` is ambiguous and probably not supported.
+decl @f() : [4] i32 {
+  post ret[0] == 0, "first lane zero";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

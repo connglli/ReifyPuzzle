@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - Negative binary literal in call arg.
+decl @id(%x: i32) : i32 { post ret == %x; };
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @id(-0b1010);
+  ret %r;
+}

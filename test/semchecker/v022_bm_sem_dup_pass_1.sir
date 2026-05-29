@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// INTERP_ARGS: -I test/tmp/bm_lib_a
+// SPEC v0.2.2 §3.3
+// Intention: fun + link-form decl with DIFFERENT names is the standard pattern.
+decl @bm_inc(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @bm_inc(1);
+  ret %r;
+}

@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.3
+// Intention: call expression with nested call as argument.
+intrinsic @abs(%x: i32) : i32;
+intrinsic @min(%a: i32, %b: i32) : i32;
+fun @main(%a: i32, %b: i32) : i32 {
+^entry:
+  ret call @min(call @abs(%a), %b);
+}

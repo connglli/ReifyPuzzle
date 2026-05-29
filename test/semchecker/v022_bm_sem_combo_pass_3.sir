@@ -1,0 +1,38 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3 §9.6 §12
+// INTERP_ARGS: -I test/lib/std/scalar
+// Intention: struct via ptrfield + float arithmetic + call + intrinsic, 4 blocks.
+intrinsic @abs(%x: i32) : i32;
+
+struct @T { fx: f32; iy: i32; }
+
+fun @doub(%x: f32) : f32 { ^entry: ret %x + %x; }
+
+fun @main() : i32 {
+  let mut %s: @T = {1.5, 2};
+  let mut %ps: ptr @T = null;
+  let mut %pf: ptr f32 = null;
+  let mut %pi: ptr i32 = null;
+  let mut %v: f32 = 0.0;
+  let mut %d: f32 = 0.0;
+  let mut %i: i32 = 0;
+  let mut %ab: i32 = 0;
+  let mut %final: i32 = 0;
+^entry:
+  %ps = addr %s;
+  %pf = ptrfield %ps, fx;
+  %v = load %pf;
+  %d = call @doub(%v);
+  %pi = ptrfield %ps, iy;
+  %i = load %pi;
+  %ab = call @abs(%i);
+  br %ab > 0, ^b1, ^b2;
+^b1:
+  %final = %ab + 1;
+  %final = %final - 1;
+  %final = %final + 0;
+  ret %final;
+^b2:
+  %final = 0;
+  ret %final;
+}

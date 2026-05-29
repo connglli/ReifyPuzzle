@@ -1,0 +1,22 @@
+// EXPECT: FAIL
+// Rationale: [v0.2.2] §9.7 - Mutual recursion cycle (A -> B -> C -> A) is forbidden.
+
+fun @A(%x: i32) : i32 {
+^entry:
+  ret call @B(%x);
+}
+
+fun @B(%x: i32) : i32 {
+^entry:
+  ret call @C(%x);
+}
+
+fun @C(%x: i32) : i32 {
+^entry:
+  ret call @A(%x);
+}
+
+fun @main() : i32 {
+^entry:
+  ret call @A(0);
+}

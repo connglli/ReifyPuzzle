@@ -1,0 +1,20 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §6.3 / §2.12
+// Intention: both arms call must be rejected.
+fun @f() : i32 {
+^entry:
+  ret 1;
+}
+
+fun @g() : i32 {
+^entry:
+  ret 2;
+}
+
+fun @main() : i32 {
+  let mut %y: i32 = 0;
+  let %c: i1 = 1;
+^entry:
+  %y = select %c, call @f(), call @g();
+  ret %y;
+}

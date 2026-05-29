@@ -1,0 +1,14 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10 (result)
+// Intention: vector-returning call cannot be used in a scalar arithmetic context.
+fun @vf(%v: <4> i32) : <4> i32 {
+^entry:
+  ret %v;
+}
+
+fun @main(%v: <4> i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @vf(%v) + 1;
+  ret %r;
+}

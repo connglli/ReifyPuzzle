@@ -1,0 +1,6 @@
+// Library body for @bm_contract_target.
+// Used to test contract-vs-body exclusion across -I files.
+fun @bm_contract_target(%x: i32) : i32 {
+^entry:
+  ret %x;
+}

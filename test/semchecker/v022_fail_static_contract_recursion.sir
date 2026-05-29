@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// Rationale: [v0.2.2] §9.7 - A contract-form decl may not contain a call to itself.
+
+decl @recurse(%n: i32) : i32 {
+  pre %n > 0, "positive";
+  post ret == call @recurse(%n - 1), "recursive post";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

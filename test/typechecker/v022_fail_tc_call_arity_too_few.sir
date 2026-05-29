@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section 6.10 - Call arity mismatch (too few).
+fun @foo(%x: i32) : i32 { ^entry: ret %x; }
+fun @main() : i32 {
+  let mut %b: i32 = 0;
+^entry:
+  %b = call @foo();
+  ret 0;
+}

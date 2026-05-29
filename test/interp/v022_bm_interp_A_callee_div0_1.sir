@@ -1,0 +1,14 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §7.7 rule 24
+// Intention: callee div-by-zero propagates UB to caller.
+fun @bad() : i32 {
+  let %z: i32 = 0;
+^entry:
+  ret 100 / %z;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @bad();
+  ret %r;
+}

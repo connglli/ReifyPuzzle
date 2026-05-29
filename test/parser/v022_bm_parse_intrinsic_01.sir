@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: intrinsic over various integer widths.
+intrinsic @abs8(%x: i8) : i8;
+intrinsic @abs16(%x: i16) : i16;
+intrinsic @abs64(%x: i64) : i64;
+fun @main() : i32 { ^entry: ret 0; }

@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: fun + matching link-form decl name with body in same file - means just `fun` alone is enough.
+fun @bm_local(%x: i32) : i32 {
+^entry:
+  ret %x + 1;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @bm_local(5);
+  ret %r;
+}

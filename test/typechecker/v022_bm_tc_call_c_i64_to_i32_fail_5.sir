@@ -1,0 +1,14 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10(c)
+// Intention: i64 argument cannot be passed where i32 parameter is expected; no implicit narrowing.
+fun @f(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+
+fun @main(%a: i64) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @f(%a);
+  ret %r;
+}

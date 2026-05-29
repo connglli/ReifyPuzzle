@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.5.2
+// Intention: pass addr of let mut scalar into call.
+fun @bump(%p: ptr i32) : i32 { ^entry: ret load %p; }
+fun @main() : i32 {
+  let mut %x: i32 = 5;
+^entry:
+  ret call @bump(addr %x);
+}

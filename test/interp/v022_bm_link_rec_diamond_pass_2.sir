@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.7
+// INTERP_ARGS: -I test/tmp/bm_link_diamond
+// COMPILER_ARGS: -I test/tmp/bm_link_diamond
+// Intention: Diamond DAG (a->b, a->c, b->d, c->d) -- no cycle.
+decl @bm_diamond_a(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @bm_diamond_a(3);
+}

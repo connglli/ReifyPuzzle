@@ -1,0 +1,54 @@
+// EXPECT: PASS
+// INTERP_ARGS: -I test/lib/std/simd
+// COMPILER_ARGS: -I test/lib/std/simd
+// SPEC v0.2.2 §11.3 simd helpers
+decl @reduce_add_4_i32(%v: <4> i32) : i32;
+decl @reduce_max_4_i32(%v: <4> i32) : i32;
+decl @dot_4_i32(%a: <4> i32, %b: <4> i32) : i32;
+
+fun @triple(%x: i32) : i32 {
+^entry:
+  ret %x + %x + %x;
+}
+
+fun @main() : i32 {
+  let mut %v: <4> i32 = { 1, 2, 3, 4 };
+  let mut %w: <4> i32 = { 4, 3, 2, 1 };
+  let mut %s: i32 = 0;
+  let mut %m: i32 = 0;
+  let mut %d: i32 = 0;
+  let mut %h: i32 = 0;
+  let mut %t: i32 = 0;
+  let %z: i32 = 0;
+  let %o: i32 = 1;
+^entry:
+  %s = call @reduce_add_4_i32(%v); // 10
+  %m = call @reduce_max_4_i32(%v); // 4
+  %t = %s + %o;
+  br %s == 10, ^b1, ^bad;
+^b1:
+  %d = call @dot_4_i32(%v, %w); // 1*4+2*3+3*2+4*1=20
+  %t = %d + %z;
+  %t = %t * %o;
+  br %d == 20, ^b2, ^bad;
+^b2:
+  %h = call @triple(%m); // 12
+  %t = %h - %m;
+  %t = %t + %z;
+  br %h == 12, ^b3, ^bad;
+^b3:
+  %t = %t * %o;
+  %t = %t + %z;
+  %t = %t - %z;
+  br %t == 8, ^ok, ^bad;
+^ok:
+  %t = %t - 8;
+  %t = %t + %z;
+  %t = %t * %o;
+  ret %t;
+^bad:
+  %t = %t + %o;
+  %t = %t - %o;
+  %t = %t + %o;
+  ret 1;
+}

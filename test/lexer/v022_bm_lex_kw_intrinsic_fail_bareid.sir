@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 §3.1 - `intrinsic` reserved; cannot be a struct field name.
+struct @S { intrinsic: i32; }
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

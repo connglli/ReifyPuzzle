@@ -1,0 +1,19 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §9.6.1 step 1 - "Side effects commit unconditionally as part of evaluating the condition"
+// Intention: a call inside `assume` mutates memory; subsequent require expects the mutation
+// but we force a contradiction so the path is infeasible (require fails) - non-zero exit.
+fun @set(%p: ptr i32, %v: i32) : i32 {
+^entry:
+  store %p, %v;
+  ret %v;
+}
+fun @main() : i32 {
+  let mut %c: i32 = 0;
+  let mut %v: i32 = 0;
+^entry:
+  // After call, %c == 42; we require an impossible value to force a require failure.
+  assume call @set(addr %c, 42) == 42;
+  %v = %c;
+  require %v == 99, "intentionally unsatisfiable";
+  ret %v;
+}

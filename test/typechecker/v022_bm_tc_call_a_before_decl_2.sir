@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.10(a)
+// Intention: a call to a contract-form decl defined later in source must be rejected.
+fun @main(%a: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @abstract_op(%a);
+  ret %r;
+}
+
+decl @abstract_op(%x: i32) : i32 {
+  pre %x >= 0, "non-negative";
+  post ret == %x, "identity";
+};

@@ -1,0 +1,23 @@
+// stdlib/scalar/parity_i32 -- parity (popcount mod 2).
+//
+// Consumers add `decl @parity_i32(%x: i32) : i32;` and pass
+//   `-I test/lib/std/scalar`
+// to the tools.
+
+intrinsic @popcount(%x: i32) : i32;
+
+// parity_i32(x) -- returns 1 if x has an odd number of set bits,
+// 0 otherwise.
+//
+// Semantics:
+//   Computed as @popcount(x) AND 1. AND avoids the sign-of-dividend
+//   surprises of `%`.
+fun @parity_i32(%x: i32) : i32 {
+  let %one: i32 = 1;
+  let mut %p: i32 = 0;
+  let mut %res: i32 = 0;
+^entry:
+  %p = call @popcount(%x);
+  %res = %p & %one;
+  ret %res;
+}

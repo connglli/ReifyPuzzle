@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §9.7
+// Intention: mutual recursion rejected.
+
+fun @aa(%x: i32) : i32 { ^entry: ret call @bb(%x); }
+fun @bb(%x: i32) : i32 { ^entry: ret call @aa(%x); }
+
+fun @main() : i32 {
+^entry:
+  ret call @aa(0);
+}

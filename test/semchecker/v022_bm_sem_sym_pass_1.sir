@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.6.1
+// Intention: sym declared inside fun body, called twice.
+fun @h() : i32 {
+  sym %?k: value i32 in [0, 10];
+  let mut %y: i32 = 0;
+^entry:
+  %y = %?k + 1;
+  ret %y;
+}
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+^entry:
+  %a = call @h();
+  %b = call @h();
+  ret %a + %b;
+}

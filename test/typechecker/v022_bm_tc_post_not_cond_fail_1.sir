@@ -1,0 +1,11 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §6.11 (post)
+// Intention: post clause must be a Cond, not a bare arithmetic expression.
+decl @f() : i32 {
+  post ret + 1, "not a cond";
+};
+
+fun @main() : i32 {
+^entry:
+  ret call @f();
+}

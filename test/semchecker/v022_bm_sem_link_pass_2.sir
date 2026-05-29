@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.1
+// INTERP_ARGS: -I test/tmp/bm_lib_a
+// Intention: two link-form decls each resolving to distinct files under same -I dir.
+decl @bm_inc(%x: i32) : i32;
+decl @bm_dbl(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @bm_inc(call @bm_dbl(2));
+  ret %r;
+}

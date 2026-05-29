@@ -1,0 +1,13 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section 9.7 - A fun body may not contain a call to itself (direct recursion).
+fun @foo() : i32 {
+  let mut %a: i32 = 0;
+^entry:
+  %a = call @foo();
+  ret %a;
+}
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

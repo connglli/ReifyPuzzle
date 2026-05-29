@@ -1,0 +1,13 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §9.7
+// Intention: direct self-recursion must be rejected before lowering.
+
+fun @loopy(%x: i32) : i32 {
+^entry:
+  ret call @loopy(%x);
+}
+
+fun @main() : i32 {
+^entry:
+  ret call @loopy(0);
+}

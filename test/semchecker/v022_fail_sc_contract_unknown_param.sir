@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section 6.11 - Contract pre clause can only use parameters.
+decl @foo(%x: i32) : i32 {
+  pre %y == 0, "unknown parameter %y";
+  post ret == %x, "ok";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3
+// Intention: A `fun` may not have a contract; syntactically should fail to parse.
+fun @bm_fun_with_contract(%x: i32) : i32 {
+  pre %x >= 0, "no";
+  post ret == %x, "no";
+}

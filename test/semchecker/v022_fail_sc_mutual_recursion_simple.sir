@@ -1,0 +1,19 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section 9.7 - A fun may not participate in a cycle of calls (mutual recursion).
+fun @foo() : i32 {
+  let mut %a: i32 = 0;
+^entry:
+  %a = call @bar();
+  ret %a;
+}
+fun @bar() : i32 {
+  let mut %b: i32 = 0;
+^entry:
+  %b = call @foo();
+  ret %b;
+}
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

@@ -1,0 +1,5 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section "What's new" - contract-form decl requires braces.
+decl @foo() : i32
+  pre 1 == 1, "test";
+  post ret == 0, "test2";

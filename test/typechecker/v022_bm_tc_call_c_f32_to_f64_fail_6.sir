@@ -1,0 +1,14 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10(c)
+// Intention: f32 argument cannot be passed where f64 parameter is expected.
+fun @f(%x: f64) : f64 {
+^entry:
+  ret %x;
+}
+
+fun @main(%a: f32) : f64 {
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @f(%a);
+  ret %r;
+}

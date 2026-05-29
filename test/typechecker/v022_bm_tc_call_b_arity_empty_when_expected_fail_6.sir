@@ -1,0 +1,14 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10(b)
+// Intention: empty args () must fail when params are expected.
+fun @id(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+
+fun @main(%a: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @id();
+  ret %r;
+}

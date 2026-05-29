@@ -1,0 +1,47 @@
+// stdlib/scalar/saturating_sub_i32 -- saturating signed subtraction.
+//
+// Consumers add `decl @saturating_sub_i32(%a: i32, %b: i32) : i32;`
+// and pass `-I test/lib/std/scalar` to the tools.
+
+// saturating_sub_i32(a, b) -- a - b, clamped into [INT_MIN, INT_MAX].
+//
+// Semantics:
+//   - If b < 0 and a > INT_MAX + b (i.e. a - b would exceed INT_MAX), saturate high.
+//   - If b > 0 and a < INT_MIN + b, saturate low.
+//   - Otherwise the unguarded a - b is safe.
+fun @saturating_sub_i32(%a: i32, %b: i32) : i32 {
+  let %imax: i32 = 2147483647;
+  let %imin_near: i32 = -2147483647;
+  let %one: i32 = 1;
+  let %zero: i32 = 0;
+  let mut %imin: i32 = 0;
+  let mut %hi_lim: i32 = 0;
+  let mut %lo_lim: i32 = 0;
+  let mut %res: i32 = 0;
+^entry:
+  %imin = %imin_near - %one;
+  br %b < %zero, ^neg, ^nonneg;
+
+^neg:
+  // a - b > INT_MAX  <=>  a > INT_MAX + b (b is negative so no overflow on +)
+  %hi_lim = %imax + %b;
+  br %a > %hi_lim, ^sat_hi, ^normal;
+
+^nonneg:
+  br %b > %zero, ^pos, ^normal;
+
+^pos:
+  // a - b < INT_MIN  <=>  a < INT_MIN + b (b is positive so no overflow on +)
+  %lo_lim = %imin + %b;
+  br %a < %lo_lim, ^sat_lo, ^normal;
+
+^normal:
+  %res = %a - %b;
+  ret %res;
+
+^sat_hi:
+  ret %imax;
+
+^sat_lo:
+  ret %imin;
+}

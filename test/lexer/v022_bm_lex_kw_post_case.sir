@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 §3.1 - `Post` is not the keyword (case-sensitive).
+decl @f() : i32 { Post ret == 0; };
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

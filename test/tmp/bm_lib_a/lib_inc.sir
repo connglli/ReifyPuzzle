@@ -1,0 +1,5 @@
+// Library helper for v0.2.2 sem-check bug mining.
+fun @bm_inc(%x: i32) : i32 {
+^entry:
+  ret %x + 1;
+}

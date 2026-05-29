@@ -1,0 +1,10 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.11
+// Intention: contract with empty {} has zero post clauses.
+decl @f(%x: i32) : i32 {
+};
+
+fun @main(%a: i32) : i32 {
+^entry:
+  ret call @f(%a);
+}

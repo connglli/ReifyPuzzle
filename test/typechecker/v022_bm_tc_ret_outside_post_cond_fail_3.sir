@@ -1,0 +1,11 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.4
+// Intention: `ret` cannot appear in a br Cond in a fun body.
+fun @main(%a: i32) : i32 {
+^entry:
+  br ret > 0, ^pos, ^np;
+^pos:
+  ret 1;
+^np:
+  ret 0;
+}

@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER, COMPILER
+// Bug-mining: The linker resolver currently breaks early on the first match and fails to detect ambiguity if multiple matching bodies are found in include paths.
+// INTERP_ARGS: -I test/tmp/std_dup1 -I test/tmp/std_dup2
+// Intention: SPEC v0.2.2 Section 11.1 - If multiple bodies are found, the tool reports an ambiguity error.
+decl @ambig() : i32;
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+^entry:
+  %a = call @ambig();
+  ret %a;
+}

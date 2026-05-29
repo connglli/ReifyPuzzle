@@ -1,0 +1,6 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - Larger octal literal `0o777`.
+fun @main() : i32 {
+^entry:
+  ret 0o777;
+}

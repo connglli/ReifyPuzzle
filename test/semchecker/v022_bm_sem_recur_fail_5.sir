@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §9.7
+// Intention: self-call inside `require` condition.
+fun @r(%x: i32) : i32 {
+^entry:
+  require call @r(%x) >= 0, "self";
+  ret %x;
+}
+fun @main() : i32 { ^entry: ret 0; }

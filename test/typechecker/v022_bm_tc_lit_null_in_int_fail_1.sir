@@ -1,0 +1,12 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.12
+// Intention: `null` cannot be passed where an i32 param is expected.
+fun @f(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+
+fun @main() : i32 {
+^entry:
+  ret call @f(null);
+}

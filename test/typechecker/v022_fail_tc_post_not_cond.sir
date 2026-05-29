@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section 6.11 - Contract postcondition must be a Cond.
+decl @foo() : i32 {
+  post ret, "missing comparison";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

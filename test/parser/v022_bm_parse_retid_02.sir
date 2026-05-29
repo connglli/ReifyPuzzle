@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.4
+// Intention: `ret` used in arithmetic on RHS of cond inside post.
+decl @f(%x: i32) : i32 {
+  post ret + 1 == %x, "ret + 1 equals x";
+};
+fun @main() : i32 { ^entry: ret 0; }

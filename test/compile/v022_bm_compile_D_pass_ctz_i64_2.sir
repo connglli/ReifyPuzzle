@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: 62
+// SPEC v0.2.2 §11.5, §12
+// Intention: intrinsic @ctz at width i64, case 2.
+
+intrinsic @ctz(%x: i64) : i64;
+
+fun @main() : i64 {
+^entry:
+  ret call @ctz(4611686018427387904);
+}

@@ -1,0 +1,43 @@
+// stdlib/collections/memcpy -- memory copy.
+//
+// Consumers add `decl @memcpy(%dst: ptr i8, %src: ptr i8, %n: i32): i32;` and pass
+//   `-I test/lib/std/collections`
+// to symiri/symirc/symirsolve. The link resolver picks up this body.
+
+// memcpy(dst, src, n) -- copies n bytes from src to dst.
+//
+// Inputs:
+//   %dst : ptr i8 -- destination pointer
+//   %src : ptr i8 -- source pointer
+//   %n   : i32    -- number of bytes to copy
+//
+// Output:
+//   i32 -- returns 0 on success.
+//
+// Semantics:
+//   Iterates n times, copying bytes from src to dst.
+fun @memcpy(%dst: ptr i8, %src: ptr i8, %n: i32) : i32 {
+  let mut %i: i32 = 0;
+  let mut %val: i8 = 0;
+  let mut %d_ptr: ptr i8 = null;
+  let mut %s_ptr: ptr i8 = null;
+  let %zero: i32 = 0;
+  let %one: i32 = 1;
+^entry:
+  %i = %zero;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^loop_cond:
+  br %i < %n, ^loop_body, ^exit;
+
+^loop_body:
+  %s_ptr = %src + %i;
+  %val = load %s_ptr;
+  %d_ptr = %dst + %i;
+  store %d_ptr, %val;
+  %i = %i + %one;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^exit:
+  ret %zero;
+}

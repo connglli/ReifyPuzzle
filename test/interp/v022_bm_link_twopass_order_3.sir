@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// INTERP_ARGS: -I test/tmp/bm_link_single
+// COMPILER_ARGS: -I test/tmp/bm_link_single
+// Intention: Two-pass: link-form decl resolves even when -I file order is arbitrary.
+decl @bm_inc(%x: i32) : i32;
+decl @bm_dbl(%x: i32) : i32;
+
+fun @main() : i32 {
+  let mut %y: i32 = 0;
+  let mut %z: i32 = 0;
+^entry:
+  %y = call @bm_inc(5);
+  %z = call @bm_dbl(%y);
+  ret %z;
+}

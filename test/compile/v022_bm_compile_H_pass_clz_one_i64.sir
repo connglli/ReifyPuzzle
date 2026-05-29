@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// EXPECT_RC: 63
+// SPEC v0.2.2 §11.5
+// Intention: @clz must subtract (W-N) so leading zeros count from the N-bit MSB.
+
+intrinsic @clz(%x: i64) : i64;
+
+fun @main() : i32 {
+  let %x: i64 = 1;
+  let mut %r: i64 = 0;
+^entry:
+  %r = call @clz(%x);
+  ret %r as i32;
+}

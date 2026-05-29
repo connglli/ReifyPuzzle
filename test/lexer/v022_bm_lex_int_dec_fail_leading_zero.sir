@@ -1,0 +1,6 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - Spec `[0-9]+` allows leading zeros; `01` should lex as decimal 1.
+fun @main() : i32 {
+^entry:
+  ret 01;
+}

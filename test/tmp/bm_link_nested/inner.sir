@@ -1,0 +1,12 @@
+// inner forward: bm_nest_outer calls bm_nest_inner; inner here, outer in same file later
+fun @bm_nest_inner(%x: i32) : i32 {
+^entry:
+  ret %x + %x;
+}
+
+fun @bm_nest_outer(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @bm_nest_inner(%x);
+  ret %y + %y;
+}

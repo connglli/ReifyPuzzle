@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12, §9.6.1
+// Intention: zero-arg fun call returning a constant.
+fun @get42() : i32 {
+^entry:
+  ret 42;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let %z: i32 = 0;
+^entry:
+  %r = call @get42();
+  br %r == 42, ^ok, ^bad;
+^ok:
+  ret %z;
+^bad:
+  ret 1;
+}

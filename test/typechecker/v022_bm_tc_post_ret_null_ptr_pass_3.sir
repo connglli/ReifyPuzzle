@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.11 (post)
+// Intention: post ret != null is well-typed when return type is ptr i32.
+decl @alloc(%n: i32) : ptr i32 {
+  pre %n > 0, "positive";
+  post ret != null, "non-null";
+};
+
+fun @main(%n: i32) : ptr i32 {
+^entry:
+  ret call @alloc(%n);
+}

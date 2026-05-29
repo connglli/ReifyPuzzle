@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §12.2 - @clz(0) UB at i16
+intrinsic @clz(%x: i16) : i16;
+fun @main() : i32 {
+  let mut %r: i16 = 0;
+  let %z: i16 = 0;
+^entry:
+  %r = call @clz(%z);
+  ret 0;
+}

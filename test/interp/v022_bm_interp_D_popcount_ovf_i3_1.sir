@@ -1,0 +1,17 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// SPEC v0.2.2 §12 rule 25 - popcount result overflow in i3
+// i3 signed range is [-4, 3]; -1 is all-ones (7 in unsigned view), popcount=3, that fits.
+// Use a value with popcount=4? In i3 max bits=3 so max popcount=3. So no overflow here.
+// Instead use i4 with -1: popcount=4, signed i4 range [-8,7], 4 fits. Use i3 with -1: popcount=3, fits.
+// Actual i3 popcount can't overflow. Use a different angle: cast via narrower.
+// This file documents that popcount typically can't overflow when N >= 2 enough.
+// Use the case: popcount on i1 of any value (0 or 1) -> 0 or 1, signed i1 range -1..0; popcount(1) = 1, but i1 max signed is 0; 1 doesn't fit.
+intrinsic @popcount(%x: i1) : i1;
+fun @main() : i32 {
+  let mut %r: i1 = 0;
+  let %one: i1 = -1; // -1 is the only nonzero i1 value; popcount=1, doesn't fit in signed i1
+^entry:
+  %r = call @popcount(%one);
+  ret 0;
+}

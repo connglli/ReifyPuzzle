@@ -1,0 +1,5 @@
+fun @bm_dup_fn(%x: i32) : i32 {
+  let %ten: i32 = 10;
+^entry:
+  ret %x * %ten;
+}

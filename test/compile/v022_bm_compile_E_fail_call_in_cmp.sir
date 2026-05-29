@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §5.3 (cmp args are SelectVal which excludes call)
+// Intention: call cannot appear as a cmp argument.
+
+fun @three() : i32 { ^entry: ret 3; }
+
+fun @main() : i32 {
+  let mut %m: i1 = 0;
+^entry:
+  %m = cmp == call @three(), 3;
+  ret %m as i32;
+}

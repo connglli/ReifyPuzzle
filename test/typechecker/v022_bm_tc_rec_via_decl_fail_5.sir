@@ -1,0 +1,16 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10 / §9.7
+// Intention: a fun and a contract-form decl form a cycle: fun -> decl -> fun (no, decl has no body).
+// We approximate: a fun calls a decl which (via its contract) references a result computed via the same fun.
+// Concrete probe: self-recursion through the decl's contract using ret == call would not parse;
+// instead we test a 2-cycle where one node is a contract-form decl. Since contract decls have no callee body,
+// the static call graph for cycle detection treats them as sinks; cycles must still be checked among funs.
+// This test focuses on a contract-form decl that calls itself in a future-extension way: ret == ret.
+decl @rec_decl(%x: i32) : i32 {
+  post ret == call @rec_decl(%x), "self via contract";
+};
+
+fun @main(%a: i32) : i32 {
+^entry:
+  ret call @rec_decl(%a);
+}

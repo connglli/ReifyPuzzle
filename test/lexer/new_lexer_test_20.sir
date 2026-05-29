@@ -1,4 +1,4 @@
-// EXPECT: FAIL:ParseError
+// EXPECT: FAIL:LexError
 // Intention: Lexer error: unterminated block comment in basic block body1
 
 fun @main() : i32 {

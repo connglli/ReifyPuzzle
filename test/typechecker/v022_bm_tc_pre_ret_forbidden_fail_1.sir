@@ -1,0 +1,12 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §6.11 (pre)
+// Intention: `ret` must not appear in a pre clause.
+decl @f(%x: i32) : i32 {
+  pre ret > 0, "ret in pre";
+  post ret == %x, "ok";
+};
+
+fun @main(%a: i32) : i32 {
+^entry:
+  ret call @f(%a);
+}

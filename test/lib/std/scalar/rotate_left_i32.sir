@@ -1,0 +1,45 @@
+// stdlib/scalar/rotate_left_i32 -- 32-bit circular left rotation.
+//
+// Consumers add `decl @rotate_left_i32(%x: i32, %n: i32) : i32;` and
+// pass `-I test/lib/std/scalar` to the tools.
+
+// rotate_left_i32(x, n) -- rotate the 32-bit pattern of x left by n.
+//
+// Inputs:
+//   %x : i32
+//   %n : i32 in [0, 31]  (caller obligation; outside this range is UB
+//                        in the shift §7.1 rule 5).
+//
+// Output:
+//   i32 -- bit pattern rotated left by n positions.
+//
+// Semantics:
+//   Rotation is naturally an unsigned operation. We widen x to i64
+//   (zero-extending the low 32 bits via masking) to avoid signed-shift
+//   UB, do the rotate via two shifts + or, then truncate back to i32.
+fun @rotate_left_i32(%x: i32, %n: i32) : i32 {
+  let %thirty_two: i32 = 32;
+  let %low_mask: i64 = 4294967295;
+  let mut %x64: i64 = 0;
+  let mut %xu: i64 = 0;
+  let mut %left: i64 = 0;
+  let mut %right_amt: i32 = 0;
+  let mut %n64: i64 = 0;
+  let mut %right_amt64: i64 = 0;
+  let mut %right: i64 = 0;
+  let mut %combined: i64 = 0;
+  let mut %combined_low: i64 = 0;
+  let mut %res: i32 = 0;
+^entry:
+  %x64 = %x as i64;
+  %xu = %x64 & %low_mask;
+  %n64 = %n as i64;
+  %left = %xu << %n64;
+  %right_amt = %thirty_two - %n;
+  %right_amt64 = %right_amt as i64;
+  %right = %xu >>> %right_amt64;
+  %combined = %left | %right;
+  %combined_low = %combined & %low_mask;
+  %res = %combined_low as i32;
+  ret %res;
+}

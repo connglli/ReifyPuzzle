@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// EXPECT_RC: 100
+// Intention: SPEC v0.2.2 §5.3 - Complex expressions with call atoms.
+// Verifies that call atoms can be mixed with other atoms in an expression.
+
+fun @main() : i32 {
+^entry:
+  // 10 + 1 + 20 + 2 + 67 = 100
+  ret 10 + call @one() + 20 + call @two() + 67;
+}
+
+fun @one() : i32 { ^entry: ret 1; }
+fun @two() : i32 { ^entry: ret 2; }

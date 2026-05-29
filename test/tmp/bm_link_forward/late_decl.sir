@@ -1,0 +1,9 @@
+// Inner that calls a fn declared later via link-form decl in the same lib file.
+decl @bm_fwd_helper(%x: i32) : i32;
+
+fun @bm_fwd_caller(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @bm_fwd_helper(%x);
+  ret %y;
+}

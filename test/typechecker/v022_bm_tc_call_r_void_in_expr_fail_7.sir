@@ -1,0 +1,14 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10 (result)
+// Intention: i32-returning call assigned to a <4> i32 vector local should fail (no scalar→vector broadcast for call).
+fun @f(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+
+fun @main(%a: i32) : i32 {
+  let mut %v: <4> i32 = { 0, 0, 0, 0 };
+^entry:
+  %v = call @f(%a);
+  ret 0;
+}

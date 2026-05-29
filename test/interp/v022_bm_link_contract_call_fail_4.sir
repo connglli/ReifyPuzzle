@@ -1,0 +1,14 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// SPEC v0.2.2 §11.3
+// Intention: Contract-form decl call as let-initializer; interpreter rejects.
+decl @bm_oracle2(%x: i32) : i32 {
+  post ret >= 0, "nonneg";
+};
+
+fun @main() : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @bm_oracle2(2);
+  ret %y;
+}

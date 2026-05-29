@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12
+// Intention: call atom inside `require` condition.
+fun @flag() : i32 { ^entry: ret 1; }
+fun @main() : i32 {
+^entry:
+  require call @flag() > 0, "must be one";
+  ret 0;
+}

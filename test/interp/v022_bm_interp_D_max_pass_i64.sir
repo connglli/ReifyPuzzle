@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.1 @max at i64
+intrinsic @max(%a: i64, %b: i64) : i64;
+fun @main() : i32 {
+  let mut %r: i64 = 0;
+  let %a: i64 = 100;
+  let %b: i64 = -100;
+^entry:
+  %r = call @max(%a, %b);
+  br %r == 100, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

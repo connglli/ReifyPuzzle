@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// Intention: SPEC v0.2.2 Section 11.3 - Interpreting a contract-form decl is an error.
+decl @alloc() : i32 {
+  post ret == 0, "alloc";
+};
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+^entry:
+  %a = call @alloc();
+  ret %a;
+}

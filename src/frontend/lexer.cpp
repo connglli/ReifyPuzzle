@@ -53,15 +53,21 @@ namespace symir {
       }
       // /* comment */
       if (peek() == '/' && peek(1) == '*') {
+        SourcePos cb = pos();
         get();
         get();
+        bool closed = false;
         while (peek() != '\0') {
           if (peek() == '*' && peek(1) == '/') {
             get();
             get();
+            closed = true;
             break;
           }
           get();
+        }
+        if (!closed) {
+          throw LexError("Unterminated block comment", SourceSpan{cb, pos()});
         }
         continue;
       }
@@ -182,17 +188,53 @@ namespace symir {
         }
       }
 
+      auto isWordBoundary = [](char ch) {
+        // After a prefixed-base literal, the next character must be a
+        // non-identifier-continuation character (whitespace, punctuation,
+        // EOF). Anything that would otherwise extend an identifier is a
+        // bad-digit error for the active base.
+        return ch == '\0' || !(std::isalnum(static_cast<unsigned char>(ch)) || ch == '_');
+      };
+
       if (isHex) {
-        while (std::isxdigit(static_cast<unsigned char>(peek())))
+        std::size_t digits = 0;
+        while (std::isxdigit(static_cast<unsigned char>(peek()))) {
           num.push_back(get());
+          ++digits;
+        }
+        if (digits == 0)
+          throw LexError("Hexadecimal literal requires at least one digit", SourceSpan{b, pos()});
+        if (!isWordBoundary(peek()))
+          throw LexError(
+              std::string("Invalid digit '") + peek() + "' in hexadecimal literal",
+              SourceSpan{b, pos()}
+          );
         return make(TokenKind::IntLit, num, b, pos());
       } else if (isOct) {
-        while (peek() >= '0' && peek() <= '7')
+        std::size_t digits = 0;
+        while (peek() >= '0' && peek() <= '7') {
           num.push_back(get());
+          ++digits;
+        }
+        if (digits == 0)
+          throw LexError("Octal literal requires at least one digit", SourceSpan{b, pos()});
+        if (!isWordBoundary(peek()))
+          throw LexError(
+              std::string("Invalid digit '") + peek() + "' in octal literal", SourceSpan{b, pos()}
+          );
         return make(TokenKind::IntLit, num, b, pos());
       } else if (isBin) {
-        while (peek() == '0' || peek() == '1')
+        std::size_t digits = 0;
+        while (peek() == '0' || peek() == '1') {
           num.push_back(get());
+          ++digits;
+        }
+        if (digits == 0)
+          throw LexError("Binary literal requires at least one digit", SourceSpan{b, pos()});
+        if (!isWordBoundary(peek()))
+          throw LexError(
+              std::string("Invalid digit '") + peek() + "' in binary literal", SourceSpan{b, pos()}
+          );
         return make(TokenKind::IntLit, num, b, pos());
       }
 
@@ -204,10 +246,21 @@ namespace symir {
 
       // Fraction
       if (peek() == '.') {
+        SourcePos dotPos = pos();
         isFloat = true;
         num.push_back(get()); // '.'
-        while (std::isdigit(static_cast<unsigned char>(peek())))
+        std::size_t fracDigits = 0;
+        while (std::isdigit(static_cast<unsigned char>(peek()))) {
           num.push_back(get());
+          ++fracDigits;
+        }
+        if (fracDigits == 0) {
+          // SPEC §3.1 — FloatLit examples ("1.5", "-0.2") always show
+          // at least one fractional digit. `1.` is not a valid token.
+          throw LexError(
+              "Float literal requires at least one fractional digit", SourceSpan{b, dotPos}
+          );
+        }
       }
 
       // Exponent

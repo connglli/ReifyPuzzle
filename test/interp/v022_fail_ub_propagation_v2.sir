@@ -1,0 +1,16 @@
+// EXPECT: FAIL:UndefinedBehavior
+// Intention: SPEC v0.2.2 Section 7.7 Rule 24 - UB encountered during execution of a callee propagates.
+fun @callee(%x: i32) : i32 {
+  let %zero: i32 = 0;
+  let mut %bad: i32 = 0;
+^entry:
+  %bad = %x / %zero;
+  ret %bad;
+}
+fun @main() : i32 {
+  let %one: i32 = 1;
+  let mut %a: i32 = 0;
+^entry:
+  %a = call @callee(%one);
+  ret %a;
+}

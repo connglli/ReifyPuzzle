@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.5.2
+// Intention: addr of an array element of let mut local.
+fun @first(%p: ptr i32) : i32 { ^entry: ret load %p; }
+fun @main() : i32 {
+  let mut %arr: [4] i32 = {1, 2, 3, 4};
+^entry:
+  ret call @first(addr %arr[0]);
+}

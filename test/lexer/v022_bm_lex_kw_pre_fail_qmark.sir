@@ -1,0 +1,10 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §1 - `?` only allowed after @/%. `pre?` is illegal lexically.
+decl @f(%x: i32) : i32 {
+  pre? %x > 0;
+  post ret == %x;
+};
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

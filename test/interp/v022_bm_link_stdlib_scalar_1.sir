@@ -1,0 +1,40 @@
+// EXPECT: PASS
+// EXPECT_RC: 11
+// SPEC v0.2.2 §11.1
+// INTERP_ARGS: -I test/lib/std/scalar
+// COMPILER_ARGS: -I test/lib/std/scalar
+// Intention: Uses stdlib clamp + local helper; >=5 blocks, conditional terminators, 2 calls.
+intrinsic @abs(%x: i32) : i32;
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+decl @clamp(%x: i32, %lo: i32, %hi: i32) : i32;
+
+fun @bm_local_normalize(%x: i32) : i32 {
+  let mut %r: i32 = 0;
+  let %zero: i32 = 0;
+^entry:
+  br %x < %zero, ^neg, ^pos;
+^neg:
+  %r = call @abs(%x);
+  ret %r;
+^pos:
+  ret %x;
+}
+
+fun @main() : i32 {
+  let mut %v: i32 = -7;
+  let mut %n: i32 = 0;
+  let mut %c: i32 = 0;
+  let mut %out: i32 = 0;
+  let %lo: i32 = 0;
+  let %hi: i32 = 10;
+^entry:
+  %n = call @bm_local_normalize(%v);
+  %c = call @clamp(%n, %lo, %hi);
+  %out = %c + 4;
+  br %out > %hi, ^cap, ^keep;
+^cap:
+  ret %hi + 1;
+^keep:
+  ret %out;
+}

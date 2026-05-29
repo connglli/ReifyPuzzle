@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §7.5 rule 9
+fun @do_store(%p: ptr i32) : i32 {
+^entry:
+  store %p, 42;
+  ret 0;
+}
+fun @main() : i32 {
+  let mut %np: ptr i32 = null;
+^entry:
+  ret call @do_store(%np);
+}

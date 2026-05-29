@@ -1,0 +1,6 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.1
+// INTERP_ARGS: -I test/tmp/bm_lib_a -I test/tmp/bm_lib_recurse
+// Intention: multiple -I dirs, only one defines the target.
+decl @bm_inc(%x: i32) : i32;
+fun @main() : i32 { ^entry: ret call @bm_inc(1); }

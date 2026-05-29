@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §1 - Global symbol `@?` and local symbol `%?` in a v0.2.2 context.
+intrinsic @abs(%x: i32) : i32;
+fun @main() : i32 {
+  sym %?l: value i32;
+  let mut %x: i32 = 0;
+^entry:
+  %x = call @abs(%?l);
+  ret %x;
+}

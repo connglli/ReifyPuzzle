@@ -1,0 +1,13 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section "What's new" - Call argument types must match parameter types exactly.
+fun @foo(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+fun @main() : i32 {
+  let %a: f32 = 0.0;
+  let mut %b: i32 = 0;
+^entry:
+  %b = call @foo(%a);
+  ret %b;
+}

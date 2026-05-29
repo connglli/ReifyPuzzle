@@ -1,0 +1,35 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.6.1 step 5
+// Intention: swap two locals through pointers; caller reads back both.
+fun @swap(%a: ptr i32, %b: ptr i32) : i32 {
+  let mut %ta: i32 = 0;
+  let mut %tb: i32 = 0;
+^entry:
+  %ta = load %a;
+  %tb = load %b;
+  store %a, %tb;
+  store %b, %ta;
+  ret 0;
+}
+fun @main() : i32 {
+  let mut %x: i32 = 11;
+  let mut %y: i32 = 22;
+  let mut %vx: i32 = 0;
+  let mut %vy: i32 = 0;
+  let mut %r: i32 = 0;
+  let mut %px: ptr i32 = null;
+  let mut %py: ptr i32 = null;
+^entry:
+  %px = addr %x;
+  %py = addr %y;
+  %r = call @swap(%px, %py);
+  %vx = load %px;
+  %vy = load %py;
+  br %vx == 22, ^chk2, ^bad;
+^chk2:
+  br %vy == 11, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

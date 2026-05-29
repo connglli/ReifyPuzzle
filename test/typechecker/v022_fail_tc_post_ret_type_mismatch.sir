@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER, COMPILER
+// Bug-mining: The typechecker currently misses checking compatibility between Float and Bit-Vector in condition expressions.
+// Intention: SPEC v0.2.2 Section 6 - 'ret' in 'post' clause must have the return type declared in the decl header.
+decl @foo() : i32 {
+  post ret == 0.0, "type mismatch";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

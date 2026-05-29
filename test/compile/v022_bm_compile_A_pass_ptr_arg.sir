@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// EXPECT_RC: 7
+// SPEC v0.2.2 §11.2
+// Intention: fun call passing a pointer argument; callee mutates pointee.
+
+fun @set7(%p: ptr i32) : i32 {
+^entry:
+  store %p, 7;
+  ret 0;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %junk: i32 = 0;
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  %junk = call @set7(%p);
+  ret %x;
+}

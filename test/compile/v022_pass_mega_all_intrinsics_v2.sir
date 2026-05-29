@@ -1,0 +1,79 @@
+// EXPECT: PASS
+// COMPILER_ARGS: -I test/tmp/external_i64
+// Rationale: [v0.2.2] - Exhaustive intrinsics and compilation. Testing compilation capabilities on 5+ blocks.
+intrinsic @abs(%x: i64) : i64;
+intrinsic @min(%a: i64, %b: i64) : i64;
+intrinsic @max(%a: i64, %b: i64) : i64;
+intrinsic @clz(%x: i64) : i64;
+intrinsic @ctz(%x: i64) : i64;
+intrinsic @popcount(%x: i64) : i64;
+
+decl @external_i64_helper(%x: i64) : i64;
+
+fun @internal_i64_helper(%x: i64) : i64 {
+  let %two: i64 = 2;
+  let %one: i64 = 1;
+  let mut %y: i64 = 0;
+  let mut %z: i64 = 0;
+  let mut %res: i64 = 0;
+^entry:
+  %y = %x * %two;
+  %z = %y + %one;
+  %res = select %z > %one, %z, %one;
+  ret %res;
+}
+
+fun @main() : i64 {
+  let mut %acc: i64 = 0;
+  let %v1: i64 = -1000000;
+  let %v2: i64 = 2000000;
+  let %c1: i64 = 1;
+  let mut %abs1: i64 = 0;
+  let mut %min1: i64 = 0;
+  let mut %max1: i64 = 0;
+  let mut %clz1: i64 = 0;
+  let mut %ctz1: i64 = 0;
+  let mut %pop1: i64 = 0;
+  let mut %iret: i64 = 0;
+  let mut %ext: i64 = 0;
+  let mut %tmp: i64 = 0;
+  let mut %sub: i64 = 0;
+  let mut %ext2: i64 = 0;
+  let mut %final: i64 = 0;
+^entry:
+  %abs1 = call @abs(%v1);
+  %min1 = call @min(%abs1, %v2);
+  %max1 = call @max(%abs1, %v2);
+  %acc = %min1 + %max1;
+  br %acc > 0, ^b1, ^b2;
+
+^b1:
+  %clz1 = call @clz(%c1);
+  %ctz1 = call @ctz(%c1);
+  %pop1 = call @popcount(%c1);
+  %acc = %clz1 + %ctz1;
+  %acc = %acc + %pop1;
+  br %acc == 64, ^b3, ^b4;
+
+^b2:
+  %iret = call @internal_i64_helper(%v2);
+  %acc = %acc + %iret;
+  %acc = %acc + %c1;
+  br %acc == 0, ^b3, ^b4;
+
+^b3:
+  %ext = call @external_i64_helper(%acc);
+  %tmp = %acc + %ext;
+  %acc = %tmp * %c1;
+  br %acc > 0, ^exit, ^exit;
+
+^b4:
+  %sub = %acc - %c1;
+  %ext2 = call @external_i64_helper(%sub);
+  %acc = %ext2;
+  br %acc < 0, ^exit, ^exit;
+
+^exit:
+  %final = %acc;
+  ret %final;
+}

@@ -1,0 +1,24 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12 deep chain a->b->c
+fun @c(%x: i32) : i32 {
+^entry:
+  ret %x + 1;
+}
+fun @b(%x: i32) : i32 {
+^entry:
+  ret call @c(%x) + 10;
+}
+fun @a(%x: i32) : i32 {
+^entry:
+  ret call @b(%x) + 100;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @a(1); // 1+1+10+100=112
+  br %r == 112, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

@@ -1,0 +1,7 @@
+// EXPECT: FAIL:ParseError
+// Intention: SPEC v0.2.2 §3.1 - `*/` with no matching `/*` is invalid.
+*/
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

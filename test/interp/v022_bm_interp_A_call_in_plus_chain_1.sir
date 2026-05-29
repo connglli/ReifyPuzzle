@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.3
+// Intention: call appearing as atom inside a + chain.
+fun @two() : i32 {
+^entry:
+  ret 2;
+}
+fun @three() : i32 {
+^entry:
+  ret 3;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let %z: i32 = 0;
+^entry:
+  %r = call @two() + call @three() + 5;
+  br %r == 10, ^ok, ^bad;
+^ok:
+  ret %z;
+^bad:
+  ret 1;
+}

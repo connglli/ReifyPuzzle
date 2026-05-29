@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - No whitespace between `call` and `@` is fine (sigil starts new token).
+decl @h() : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r=call@h();
+  ret %r;
+}

@@ -1,0 +1,5 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §3.3
+// Intention: intrinsic missing return type.
+intrinsic @abs(%x: i32) : ;
+fun @main() : i32 { ^entry: ret 0; }

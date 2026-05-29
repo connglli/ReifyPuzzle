@@ -1,0 +1,49 @@
+// stdlib/collections/array_argmax_i32 -- index of the max element.
+//
+// Consumers add `decl @array_argmax_i32(%p: ptr i32, %n: i32) : i32;`
+// and pass `-I test/lib/std/collections` to the tools.
+
+// array_argmax_i32(p, n) -- index of the first occurrence of the
+// maximum element in p[0..n).
+//
+// Inputs:
+//   %p : ptr i32 -- non-null pointer to an initialized buffer.
+//   %n : i32     -- element count (n >= 1; n == 0 is UB at the first load).
+//
+// Output:
+//   i32 -- the argmax index.
+fun @array_argmax_i32(%p: ptr i32, %n: i32) : i32 {
+  let %zero: i32 = 0;
+  let %one: i32 = 1;
+  let mut %i: i32 = 0;
+  let mut %best_idx: i32 = 0;
+  let mut %best_val: i32 = 0;
+  let mut %cur: ptr i32 = null;
+  let mut %val: i32 = 0;
+^entry:
+  %cur = %p + %zero;
+  %best_val = load %cur;
+  %best_idx = %zero;
+  %i = %one;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^loop_cond:
+  br %i < %n, ^loop_body, ^exit;
+
+^loop_body:
+  %cur = %p + %i;
+  %val = load %cur;
+  br %val > %best_val, ^update, ^step;
+
+^update:
+  %best_val = %val;
+  %best_idx = %i;
+  br %zero == %zero, ^step, ^exit;
+
+^step:
+  %i = %i + %one;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^exit:
+  ret %best_idx;
+}

@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: multiple link-form decls in sequence.
+decl @a(%x: i32) : i32;
+decl @b(%x: i64) : i64;
+decl @c() : f32;
+fun @main() : i32 { ^entry: ret 0; }

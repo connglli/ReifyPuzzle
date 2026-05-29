@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 §3.1 - `@intrinsic` is a global id, not the declaration keyword.
+@intrinsic @abs(%x: i32) : i32;
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

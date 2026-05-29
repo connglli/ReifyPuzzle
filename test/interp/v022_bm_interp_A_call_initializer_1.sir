@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.5.2 AtomInit
+// Intention: call used as let initializer.
+fun @seven() : i32 {
+^entry:
+  ret 7;
+}
+fun @main() : i32 {
+  let %r: i32 = call @seven();
+  let %z: i32 = 0;
+^entry:
+  br %r == 7, ^ok, ^bad;
+^ok:
+  ret %z;
+^bad:
+  ret 1;
+}

@@ -1,0 +1,8 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §5.4 §6.11
+// Intention: pre uses ret and the unknown param %y; multiple violations.
+decl @c(%x: i32) : i32 {
+  pre ret > %y;
+  post ret == %x;
+};
+fun @main() : i32 { ^entry: ret 0; }

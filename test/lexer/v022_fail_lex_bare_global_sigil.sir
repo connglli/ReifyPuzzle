@@ -1,0 +1,3 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 Section 1 - Bare @ sigil is invalid.
+decl @() : i32;

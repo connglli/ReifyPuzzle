@@ -1,0 +1,8 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §3.1 - Raw newline inside string literal.
+decl @f() : i32 { post ret == 0, "line one
+line two"; };
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

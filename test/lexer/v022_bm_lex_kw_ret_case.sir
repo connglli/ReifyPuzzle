@@ -1,0 +1,6 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 §3.1 - `RET` is not the keyword (case-sensitive).
+fun @main() : i32 {
+^entry:
+  RET 0;
+}

@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: 4611686018427387904
+// SPEC v0.2.2 §11.5, §12
+// Intention: intrinsic @abs at width i64, case 2.
+
+intrinsic @abs(%x: i64) : i64;
+
+fun @main() : i64 {
+^entry:
+  ret call @abs(-4611686018427387904);
+}

@@ -1,0 +1,13 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.4
+// Intention: `ret` is not allowed in pre clauses.
+
+decl @bad(%x: i32) : i32 {
+  pre ret >= 0, "wrong";
+  post ret >= 0, "fine";
+};
+
+fun @main() : i32 {
+^entry:
+  ret call @bad(1);
+}

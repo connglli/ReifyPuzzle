@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.7
+// Intention: long linear chain of 6 funs.
+fun @f6(%x: i32) : i32 { ^entry: ret %x; }
+fun @f5(%x: i32) : i32 { ^entry: ret call @f6(%x); }
+fun @f4(%x: i32) : i32 { ^entry: ret call @f5(%x); }
+fun @f3(%x: i32) : i32 { ^entry: ret call @f4(%x); }
+fun @f2(%x: i32) : i32 { ^entry: ret call @f3(%x); }
+fun @f1(%x: i32) : i32 { ^entry: ret call @f2(%x); }
+fun @main() : i32 { ^entry: ret call @f1(0); }

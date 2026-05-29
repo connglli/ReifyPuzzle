@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+// SPEC v0.2.2 §11.2
+// Intention: pointer-arg contract decl lowers.
+
+decl @writer(%p: ptr i32) : i32 {
+  pre %p != null, "non-null buffer";
+  post ret == 0, "always returns zero";
+};
+
+fun @main() : i32 { ^entry: ret 0; }

@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.1 @max at i8 boundary
+intrinsic @max(%a: i8, %b: i8) : i8;
+fun @main() : i32 {
+  let mut %r: i8 = 0;
+  let %a: i8 = -128;
+  let %b: i8 = 127;
+^entry:
+  %r = call @max(%a, %b);
+  br %r == 127, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

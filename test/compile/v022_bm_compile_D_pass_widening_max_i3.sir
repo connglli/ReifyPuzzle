@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER pure compile coverage of widening-mask
+// SKIP: SOLVER pure compile coverage of widening-mask
+// SPEC v0.2.2 §11.5
+// Intention: widening-mask lowering for @max at uncommon width i3.
+
+intrinsic @max(%a: i3, %b: i3) : i3;
+
+fun @main() : i32 {
+  let %a: i3 = 1;
+  let %b: i3 = 0;
+  let mut %r: i3 = 0;
+^entry:
+  %r = call @max(%a, %b);
+  ret %r as i32;
+}

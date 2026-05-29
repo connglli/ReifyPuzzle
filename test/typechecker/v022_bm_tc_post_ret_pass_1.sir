@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.11 (post)
+// Intention: post ret > 0 references only ret (in {ret}).
+decl @f() : i32 {
+  post ret > 0, "positive result";
+};
+
+fun @main() : i32 {
+^entry:
+  ret call @f();
+}

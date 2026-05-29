@@ -1,0 +1,4 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: zero-parameter fun with empty ParamList? omitted.
+fun @main() : i32 { ^entry: ret 0; }

@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SKIP: COMPILER
+// SKIP: INTERPRETER, SOLVER
+// SPEC v0.2.2 §11.2
+// Intention: symirc compiles a contract-form decl with multiple pre/post clauses.
+decl @bm_extern_oracle2(%a: i32, %b: i32) : i32 {
+  pre %a > 0, "a pos";
+  pre %b > 0, "b pos";
+  post ret >= %a, "a ub";
+  post ret >= %b, "b ub";
+};
+
+fun @main() : i32 {
+^entry:
+  ret call @bm_extern_oracle2(2, 3);
+}

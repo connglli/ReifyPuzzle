@@ -1,0 +1,27 @@
+// stdlib/simd/reduce_add_4_f32 -- horizontal float sum across lanes.
+//
+// Consumers add `decl @reduce_add_4_f32(%v: <4> f32) : f32;` and pass
+//   `-I test/lib/std/simd`
+// to the tools.
+
+// reduce_add_4_f32(v) -- v[0] + v[1] + v[2] + v[3], summed
+// left-to-right at f32 width.
+//
+// Semantics:
+//   The float counterpart of the existing reduce_add_4_i32 helper.
+//   All intermediate sums must remain finite or the path is UB
+//   (§7.4 rule 6).
+fun @reduce_add_4_f32(%v: <4> f32) : f32 {
+  let %i0: i32 = 0;
+  let %i1: i32 = 1;
+  let %i2: i32 = 2;
+  let %i3: i32 = 3;
+  let mut %a: f32 = 0.0;
+  let mut %t: f32 = 0.0;
+^entry:
+  %t = %v[%i0]; %a = %a + %t;
+  %t = %v[%i1]; %a = %a + %t;
+  %t = %v[%i2]; %a = %a + %t;
+  %t = %v[%i3]; %a = %a + %t;
+  ret %a;
+}

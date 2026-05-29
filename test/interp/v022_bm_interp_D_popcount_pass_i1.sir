@@ -1,0 +1,15 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// SPEC v0.2.2 §12.2 @popcount at i1
+intrinsic @popcount(%x: i1) : i1;
+fun @main() : i32 {
+  let mut %r: i1 = 0;
+  let %one: i1 = 1;
+^entry:
+  %r = call @popcount(%one); // count=1, fits in i1
+  br %r == 1, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

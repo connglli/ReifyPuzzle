@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: fun declared before call in same file, simple in-order call.
+fun @helper(%x: i32) : i32 {
+^entry:
+  ret %x + 1;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @helper(10);
+  ret %r;
+}

@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.5.2
+// Intention: passing a ptr that is itself the result of a prior `addr` through a let mut local.
+fun @use_p(%p: ptr i32) : i32 { ^entry: ret load %p; }
+fun @main() : i32 {
+  let mut %x: i32 = 7;
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  ret call @use_p(%p);
+}

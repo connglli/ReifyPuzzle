@@ -1,0 +1,5 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 Section 1 - Invalid sigil character in ret variable inside postcondition.
+decl @foo() : i32 {
+  post !ret == 0, "bad ret";
+};

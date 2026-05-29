@@ -1,0 +1,13 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §4.1
+// Intention: duplicate block labels in a fun.
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = 1;
+  br %r > 0, ^a, ^a;
+^a:
+  ret 1;
+^a:
+  ret 2;
+}

@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.3
+// Intention: zero-arg call as the only atom in `ret`.
+intrinsic @get() : i32;
+fun @main() : i32 {
+^entry:
+  ret call @get();
+}

@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: 3
+// SPEC v0.2.2 §11.5, §12
+// Intention: intrinsic @popcount at width i8, case 0.
+
+intrinsic @popcount(%x: i8) : i8;
+
+fun @main() : i8 {
+^entry:
+  ret call @popcount(7);
+}

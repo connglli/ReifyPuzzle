@@ -1,0 +1,8 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.4
+// Intention: `ret` referenced in `pre` clause is forbidden.
+decl @f(%x: i32) : i32 {
+  pre ret > 0, "ret in pre - illegal";
+  post ret == %x, "id";
+};
+fun @main() : i32 { ^entry: ret 0; }

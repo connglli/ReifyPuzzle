@@ -1,0 +1,28 @@
+// Diamond DAG of calls; all 4 funs in one helper file.
+fun @bm_diamond_d(%x: i32) : i32 {
+^entry:
+  ret %x + %x;
+}
+
+fun @bm_diamond_b(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @bm_diamond_d(%x);
+  ret %y + %x;
+}
+
+fun @bm_diamond_c(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @bm_diamond_d(%x);
+  ret %y - %x;
+}
+
+fun @bm_diamond_a(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+  let mut %z: i32 = 0;
+^entry:
+  %y = call @bm_diamond_b(%x);
+  %z = call @bm_diamond_c(%x);
+  ret %y + %z;
+}

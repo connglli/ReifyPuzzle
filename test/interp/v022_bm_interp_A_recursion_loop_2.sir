@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12 + §9.7 (recursion replaced by loops)
+fun @factorial(%n: i32) : i32 {
+  let mut %i: i32 = 1;
+  let mut %acc: i32 = 1;
+  let %one: i32 = 1;
+^entry:
+  br %i <= %n, ^body, ^done;
+^body:
+  %acc = %acc * %i;
+  %i = %i + %one;
+  br %i <= %n, ^body, ^done;
+^done:
+  ret %acc;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @factorial(5); // 120
+  br %r == 120, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

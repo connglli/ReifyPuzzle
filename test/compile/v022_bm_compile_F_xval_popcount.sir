@@ -1,0 +1,5 @@
+// EXPECT: PASS
+// EXPECT_RC: 7
+// SPEC v0.2.2 §12
+intrinsic @popcount(%x: i32) : i32;
+fun @main() : i32 { ^entry: ret call @popcount(127); }

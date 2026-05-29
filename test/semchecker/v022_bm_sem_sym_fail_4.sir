@@ -1,0 +1,8 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.5.1
+// Intention: sym of pointer-to-pointer also forbidden.
+fun @main() : i32 {
+  sym %?pp: value ptr ptr i32;
+^entry:
+  ret 0;
+}

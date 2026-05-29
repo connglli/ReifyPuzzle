@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.4
+// Intention: `ret` appearing in multiple post clauses.
+decl @f(%x: i32, %y: i32) : i32 {
+  post ret >= %x, "ge x";
+  post ret >= %y, "ge y";
+};
+fun @main() : i32 { ^entry: ret 0; }

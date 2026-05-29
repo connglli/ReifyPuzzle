@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3 §11.1
+// INTERP_ARGS: -I test/tmp/bm_lib_intr_collide
+// COMPILER_ARGS: -I test/tmp/bm_lib_intr_collide
+// Intention: intrinsic in main collides with fun body found in -I path.
+intrinsic @bm_collide_abs(%x: i32) : i32;
+fun @main() : i32 {
+^entry:
+  ret call @bm_collide_abs(-3);
+}

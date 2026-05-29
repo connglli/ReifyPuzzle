@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.10(c)
+// Intention: exact <4> i32 to <4> i32 parameter match via intrinsic-like signature.
+fun @vec_sum(%v: <4> i32) : i32 { let %z: i32 = 0; ^entry: ret %z; }
+
+fun @main(%v: <4> i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @vec_sum(%v);
+  ret %r;
+}

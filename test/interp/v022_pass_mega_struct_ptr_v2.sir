@@ -1,0 +1,98 @@
+// EXPECT: PASS
+// INTERP_ARGS: -I test/tmp/external_ptr
+// COMPILER_ARGS: -I test/tmp/external_ptr
+// Intention: SPEC v0.2.2 - Exhaustive intrinsics, call logic, and struct/array pointers across 5+ blocks.
+intrinsic @abs(%x: i32) : i32;
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+intrinsic @clz(%x: i32) : i32;
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+
+struct @Data {
+  field1: i32;
+  field2: [2] i32;
+}
+
+decl @external_ptr_helper(%p: ptr i32) : i32;
+
+fun @internal_ptr_helper(%s: ptr @Data) : i32 {
+  let mut %pf: ptr i32 = null;
+  let mut %val: i32 = 0;
+  let mut %abs_val: i32 = 0;
+  let mut %pa: ptr [2] i32 = null;
+  let mut %pi: ptr i32 = null;
+^entry:
+  %pf = ptrfield %s, field1;
+  %val = load %pf;
+  %abs_val = call @abs(%val);
+  %pa = ptrfield %s, field2;
+  %pi = ptrindex %pa, 0;
+  store %pi, %abs_val;
+  ret %abs_val;
+}
+
+fun @main() : i32 {
+  let mut %s: @Data = { 0, {0, 0} };
+  let mut %acc: i32 = 0;
+  let %one: i32 = 1;
+  let mut %ps: ptr @Data = null;
+  let mut %pf: ptr i32 = null;
+  let mut %pa: ptr [2] i32 = null;
+  let mut %pi1: ptr i32 = null;
+  let mut %call1: i32 = 0;
+  let mut %read_pi1: i32 = 0;
+  let mut %clz1: i32 = 0;
+  let mut %ctz1: i32 = 0;
+  let mut %pop1: i32 = 0;
+  let mut %read_pf: i32 = 0;
+  let mut %m1: i32 = 0;
+  let mut %m2: i32 = 0;
+  let mut %ext: i32 = 0;
+  let mut %tmp: i32 = 0;
+  let mut %ext2: i32 = 0;
+  let mut %final: i32 = 0;
+^entry:
+  %ps = addr %s;
+  %pf = ptrfield %ps, field1;
+  store %pf, -42;
+  %pa = ptrfield %ps, field2;
+  %pi1 = ptrindex %pa, 1;
+  store %pi1, 1;
+  %call1 = call @internal_ptr_helper(%ps);
+  %acc = %call1;
+  br %acc > 0, ^b1, ^b2;
+
+^b1:
+  %read_pi1 = load %pi1;
+  %clz1 = call @clz(%read_pi1);
+  %ctz1 = call @ctz(%read_pi1);
+  %pop1 = call @popcount(%read_pi1);
+  %acc = %clz1 + %ctz1;
+  %acc = %acc + %pop1;
+  br %acc > 0, ^b3, ^b4;
+
+^b2:
+  %read_pf = load %pf;
+  %m1 = call @min(%read_pf, %one);
+  %m2 = call @max(%read_pf, %one);
+  %acc = %m1 + %m2;
+  br %acc == 0, ^b3, ^b4;
+
+^b3:
+  %ext = call @external_ptr_helper(%pf);
+  %acc = %acc + %ext;
+  %tmp = load %pi1;
+  %acc = %acc + %tmp;
+  br %acc == 0, ^exit, ^exit;
+
+^b4:
+  %ext2 = call @external_ptr_helper(%pi1);
+  %acc = %acc + %ext2;
+  store %pf, %acc;
+  br %acc == 0, ^exit, ^exit;
+
+^exit:
+  %final = %acc;
+  ret 0;
+}

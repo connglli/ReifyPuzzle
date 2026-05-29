@@ -1,0 +1,30 @@
+// EXPECT: PASS
+// EXPECT_RC: 100
+// Intention: SPEC v0.2.2 §12 - Intrinsics cross-validation.
+// Verifies all 6 intrinsics produce identical results in interp/compiler.
+
+intrinsic @abs(%x: i32) : i32;
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+intrinsic @clz(%x: i32) : i32;
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let %v_neg: i32 = -50;
+  let %v_pos: i32 = 25;
+^entry:
+  %r = call @abs(%v_neg);     // 50
+  %r = call @max(%r, %v_pos); // 50
+  %r = call @min(%r, 100);    // 50
+  // 50 in binary is 0...0110010
+  // clz(50) = 32 - 6 = 26
+  // ctz(50) = 1 (ends in 10)
+  // popcount(50) = 3 (bits at 32, 16, 2 set)
+  %r = %r + call @clz(50);     // 50 + 26 = 76
+  %r = %r + call @ctz(50);     // 76 + 1 = 77
+  %r = %r + call @popcount(50);// 77 + 3 = 80
+  %r = %r + 20;               // 100
+  ret %r;
+}

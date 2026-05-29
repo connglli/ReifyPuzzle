@@ -1,0 +1,26 @@
+// EXPECT: PASS
+// EXPECT_RC: 26
+// SPEC v0.2.2 §11.2
+// Intention: chained fun calls a->b->c with arg pass-through.
+
+fun @a(%x: i32) : i32 { ^entry: ret %x + 1; }
+fun @b(%x: i32) : i32 {
+  let mut %t: i32 = 0;
+  let mut %two: i32 = 2;
+^entry:
+  %t = call @a(%x);
+  ret %t * %two;
+}
+fun @c(%x: i32) : i32 {
+  let mut %t: i32 = 0;
+^entry:
+  %t = call @b(%x);
+  ret %t + 4;
+}
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @c(10);
+  ret %r;
+}

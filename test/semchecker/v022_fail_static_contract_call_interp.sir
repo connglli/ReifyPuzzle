@@ -1,0 +1,15 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER, COMPILER
+// Rationale: [v0.2.2] §11.3 - Interpreter rejects calls to contract-form decls at runtime, but statically check-only and compiler passes.
+
+decl @alloc(%size: i32) : ptr i8 {
+  pre %size > 0, "size must be positive";
+  post ret != null, "never null";
+};
+
+fun @main() : i32 {
+  let mut %p: ptr i8 = null;
+^entry:
+  %p = call @alloc(10);
+  ret 0;
+}

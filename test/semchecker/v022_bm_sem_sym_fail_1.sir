@@ -1,0 +1,8 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.5.1
+// Intention: sym of pointer type is forbidden.
+fun @main() : i32 {
+  sym %?p: value ptr i32;
+^entry:
+  ret 0;
+}

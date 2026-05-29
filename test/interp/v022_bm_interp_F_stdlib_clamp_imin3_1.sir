@@ -1,0 +1,46 @@
+// EXPECT: PASS
+// INTERP_ARGS: -I test/lib/std/scalar
+// COMPILER_ARGS: -I test/lib/std/scalar
+// SPEC v0.2.2 §11.3
+decl @clamp(%x: i32, %lo: i32, %hi: i32) : i32;
+decl @imin3(%a: i32, %b: i32, %c: i32) : i32;
+decl @imax3(%a: i32, %b: i32, %c: i32) : i32;
+
+fun @diff(%x: i32, %y: i32) : i32 {
+^entry:
+  ret %x - %y;
+}
+
+fun @main() : i32 {
+  let mut %c1: i32 = 0;
+  let mut %m1: i32 = 0;
+  let mut %m2: i32 = 0;
+  let mut %h: i32 = 0;
+  let mut %t: i32 = 0;
+  let %z: i32 = 0;
+  let %o: i32 = 1;
+^entry:
+  %c1 = call @clamp(50, 0, 10); // 10
+  %m1 = call @imin3(5, 9, 7); // 5
+  %t = %c1 + %m1;
+  br %c1 == 10, ^b1, ^bad;
+^b1:
+  %m2 = call @imax3(5, 9, 7); // 9
+  %t = %m2 - %m1; // 4
+  %t = %t + %z;
+  br %m2 == 9, ^b2, ^bad;
+^b2:
+  %h = call @diff(%m2, %m1); // 4
+  %t = %h - %t; // 0
+  %t = %t + %z;
+  br %h == 4, ^b3, ^bad;
+^b3:
+  %t = %t + %z;
+  %t = %t - %z;
+  %t = %t + %z;
+  br %t == 0, ^ok, ^bad;
+^ok:
+  ret %z;
+^bad:
+  ret %o;
+}

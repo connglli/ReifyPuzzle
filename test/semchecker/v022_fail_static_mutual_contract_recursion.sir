@@ -1,0 +1,15 @@
+// EXPECT: FAIL
+// Rationale: [v0.2.2] §9.7 - Mutual recursion between contracts is forbidden.
+
+decl @a() : i32 {
+  post ret == call @b(), "calls b";
+};
+
+decl @b() : i32 {
+  post ret == call @a(), "calls a";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

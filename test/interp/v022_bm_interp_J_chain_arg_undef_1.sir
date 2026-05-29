@@ -1,0 +1,11 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// SPEC v0.2.2 §7.1 rule 3 - undef passed into a chain
+intrinsic @abs(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %u: i32 = undef;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @abs(%u + 1); // reads undef
+  ret %r;
+}

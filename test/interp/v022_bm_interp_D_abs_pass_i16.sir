@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.1 @abs at i16
+intrinsic @abs(%x: i16) : i16;
+fun @main() : i32 {
+  let mut %r: i16 = 0;
+  let %x: i16 = -32767;
+^entry:
+  %r = call @abs(%x);
+  br %r == 32767, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

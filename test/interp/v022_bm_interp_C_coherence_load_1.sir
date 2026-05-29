@@ -1,0 +1,23 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.6.1 step 5
+// Intention: callee writes through ptr; caller re-reads via `load addr %x` and sees the new value.
+fun @set(%p: ptr i32, %v: i32) : i32 {
+^entry:
+  store %p, %v;
+  ret %v;
+}
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %got: i32 = 0;
+  let mut %r: i32 = 0;
+  let mut %px: ptr i32 = null;
+^entry:
+  %px = addr %x;
+  %r = call @set(%px, 42);
+  %got = load %px;
+  br %got == 42, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

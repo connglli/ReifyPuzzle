@@ -1,0 +1,4 @@
+// Intentionally malformed -- missing closing brace, unknown tokens.
+fun @bm_malformed(%x: i32) : i32 {
+^entry:
+  ret %x + ???

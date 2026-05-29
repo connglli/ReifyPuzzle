@@ -1,0 +1,6 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - Negative float, exponent form `-1.5e-3`.
+fun @main() : f64 {
+^entry:
+  ret -1.5e-3;
+}

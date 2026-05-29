@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.10
+// Intention: argument type mismatch (i64 passed to i32 parameter).
+fun @h(%x: i32) : i32 { ^entry: ret %x; }
+fun @main() : i32 {
+  let mut %y: i64 = 1;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @h(%y);
+  ret %r;
+}

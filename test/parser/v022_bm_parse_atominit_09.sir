@@ -1,0 +1,9 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §3.5.2
+// Intention: missing closing paren in call initialiser.
+intrinsic @abs(%x: i32) : i32;
+fun @main(%a: i32) : i32 {
+  let mut %y: i32 = call @abs(%a;
+^entry:
+  ret %y;
+}

@@ -1,0 +1,5 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3 §6.11
+// Intention: contract with empty braces.
+decl @c(%x: i32) : i32 { };
+fun @main() : i32 { ^entry: ret 0; }

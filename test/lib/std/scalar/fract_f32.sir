@@ -1,0 +1,25 @@
+// stdlib/scalar/fract_f32 -- fractional part of a float.
+//
+// Consumers add `decl @fract_f32(%x: f32) : f32;` and pass
+//   `-I test/lib/std/scalar`
+// to the tools.
+
+// fract_f32(x) -- x - trunc(x), where trunc rounds toward zero.
+//
+// Caller obligations:
+//   - |x| < 2^31. The implementation truncates via an i32 round-trip,
+//     and float-to-integer out-of-range is UB (§7.4 rule 8).
+//   - x finite (per the global SymIR FP domain).
+//
+// Output:
+//   f32 in (-1, 1). Same sign as x (or zero).
+fun @fract_f32(%x: f32) : f32 {
+  let mut %trunc_i: i32 = 0;
+  let mut %trunc_f: f32 = 0.0;
+  let mut %res: f32 = 0.0;
+^entry:
+  %trunc_i = %x as i32;
+  %trunc_f = %trunc_i as f32;
+  %res = %x - %trunc_f;
+  ret %res;
+}

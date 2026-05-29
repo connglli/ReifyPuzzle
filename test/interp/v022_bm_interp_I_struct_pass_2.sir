@@ -1,0 +1,31 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12 callee mutates struct field through pointer
+struct @Box { a: i32; b: i32; c: i32; }
+
+fun @bump(%p: ptr @Box) : i32 {
+  let mut %fb: ptr i32 = null;
+  let mut %v: i32 = 0;
+^entry:
+  %fb = ptrfield %p, b;
+  %v = load %fb;
+  %v = %v + 100;
+  store %fb, %v;
+  ret %v;
+}
+fun @main() : i32 {
+  let mut %bx: @Box = { 1, 2, 3 };
+  let mut %r: i32 = 0;
+  let mut %fb: ptr i32 = null;
+  let mut %got: i32 = 0;
+  let mut %pbx: ptr @Box = null;
+^entry:
+  %pbx = addr %bx;
+  %r = call @bump(%pbx);
+  %fb = ptrfield %pbx, b;
+  %got = load %fb;
+  br %got == 102, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

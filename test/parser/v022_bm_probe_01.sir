@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.5.2
+// Intention: probe `let mut` of vector type initialised by call
+fun @gen() : <4> i32 { let mut %z: <4> i32 = {0,0,0,0}; ^entry: ret %z; }
+fun @main() : i32 {
+  let mut %v: <4> i32 = call @gen();
+^entry:
+  ret 0;
+}

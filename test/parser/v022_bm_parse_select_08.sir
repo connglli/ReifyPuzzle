@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §5.3
+// Intention: cond-form select where cond is a plain Expr (non-Cond) per grammar.
+fun @main(%a: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = select %a, 1, 2;
+  ret %y;
+}

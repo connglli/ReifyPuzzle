@@ -1,0 +1,66 @@
+// EXPECT: PASS
+// EXPECT_RC: 72
+// INTERP_ARGS: -I test/lib/std/simd
+// COMPILER_ARGS: -I test/lib/std/simd
+// Intention: SPEC v0.2.2 - Mega xval test 17 (SIMD)
+
+intrinsic @abs(%x: i32) : i32;
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+intrinsic @clz(%x: i32) : i32;
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+
+decl @reduce_add_4_i32(%v: <4> i32) : i32;
+decl @reverse_4_i32(%v: <4> i32) : <4> i32;
+
+fun @internal_simd(%v: <4> i32) : <4> i32 {
+  let %two: <4> i32 = { 2, 2, 2, 2 };
+  let mut %res: <4> i32 = { 0, 0, 0, 0 };
+^entry:
+  %res = %v * %two;
+  ret %res;
+}
+
+fun @main() : i32 {
+  let mut %vec: <4> i32 = { 3, 10, 2, 4 };
+  let mut %acc: i32 = 0;
+  let mut %vec2: <4> i32 = undef;
+  let mut %r: i32 = 0;
+  let mut %p: i32 = 0;
+  let %one: i32 = 1;
+^entry:
+  %vec2 = call @internal_simd(%vec);
+  %vec = call @reverse_4_i32(%vec2);
+  %acc = call @reduce_add_4_i32(%vec);
+  br %acc > 0, ^b1, ^b2;
+
+^b1:
+  %r = call @abs(%acc);
+  %acc = call @max(%r, 10);
+  %acc = %acc + %one;
+  br %one == %one, ^b3, ^b4;
+
+^b2:
+  %r = call @min(%acc, 0);
+  %acc = %acc + %r;
+  %acc = %acc * %one;
+  br %one == %one, ^b3, ^b4;
+
+^b3:
+  %p = call @clz(2);
+  %acc = %acc + %p;
+  %p = call @popcount(7);
+  %acc = %acc + %p;
+  br %one == %one, ^exit, ^exit;
+
+^b4:
+  %p = call @ctz(8);
+  %acc = %acc + %p;
+  %acc = %acc + %one;
+  %acc = %acc - %one;
+  br %one == %one, ^exit, ^exit;
+
+^exit:
+  ret %acc;
+}

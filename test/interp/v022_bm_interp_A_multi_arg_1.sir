@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12
+// Intention: multi-arg fun call with mixed integer types.
+fun @sum4(%a: i32, %b: i32, %c: i32, %d: i32) : i32 {
+^entry:
+  ret %a + %b + %c + %d;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let %z: i32 = 0;
+^entry:
+  %r = call @sum4(1, 2, 3, 4);
+  br %r == 10, ^ok, ^bad;
+^ok:
+  ret %z;
+^bad:
+  ret 1;
+}

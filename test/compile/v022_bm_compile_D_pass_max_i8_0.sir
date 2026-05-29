@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: 3
+// SPEC v0.2.2 §11.5, §12
+// Intention: intrinsic @max at width i8, case 0.
+
+intrinsic @max(%a: i8, %b: i8) : i8;
+
+fun @main() : i8 {
+^entry:
+  ret call @max(3, -7);
+}

@@ -1,0 +1,14 @@
+// EXPECT: FAIL
+// COMPILER_ARGS: -I test/lib/std/scalar
+// SPEC v0.2.2 §3.3
+// Intention: contract and body for same name is exclusive.
+
+decl @gcd(%a: i32, %b: i32) : i32 {
+  pre %a > 0, "pos";
+  post ret > 0, "pos";
+};
+
+fun @main() : i32 {
+^entry:
+  ret call @gcd(2, 4);
+}

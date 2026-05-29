@@ -1,0 +1,8 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §3.3
+// Intention: intrinsic with contract block (only `decl` can have contracts).
+intrinsic @abs(%x: i32) : i32 {
+  pre %x > 0, "positive";
+  post ret == %x, "id";
+};
+fun @main() : i32 { ^entry: ret 0; }

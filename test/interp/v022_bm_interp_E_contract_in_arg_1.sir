@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// SPEC v0.2.2 §11.3 - contract decl called as nested arg
+decl @ora() : i32 { post ret == 1, "one"; };
+fun @id(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+fun @main() : i32 {
+^entry:
+  ret call @id(call @ora()); // inner contract call rejected
+}

@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.10(b)
+// Intention: zero-arg function called with empty parens is well-typed.
+fun @get_zero() : i32 {
+^entry:
+  ret 0;
+}
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @get_zero();
+  ret %r;
+}

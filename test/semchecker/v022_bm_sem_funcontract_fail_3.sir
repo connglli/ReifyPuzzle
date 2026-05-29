@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3
+// Intention: fun with both pre and post clauses.
+fun @f(%x: i32) : i32 {
+  pre %x > 0;
+  post ret > 0;
+^entry:
+  ret %x;
+}
+fun @main() : i32 { ^entry: ret 0; }

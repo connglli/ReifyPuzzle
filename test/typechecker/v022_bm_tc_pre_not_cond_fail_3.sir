@@ -1,0 +1,12 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §6.11 (pre)
+// Intention: pre clause must be a Cond (relational), not a bare arithmetic expression.
+decl @f(%x: i32) : i32 {
+  pre %x + 1, "not a cond";
+  post ret == %x, "ok";
+};
+
+fun @main(%a: i32) : i32 {
+^entry:
+  ret call @f(%a);
+}

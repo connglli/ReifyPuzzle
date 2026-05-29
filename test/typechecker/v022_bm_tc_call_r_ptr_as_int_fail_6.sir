@@ -1,0 +1,15 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10 (result)
+// Intention: pointer-returning call cannot be assigned to an integer local.
+fun @pf(%p: ptr i32) : ptr i32 {
+^entry:
+  ret %p;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 7;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @pf(addr %x);
+  ret %r;
+}

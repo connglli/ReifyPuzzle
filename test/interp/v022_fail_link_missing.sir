@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// Rationale: [v0.2.2] §11.1 - Link error if no body found for link-form decl.
+
+decl @missing_helper() : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @missing_helper();
+}

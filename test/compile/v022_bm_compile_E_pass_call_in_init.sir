@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// EXPECT_RC: 42
+// SPEC v0.2.2 §3.5.2
+// Intention: call atom as initializer.
+
+fun @make() : i32 { ^entry: ret 42; }
+
+fun @main() : i32 {
+  let %x: i32 = call @make();
+^entry:
+  ret %x;
+}

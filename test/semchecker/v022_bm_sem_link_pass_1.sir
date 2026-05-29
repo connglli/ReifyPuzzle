@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3 §11.1
+// INTERP_ARGS: -I test/tmp/bm_lib_a
+// Intention: link-form decl resolves to fun in -I dir.
+decl @bm_inc(%x: i32) : i32;
+fun @main() : i32 {
+^entry:
+  ret call @bm_inc(0);
+}

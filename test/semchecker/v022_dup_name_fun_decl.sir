@@ -1,4 +1,4 @@
-// EXPECT: FAIL
+// EXPECT: PASS
 // [v0.2.2] §3.3: `fun` and `decl` with the same name are mutually exclusive.
 decl @helper(%x: i32) : i32;
 fun @helper(%x: i32) : i32 {

@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SKIP: COMPILER
+// SKIP: INTERPRETER, SOLVER
+// SPEC v0.2.2 §11.2
+// Intention: symirc compiles ptr-returning contract-form decl.
+decl @bm_extern_alloc(%n: i32) : ptr i32 {
+  pre %n > 0, "pos";
+  post ret != null, "non null";
+};
+
+fun @main() : i32 {
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = call @bm_extern_alloc(8);
+  ret 0;
+}

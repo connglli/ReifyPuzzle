@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.3
+// Intention: contract decl with vector return; not called.
+decl @vec_oracle(%a: <4> i32) : <4> i32 {
+  post ret[0] == %a[0], "lane0";
+};
+fun @main() : i32 {
+  let mut %v: <4> i32 = { 1, 2, 3, 4 };
+  let mut %s: i32 = 0;
+^entry:
+  %s = %v[0] + %v[1];
+  ret %s - 3;
+}

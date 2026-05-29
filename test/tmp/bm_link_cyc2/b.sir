@@ -1,0 +1,9 @@
+// cycle b->a in dir2
+decl @bm_cyc_a(%x: i32) : i32;
+
+fun @bm_cyc_b(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @bm_cyc_a(%x);
+  ret %y;
+}

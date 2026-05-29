@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section \"Intrinsics\" - intrinsics cannot have a body.
+intrinsic @abs(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

@@ -1,0 +1,12 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.11 (pre)
+// Intention: vector-typed param compared to scalar `0` should fail typing of the Cond.
+decl @f(%v: <4> i32) : i32 {
+  pre %v > 0, "vec vs scalar";
+  post ret == 0, "ok";
+};
+
+fun @main(%v: <4> i32) : i32 {
+^entry:
+  ret call @f(%v);
+}

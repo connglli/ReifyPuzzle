@@ -1,0 +1,41 @@
+// EXPECT: PASS
+// EXPECT_RC: 99
+// Intention: SPEC v0.2.2 §6.10, §6.8.10 - Cross-validation of pointer-to-struct calls.
+// Verifies that a function can correctly modify a struct via pointer.
+
+struct @State {
+  val: i32;
+  count: i32;
+}
+
+fun @update(%s: ptr @State, %inc: i32) : i32 {
+  let mut %p: ptr i32 = null;
+  let mut %v: i32 = 0;
+^entry:
+  %p = ptrfield %s, val;
+  %v = load %p;
+  %v = %v + %inc;
+  store %p, %v;
+
+  %p = ptrfield %s, count;
+  %v = load %p;
+  %v = %v + 1;
+  store %p, %v;
+
+  ret 0;
+}
+
+fun @main() : i32 {
+  let mut %st: @State = { 10, 0 };
+  let mut %p_st: ptr @State = null;
+  let mut %p_val: ptr i32 = null;
+  let mut %res: i32 = 0;
+^entry:
+  %p_st = addr %st;
+  %res = call @update(%p_st, 88);
+  %res = call @update(%p_st, 1);
+
+  %p_val = ptrfield %p_st, val;
+  %res = load %p_val; // 10 + 88 + 1 = 99
+  ret %res;
+}

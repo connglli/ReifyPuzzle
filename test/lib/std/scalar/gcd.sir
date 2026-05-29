@@ -1,0 +1,41 @@
+// stdlib/scalar/gcd -- greatest common divisor.
+//
+// Consumers add `decl @gcd(%a: i32, %b: i32): i32;` and pass
+//   `-I test/lib/std/scalar`
+// to symiri/symirc/symirsolve. The link resolver picks up this body.
+
+// gcd(a, b) -- returns the greatest common divisor of a and b using the Euclidean algorithm.
+//
+// Inputs:
+//   %a : i32
+//   %b : i32
+//
+// Output:
+//   i32 -- the GCD of a and b.
+//
+// Semantics:
+//   Uses the standard iterative Euclidean algorithm.
+fun @gcd(%a: i32, %b: i32) : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+  let mut %temp: i32 = 0;
+  let mut %rem: i32 = 0;
+  let %zero: i32 = 0;
+^entry:
+  %x = %a;
+  %y = %b;
+  br %y != %zero, ^loop_cond, ^exit;
+
+^loop_cond:
+  %temp = %y;
+  br %temp != %zero, ^loop_body, ^exit;
+
+^loop_body:
+  %rem = %x % %temp;
+  %x = %temp;
+  %y = %rem;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^exit:
+  ret %x;
+}

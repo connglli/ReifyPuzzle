@@ -1,0 +1,10 @@
+// stdlib/type/int_max_i8 -- maximum signed value of i8 (127).
+//
+// Consumers add `decl @int_max_i8() : i8;` and pass
+//   `-I test/lib/std/type`
+// to symiri/symirc/symirsolve. The link resolver picks up this body.
+fun @int_max_i8() : i8 {
+  let %v: i8 = 127;
+^entry:
+  ret %v;
+}

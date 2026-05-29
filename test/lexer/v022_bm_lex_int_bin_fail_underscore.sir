@@ -1,0 +1,6 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §3.1 - `0b_10` underscore not in binary spec.
+fun @main() : i32 {
+^entry:
+  ret 0b_10;
+}

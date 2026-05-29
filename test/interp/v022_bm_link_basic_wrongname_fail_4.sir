@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// SPEC v0.2.2 §11.1
+// INTERP_ARGS: -I test/tmp/bm_link_single
+// Intention: Name not present in any -I file -> unresolvable.
+decl @bm_no_such_function_anywhere(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @bm_no_such_function_anywhere(1);
+}

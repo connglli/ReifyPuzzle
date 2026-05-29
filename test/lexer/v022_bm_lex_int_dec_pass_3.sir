@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - Negative decimal in call argument context.
+decl @id(%x: i32) : i32 { post ret == %x; };
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @id(-42);
+  ret %r;
+}

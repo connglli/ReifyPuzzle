@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3 §6.10
+// Intention: call to a function that is never declared anywhere (top-level catch).
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @nope();
+  ret %r;
+}

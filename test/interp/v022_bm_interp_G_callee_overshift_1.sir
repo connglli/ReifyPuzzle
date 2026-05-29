@@ -1,0 +1,12 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SPEC v0.2.2 §7.7 rule 24 + rule 5 (overshift)
+fun @ovsh() : i32 {
+  let %x: i32 = 1;
+  let %n: i32 = 100;
+^entry:
+  ret %x << %n;
+}
+fun @main() : i32 {
+^entry:
+  ret call @ovsh();
+}

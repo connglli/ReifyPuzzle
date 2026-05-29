@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §5.3
+// Intention: zero-arg call needs `()`.
+
+fun @one() : i32 { ^entry: ret 1; }
+
+fun @main() : i32 {
+^entry:
+  ret call @one;
+}

@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.2
+// SKIP: INTERPRETER contract-only decl rejected by interp
+// SKIP: SOLVER pure compile coverage
+// Intention: contract-form decl lowers to extern + structured comment.
+
+decl @oracle(%x: i32) : i32 {
+  pre %x >= 0, "non-negative";
+  post ret >= %x, "monotone";
+};
+
+fun @main() : i32 { ^entry: ret 0; }

@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §9.7
+// Intention: direct self-recursion via call in expression.
+fun @r(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @r(%x);
+  ret %y;
+}
+fun @main() : i32 { ^entry: ret 0; }

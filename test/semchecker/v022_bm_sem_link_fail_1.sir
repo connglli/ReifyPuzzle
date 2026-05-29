@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.1
+// Intention: link-form decl with NO matching body in any -I path (no -I provided).
+decl @missing_body(%x: i32) : i32;
+fun @main() : i32 {
+^entry:
+  ret call @missing_body(1);
+}

@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.5
+// Intention: immutable let initialized via call (one-shot, no later assignment).
+fun @h(%x: i32) : i32 { ^entry: ret %x * %x; }
+fun @main() : i32 {
+  let %y: i32 = call @h(3);
+^entry:
+  ret %y;
+}

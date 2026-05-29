@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.3
+// Intention: call expression used directly as terminator `ret` value.
+fun @h(%x: i32) : i32 { ^entry: ret %x + 1; }
+fun @main() : i32 {
+^entry:
+  ret call @h(10);
+}

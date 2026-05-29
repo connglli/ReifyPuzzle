@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section 6.11 - ret type mismatch in post (int vs struct).
+struct @S { x: i32; }
+decl @foo() : i32 {
+  post ret == {0}, "type mismatch: ret is i32, {0} is @S";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

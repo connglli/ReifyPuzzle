@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - Multiple `decl`s in sequence; lexer must reset after each `;`.
+decl @a() : i32;
+decl @b() : i32;
+decl @c(%x: i32) : i32;
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

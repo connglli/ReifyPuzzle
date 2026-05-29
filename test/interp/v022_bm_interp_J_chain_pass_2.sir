@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12
+intrinsic @max(%a: i32, %b: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @max(call @popcount(15), call @popcount(7)); // 4, 3 -> 4
+  br %r == 4, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section 6.11 - Contract precondition must be a Cond.
+decl @foo(%x: i32) : i32 {
+  pre %x, "missing comparison";
+  post ret == %x, "ok";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

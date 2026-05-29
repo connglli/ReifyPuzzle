@@ -1,0 +1,28 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12 nested struct fields via callee
+struct @Inner { a: i32; b: i32; }
+struct @Outer { p: @Inner; q: i32; }
+
+fun @sum_inner(%p: ptr @Inner) : i32 {
+  let mut %fa: ptr i32 = null;
+  let mut %fb: ptr i32 = null;
+^entry:
+  %fa = ptrfield %p, a;
+  %fb = ptrfield %p, b;
+  ret load %fa + load %fb;
+}
+fun @main() : i32 {
+  let mut %o: @Outer = { { 10, 20 }, 99 };
+  let mut %pi: ptr @Inner = null;
+  let mut %s: i32 = 0;
+  let mut %po: ptr @Outer = null;
+^entry:
+  %po = addr %o;
+  %pi = ptrfield %po, p;
+  %s = call @sum_inner(%pi);
+  br %s == 30, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

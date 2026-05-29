@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.3
+// Intention: standalone call as RHS of assignment.
+intrinsic @abs(%x: i32) : i32;
+fun @main(%a: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @abs(%a);
+  ret %y;
+}

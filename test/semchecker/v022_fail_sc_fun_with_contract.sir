@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section "What's new" - A fun may never have a contract.
+fun @foo() : i32 {
+  post ret == 0, "bad";
+^entry:
+  ret 0;
+}
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

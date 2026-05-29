@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3
+// INTERP_ARGS: -I test/tmp/bm_lib_contract_body
+// COMPILER_ARGS: -I test/tmp/bm_lib_contract_body
+// Intention: decl-contract in main + fun body found via -I.
+decl @bm_contract_target(%x: i32) : i32 { post ret == %x; };
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @bm_contract_target(3);
+  ret %r;
+}

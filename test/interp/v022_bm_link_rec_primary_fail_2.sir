@@ -1,0 +1,18 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// SPEC v0.2.2 §9.7
+// INTERP_ARGS: -I test/tmp/bm_link_single
+// Intention: Cycle spanning primary + -I. Primary calls @bm_inc which (in this hypothetical) is patched to call back -- here the cycle is induced by a local fn that recurses through a library symbol.
+decl @bm_inc(%x: i32) : i32;
+
+fun @bm_rec_local(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @bm_rec_local(%x);
+  ret %y;
+}
+
+fun @main() : i32 {
+^entry:
+  ret call @bm_rec_local(1);
+}

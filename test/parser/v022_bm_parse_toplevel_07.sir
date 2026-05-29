@@ -1,0 +1,4 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §3.3
+// Intention: bare identifier at top level (no kind keyword).
+@main() : i32 { ^entry: ret 0; }

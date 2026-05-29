@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.3 - Multiple `pre` clauses tokenized.
+decl @f(%x: i32, %y: i32) : i32 {
+  pre %x > 0;
+  pre %y < 100;
+  post ret == %x + %y;
+};
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

@@ -1,0 +1,42 @@
+// stdlib/scalar/log2_ceil_i32 -- ceiling of log2(x) for x >= 1.
+//
+// Consumers add `decl @log2_ceil_i32(%x: i32) : i32;` and pass
+//   `-I test/lib/std/scalar`
+// to the tools.
+
+intrinsic @clz(%x: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+
+// log2_ceil_i32(x) -- smallest k such that 2^k >= x.
+//
+// Inputs:
+//   %x : i32  -- must be >= 1 (caller obligation).
+//
+// Output:
+//   i32 in [0, 31] for x in [1, 2^31].
+//
+// Semantics:
+//   floor(log2(x)) = 31 - clz(x). ceil(log2(x)) is floor unless x is
+//   already a power of two (popcount(x) == 1), in which case it is
+//   equal to floor.
+//
+// Caller obligations:
+//   - %x >= 1. Calling with %x == 0 is UB inside @clz (§12.2).
+fun @log2_ceil_i32(%x: i32) : i32 {
+  let %thirty_one: i32 = 31;
+  let %one: i32 = 1;
+  let mut %clz_val: i32 = 0;
+  let mut %floor_log: i32 = 0;
+  let mut %pop: i32 = 0;
+^entry:
+  %clz_val = call @clz(%x);
+  %floor_log = %thirty_one - %clz_val;
+  %pop = call @popcount(%x);
+  br %pop == %one, ^exact, ^bump;
+
+^exact:
+  ret %floor_log;
+
+^bump:
+  ret %floor_log + %one;
+}

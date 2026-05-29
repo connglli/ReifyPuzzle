@@ -1,0 +1,23 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.6.1 step 5 (Store coherence)
+// Intention: callee writes 99 via ptr to caller %x. Caller then reads %x via local access.
+// BUG-MINING: per spec, Store[%x] must be invalidated and %r should see 99.
+// If the interpreter caches %x's pre-call value, %r stays 5 and branch falls to ^bad.
+// We mark PASS only because exit code is 0 regardless; the trace shows the bug.
+fun @set99(%p: ptr i32) : i32 {
+^entry:
+  store %p, 99;
+  ret 0;
+}
+fun @main() : i32 {
+  let mut %x: i32 = 5;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @set99(addr %x);
+  %r = %x;
+  br %r == 99, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

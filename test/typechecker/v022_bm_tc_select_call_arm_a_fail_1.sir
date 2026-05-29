@@ -1,0 +1,15 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §6.3 / §2.12
+// Intention: SelectVal excludes `call`; call in arm a must be rejected.
+fun @f() : i32 {
+^entry:
+  ret 1;
+}
+
+fun @main(%a: i32) : i32 {
+  let mut %y: i32 = 0;
+  let %c: i1 = 1;
+^entry:
+  %y = select %c, call @f(), 0;
+  ret %y;
+}

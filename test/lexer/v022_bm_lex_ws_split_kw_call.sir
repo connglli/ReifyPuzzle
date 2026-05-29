@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 §3.1 - `cal l @h()` splits the keyword; lexer tokenizes as two idents.
+decl @h() : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = cal l @h();
+  ret %r;
+}

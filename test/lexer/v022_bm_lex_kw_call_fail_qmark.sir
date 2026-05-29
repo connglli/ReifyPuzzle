@@ -1,0 +1,9 @@
+// EXPECT: FAIL:ParseError
+// Intention: SPEC v0.2.2 §1 - `?` only allowed after @ or %. `@?call` is lexically a global symbol, but using it in call position should reject.
+decl @helper() : i32;
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+^entry:
+  %x = call @?helper();
+  ret %x;
+}

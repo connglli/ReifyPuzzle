@@ -1,0 +1,6 @@
+// EXPECT: FAIL:ParseError
+// Intention: SPEC v0.2.2 §3.1 - `1x2` is not a valid literal (no such base).
+fun @main() : i32 {
+^entry:
+  ret 1x2;
+}

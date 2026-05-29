@@ -1,0 +1,79 @@
+// EXPECT: PASS
+// EXPECT_RC: 67
+// INTERP_ARGS: -I test/lib/std/scalar
+// COMPILER_ARGS: -I test/lib/std/scalar
+// Intention: SPEC v0.2.2 - Mega xval test 04 (Math & Scalar)
+
+intrinsic @abs(%x: i32) : i32;
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+intrinsic @clz(%x: i32) : i32;
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+
+decl @gcd(%a: i32, %b: i32) : i32;
+decl @clamp(%x: i32, %lo: i32, %hi: i32) : i32;
+decl @avg_safe(%a: i32, %b: i32) : i32;
+decl @sign(%x: i32) : i32;
+
+fun @internal_helper(%x: i32, %y: i32) : i32 {
+  let mut %t1: i32 = 0;
+  let mut %t2: i32 = 0;
+  let mut %res: i32 = 0;
+^entry:
+  %t1 = call @gcd(%x, %y);
+  %t2 = call @avg_safe(%x, %y);
+  %res = %t1 + %t2;
+  ret %res;
+}
+
+fun @main() : i32 {
+  let mut %acc: i32 = 0;
+  let %v1: i32 = 12;
+  let %v2: i32 = 25;
+  let %v3: i32 = 8;
+  let %one: i32 = 1;
+  let %zero: i32 = 0;
+  let mut %t1: i32 = 0;
+  let mut %t2: i32 = 0;
+  let mut %c: i32 = 0;
+  let mut %t: i32 = 0;
+  let mut %p: i32 = 0;
+  let mut %s: i32 = 0;
+  let mut %cl: i32 = 0;
+^entry:
+  %acc = call @internal_helper(%v1, %v2);
+  %t1 = call @abs(%v3);
+  %acc = %acc + %t1;
+  br %acc > %zero, ^b1, ^b2;
+
+^b1:
+  %t1 = call @min(%acc, %v1);
+  %t2 = call @max(%acc, %v2);
+  %acc = %acc + %t1;
+  %acc = %acc + %t2;
+  br %acc != %zero, ^b3, ^b4;
+
+^b2:
+  %c = call @clz(%v1);
+  %t = call @ctz(%v2);
+  %p = call @popcount(%v3);
+  %acc = %c + %t;
+  %acc = %acc + %p;
+  br %one == %one, ^b3, ^b4;
+
+^b3:
+  %s = call @sign(%acc);
+  %cl = call @clamp(%acc, 0, 100);
+  %acc = %cl + %s;
+  br %one == %one, ^exit, ^exit;
+
+^b4:
+  %acc = %acc + %one;
+  %acc = %acc * %one;
+  %acc = %acc - %zero;
+  br %one == %one, ^exit, ^exit;
+
+^exit:
+  ret %acc;
+}

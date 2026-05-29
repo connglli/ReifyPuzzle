@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// EXPECT_RC: 9
+// COMPILER_ARGS: -I test/lib/std/scalar
+// INTERP_ARGS: -I test/lib/std/scalar
+// SPEC v0.2.2 §11.2
+// Intention: multiple link-form decls in same file.
+
+decl @gcd(%a: i32, %b: i32) : i32;
+decl @clamp(%x: i32, %lo: i32, %hi: i32) : i32;
+
+fun @main() : i32 {
+  let mut %g: i32 = 0;
+^entry:
+  %g = call @gcd(36, 24);
+  ret call @clamp(%g, 5, 9);
+}

@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: contract with rationale strings omitted (StringLit is optional).
+decl @h(%x: i32) : i32 {
+  pre %x > 0;
+  post ret == %x;
+};
+fun @main() : i32 { ^entry: ret 0; }

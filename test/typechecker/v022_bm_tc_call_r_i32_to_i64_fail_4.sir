@@ -1,0 +1,14 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10 (result)
+// Intention: i32-returning call cannot be assigned to i64 local without explicit cast.
+fun @f(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+
+fun @main(%a: i32) : i64 {
+  let mut %r: i64 = 0;
+^entry:
+  %r = call @f(%a);
+  ret %r;
+}

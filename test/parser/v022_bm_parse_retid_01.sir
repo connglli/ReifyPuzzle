@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.4
+// Intention: `ret` referenced in post clause as the return value.
+decl @f(%x: i32) : i32 {
+  post ret == %x, "identity";
+};
+fun @main() : i32 { ^entry: ret 0; }

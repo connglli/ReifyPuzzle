@@ -1,0 +1,7 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §4.1
+// Intention: `ret ret;` -- `ret` keyword not valid as expression identifier outside post clauses.
+fun @main() : i32 {
+^entry:
+  ret ret;
+}

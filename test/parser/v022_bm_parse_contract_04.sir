@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: contract with pointer parameter and `ret` of pointer type in post.
+decl @alloc(%n: i32) : ptr i32 {
+  pre %n > 0, "size positive";
+  post ret != null, "non-null";
+};
+fun @main() : i32 { ^entry: ret 0; }

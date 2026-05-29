@@ -1,0 +1,45 @@
+// stdlib/collections/array_reverse_i32 -- in-place reverse via pointers.
+//
+// Consumers add `decl @array_reverse_i32(%p: ptr i32, %n: i32) : i32;`
+// and pass `-I test/lib/std/collections` to the tools.
+
+// array_reverse_i32(p, n) -- swap p[i] and p[n - 1 - i] for the
+// first n/2 pairs.
+//
+// Inputs:
+//   %p : ptr i32 -- base pointer to an initialized n-element buffer.
+//   %n : i32     -- element count (n >= 0).
+//
+// Output:
+//   i32 -- always 0 (success sentinel).
+fun @array_reverse_i32(%p: ptr i32, %n: i32) : i32 {
+  let %zero: i32 = 0;
+  let %one: i32 = 1;
+  let mut %i: i32 = 0;
+  let mut %j: i32 = 0;
+  let mut %lo: ptr i32 = null;
+  let mut %hi: ptr i32 = null;
+  let mut %vlo: i32 = 0;
+  let mut %vhi: i32 = 0;
+^entry:
+  %i = %zero;
+  %j = %n - %one;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^loop_cond:
+  br %i < %j, ^loop_body, ^exit;
+
+^loop_body:
+  %lo = %p + %i;
+  %hi = %p + %j;
+  %vlo = load %lo;
+  %vhi = load %hi;
+  store %lo, %vhi;
+  store %hi, %vlo;
+  %i = %i + %one;
+  %j = %j - %one;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^exit:
+  ret %zero;
+}

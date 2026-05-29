@@ -1,0 +1,16 @@
+// stdlib/scalar/fmin_f32 -- branch-based float minimum.
+//
+// Consumers add `decl @fmin_f32(%a: f32, %b: f32) : f32;` and pass
+//   `-I test/lib/std/scalar`
+// to the tools.
+
+// fmin_f32(a, b) -- the smaller of two finite f32 values.
+//
+// Semantics:
+//   The @min intrinsic is integer-only in v0.2.2, so for floats we
+//   reify the comparison with `select` (lazy). Both operands must be
+//   finite (NaN / ±∞ are UB in SymIR's float model).
+fun @fmin_f32(%a: f32, %b: f32) : f32 {
+^entry:
+  ret select %a < %b, %a, %b;
+}

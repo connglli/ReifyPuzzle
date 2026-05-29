@@ -1,0 +1,5 @@
+// A real body for a fn whose primary file gives a contract-form decl.
+fun @bm_contract_clash(%x: i32) : i32 {
+^entry:
+  ret %x + %x;
+}

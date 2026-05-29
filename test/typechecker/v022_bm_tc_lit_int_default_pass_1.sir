@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.12
+// Intention: integer literal defaults to i32 when used as call arg of i32 param.
+fun @f(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+
+fun @main() : i32 {
+^entry:
+  ret call @f(42);
+}

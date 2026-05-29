@@ -1,0 +1,27 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12
+// Intention: callee with internal loop (loops act as recursion replacement).
+fun @sum_to_n(%n: i32) : i32 {
+  let mut %i: i32 = 0;
+  let mut %s: i32 = 0;
+  let %one: i32 = 1;
+^entry:
+  br %i < %n, ^body, ^done;
+^body:
+  %s = %s + %i;
+  %i = %i + %one;
+  br %i < %n, ^body, ^done;
+^done:
+  ret %s;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let %z: i32 = 0;
+^entry:
+  %r = call @sum_to_n(10); // 0+1+...+9 = 45
+  br %r == 45, ^ok, ^bad;
+^ok:
+  ret %z;
+^bad:
+  ret 1;
+}

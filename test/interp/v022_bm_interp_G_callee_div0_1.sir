@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §7.7 rule 24
+fun @div0() : i32 {
+  let %z: i32 = 0;
+^entry:
+  ret 5 / %z;
+}
+fun @main() : i32 {
+^entry:
+  ret call @div0();
+}

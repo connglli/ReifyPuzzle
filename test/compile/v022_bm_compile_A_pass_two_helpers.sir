@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// EXPECT_RC: 11
+// SPEC v0.2.2 §11.2
+// Intention: fun call to two distinct helpers chained.
+
+fun @add5(%x: i32) : i32 { ^entry: ret %x + 5; }
+fun @add6(%x: i32) : i32 { ^entry: ret %x + 6; }
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @add5(0);
+  %r = call @add6(%r);
+  ret %r;
+}

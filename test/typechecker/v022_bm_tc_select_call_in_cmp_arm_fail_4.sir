@@ -1,0 +1,14 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §6.3 / §2.12
+// Intention: cmp arms (same SelectVal restriction) excluding call should reject call.
+fun @f() : i32 {
+^entry:
+  ret 1;
+}
+
+fun @main(%a: i32) : i32 {
+  let mut %r: i1 = 0;
+^entry:
+  %r = cmp ==, call @f(), %a;
+  ret 0;
+}

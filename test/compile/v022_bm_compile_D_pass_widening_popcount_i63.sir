@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER pure compile coverage of widening-mask
+// SKIP: SOLVER pure compile coverage of widening-mask
+// SPEC v0.2.2 §11.5
+// Intention: widening-mask lowering for @popcount at uncommon width i63.
+
+intrinsic @popcount(%x: i63) : i63;
+
+fun @main() : i32 {
+  let %x: i63 = 1;
+  let mut %r: i63 = 0;
+^entry:
+  %r = call @popcount(%x);
+  ret %r as i32;
+}

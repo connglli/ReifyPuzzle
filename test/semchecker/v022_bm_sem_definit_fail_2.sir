@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.5
+// Intention: read uninit mutable, then later call-assign (read happens first).
+fun @h(%x: i32) : i32 { ^entry: ret %x; }
+fun @main() : i32 {
+  let mut %y: i32;
+  let mut %z: i32 = 0;
+^entry:
+  %z = %y + 1;
+  %y = call @h(1);
+  ret %z;
+}

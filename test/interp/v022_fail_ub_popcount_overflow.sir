@@ -1,0 +1,14 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER, COMPILER
+// Bug-mining: The interpreter does not perform representability checks on intrinsic return values, failing to trigger UB on result-overflow.
+// Intention: SPEC v0.2.2 Section 12 - @popcount result must be representable.
+// Result of popcount(7) is 3, which needs 2 bits (unsigned) or 3 bits (signed).
+// In SymIR, i2 has range -2 to 1 (signed). 3 is not representable.
+intrinsic @popcount(%x: i32) : i2;
+
+fun @main() : i32 {
+  let mut %a: i2 = 0;
+^entry:
+  %a = call @popcount(7);
+  ret 0;
+}

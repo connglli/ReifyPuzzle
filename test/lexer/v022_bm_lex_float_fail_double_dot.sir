@@ -1,0 +1,6 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §3.1 - `1..2` has two dots; invalid float.
+fun @main() : f32 {
+^entry:
+  ret 1..2;
+}

@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.1 @abs at i64
+intrinsic @abs(%x: i64) : i64;
+fun @main() : i32 {
+  let mut %r: i64 = 0;
+  let %x: i64 = -1234567890123;
+  let %expect: i64 = 1234567890123;
+^entry:
+  %r = call @abs(%x);
+  br %r == %expect, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.5.2
+// Intention: addr of a sym.
+fun @use_p(%p: ptr i32) : i32 { ^entry: ret load %p; }
+fun @main() : i32 {
+  sym %?k: value i32 in [0, 10];
+^entry:
+  ret call @use_p(addr %?k);
+}

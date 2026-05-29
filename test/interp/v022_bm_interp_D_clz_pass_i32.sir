@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.2 @clz at i32
+intrinsic @clz(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @clz(8); // 28
+  br %r == 28, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

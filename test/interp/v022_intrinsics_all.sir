@@ -1,0 +1,73 @@
+// EXPECT: PASS
+// Rationale: [v0.2.2] §12 - Standard intrinsics.
+// This test verifies the correct behavior of all standard intrinsics:
+// @abs, @min, @max, @clz, @ctz, @popcount.
+// Each block has at least 3 non-trivial instructions and a conditional terminator.
+
+intrinsic @abs(%x: i32) : i32;
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+intrinsic @clz(%x: i32) : i32;
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+
+fun @main() : i32 {
+  let mut %val: i32 = -10;
+  let mut %res: i32 = 0;
+  let mut %t: i32 = 0;
+  let %zero: i32 = 0;
+  let %one: i32 = 1;
+^entry:
+  %res = call @abs(%val); // 10
+  %t = %res + %one;
+  %t = %t - %one;
+  br %res == 10, ^test_min_max, ^fail;
+
+^test_min_max:
+  %res = call @min(10, 20); // 10
+  %t = call @max(10, 20); // 20
+  %res = %res + %t; // 30
+  br %res == 30, ^test_clz, ^fail;
+
+^test_clz:
+  %res = call @clz(1); // 31 (for i32)
+  %t = %res * %one;
+  %t = %t + %zero;
+  br %res == 31, ^test_ctz, ^fail;
+
+^test_ctz:
+  %res = call @ctz(4); // 2 (100 in binary)
+  %t = %res * %one;
+  %t = %t + %zero;
+  br %res == 2, ^test_popcount, ^fail;
+
+^test_popcount:
+  %res = call @popcount(7); // 3 (111 in binary)
+  %t = %res * %one;
+  %t = %t + %zero;
+  br %res == 3, ^exit, ^fail;
+
+^fail:
+  %t = %t + %one;
+  %t = %t - %one;
+  %t = %t * %one;
+  br %zero == %zero, ^fail_real, ^fail_real;
+
+^fail_real:
+  %t = %t + %one;
+  %t = %t - %one;
+  %t = %t * %one;
+  ret %one;
+
+^exit:
+  %t = %t + %one;
+  %t = %t - %one;
+  %t = %t * %one;
+  br %zero == %zero, ^exit_real, ^exit_real;
+
+^exit_real:
+  %t = %t + %one;
+  %t = %t - %one;
+  %t = %t * %one;
+  ret %zero;
+}

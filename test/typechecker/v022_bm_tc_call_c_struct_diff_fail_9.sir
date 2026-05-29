@@ -1,0 +1,18 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10(c)
+// Intention: struct @S argument cannot be passed where struct @T parameter is expected.
+struct @S { x: i32; y: i32; }
+struct @T { x: i32; y: i32; }
+
+fun @f(%p: ptr @T) : i32 {
+^entry:
+  ret 0;
+}
+
+fun @main() : i32 {
+  let mut %s: @S = { 1, 2 };
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @f(addr %s);
+  ret %r;
+}

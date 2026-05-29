@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: many-parameter fun with mix of v0.2.2 types (ptr, vector, struct).
+struct @S { x: i32; }
+fun @f(%a: i32, %b: ptr i32, %c: ptr [4] i32, %d: ptr @S, %e: <4> i32, %g: @S) : i32 {
+^entry:
+  ret %a;
+}

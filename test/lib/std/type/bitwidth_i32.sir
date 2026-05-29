@@ -1,0 +1,10 @@
+// stdlib/type/bitwidth_i32 -- bit-width of i32 (returns 32).
+//
+// Consumers add `decl @bitwidth_i32() : i32;` and pass
+//   `-I test/lib/std/type`
+// to symiri/symirc/symirsolve. The link resolver picks up this body.
+fun @bitwidth_i32() : i32 {
+  let %w: i32 = 32;
+^entry:
+  ret %w;
+}

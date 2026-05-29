@@ -1,0 +1,15 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §9.6.1 step 1
+// Intention: call inside require's condition mutates memory; require itself uses post-mutation value
+// for a false comparison.
+fun @set(%p: ptr i32, %v: i32) : i32 {
+^entry:
+  store %p, %v;
+  ret %v;
+}
+fun @main() : i32 {
+  let mut %c: i32 = 1;
+^entry:
+  require call @set(addr %c, 5) == 99, "this must fail";
+  ret %c;
+}

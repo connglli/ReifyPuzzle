@@ -1,0 +1,4 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §3.3
+// Intention: missing parameter type after `:`.
+fun @main(%a:) : i32 { ^entry: ret 0; }

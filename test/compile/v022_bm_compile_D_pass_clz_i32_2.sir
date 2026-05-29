@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: 1
+// SPEC v0.2.2 §11.5, §12
+// Intention: intrinsic @clz at width i32, case 2.
+
+intrinsic @clz(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @clz(1073741824);
+}

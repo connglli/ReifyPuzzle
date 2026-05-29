@@ -1,0 +1,10 @@
+// stdlib/type/int_min_i8 -- minimum signed value of i8 (-128).
+//
+// Consumers add `decl @int_min_i8() : i8;` and pass
+//   `-I test/lib/std/type`
+// to symiri/symirc/symirsolve. The link resolver picks up this body.
+fun @int_min_i8() : i8 {
+  let %v: i8 = -128;
+^entry:
+  ret %v;
+}

@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.5.1
+// Intention: vector sym is allowed; whole-vector use only.
+fun @main() : i32 {
+  sym %?v: value <4> i32;
+  let mut %w: <4> i32 = {0, 0, 0, 0};
+  let mut %r: i32 = 0;
+^entry:
+  %w = %?v;
+  %r = %w[0] + %w[1];
+  ret %r;
+}

@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.7
+// Intention: diamond a->b->d, a->c->d (no cycle).
+fun @d(%x: i32) : i32 { ^entry: ret %x; }
+fun @b(%x: i32) : i32 { ^entry: ret call @d(%x); }
+fun @c(%x: i32) : i32 { ^entry: ret call @d(%x); }
+fun @a(%x: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @b(%x);
+  %r = %r + call @c(%x);
+  ret %r;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @a(1);
+  ret %r;
+}

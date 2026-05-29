@@ -1,0 +1,7 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §1 - `?` only allowed after @/%. `post?` is lex error.
+decl @f() : i32 { post? ret == 0; };
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

@@ -1,0 +1,22 @@
+// stdlib/scalar/is_even_i32 -- evenness test.
+//
+// Consumers add `decl @is_even_i32(%x: i32) : i32;` and pass
+//   `-I test/lib/std/scalar`
+// to the tools.
+
+// is_even_i32(x) -- returns 1 if x is even, 0 otherwise.
+//
+// Semantics:
+//   We test the low bit with a bitwise AND. Using `%` would risk
+//   sign-dependence (-3 % 2 == -1 in SymIR's trunc-toward-zero
+//   semantics), so AND is both clearer and width-agnostic.
+fun @is_even_i32(%x: i32) : i32 {
+  let %one: i32 = 1;
+  let %zero: i32 = 0;
+  let mut %lo: i32 = 0;
+  let mut %res: i32 = 0;
+^entry:
+  %lo = %x & %one;
+  %res = select %lo == %zero, %one, %zero;
+  ret %res;
+}

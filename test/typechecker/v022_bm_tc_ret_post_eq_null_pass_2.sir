@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.4
+// Intention: `ret == null` valid when return type is ptr i32.
+decl @f() : ptr i32 {
+  post ret == null, "always null";
+};
+
+fun @main() : ptr i32 {
+^entry:
+  ret call @f();
+}

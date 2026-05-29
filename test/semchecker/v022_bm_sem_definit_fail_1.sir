@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.5
+// Intention: read `let mut` local before any assignment / init.
+fun @h(%x: i32) : i32 { ^entry: ret %x; }
+fun @main() : i32 {
+  let mut %y: i32;
+^entry:
+  ret %y;
+}

@@ -1,0 +1,36 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.1
+// INTERP_ARGS: -I test/lib/std/scalar
+// COMPILER_ARGS: -I test/lib/std/scalar
+// Intention: Uses stdlib fmax_f32 + local fp helper.
+decl @fmax_f32(%a: f32, %b: f32) : f32;
+decl @fmin_f32(%a: f32, %b: f32) : f32;
+
+fun @bm_local_avg_f32(%a: f32, %b: f32) : f32 {
+  let mut %s: f32 = 0.0;
+  let %half: f32 = 0.5;
+^entry:
+  %s = %a + %b;
+  br %s > 0.0, ^pos, ^np;
+^pos:
+  ret %s * %half;
+^np:
+  ret 0.0;
+}
+
+fun @main() : i32 {
+  let mut %x: f32 = 1.0;
+  let mut %y: f32 = 2.0;
+  let mut %mx: f32 = 0.0;
+  let mut %mn: f32 = 0.0;
+  let mut %avg: f32 = 0.0;
+^entry:
+  %mx = call @fmax_f32(%x, %y);
+  %mn = call @fmin_f32(%x, %y);
+  %avg = call @bm_local_avg_f32(%mx, %mn);
+  br %avg > 0.0, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

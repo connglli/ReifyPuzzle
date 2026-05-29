@@ -1,0 +1,39 @@
+// stdlib/collections/memset -- memory set.
+//
+// Consumers add `decl @memset(%dst: ptr i8, %val: i8, %n: i32): i32;` and pass
+//   `-I test/lib/std/collections`
+// to symiri/symirc/symirsolve. The link resolver picks up this body.
+
+// memset(dst, val, n) -- sets n bytes of memory to val.
+//
+// Inputs:
+//   %dst : ptr i8 -- destination pointer
+//   %val : i8     -- value to set
+//   %n   : i32    -- number of bytes to set
+//
+// Output:
+//   i32 -- returns 0 on success.
+//
+// Semantics:
+//   Iterates n times, setting bytes to val.
+fun @memset(%dst: ptr i8, %val: i8, %n: i32) : i32 {
+  let mut %i: i32 = 0;
+  let mut %d_ptr: ptr i8 = null;
+  let %zero: i32 = 0;
+  let %one: i32 = 1;
+^entry:
+  %i = %zero;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^loop_cond:
+  br %i < %n, ^loop_body, ^exit;
+
+^loop_body:
+  %d_ptr = %dst + %i;
+  store %d_ptr, %val;
+  %i = %i + %one;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^exit:
+  ret %zero;
+}

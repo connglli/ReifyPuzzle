@@ -1,0 +1,9 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §3.5.2
+// Intention: AtomInit with `1 + call ...` is also full expression form, not allowed.
+intrinsic @a() : i32;
+fun @main() : i32 {
+  let mut %y: i32 = 1 + call @a();
+^entry:
+  ret %y;
+}

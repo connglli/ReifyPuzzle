@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.5.2
+// Intention: addr of an immutable let local.
+fun @use_p(%p: ptr i32) : i32 { ^entry: ret load %p; }
+fun @main() : i32 {
+  let %x: i32 = 5;
+^entry:
+  ret call @use_p(addr %x);
+}

@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.1
+// INTERP_ARGS: -I test/tmp/bm_link_single
+// COMPILER_ARGS: -I test/tmp/bm_link_single
+// Intention: Nested call chain across helper file (bm_chain -> bm_inc).
+decl @bm_chain(%x: i32) : i32;
+
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+^entry:
+  %a = call @bm_chain(10);
+  ret %a;
+}

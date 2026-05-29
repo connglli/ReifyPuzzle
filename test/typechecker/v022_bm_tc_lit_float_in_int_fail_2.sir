@@ -1,0 +1,12 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.12
+// Intention: float literal in i32 param position must fail.
+fun @f(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+
+fun @main() : i32 {
+^entry:
+  ret call @f(1.5);
+}

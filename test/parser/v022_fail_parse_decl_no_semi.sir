@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// Rationale: [v0.2.2] §3.3 - Link-form decl requires a semicolon.
+
+decl @foo(%x: i32) : i32
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

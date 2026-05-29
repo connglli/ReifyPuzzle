@@ -1,0 +1,24 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.3 / §2.12
+// Intention: both arms via temporaries are accepted.
+fun @f() : i32 {
+^entry:
+  ret 1;
+}
+
+fun @g() : i32 {
+^entry:
+  ret 2;
+}
+
+fun @main() : i32 {
+  let mut %t1: i32 = 0;
+  let mut %t2: i32 = 0;
+  let mut %y: i32 = 0;
+  let %c: i1 = 1;
+^entry:
+  %t1 = call @f();
+  %t2 = call @g();
+  %y = select %c, %t1, %t2;
+  ret %y;
+}

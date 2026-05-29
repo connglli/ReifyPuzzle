@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// EXPECT_RC: 16
+// SPEC v0.2.2 §11.5
+// Intention: widening-mask off-by-one probe for @clz at uncommon i17.
+
+intrinsic @clz(%x: i17) : i17;
+
+fun @main() : i32 {
+  let %x: i17 = 1;
+  let mut %r: i17 = 0;
+^entry:
+  %r = call @clz(%x);
+  ret %r as i32;
+}

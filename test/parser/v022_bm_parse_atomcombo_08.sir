@@ -1,0 +1,9 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.3
+// Intention: cmp missing relop.
+fun @main(%a: i32) : i32 {
+  let mut %y: i1 = 0;
+^entry:
+  %y = cmp %a, 0;
+  ret 0;
+}

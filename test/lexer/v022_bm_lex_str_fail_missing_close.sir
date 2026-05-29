@@ -1,0 +1,7 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §3.1 - Missing closing quote inside decl contract.
+decl @f() : i32 { post ret == 0, "missing close ; };
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

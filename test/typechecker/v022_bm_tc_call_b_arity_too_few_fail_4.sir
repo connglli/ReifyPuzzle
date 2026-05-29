@@ -1,0 +1,14 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10(b)
+// Intention: one fewer argument than parameters must fail.
+fun @add(%a: i32, %b: i32) : i32 {
+^entry:
+  ret %a + %b;
+}
+
+fun @main(%x: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @add(%x);
+  ret %r;
+}

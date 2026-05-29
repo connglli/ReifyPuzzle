@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12
+// Intention: all standard intrinsics declared and used.
+intrinsic @abs(%x: i32) : i32;
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+intrinsic @clz(%x: i32) : i32;
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+  let mut %x: i32 = 8;
+^entry:
+  %a = call @abs(-3);
+  %a = %a + call @min(2, 5);
+  %a = %a + call @max(2, 5);
+  %a = %a + call @clz(%x);
+  %a = %a + call @ctz(%x);
+  %a = %a + call @popcount(%x);
+  ret %a;
+}

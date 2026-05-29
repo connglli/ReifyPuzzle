@@ -1,0 +1,11 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.11 (post)
+// Intention: ret type i32 compared against i64 param `%x` — width mismatch in Cond.
+decl @f(%x: i64) : i32 {
+  post ret == %x, "width mismatch";
+};
+
+fun @main(%a: i64) : i32 {
+^entry:
+  ret call @f(%a);
+}

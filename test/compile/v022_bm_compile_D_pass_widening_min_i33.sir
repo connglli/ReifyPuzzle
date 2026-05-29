@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER pure compile coverage of widening-mask
+// SKIP: SOLVER pure compile coverage of widening-mask
+// SPEC v0.2.2 §11.5
+// Intention: widening-mask lowering for @min at uncommon width i33.
+
+intrinsic @min(%a: i33, %b: i33) : i33;
+
+fun @main() : i32 {
+  let %a: i33 = 1;
+  let %b: i33 = 0;
+  let mut %r: i33 = 0;
+^entry:
+  %r = call @min(%a, %b);
+  ret %r as i32;
+}

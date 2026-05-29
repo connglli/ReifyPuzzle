@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - `call` keyword in initializer (AtomInit).
+decl @helper(%a: i32) : i32;
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let %y: i32 = call @helper(%x);
+^entry:
+  ret %y;
+}

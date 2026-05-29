@@ -1,0 +1,10 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.3
+// Intention: cmp second arm uses `call` — forbidden.
+intrinsic @get() : i32;
+fun @main(%a: i32) : i32 {
+  let mut %y: i1 = 0;
+^entry:
+  %y = cmp == %a, call @get();
+  ret 0;
+}

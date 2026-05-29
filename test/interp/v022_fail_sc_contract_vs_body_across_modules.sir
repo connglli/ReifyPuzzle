@@ -1,0 +1,14 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER, COMPILER
+// Bug-mining: The compiler/interpreter currently fails to check for naming conflicts between contract-form decls in the main module and function bodies in include files.
+// INTERP_ARGS: -I test/tmp/external_i32
+// Intention: SPEC v0.2.2 Section \"Restrictions\" - decl contract vs body is exclusive across modules.
+// @external_helper has a body in test/tmp/external_helper.sir.
+decl @external_helper(%x: i32) : i32 {
+  post ret == %x + 1, "identity";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

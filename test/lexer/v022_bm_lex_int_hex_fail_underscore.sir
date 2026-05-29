@@ -1,0 +1,6 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §3.1 - `0x_` is not a valid hex literal.
+fun @main() : i32 {
+^entry:
+  ret 0x_;
+}

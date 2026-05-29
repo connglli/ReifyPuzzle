@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// SPEC v0.2.2 §11.3 - contract decl called in assume
+decl @ora() : i32 { post ret == 0, "z"; };
+fun @main() : i32 {
+^entry:
+  assume call @ora() == 0;
+  ret 0;
+}

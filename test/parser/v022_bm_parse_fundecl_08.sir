@@ -1,0 +1,4 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3
+// Intention: fun body with zero blocks (`Block+` requires at least one).
+fun @main() : i32 { }

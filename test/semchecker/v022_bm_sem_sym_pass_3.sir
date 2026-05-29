@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.5.1
+// Intention: local sym inside fun body.
+fun @main() : i32 {
+  sym %?G: value i32 in [0, 100];
+  let mut %r: i32 = 0;
+^entry:
+  %r = %?G + 1;
+  ret %r;
+}

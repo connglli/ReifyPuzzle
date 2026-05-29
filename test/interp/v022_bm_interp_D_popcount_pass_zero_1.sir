@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.2 - popcount(0) is well-defined (result 0).
+intrinsic @popcount(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @popcount(0);
+  br %r == 0, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

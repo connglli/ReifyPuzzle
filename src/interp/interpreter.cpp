@@ -546,6 +546,12 @@ namespace symir {
     if (name == "@popcount") {
       uint64_t u = static_cast<uint64_t>(intVal(0)) & static_cast<uint64_t>(mask);
       int64_t c = __builtin_popcountll(u);
+      // [v0.2.2] §7.7 rule 25: intrinsic result must be representable in
+      // the declared return type. At very narrow widths (e.g. i1, i2) a
+      // popcount value larger than the signed max of iN is UB.
+      const int64_t signed_max = (N >= 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
+      if (c > signed_max)
+        throw UndefinedBehaviorError("UB: @popcount result not representable in declared iN");
       res.intVal = sext(c);
       return res;
     }
@@ -936,6 +942,60 @@ namespace symir {
     }
     restoreTypes();
     return ret;
+  }
+
+  // [v0.2.2] §9.6.1 step 5: refresh caller-side Store entries from heap.
+  // Walk every addr-promoted local (varName ∈ addrMap_) that has a Store
+  // entry in `store`. Reconstruct its value by reading heap_ at the base
+  // address (and at the per-element offsets for arrays). Scalars, ptrs,
+  // and arrays-of-scalars are handled; struct and array-of-struct refresh
+  // is deferred (the existing per-store syncObj path handles them within
+  // the same call frame, which is enough for most cases).
+  void Interpreter::syncStoreFromHeap(Store &store) {
+    for (const auto &[name, base]: addrMap_) {
+      auto sit = store.find(name);
+      if (sit == store.end())
+        continue;
+      RuntimeValue &slot = sit->second;
+      if (slot.kind == RuntimeValue::Kind::Int || slot.kind == RuntimeValue::Kind::Float ||
+          slot.kind == RuntimeValue::Kind::Ptr) {
+        auto hit = heap_.find(base);
+        if (hit != heap_.end()) {
+          // Preserve declared bit-width metadata; only the value changes.
+          RuntimeValue fresh = hit->second;
+          if (slot.bits && !fresh.bits)
+            fresh.bits = slot.bits;
+          slot = fresh;
+        }
+        continue;
+      }
+      if (slot.kind == RuntimeValue::Kind::Array) {
+        // Find a matching whole-array ObjectInfo (arrayIdx == -1,
+        // fieldName == "") so we know elemSize / count.
+        const ObjectInfo *root = nullptr;
+        for (const auto &o: objects_)
+          if (o.varName == name && o.fieldName.empty() &&
+              o.arrayIdx == static_cast<std::uint64_t>(-1) && o.base == base) {
+            root = &o;
+            break;
+          }
+        if (!root)
+          continue;
+        for (std::size_t i = 0; i < slot.arrayVal.size() && i < root->count; ++i) {
+          auto hit = heap_.find(base + i * root->elemSize);
+          if (hit == heap_.end())
+            continue;
+          RuntimeValue &cell = slot.arrayVal[i];
+          if (cell.kind != RuntimeValue::Kind::Int && cell.kind != RuntimeValue::Kind::Float &&
+              cell.kind != RuntimeValue::Kind::Ptr)
+            continue;
+          RuntimeValue fresh = hit->second;
+          if (cell.bits && !fresh.bits)
+            fresh.bits = cell.bits;
+          cell = fresh;
+        }
+      }
+    }
   }
 
   void Interpreter::runBlocks(const FunDecl &f, Store &store, RuntimeValue *outRet) {
@@ -2128,7 +2188,12 @@ namespace symir {
             // [v0.2.2 Phase 5] `fun` target: nested call frame.
             for (const auto &f: prog_.funs)
               if (f.name.name == arg.callee.name) {
-                return callFunction(f, argVals);
+                RuntimeValue rv = callFunction(f, argVals);
+                // [v0.2.2] §9.6.1 step 5: callee may have mutated caller
+                // memory through pointer arguments. Refresh any addr-
+                // promoted caller-side local before the next read.
+                syncStoreFromHeap(const_cast<Store &>(store));
+                return rv;
               }
             for (const auto &d: prog_.extDecls)
               if (d.name.name == arg.callee.name) {

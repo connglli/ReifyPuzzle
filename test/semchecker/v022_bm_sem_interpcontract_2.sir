@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.3
+// SKIP: INTERPRETER, COMPILER
+// Intention: contract-only decl with multiple pre/post; sem-check should accept.
+decl @abstract(%x: i32, %y: i32) : i32 {
+  pre %x > 0, "x positive";
+  pre %y > 0, "y positive";
+  post ret > 0, "positive result";
+  post ret <= %x + %y, "bounded";
+};
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @abstract(1, 2);
+  ret %r;
+}

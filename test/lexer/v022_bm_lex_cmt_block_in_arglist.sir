@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - Block comment inside `call` argument list.
+decl @add(%a: i32, %b: i32) : i32 { post ret == %a + %b; };
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @add(1, /* second arg */ 2);
+  ret %r;
+}

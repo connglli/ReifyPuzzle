@@ -1,0 +1,6 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - Large hex literal `0x7fffffff`.
+fun @main() : i32 {
+^entry:
+  ret 0x7fffffff;
+}

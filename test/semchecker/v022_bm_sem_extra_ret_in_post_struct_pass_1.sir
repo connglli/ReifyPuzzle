@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.4
+// Intention: post clause uses `ret` (a struct return type? - we use i32 to avoid agg comparison issues).
+decl @h(%a: i32, %b: i32) : i32 {
+  pre %a >= 0;
+  pre %b >= 0;
+  post ret == %a + %b;
+};
+fun @main() : i32 { ^entry: ret 0; }

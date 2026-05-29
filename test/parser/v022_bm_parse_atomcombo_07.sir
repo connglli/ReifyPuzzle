@@ -1,0 +1,11 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.3
+// Intention: ptrfield requires an Ident field name, not a literal.
+struct @S { x: i32; }
+fun @main() : i32 {
+  let mut %s: @S = { 1 };
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = ptrfield addr %s, 0;
+  ret 0;
+}

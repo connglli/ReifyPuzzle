@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// EXPECT_RC: 42
+// Intention: SPEC v0.2.2 §6.10 - Nested function calls.
+// Verifies that results of one call can be passed as arguments to another.
+
+fun @double(%x: i32) : i32 {
+^entry:
+  ret 2 * %x;
+}
+
+fun @add_one(%x: i32) : i32 {
+^entry:
+  ret %x + 1;
+}
+
+fun @main() : i32 {
+^entry:
+  // double(add_one(20)) = double(21) = 42
+  ret call @double(call @add_one(20));
+}

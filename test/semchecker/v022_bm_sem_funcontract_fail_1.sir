@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3
+// Intention: fun with a `post` clause body-prefix.
+fun @f(%x: i32) : i32 {
+  post ret > 0;
+^entry:
+  ret %x;
+}
+fun @main() : i32 { ^entry: ret 0; }

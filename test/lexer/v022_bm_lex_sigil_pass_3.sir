@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §1 - `^` label sigil mixed with v0.2.2 keywords.
+decl @h() : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  br ^body;
+^body:
+  %r = call @h();
+  ret %r;
+}

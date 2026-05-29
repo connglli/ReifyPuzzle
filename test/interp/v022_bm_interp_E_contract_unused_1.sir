@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.3
+// Intention: contract-form decl declared but never called - interpreter must accept.
+decl @oracle(%x: i32) : i32 {
+  post ret >= 0, "non-negative";
+};
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

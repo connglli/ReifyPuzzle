@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// INTERP_ARGS: -I test/tmp/bm_link_forward
+// COMPILER_ARGS: -I test/tmp/bm_link_forward
+// Intention: Library file declares helper with link-form decl and uses it; body is in a separate file in the same -I dir.
+decl @bm_fwd_caller(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @bm_fwd_caller(10);
+}

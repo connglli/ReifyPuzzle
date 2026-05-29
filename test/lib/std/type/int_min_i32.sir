@@ -1,0 +1,19 @@
+// stdlib/type/int_min_i32 -- minimum signed value of i32 (-2147483648).
+//
+// Consumers add `decl @int_min_i32() : i32;` and pass
+//   `-I test/lib/std/type`
+// to symiri/symirc/symirsolve. The link resolver picks up this body.
+//
+// Semantics:
+//   The minimum signed i32 value is -2^31 = -2147483648. We write it
+//   as the expression `-2147483647 - 1` so the source never names the
+//   positive literal 2147483648 (which is outside the i32 range and
+//   would itself be a constant overflow).
+fun @int_min_i32() : i32 {
+  let %near: i32 = -2147483647;
+  let %one: i32 = 1;
+  let mut %v: i32 = 0;
+^entry:
+  %v = %near - %one;
+  ret %v;
+}

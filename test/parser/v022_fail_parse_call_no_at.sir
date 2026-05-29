@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section "What's new" - call expects a GlobalId (@name).
+fun @main() : i32 {
+^entry:
+  %x = call main();
+  ret 0;
+}

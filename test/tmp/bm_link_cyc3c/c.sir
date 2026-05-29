@@ -1,0 +1,7 @@
+decl @bm_cyc3_a(%x: i32) : i32;
+fun @bm_cyc3_c(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @bm_cyc3_a(%x);
+  ret %y;
+}

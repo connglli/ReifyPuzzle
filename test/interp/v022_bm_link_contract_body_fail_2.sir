@@ -1,0 +1,13 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// SPEC v0.2.2 §3.3, §3.4
+// INTERP_ARGS: -I test/tmp/bm_link_contract_a
+// Intention: Contract-form decl + call site; body collision via -I should still be reported even though no call to it.
+decl @bm_contract_clash(%x: i32) : i32 {
+  post ret == %x, "id";
+};
+
+fun @main() : i32 {
+^entry:
+  ret call @bm_contract_clash(5);
+}

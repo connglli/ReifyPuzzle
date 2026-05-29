@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.10 (result)
+// Intention: chain calls where one call's i32 result feeds the next call's i32 param.
+fun @inc(%x: i32) : i32 {
+^entry:
+  ret %x + 1;
+}
+
+fun @main(%a: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @inc(call @inc(%a));
+  ret %r;
+}

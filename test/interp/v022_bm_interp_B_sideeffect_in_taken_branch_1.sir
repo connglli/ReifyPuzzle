@@ -1,0 +1,22 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §9.6.1 step 1 + step 5 (caller Store coherence)
+// Intention: call in branch condition writes to caller's let mut via ptr; per step 5 the caller's
+// cached Store[%c] must be invalidated after the call; reading %c via `%v = %c` should fetch
+// the post-store value (9), making `require %v == 0` fail (non-zero exit).
+fun @set9(%p: ptr i32) : i32 {
+^entry:
+  store %p, 9;
+  ret 9;
+}
+fun @main() : i32 {
+  let mut %c: i32 = 0;
+  let mut %v: i32 = 0;
+^entry:
+  br call @set9(addr %c) == 9, ^t, ^f;
+^t:
+  %v = %c;
+  require %v == 0, "fail: actual is 9";
+  ret %v;
+^f:
+  ret 1;
+}

@@ -1,0 +1,6 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §3.1 - `0xG1` has invalid hex digit `G`.
+fun @main() : i32 {
+^entry:
+  ret 0xG1;
+}

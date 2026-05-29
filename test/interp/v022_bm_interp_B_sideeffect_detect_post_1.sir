@@ -1,0 +1,20 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §9.6.1 step 1 + step 5
+// Intention: call inside branch cond commits store of 0; reading %c via local access must see 0
+// (per Store invalidation), and 100/%v should be UB.
+fun @set_zero(%p: ptr i32) : i32 {
+^entry:
+  store %p, 0;
+  ret 1;
+}
+fun @main() : i32 {
+  let mut %c: i32 = 5;
+  let mut %v: i32 = 0;
+^entry:
+  br call @set_zero(addr %c) == 1, ^t, ^f;
+^t:
+  %v = %c;
+  ret 100 / %v; // UB: division by zero
+^f:
+  ret 1;
+}

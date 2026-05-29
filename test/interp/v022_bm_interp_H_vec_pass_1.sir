@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12 vector pass-by-value
+fun @add_v(%a: <4> i32, %b: <4> i32) : <4> i32 {
+  let mut %r: <4> i32 = { 0, 0, 0, 0 };
+^entry:
+  %r = %a + %b;
+  ret %r;
+}
+fun @main() : i32 {
+  let mut %v: <4> i32 = { 1, 2, 3, 4 };
+  let mut %w: <4> i32 = { 10, 20, 30, 40 };
+  let mut %r: <4> i32 = { 0, 0, 0, 0 };
+  let mut %s: i32 = 0;
+^entry:
+  %r = call @add_v(%v, %w);
+  %s = %r[0] + %r[3]; // 11 + 44 = 55
+  br %s == 55, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

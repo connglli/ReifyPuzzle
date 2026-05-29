@@ -1,0 +1,4 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §12
+intrinsic @clz(%x: f32) : f32;
+fun @main() : f32 { ^entry: ret call @clz(1.0); }

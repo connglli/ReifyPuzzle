@@ -1,0 +1,81 @@
+// EXPECT: PASS
+// EXPECT_RC: 210
+// INTERP_ARGS: -I test/lib/std/scalar
+// COMPILER_ARGS: -I test/lib/std/scalar
+// Intention: SPEC v0.2.2 - Mega xval test 27 (Structs & Logic)
+
+intrinsic @abs(%x: i32) : i32;
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+intrinsic @clz(%x: i32) : i32;
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+
+decl @is_pow2(%x: i32) : i32;
+decl @log2_floor(%x: i32) : i32;
+
+struct @Pair {
+  a: i32;
+  b: i32;
+}
+
+fun @internal_calc(%p: ptr @Pair) : i32 {
+  let mut %pa: ptr i32 = null;
+  let mut %pb: ptr i32 = null;
+  let mut %va: i32 = 0;
+  let mut %vb: i32 = 0;
+  let mut %res: i32 = 0;
+^entry:
+  %pa = ptrfield %p, a;
+  %pb = ptrfield %p, b;
+  %va = load %pa;
+  %vb = load %pb;
+  %res = %va * %vb;
+  ret %res;
+}
+
+fun @main() : i32 {
+  let mut %s: @Pair = { 9, 20 };
+  let mut %acc: i32 = 0;
+  let mut %ps: ptr @Pair = null;
+  let mut %p: i32 = 0;
+  let mut %l: i32 = 0;
+  let mut %a: i32 = 0;
+  let %one: i32 = 1;
+^entry:
+  %ps = addr %s;
+  %acc = call @internal_calc(%ps);
+  %p = call @is_pow2(8);
+  %acc = %acc + %p;
+  br %acc > 0, ^b1, ^b2;
+
+^b1:
+  %l = call @log2_floor(16);
+  %acc = %acc + %l;
+  %a = call @abs(%acc);
+  %acc = call @max(%a, 5);
+  br %one == %one, ^b3, ^b4;
+
+^b2:
+  %a = call @min(%acc, 10);
+  %acc = %acc + %a;
+  %acc = %acc + %one;
+  br %one == %one, ^b3, ^b4;
+
+^b3:
+  %a = call @clz(1024);
+  %acc = %acc + %a;
+  %a = call @popcount(15);
+  %acc = %acc + %a;
+  br %one == %one, ^exit, ^exit;
+
+^b4:
+  %a = call @ctz(1024);
+  %acc = %acc + %a;
+  %acc = %acc + %one;
+  %acc = %acc - %one;
+  br %one == %one, ^exit, ^exit;
+
+^exit:
+  ret %acc;
+}

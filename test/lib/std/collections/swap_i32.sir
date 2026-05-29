@@ -1,0 +1,22 @@
+// stdlib/collections/swap_i32 -- swap two i32 cells through pointers.
+//
+// Consumers add `decl @swap_i32(%a: ptr i32, %b: ptr i32) : i32;` and
+// pass `-I test/lib/std/collections` to the tools.
+
+// swap_i32(a, b) -- swap *a and *b. Returns 0.
+//
+// Caller obligations:
+//   - Both pointers non-null and pointing to initialized i32 cells.
+//   - It is well-defined for a == b (a noop): the loads both produce
+//     the same value and the stores both write that same value.
+fun @swap_i32(%a: ptr i32, %b: ptr i32) : i32 {
+  let %zero: i32 = 0;
+  let mut %va: i32 = 0;
+  let mut %vb: i32 = 0;
+^entry:
+  %va = load %a;
+  %vb = load %b;
+  store %a, %vb;
+  store %b, %va;
+  ret %zero;
+}

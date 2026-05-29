@@ -1,0 +1,8 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.4
+// Intention: `ret` used in pre even when post also references ret (pre-violation still wrong).
+decl @h(%x: i32) : i32 {
+  pre ret >= 0;
+  post ret >= %x;
+};
+fun @main() : i32 { ^entry: ret 0; }

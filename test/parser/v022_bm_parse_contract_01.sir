@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: contract with multiple pre and multiple post clauses with rationale strings.
+decl @f(%x: i32, %y: i32) : i32 {
+  pre %x > 0, "x positive";
+  pre %y > 0, "y positive";
+  post ret >= %x, "result at least x";
+  post ret >= %y, "result at least y";
+};
+fun @main() : i32 { ^entry: ret 0; }

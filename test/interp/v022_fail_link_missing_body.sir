@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// Intention: SPEC v0.2.2 Section 11.1 - If zero bodies are found for a link-form decl, the tool reports an error.
+decl @missing() : i32;
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+^entry:
+  %a = call @missing();
+  ret %a;
+}

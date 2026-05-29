@@ -1,0 +1,6 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: link-form decl with many parameters of pointer/struct types.
+struct @S { x: i32; }
+decl @h(%a: ptr i32, %b: ptr [4] i32, %c: ptr @S, %d: <4> i32) : ptr i32;
+fun @main() : i32 { ^entry: ret 0; }

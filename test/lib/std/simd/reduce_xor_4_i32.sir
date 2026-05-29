@@ -1,0 +1,26 @@
+// stdlib/simd/reduce_xor_4_i32 -- horizontal bitwise XOR across lanes.
+//
+// Consumers add `decl @reduce_xor_4_i32(%v: <4> i32) : i32;` and pass
+//   `-I test/lib/std/simd`
+// to the tools.
+
+fun @reduce_xor_4_i32(%v: <4> i32) : i32 {
+  let %i0: i32 = 0;
+  let %i1: i32 = 1;
+  let %i2: i32 = 2;
+  let %i3: i32 = 3;
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+  let mut %d: i32 = 0;
+  let mut %acc: i32 = 0;
+^entry:
+  %a = %v[%i0];
+  %b = %v[%i1];
+  %c = %v[%i2];
+  %d = %v[%i3];
+  %acc = %a ^ %b;
+  %acc = %acc ^ %c;
+  %acc = %acc ^ %d;
+  ret %acc;
+}

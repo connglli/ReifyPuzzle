@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.6
+// Intention: sym used as LHS of assignment (sym is immutable).
+fun @main() : i32 {
+  sym %?k: value i32 in [0, 10];
+^entry:
+  %?k = 3;
+  ret %?k;
+}

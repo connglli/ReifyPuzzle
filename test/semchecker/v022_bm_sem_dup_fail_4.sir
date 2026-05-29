@@ -1,0 +1,6 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: decl + intrinsic with the same name.
+decl @abs(%x: i32) : i32;
+intrinsic @abs(%x: i32) : i32;
+fun @main() : i32 { ^entry: ret 0; }

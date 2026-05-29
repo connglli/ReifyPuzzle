@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - Block comments do not nest; inner `/*` is text inside outer.
+/* outer /* not nested */
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

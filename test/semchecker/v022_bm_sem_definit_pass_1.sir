@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.5
+// Intention: let mut initialized via call atom-form, then read.
+fun @h(%x: i32) : i32 { ^entry: ret %x + 1; }
+fun @main() : i32 {
+  let mut %y: i32 = call @h(2);
+^entry:
+  ret %y;
+}

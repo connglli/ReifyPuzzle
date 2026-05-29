@@ -1,0 +1,14 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10(b)
+// Intention: supplying any args to a zero-param function must fail.
+fun @get_zero() : i32 {
+^entry:
+  ret 0;
+}
+
+fun @main(%x: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @get_zero(%x);
+  ret %r;
+}

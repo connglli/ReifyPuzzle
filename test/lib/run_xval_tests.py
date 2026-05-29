@@ -39,7 +39,7 @@ def _parse_fun(sir_path):
   with open(sir_path, "r") as f:
     for line in f:
       m = _FUN_RE.search(line)
-      if m:
+      if m and m.group(1) == "main":
         return m.group(1), m.group(2)
   return None
 
@@ -68,7 +68,9 @@ def run_xval_test(symiri_path, symirc_path, gcc_path, symirc_extra=None):
       return TestResult.FAIL, f"unsupported return type {rtype}"
 
     # 1. Interpreter side: run symiri and capture the `Result:` line.
-    interp_cmd = [symiri_path, "--main", f"@{fname}", file_path]
+    interp_cmd = (
+      [symiri_path, "--main", f"@{fname}"] + args.get("INTERP_ARGS", []) + [file_path]
+    )
     result, err = run_command(interp_cmd, timeout=10)
     if err == "TIMEOUT":
       return TestResult.TIMEOUT, "symiri timeout"
@@ -88,7 +90,11 @@ def run_xval_test(symiri_path, symirc_path, gcc_path, symirc_extra=None):
       main_c = os.path.join(td, "main.c")
       exe = os.path.join(td, "exe")
 
-      symirc_cmd = [symirc_path, file_path, "--target", "c", "-o", c_out]
+      symirc_cmd = (
+        [symirc_path]
+        + args.get("COMPILER_ARGS", [])
+        + [file_path, "--target", "c", "-o", c_out]
+      )
       if symirc_extra:
         symirc_cmd.extend(symirc_extra)
       r = subprocess.run(

@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §7.7 rule 24 + rule 4 (INT_MIN / -1)
+fun @badq() : i32 {
+  let %m: i32 = -2147483648;
+  let %n: i32 = -1;
+^entry:
+  ret %m / %n;
+}
+fun @main() : i32 {
+^entry:
+  ret call @badq();
+}

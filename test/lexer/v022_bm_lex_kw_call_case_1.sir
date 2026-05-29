@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 §3.1 - Keywords are case-sensitive; `CALL` is not a keyword, so `CALL @h()` should not parse as a call.
+decl @h() : i32;
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+^entry:
+  %x = CALL @h();
+  ret %x;
+}

@@ -1,0 +1,54 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// COMPILER_ARGS: -I test/lib/std/scalar -I test/lib/std/collections
+// INTERP_ARGS: -I test/lib/std/scalar -I test/lib/std/collections
+// SPEC v0.2.2 §11.2
+// Intention: combo test 4: local fun + link-form decl + intrinsics + vec/ptr.
+
+intrinsic @abs(%x: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+
+decl @gcd(%a: i32, %b: i32) : i32;
+
+fun @local_helper(%x: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = %x + 5;
+  ret %r;
+}
+
+fun @main() : i32 {
+  let mut %arr: [4] i32 = {1, 2, 3, 4};
+  let mut %v: <4> i32 = {1, 2, 3, 4};
+  let mut %p: ptr i32 = null;
+  let mut %tmp: i32 = 0;
+  let mut %acc: i32 = 0;
+  let mut %x: i32 = 0;
+  let %z: i32 = 0;
+^entry:
+  %p = addr %arr[0];
+  %tmp = load %p;
+  %acc = call @local_helper(%tmp);
+  br %acc > 0, ^b1, ^b_end;
+
+^b1:
+  %acc = call @gcd(%acc, 12);
+  %acc = call @abs(%acc - 100);
+  %x = %v[0] + %v[1] + %v[2] + %v[3];
+  br %x > 0, ^b2, ^b_end;
+
+^b2:
+  %acc = call @popcount(%acc);
+  %v[0] = %acc;
+  %x = %v[0] + %v[1];
+  br %x >= 0, ^b3, ^b_end;
+
+^b3:
+  store %p, %acc;
+  %tmp = load %p;
+  %acc = %tmp + %z;
+  br %acc >= 0, ^b_end, ^b_end;
+
+^b_end:
+  ret %z;
+}

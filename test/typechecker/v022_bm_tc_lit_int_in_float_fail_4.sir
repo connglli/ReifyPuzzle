@@ -1,0 +1,12 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.12
+// Intention: integer literal `42` cannot be passed where f32 param is expected (default is i32, no implicit int→float).
+fun @f(%x: f32) : f32 {
+^entry:
+  ret %x;
+}
+
+fun @main() : f32 {
+^entry:
+  ret call @f(42);
+}

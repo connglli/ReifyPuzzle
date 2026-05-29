@@ -1,0 +1,14 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10(c)
+// Intention: i32 argument cannot be passed where i64 parameter is expected; no implicit widening.
+fun @f(%x: i64) : i64 {
+^entry:
+  ret %x;
+}
+
+fun @main(%a: i32) : i64 {
+  let mut %r: i64 = 0;
+^entry:
+  %r = call @f(%a);
+  ret %r;
+}

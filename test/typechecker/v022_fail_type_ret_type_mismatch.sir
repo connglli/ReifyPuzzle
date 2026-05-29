@@ -1,0 +1,13 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER, COMPILER
+// Bug-mining: The typechecker currently misses checking compatibility between Float and Bit-Vector in condition expressions.
+// Rationale: [v0.2.2] §6.11 - `ret` in `post` must match function return type.
+
+decl @foo() : i32 {
+  post ret == 1.0, "type mismatch: ret is i32, literal is f32";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

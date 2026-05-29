@@ -1,0 +1,15 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10(c)
+// Intention: ptr i32 argument cannot be passed where ptr i64 parameter is expected.
+fun @f(%p: ptr i64) : i64 {
+^entry:
+  ret load %p;
+}
+
+fun @main() : i64 {
+  let mut %x: i32 = 7;
+  let mut %r: i64 = 0;
+^entry:
+  %r = call @f(addr %x);
+  ret %r;
+}

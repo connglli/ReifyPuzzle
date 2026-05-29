@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// SPEC v0.2.2 §11.3
+// Intention: contract decl invoked as initializer expression must be rejected.
+decl @ora() : i32 {
+  post ret == 0, "z";
+};
+fun @main() : i32 {
+  let %r: i32 = call @ora();
+^entry:
+  ret %r;
+}

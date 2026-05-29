@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.4
+// Intention: `ret` of pointer type, compared with null.
+decl @alloc() : ptr i32 {
+  post ret != null, "non-null";
+};
+fun @main() : i32 { ^entry: ret 0; }

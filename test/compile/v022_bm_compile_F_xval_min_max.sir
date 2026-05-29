@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// EXPECT_RC: 8
+// SPEC v0.2.2 §12
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+^entry:
+  %x = call @min(3, 7);
+  %y = call @max(2, 5);
+  ret %x + %y;
+}

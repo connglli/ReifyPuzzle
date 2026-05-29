@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.1
+// INTERP_ARGS: -I test/tmp/bm_link_single
+// COMPILER_ARGS: -I test/tmp/bm_link_single
+// Intention: Single -I dir resolves a link-form decl correctly.
+decl @bm_inc(%x: i32) : i32;
+
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+^entry:
+  %a = call @bm_inc(41);
+  ret %a;
+}

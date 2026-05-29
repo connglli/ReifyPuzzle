@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER, COMPILER
+// Bug-mining: The compiler/interpreter currently does not check for naming conflicts between intrinsics in the main module and function bodies in include files if the function is not imported.
+// INTERP_ARGS: -I test/tmp/std_intr_dup
+// Intention: SPEC v0.2.2 Section "Restrictions" - intrinsic cannot be overridden by fun body.
+intrinsic @abs(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

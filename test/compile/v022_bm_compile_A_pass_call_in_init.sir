@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// EXPECT_RC: 42
+// SPEC v0.2.2 §3.5.2, §11.2
+// Intention: call atom in let-init position.
+
+fun @forty_two() : i32 { ^entry: ret 42; }
+
+fun @main() : i32 {
+  let %x: i32 = call @forty_two();
+^entry:
+  ret %x;
+}

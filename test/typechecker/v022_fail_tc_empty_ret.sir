@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section \"Restrictions\" - All functions return a value.
+// ret; (empty) is not allowed if a return type is specified.
+fun @foo() : i32 {
+^entry:
+  ret;
+}
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

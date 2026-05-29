@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.5.2
+// Intention: pointer-typed initialiser via call returning ptr i32.
+decl @alloc() : ptr i32;
+fun @main() : i32 {
+  let mut %p: ptr i32 = call @alloc();
+^entry:
+  ret 0;
+}

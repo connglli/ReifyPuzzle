@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 §3.1 - `call` is reserved; struct field named `call` should not parse.
+struct @S { call: i32; }
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §4.1
+// Intention: `ret` returning a literal.
+fun @main() : i32 {
+^entry:
+  ret 42;
+}

@@ -1,0 +1,11 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.3
+// Intention: `call` cannot appear as RValue inside `Coef * RValue` form
+// (the multiplicative atom requires an LValue/RValue, not a call atom).
+intrinsic @get() : i32;
+fun @main() : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = 2 * call @get();
+  ret %y;
+}

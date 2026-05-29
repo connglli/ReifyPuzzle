@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.1
+// INTERP_ARGS: -I test/tmp/bm_link_dir_a -I test/tmp/bm_link_dir_b
+// COMPILER_ARGS: -I test/tmp/bm_link_dir_a -I test/tmp/bm_link_dir_b
+// Intention: Name found only in the second -I dir.
+decl @bm_only_b(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @bm_only_b(2);
+}

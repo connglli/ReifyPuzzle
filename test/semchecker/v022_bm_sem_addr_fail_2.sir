@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.5.2
+// Intention: addr of a function parameter.
+fun @use_p(%p: ptr i32) : i32 { ^entry: ret load %p; }
+fun @wrap(%x: i32) : i32 {
+^entry:
+  ret call @use_p(addr %x);
+}
+fun @main() : i32 { ^entry: ret call @wrap(3); }

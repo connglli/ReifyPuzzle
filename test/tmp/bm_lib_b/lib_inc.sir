@@ -1,0 +1,5 @@
+// Duplicate definition of @bm_inc for ambiguity testing.
+fun @bm_inc(%x: i32) : i32 {
+^entry:
+  ret %x + 2;
+}

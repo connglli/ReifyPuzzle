@@ -1,0 +1,42 @@
+// EXPECT: PASS
+// Rationale: [v0.2.2] - Compiler support for multiple calls in a single expression.
+// Verify evaluation order (left-to-right) and side effects (if any).
+intrinsic @abs(%x: i32) : i32;
+
+fun @inc(%p: ptr i32) : i32 {
+  let mut %v: i32 = 0;
+^entry:
+  %v = load %p;
+  %v = %v + 1;
+  store %p, %v;
+  ret %v;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %p: ptr i32 = null;
+  let mut %res: i32 = 0;
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+^entry:
+  %p = addr %x;
+  store %p, 10;
+  // res = inc(&x) + inc(&x) + inc(&x)
+  // 11 + 12 + 13 = 36
+  %res = call @inc(%p) + call @inc(%p);
+  %res = %res + call @inc(%p);
+  br %res == 36, ^check_abs, ^fail;
+
+^check_abs:
+  // (abs(-10) + abs(-20)) - abs(-5) = (10 + 20) - 5 = 25
+  %res = call @abs(-10) + call @abs(-20);
+  %res = %res - call @abs(-5);
+  br %res == 25, ^exit, ^fail;
+
+^fail:
+  ret 1;
+
+^exit:
+  ret 0;
+}

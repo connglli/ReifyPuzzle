@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: 30
+// SPEC v0.2.2 §2.12, §5.3
+// Intention: call atoms combined with + chain.
+
+fun @ten() : i32 { ^entry: ret 10; }
+
+fun @main() : i32 {
+^entry:
+  ret call @ten() + call @ten() + call @ten();
+}

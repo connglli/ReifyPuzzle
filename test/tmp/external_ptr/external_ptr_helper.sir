@@ -1,0 +1,1 @@
+fun @external_ptr_helper(%p: ptr i32) : i32 { ^entry: ret load %p; }

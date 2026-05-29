@@ -1,0 +1,27 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.6.1 step 1
+// Intention: call args are evaluated left-to-right within a single call.
+fun @combine(%a: i32, %b: i32) : i32 {
+^entry:
+  ret %a - %b; // order-sensitive (non-commutative)
+}
+fun @next(%p: ptr i32) : i32 {
+  let mut %v: i32 = 0;
+^entry:
+  %v = load %p;
+  %v = %v + 1;
+  store %p, %v;
+  ret %v;
+}
+fun @main() : i32 {
+  let mut %c: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  // first arg eval -> 1, second arg eval -> 2; combine returns 1 - 2 = -1
+  %r = call @combine(call @next(addr %c), call @next(addr %c));
+  br %r == -1, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: bit-counting intrinsics, single parameter.
+intrinsic @clz(%x: i32) : i32;
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+fun @main() : i32 { ^entry: ret 0; }

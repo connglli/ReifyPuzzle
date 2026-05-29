@@ -1,0 +1,15 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// SPEC v0.2.2 §11.3
+// Intention: calling contract-form decl from a non-main fun must be rejected.
+decl @ora(%x: i32) : i32 {
+  post ret == %x, "id";
+};
+fun @helper(%x: i32) : i32 {
+^entry:
+  ret call @ora(%x);
+}
+fun @main() : i32 {
+^entry:
+  ret call @helper(7);
+}

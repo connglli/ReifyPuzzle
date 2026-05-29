@@ -1,0 +1,16 @@
+// stdlib/scalar/clamp_f32 -- clamp a float to a closed interval.
+//
+// Consumers add `decl @clamp_f32(%x: f32, %lo: f32, %hi: f32) : f32;`
+// and pass `-I test/lib/std/scalar` to the tools.
+
+// clamp_f32(x, lo, hi) -- x clamped to [lo, hi].
+//
+// Caller obligations:
+//   - lo <= hi. Otherwise the result has no clean interpretation.
+//   - All three inputs are finite (SymIR's finite-only float domain).
+fun @clamp_f32(%x: f32, %lo: f32, %hi: f32) : f32 {
+  let mut %low_bound: f32 = 0.0;
+^entry:
+  %low_bound = select %x < %lo, %lo, %x;
+  ret select %low_bound > %hi, %hi, %low_bound;
+}

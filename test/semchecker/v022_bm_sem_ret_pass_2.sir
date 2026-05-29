@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.4
+// Intention: `ret` used in multiple post clauses.
+decl @c(%x: i32) : i32 {
+  pre %x > 0;
+  post ret > 0;
+  post ret <= %x + 100;
+};
+fun @main() : i32 { ^entry: ret 0; }

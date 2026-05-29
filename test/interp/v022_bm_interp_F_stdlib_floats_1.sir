@@ -1,0 +1,46 @@
+// EXPECT: PASS
+// INTERP_ARGS: -I test/lib/std/scalar
+// COMPILER_ARGS: -I test/lib/std/scalar
+// SPEC v0.2.2 §11.3 float helpers via link-form
+decl @clamp_f32(%x: f32, %lo: f32, %hi: f32) : f32;
+decl @fabs_f32(%x: f32) : f32;
+decl @fmin_f32(%a: f32, %b: f32) : f32;
+
+fun @neg(%x: f32) : f32 {
+^entry:
+  ret 0.0 - %x;
+}
+
+fun @main() : i32 {
+  let mut %a: f32 = 0.0;
+  let mut %b: f32 = 0.0;
+  let mut %c: f32 = 0.0;
+  let mut %h: f32 = 0.0;
+  let mut %t: f32 = 0.0;
+  let %z: i32 = 0;
+  let %o: i32 = 1;
+^entry:
+  %a = call @clamp_f32(5.5, 0.0, 4.0); // 4.0
+  %b = call @fabs_f32(-3.0); // 3.0
+  %t = %a - %b; // 1.0
+  br %a == 4.0, ^b1, ^bad;
+^b1:
+  %c = call @fmin_f32(2.5, 7.0); // 2.5
+  %t = %c + %t; // 3.5
+  %t = %t - 0.0;
+  br %c == 2.5, ^b2, ^bad;
+^b2:
+  %h = call @neg(%c); // -2.5
+  %t = %h + %c; // 0.0
+  %t = %t + 0.0;
+  br %h == -2.5, ^b3, ^bad;
+^b3:
+  %t = %t + 0.0;
+  %t = %t - 0.0;
+  %t = %t + 0.0;
+  br %t == 0.0, ^ok, ^bad;
+^ok:
+  ret %z;
+^bad:
+  ret %o;
+}

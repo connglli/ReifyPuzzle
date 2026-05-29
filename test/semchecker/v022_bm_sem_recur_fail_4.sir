@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §9.7
+// Intention: self-recursive call inside `assume` condition.
+fun @r(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  assume call @r(%x) > 0;
+  %y = %x + 1;
+  ret %y;
+}
+fun @main() : i32 { ^entry: ret 0; }

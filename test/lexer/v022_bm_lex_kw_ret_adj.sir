@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - `return` is a single ident, not `ret` + `urn`.
+struct @S { return: i32; }
+fun @main() : i32 {
+  let mut %s: @S = { 9 };
+^entry:
+  ret %s.return;
+}

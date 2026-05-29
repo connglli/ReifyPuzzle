@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.4
+// Intention: `ret` used inside a single post clause.
+decl @c(%x: i32) : i32 {
+  post ret == %x;
+};
+fun @main() : i32 { ^entry: ret 0; }

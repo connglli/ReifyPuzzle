@@ -1,0 +1,11 @@
+// stdlib/scalar/fmax_f32 -- branch-based float maximum.
+//
+// Consumers add `decl @fmax_f32(%a: f32, %b: f32) : f32;` and pass
+//   `-I test/lib/std/scalar`
+// to the tools.
+
+// fmax_f32(a, b) -- the larger of two finite f32 values.
+fun @fmax_f32(%a: f32, %b: f32) : f32 {
+^entry:
+  ret select %a > %b, %a, %b;
+}

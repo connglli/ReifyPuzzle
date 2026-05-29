@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.10
+// Intention: ptr type mismatch (ptr i64 passed where ptr i32 expected).
+fun @h(%p: ptr i32) : i32 { ^entry: ret load %p; }
+fun @main() : i32 {
+  let mut %y: i64 = 1;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @h(addr %y);
+  ret %r;
+}

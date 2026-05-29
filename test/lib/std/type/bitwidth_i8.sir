@@ -1,0 +1,20 @@
+// stdlib/type/bitwidth_i8 -- bit-width of i8 (returns 8).
+//
+// Consumers add `decl @bitwidth_i8() : i32;` and pass
+//   `-I test/lib/std/type`
+// to symiri/symirc/symirsolve. The link resolver picks up this body.
+
+// bitwidth_i8() -- returns the bit-width of i8 as a constant i32 (8).
+//
+// Output:
+//   i32 -- the constant 8.
+//
+// Semantics:
+//   A trivial constant-return wrapper. Useful when callers want to
+//   refer to type widths symbolically without scattering magic numbers
+//   through test bodies.
+fun @bitwidth_i8() : i32 {
+  let %w: i32 = 8;
+^entry:
+  ret %w;
+}

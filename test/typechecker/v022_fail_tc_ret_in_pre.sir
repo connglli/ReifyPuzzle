@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section 6 - 'ret' must not appear in a 'pre' clause.
+decl @foo() : i32 {
+  pre ret == 0, "ret in pre";
+  post ret == 0, "ret in post";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.11
+// Intention: contract without any post clause is malformed.
+
+decl @bad(%x: i32) : i32 {
+  pre %x > 0, "pos";
+};
+
+fun @main() : i32 {
+^entry:
+  ret call @bad(5);
+}

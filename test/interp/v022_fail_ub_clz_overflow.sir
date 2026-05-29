@@ -1,0 +1,13 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER, COMPILER
+// Bug-mining: The interpreter executes intrinsics at the return type's width instead of the operand's width, and lacks representability checks on the result (result-overflow UB is not enforced).
+// Intention: SPEC v0.2.2 Section 12 - @clz result must be representable.
+// clz(1) on i32 is 31. 31 DOES NOT fit in i4 (max value 7).
+intrinsic @clz(%x: i32) : i4;
+
+fun @main() : i32 {
+  let mut %a: i4 = 0;
+^entry:
+  %a = call @clz(1);
+  ret 0;
+}

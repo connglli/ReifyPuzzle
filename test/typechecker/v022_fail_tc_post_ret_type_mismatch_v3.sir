@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section 6.11 - ret type mismatch in post (int vs null).
+decl @foo() : i32 {
+  post ret == null, "type mismatch: ret is i32, null is ptr";
+};
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

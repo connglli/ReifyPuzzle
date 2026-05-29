@@ -1,0 +1,4 @@
+fun @bm_only_a(%x: i32) : i32 {
+^entry:
+  ret %x + %x;
+}

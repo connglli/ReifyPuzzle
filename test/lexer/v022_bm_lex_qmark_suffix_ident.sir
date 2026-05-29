@@ -1,0 +1,7 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §1 - `foo?` is illegal: `?` only after @/%.
+fun @main() : i32 {
+  let mut %foo?: i32 = 0;
+^entry:
+  ret 0;
+}

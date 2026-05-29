@@ -1,0 +1,15 @@
+// Multiple funs in one file
+fun @bm_md_add(%x: i32, %y: i32) : i32 {
+^entry:
+  ret %x + %y;
+}
+
+fun @bm_md_sub(%x: i32, %y: i32) : i32 {
+^entry:
+  ret %x - %y;
+}
+
+fun @bm_md_mul(%x: i32, %y: i32) : i32 {
+^entry:
+  ret %x * %y;
+}

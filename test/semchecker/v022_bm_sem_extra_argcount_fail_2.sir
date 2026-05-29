@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.10
+// Intention: call with too MANY arguments.
+fun @h(%x: i32) : i32 { ^entry: ret %x; }
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @h(1, 2, 3);
+  ret %r;
+}

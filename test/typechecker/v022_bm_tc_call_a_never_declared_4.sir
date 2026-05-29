@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §6.10(a)
+// Intention: a call to a name that is never declared anywhere must be rejected.
+fun @main(%a: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @does_not_exist(%a);
+  ret %r;
+}

@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3
+// Intention: call to undeclared function (never declared anywhere).
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @nowhere(1);
+  ret %r;
+}

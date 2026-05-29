@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3 §6.11
+// Intention: contract with only rationale string (no relations).
+decl @c(%x: i32) : i32 {
+  pre %x > 0, "must be positive";
+};
+fun @main() : i32 { ^entry: ret 0; }

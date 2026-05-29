@@ -1,0 +1,40 @@
+// stdlib/scalar/rotate_right_i32 -- 32-bit circular right rotation.
+//
+// Consumers add `decl @rotate_right_i32(%x: i32, %n: i32) : i32;` and
+// pass `-I test/lib/std/scalar` to the tools.
+
+// rotate_right_i32(x, n) -- rotate the 32-bit pattern of x right by n.
+//
+// Inputs:
+//   %x : i32
+//   %n : i32 in [0, 31]  (caller obligation).
+//
+// Semantics:
+//   Mask to unsigned 32 bits in i64, shift right (logical, `>>>`) by
+//   n, shift left by (32 - n), or them together, then truncate.
+fun @rotate_right_i32(%x: i32, %n: i32) : i32 {
+  let %thirty_two: i32 = 32;
+  let %low_mask: i64 = 4294967295;
+  let mut %x64: i64 = 0;
+  let mut %xu: i64 = 0;
+  let mut %n64: i64 = 0;
+  let mut %right: i64 = 0;
+  let mut %left_amt: i32 = 0;
+  let mut %left_amt64: i64 = 0;
+  let mut %left: i64 = 0;
+  let mut %combined: i64 = 0;
+  let mut %combined_low: i64 = 0;
+  let mut %res: i32 = 0;
+^entry:
+  %x64 = %x as i64;
+  %xu = %x64 & %low_mask;
+  %n64 = %n as i64;
+  %right = %xu >>> %n64;
+  %left_amt = %thirty_two - %n;
+  %left_amt64 = %left_amt as i64;
+  %left = %xu << %left_amt64;
+  %combined = %left | %right;
+  %combined_low = %combined & %low_mask;
+  %res = %combined_low as i32;
+  ret %res;
+}

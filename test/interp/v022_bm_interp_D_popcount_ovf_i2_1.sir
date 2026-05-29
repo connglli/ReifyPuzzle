@@ -1,0 +1,12 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// SPEC v0.2.2 §12 rule 25 - popcount result not representable in signed i2
+// i2 signed range is [-2, 1]; popcount(3) = 2 -> overflow.
+intrinsic @popcount(%x: i2) : i2;
+fun @main() : i32 {
+  let mut %r: i2 = 0;
+  let %x: i2 = -1; // all-ones in i2 -> popcount=2
+^entry:
+  %r = call @popcount(%x);
+  ret 0;
+}

@@ -1,0 +1,27 @@
+// stdlib/scalar/count_trailing_zeros_i32 -- safe wrapper over @ctz.
+//
+// Consumers add `decl @count_trailing_zeros_i32(%x: i32) : i32;` and
+// pass `-I test/lib/std/scalar` to the tools.
+
+intrinsic @ctz(%x: i32) : i32;
+
+// count_trailing_zeros_i32(x) -- trailing zeros in x, with x==0
+// mapped to 32 instead of UB.
+//
+// Semantics:
+//   The raw @ctz intrinsic UB-fails on zero (§12.2). Most callers
+//   prefer the "all bits are zero -> width" convention.
+fun @count_trailing_zeros_i32(%x: i32) : i32 {
+  let %zero: i32 = 0;
+  let %width: i32 = 32;
+  let mut %res: i32 = 0;
+^entry:
+  br %x == %zero, ^is_zero, ^nonzero;
+
+^is_zero:
+  ret %width;
+
+^nonzero:
+  %res = call @ctz(%x);
+  ret %res;
+}

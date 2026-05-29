@@ -1,0 +1,6 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §1 - Bare `@` with no following ident is invalid.
+fun @() : i32 {
+^entry:
+  ret 0;
+}

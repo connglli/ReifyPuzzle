@@ -1,0 +1,8 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section 6.10 - call requires parentheses.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+^entry:
+  %x = call @foo;
+  ret 0;
+}

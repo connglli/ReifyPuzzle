@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §5.4 - `%ret` is a local id (distinct sigil) - legal as a local.
+fun @main() : i32 {
+  let mut %ret: i32 = 7;
+^entry:
+  ret %ret;
+}

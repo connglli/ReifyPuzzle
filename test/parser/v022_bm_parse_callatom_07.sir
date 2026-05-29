@@ -1,0 +1,8 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.3
+// Intention: `call call` -- the target must be a GlobalId, not another keyword.
+intrinsic @get() : i32;
+fun @main() : i32 {
+^entry:
+  ret call call @get();
+}

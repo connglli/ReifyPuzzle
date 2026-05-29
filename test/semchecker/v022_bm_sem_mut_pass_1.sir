@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.6
+// Intention: assign call result to a let mut local.
+fun @h(%x: i32) : i32 { ^entry: ret %x; }
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+^entry:
+  %a = call @h(3);
+  %a = %a + 1;
+  ret %a;
+}

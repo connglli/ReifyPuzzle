@@ -1,0 +1,6 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - Long binary literal `0b1111111111111111` (16 bits).
+fun @main() : i32 {
+^entry:
+  ret 0b1111111111111111;
+}

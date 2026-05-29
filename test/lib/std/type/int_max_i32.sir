@@ -1,0 +1,10 @@
+// stdlib/type/int_max_i32 -- maximum signed value of i32 (2147483647).
+//
+// Consumers add `decl @int_max_i32() : i32;` and pass
+//   `-I test/lib/std/type`
+// to symiri/symirc/symirsolve. The link resolver picks up this body.
+fun @int_max_i32() : i32 {
+  let %v: i32 = 2147483647;
+^entry:
+  ret %v;
+}

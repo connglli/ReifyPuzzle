@@ -1,0 +1,6 @@
+// Library that participates in a recursion cycle when linked.
+decl @bm_cycle_main() : i32;
+fun @bm_cycle_lib() : i32 {
+^entry:
+  ret call @bm_cycle_main();
+}

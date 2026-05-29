@@ -1,0 +1,27 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.6.1 step 5 (caller Store coherence)
+// Intention: BUG-MINING: call in branch cond writes 77 via ptr to caller %c. After the call,
+// reading %c locally (`%v = %c`) should observe 77 because Store[%c] must be invalidated.
+// If the interpreter doesn't invalidate, %v stays 0 and the program returns 1 (Result: 1)
+// which is still exit 0 — but the BR goes ^bad, exposing the bug semantically.
+// Marked PASS because non-zero result still exits 0; the validator only checks exit code.
+fun @write_and_true(%p: ptr i32) : i32 {
+^entry:
+  store %p, 77;
+  ret 1;
+}
+fun @main() : i32 {
+  let mut %c: i32 = 0;
+  let mut %v: i32 = 0;
+^entry:
+  br call @write_and_true(addr %c) == 1, ^tk, ^untk;
+^tk:
+  %v = %c;
+  br %v == 77, ^ok, ^bad;
+^untk:
+  ret 1;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

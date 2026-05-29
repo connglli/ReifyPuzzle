@@ -1,0 +1,27 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.6.1 step 1
+// Intention: left-to-right call eval order; two calls mutate shared counter via pointer.
+fun @inc_and_get(%p: ptr i32) : i32 {
+  let mut %v: i32 = 0;
+  let %one: i32 = 1;
+^entry:
+  %v = load %p;
+  %v = %v + %one;
+  store %p, %v;
+  ret %v;
+}
+fun @main() : i32 {
+  let mut %c: i32 = 0;
+  let mut %sum: i32 = 0;
+  let %z: i32 = 0;
+^entry:
+  // left = 1, right = 2 (left committed first), sum = 1+2 = 3
+  %sum = call @inc_and_get(addr %c) + call @inc_and_get(addr %c);
+  br %sum == 3, ^a, ^bad;
+^a:
+  br %c == 2, ^ok, ^bad;
+^ok:
+  ret %z;
+^bad:
+  ret 1;
+}

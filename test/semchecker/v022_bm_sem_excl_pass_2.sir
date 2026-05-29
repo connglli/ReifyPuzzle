@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// SKIP: INTERPRETER, COMPILER
+// Intention: contract-only decl with no body anywhere (legal for solver; --check should accept).
+decl @abstract_only(%n: i32) : i32 {
+  pre %n > 0, "positive";
+  post ret > 0, "positive result";
+};
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

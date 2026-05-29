@@ -1,0 +1,15 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// SPEC v0.2.2 §11.3
+// Intention: Interpreter rejects call to contract-form decl (variant: ptr return).
+decl @bm_alloc(%n: i32) : ptr i32 {
+  pre %n > 0, "pos size";
+  post ret != null, "non-null";
+};
+
+fun @main() : i32 {
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = call @bm_alloc(4);
+  ret 0;
+}

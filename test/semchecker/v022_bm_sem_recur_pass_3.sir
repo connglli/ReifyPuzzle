@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.7
+// Intention: same-named callee called from two siblings (not a cycle).
+fun @leaf(%x: i32) : i32 { ^entry: ret %x; }
+fun @s1(%x: i32) : i32 { ^entry: ret call @leaf(%x); }
+fun @s2(%x: i32) : i32 { ^entry: ret call @leaf(%x); }
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @s1(1);
+  %r = %r + call @s2(2);
+  ret %r;
+}

@@ -1,0 +1,7 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §1 - `@??x` has two `?` after `@`; only single `?` allowed.
+fun @main() : i32 {
+  let mut %x: i32 = @??x;
+^entry:
+  ret %x;
+}

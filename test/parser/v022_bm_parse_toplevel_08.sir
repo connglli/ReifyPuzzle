@@ -1,0 +1,5 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §3.3
+// Intention: `decl` keyword without any following identifier.
+decl ;
+fun @main() : i32 { ^entry: ret 0; }

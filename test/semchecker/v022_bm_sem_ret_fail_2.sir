@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §5.4
+// Intention: bare `ret` identifier used inside a `fun` body expression (only legal inside post clauses).
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+^entry:
+  %a = ret + 1;
+  ret %a;
+}

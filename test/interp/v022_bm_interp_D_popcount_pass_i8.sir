@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.2 @popcount at i8
+intrinsic @popcount(%x: i8) : i8;
+fun @main() : i32 {
+  let mut %r: i8 = 0;
+  let %x: i8 = -1; // all 1s -> 8
+^entry:
+  %r = call @popcount(%x);
+  br %r == 8, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.10(a)
+// Intention: a call to a `fun` defined later in source must be rejected; declarations must appear before any call referencing them.
+fun @caller(%x: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @callee(%x);
+  ret %r;
+}
+
+fun @callee(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+
+fun @main(%a: i32) : i32 {
+^entry:
+  ret call @caller(%a);
+}

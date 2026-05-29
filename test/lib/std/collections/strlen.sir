@@ -1,0 +1,39 @@
+// stdlib/collections/strlen -- string length.
+//
+// Consumers add `decl @strlen(%s: ptr i8): i32;` and pass
+//   `-I test/lib/std/collections`
+// to symiri/symirc/symirsolve. The link resolver picks up this body.
+
+// strlen(s) -- returns the length of a null-terminated string.
+//
+// Inputs:
+//   %s : ptr i8 -- string pointer
+//
+// Output:
+//   i32 -- the length.
+//
+// Semantics:
+//   Iterates until a null byte is found.
+fun @strlen(%s: ptr i8) : i32 {
+  let mut %len: i32 = 0;
+  let mut %ptr: ptr i8 = null;
+  let mut %val: i8 = 0;
+  let %zero: i32 = 0;
+  let %one: i32 = 1;
+  let %null_byte: i8 = 0;
+^entry:
+  %len = %zero;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^loop_cond:
+  %ptr = %s + %len;
+  %val = load %ptr;
+  br %val != %null_byte, ^loop_body, ^exit;
+
+^loop_body:
+  %len = %len + %one;
+  br %zero == %zero, ^loop_cond, ^exit;
+
+^exit:
+  ret %len;
+}

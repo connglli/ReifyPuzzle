@@ -1,0 +1,56 @@
+// EXPECT: PASS
+// INTERP_ARGS: -I test/lib/std/collections
+// COMPILER_ARGS: -I test/lib/std/collections
+// SPEC v0.2.2 §11.3
+// Intention: stdlib array_sum + swap_i32 + local helper.
+decl @array_sum_4_i32(%p: ptr [4] i32) : i32;
+decl @swap_i32(%a: ptr i32, %b: ptr i32) : i32;
+
+fun @double(%x: i32) : i32 {
+^entry:
+  ret %x + %x;
+}
+
+fun @main() : i32 {
+  let mut %a: [4] i32 = { 1, 2, 3, 4 };
+  let mut %x: i32 = 10;
+  let mut %y: i32 = 20;
+  let mut %s: i32 = 0;
+  let mut %d: i32 = 0;
+  let mut %t: i32 = 0;
+  let mut %px: ptr i32 = null;
+  let mut %py: ptr i32 = null;
+  let %zero: i32 = 0;
+  let %one: i32 = 1;
+^entry:
+  %s = call @array_sum_4_i32(addr %a); // 10
+  %d = call @double(%s); // 20
+  %t = %s + %one;
+  br %s == 10, ^b1, ^bad;
+^b1:
+  %px = addr %x;
+  %py = addr %y;
+  %t = call @swap_i32(%px, %py); // 0
+  %t = %t + %one;
+  br %x == 20, ^b2, ^bad;
+^b2:
+  %t = load %py;
+  %t = %t + %zero;
+  %t = %t * %one;
+  br %y == 10, ^b3, ^bad;
+^b3:
+  %t = %d + %zero;
+  %t = %t - %one;
+  %t = %t + %one;
+  br %t == 20, ^ok, ^bad;
+^ok:
+  %t = %t - 20;
+  %t = %t + %zero;
+  %t = %t * %one;
+  ret %t;
+^bad:
+  %t = %t + %one;
+  %t = %t - %one;
+  %t = %t + %one;
+  ret 1;
+}

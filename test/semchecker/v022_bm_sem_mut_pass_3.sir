@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.6
+// Intention: pass call result (i32) as argument to another call (no addr involved).
+fun @h(%x: i32) : i32 { ^entry: ret %x + 1; }
+fun @g(%y: i32) : i32 { ^entry: ret %y + %y; }
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @g(call @h(2));
+  ret %r;
+}

@@ -1,0 +1,5 @@
+// A body that conflicts with @abs intrinsic.
+fun @abs(%x: i32) : i32 {
+^entry:
+  ret %x + %x;
+}

@@ -1,0 +1,7 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.4
+// Intention: `ret` used as LHS lvalue inside post -- it is read-only.
+decl @f(%x: i32) : i32 {
+  post ret = %x, "wrong: assigning ret";
+};
+fun @main() : i32 { ^entry: ret 0; }

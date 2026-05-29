@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: intrinsic then decl then fun ordering is legal.
+intrinsic @abs(%x: i32) : i32;
+decl @helper(%x: i32) : i32;
+fun @main(%a: i32) : i32 {
+^entry:
+  ret %a;
+}

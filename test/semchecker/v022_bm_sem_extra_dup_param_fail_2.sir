@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3
+// Intention: duplicate parameter names in a contract-form decl.
+decl @h(%x: i32, %x: i32) : i32 {
+  post ret == %x;
+};
+fun @main() : i32 { ^entry: ret 0; }

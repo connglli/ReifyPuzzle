@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.6
+// Intention: reassign an immutable let local with call result.
+fun @h(%x: i32) : i32 { ^entry: ret %x; }
+fun @main() : i32 {
+  let %y: i32 = 0;
+^entry:
+  %y = call @h(3);
+  ret %y;
+}

@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: struct decl followed by fun using it.
+struct @S { f: i32; }
+fun @main() : i32 {
+  let mut %s: @S = { 0 };
+^entry:
+  ret %s.f;
+}

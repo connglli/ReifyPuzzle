@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// SPEC v0.2.2 §11.1
+// Intention: No -I provided; link-form decl with no body must error in interpreter.
+decl @bm_inc(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @bm_inc(1);
+}

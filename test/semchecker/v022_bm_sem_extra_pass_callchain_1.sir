@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3 §9.6
+// Intention: long well-formed call chain with assume/require.
+fun @h1(%x: i32) : i32 { ^entry: ret %x + 1; }
+fun @h2(%x: i32) : i32 { ^entry: ret call @h1(%x); }
+fun @h3(%x: i32) : i32 { ^entry: ret call @h2(%x); }
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @h3(7);
+  assume %r > 0;
+  require %r >= 8, "h3 increments";
+  ret %r;
+}

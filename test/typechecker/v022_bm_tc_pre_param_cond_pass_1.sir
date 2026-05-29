@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.11 (pre)
+// Intention: pre referencing a single param via a relational cond is well-formed.
+decl @f(%x: i32) : i32 {
+  pre %x > 0, "positive";
+  post ret == %x, "identity";
+};
+
+fun @main(%a: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @f(%a);
+  ret %r;
+}

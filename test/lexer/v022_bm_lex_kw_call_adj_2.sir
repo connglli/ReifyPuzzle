@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - `call_x` is a single identifier (underscore continues ident).
+fun @main() : i32 {
+  let mut %call_x: i32 = 5;
+^entry:
+  ret %call_x;
+}

@@ -1,0 +1,34 @@
+// stdlib/scalar/count_leading_zeros_i32 -- safe wrapper over @clz.
+//
+// Consumers add `decl @count_leading_zeros_i32(%x: i32) : i32;` and
+// pass `-I test/lib/std/scalar` to the tools.
+
+intrinsic @clz(%x: i32) : i32;
+
+// count_leading_zeros_i32(x) -- leading zeros in x, with x==0 mapped
+// to 32 instead of UB.
+//
+// Inputs:
+//   %x : i32
+//
+// Output:
+//   i32 in [0, 32]. Returns 32 when x == 0, otherwise @clz(x).
+//
+// Semantics:
+//   The raw @clz intrinsic UB-fails on zero (§12.2). Most callers
+//   prefer the "all bits are zero -> width" convention, which we
+//   provide here by branching on x == 0 before invoking @clz.
+fun @count_leading_zeros_i32(%x: i32) : i32 {
+  let %zero: i32 = 0;
+  let %width: i32 = 32;
+  let mut %res: i32 = 0;
+^entry:
+  br %x == %zero, ^is_zero, ^nonzero;
+
+^is_zero:
+  ret %width;
+
+^nonzero:
+  %res = call @clz(%x);
+  ret %res;
+}

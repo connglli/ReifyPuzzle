@@ -1,0 +1,5 @@
+// Library body whose name collides with an intrinsic.
+fun @bm_collide_abs(%x: i32) : i32 {
+^entry:
+  ret %x;
+}

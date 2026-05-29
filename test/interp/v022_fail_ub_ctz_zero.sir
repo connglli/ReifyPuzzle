@@ -1,0 +1,9 @@
+// EXPECT: FAIL:UndefinedBehavior
+// Rationale: [v0.2.2] §12.2 - @ctz(0) is UB.
+
+intrinsic @ctz(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @ctz(0);
+}

@@ -1,0 +1,6 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3
+// Intention: intrinsic + fun with the same name.
+intrinsic @abs(%x: i32) : i32;
+fun @abs(%x: i32) : i32 { ^entry: ret %x; }
+fun @main() : i32 { ^entry: ret 0; }

@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// EXPECT_RC: 5
+// SPEC v0.2.2 §12
+intrinsic @clz(%x: i32) : i32;
+intrinsic @ctz(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+^entry:
+  %a = call @clz(1);   // 31
+  %b = call @ctz(64);  // 6
+  ret %a - %b - 20;    // 31 - 6 - 20 = 5
+}

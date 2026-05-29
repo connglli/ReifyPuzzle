@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.6
+// Intention: assign twice to immutable let (not call-related, baseline).
+fun @main() : i32 {
+  let %y: i32 = 0;
+^entry:
+  %y = 1;
+  %y = 2;
+  ret %y;
+}

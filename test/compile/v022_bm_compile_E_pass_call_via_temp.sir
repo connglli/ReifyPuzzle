@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// EXPECT_RC: 1
+// SPEC v0.2.2 §5.3
+// Intention: call result threaded through a temp then compared.
+
+fun @three() : i32 { ^entry: ret 3; }
+
+fun @main() : i32 {
+  let mut %t: i32 = 0;
+  let mut %m: i1 = 0;
+^entry:
+  %t = call @three();
+  %m = cmp == %t, 3;
+  ret %m as i32;
+}

@@ -1,0 +1,8 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.4
+// Intention: `ret` cannot be used as an expression in a let initializer in a fun body.
+fun @main() : i32 {
+  let %x: i32 = ret;
+^entry:
+  ret %x;
+}

@@ -1,0 +1,4 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §3.1 - Unterminated `/*` hides `*/` lookalikes; everything after EOF is in-comment.
+decl @h() : i32; /* unterminated comment hides rest
+fun @main() : i32 { ^entry: ret 0; }

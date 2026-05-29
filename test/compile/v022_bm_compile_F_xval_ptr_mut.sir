@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// EXPECT_RC: 42
+// SPEC v0.2.2 §11.2
+// Intention: xval pointer-mutating callee.
+
+fun @set42(%p: ptr i32) : i32 { ^entry: store %p, 42; ret 0; }
+
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %junk: i32 = 0;
+  let mut %p: ptr i32 = null;
+^entry:
+  %p = addr %x;
+  %junk = call @set42(%p);
+  ret %x;
+}

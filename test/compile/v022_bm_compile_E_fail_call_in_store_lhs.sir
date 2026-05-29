@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §4.2
+// Intention: store target must be a pointer expression, not a call result.
+
+fun @one() : i32 { ^entry: ret 1; }
+
+fun @main() : i32 {
+^entry:
+  store call @one(), 5;
+  ret 0;
+}

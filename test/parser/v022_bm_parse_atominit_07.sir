@@ -1,0 +1,10 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §3.5.2
+// Intention: AtomInit forbids full expressions — `+ call` chain is not a valid initialiser.
+intrinsic @a() : i32;
+intrinsic @b() : i32;
+fun @main() : i32 {
+  let mut %y: i32 = call @a() + call @b();
+^entry:
+  ret %y;
+}

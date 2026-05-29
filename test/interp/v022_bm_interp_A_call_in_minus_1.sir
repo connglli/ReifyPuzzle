@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.3 call atom inside - chain
+fun @five() : i32 {
+^entry:
+  ret 5;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = 20 - call @five() - call @five(); // 10
+  br %r == 10, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

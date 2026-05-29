@@ -1,0 +1,19 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §9.6.1 step 5
+// Intention: BUG-MINING with require to trigger an exit. After callee stores 0 to %x,
+// reading %x should yield 0; require %x == 5 should then fail.
+// If interpreter incorrectly caches, %x = 5 (still initial), and require succeeds -> PASS = bug.
+fun @zero(%p: ptr i32) : i32 {
+^entry:
+  store %p, 0;
+  ret 0;
+}
+fun @main() : i32 {
+  let mut %x: i32 = 5;
+  let mut %v: i32 = 0;
+^entry:
+  %v = call @zero(addr %x);
+  %v = %x;
+  require %v == 5, "stale cache bug: must fail because %x is now 0";
+  ret %v;
+}

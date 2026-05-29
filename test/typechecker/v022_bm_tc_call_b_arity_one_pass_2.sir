@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.10(b)
+// Intention: one-arg call with matching arity is well-typed.
+fun @id(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+
+fun @main(%a: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @id(%a);
+  ret %r;
+}

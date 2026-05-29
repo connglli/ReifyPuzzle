@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.2 @ctz at i16
+intrinsic @ctz(%x: i16) : i16;
+fun @main() : i32 {
+  let mut %r: i16 = 0;
+  let %x: i16 = 256;
+^entry:
+  %r = call @ctz(%x);
+  br %r == 8, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

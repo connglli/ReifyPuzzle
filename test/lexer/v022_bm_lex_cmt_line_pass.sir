@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - Line comment after `decl` line.
+decl @h() : i32; // trailing line comment
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

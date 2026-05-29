@@ -1,0 +1,33 @@
+// stdlib/simd/reduce_max_4_i32 -- horizontal max across 4 lanes.
+//
+// Consumers add `decl @reduce_max_4_i32(%v: <4> i32) : i32;` and pass
+//   `-I test/lib/std/simd`
+// to the tools.
+
+intrinsic @max(%a: i32, %b: i32) : i32;
+
+// reduce_max_4_i32(v) -- max of v[0..4) under signed comparison.
+//
+// Semantics:
+//   v0.2.2 has no horizontal-reduction intrinsic; we read each lane
+//   with subscripts and fold pairwise via @max.
+fun @reduce_max_4_i32(%v: <4> i32) : i32 {
+  let %i0: i32 = 0;
+  let %i1: i32 = 1;
+  let %i2: i32 = 2;
+  let %i3: i32 = 3;
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+  let mut %d: i32 = 0;
+  let mut %m: i32 = 0;
+^entry:
+  %a = %v[%i0];
+  %b = %v[%i1];
+  %c = %v[%i2];
+  %d = %v[%i3];
+  %m = call @max(%a, %b);
+  %m = call @max(%m, %c);
+  %m = call @max(%m, %d);
+  ret %m;
+}

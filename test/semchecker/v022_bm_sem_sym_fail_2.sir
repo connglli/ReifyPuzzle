@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.5.1
+// Intention: duplicate sym names within a fun.
+fun @main() : i32 {
+  sym %?k: value i32 in [0, 10];
+  sym %?k: value i32 in [0, 20];
+^entry:
+  ret %?k;
+}

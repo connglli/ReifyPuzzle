@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §1 - `@?ret` is technically a legal global symbol token, but using it in `ret` keyword position should fail.
+decl @f() : i32 {
+  post @?ret == 0;
+};
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

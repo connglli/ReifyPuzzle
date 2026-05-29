@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.12
+// Intention: `null` literal typed by ptr param context.
+fun @f(%p: ptr i32) : i32 {
+^entry:
+  ret 0;
+}
+
+fun @main() : i32 {
+^entry:
+  ret call @f(null);
+}

@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - `callfoo` is a single identifier, not keyword `call` + `foo`. Used as struct field.
+struct @S { callfoo: i32; }
+fun @main() : i32 {
+  let mut %s: @S = { 1 };
+^entry:
+  ret %s.callfoo;
+}

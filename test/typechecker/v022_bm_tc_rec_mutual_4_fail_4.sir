@@ -1,0 +1,27 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.2 §9.7
+// Intention: 4-cycle mutual recursion must be rejected.
+fun @a(%x: i32) : i32 {
+^entry:
+  ret call @b(%x);
+}
+
+fun @b(%x: i32) : i32 {
+^entry:
+  ret call @c(%x);
+}
+
+fun @c(%x: i32) : i32 {
+^entry:
+  ret call @d(%x);
+}
+
+fun @d(%x: i32) : i32 {
+^entry:
+  ret call @a(%x);
+}
+
+fun @main(%x: i32) : i32 {
+^entry:
+  ret call @a(%x);
+}

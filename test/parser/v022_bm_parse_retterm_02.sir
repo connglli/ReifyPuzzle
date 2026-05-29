@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §4.1
+// Intention: `ret call @f();` returning a call result.
+intrinsic @get() : i32;
+fun @main() : i32 {
+^entry:
+  ret call @get();
+}

@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// SPEC v0.2.2 §9.7
+// INTERP_ARGS: -I test/tmp/bm_link_cyc3a -I test/tmp/bm_link_cyc3b -I test/tmp/bm_link_cyc3c
+// Intention: 3-cycle a->b->c->a spanning three -I dirs.
+decl @bm_cyc3_a(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @bm_cyc3_a(1);
+}

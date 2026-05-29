@@ -1,0 +1,9 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.4
+// Intention: `ret` referenced inside fun body (outside any post clause).
+fun @main(%a: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = ret + 1;
+  ret %y;
+}

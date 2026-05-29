@@ -1,0 +1,12 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SPEC v0.2.2 §7.6 rule 20 inside callee
+fun @bad_lane(%v: <4> i32) : i32 {
+  let %i: i32 = 5;
+^entry:
+  ret %v[%i];
+}
+fun @main() : i32 {
+  let mut %v: <4> i32 = { 1, 2, 3, 4 };
+^entry:
+  ret call @bad_lane(%v);
+}

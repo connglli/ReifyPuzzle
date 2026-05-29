@@ -1,0 +1,6 @@
+// EXPECT: PASS
+// EXPECT_RC: 7
+// SPEC v0.2.2 §12
+// Intention: cross-validation @abs.
+intrinsic @abs(%x: i32) : i32;
+fun @main() : i32 { ^entry: ret call @abs(-7); }

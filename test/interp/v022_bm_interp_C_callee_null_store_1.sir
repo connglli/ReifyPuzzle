@@ -1,0 +1,15 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §7.5 rule 9
+// Intention: callee stores through a null pointer -> UB.
+fun @bad_store(%p: ptr i32) : i32 {
+^entry:
+  store %p, 1;
+  ret 0;
+}
+fun @main() : i32 {
+  let mut %np: ptr i32 = null;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @bad_store(%np);
+  ret %r;
+}

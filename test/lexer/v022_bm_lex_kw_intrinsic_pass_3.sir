@@ -1,0 +1,7 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - `intrinsic` followed by tight `@`.
+intrinsic@popcount(%x: i32) : i32;
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

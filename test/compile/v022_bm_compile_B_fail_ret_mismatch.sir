@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// COMPILER_ARGS: -I test/lib/std/scalar
+// INTERP_ARGS: -I test/lib/std/scalar
+// SPEC v0.2.2 §11.2
+// Intention: link-form decl return type mismatch.
+
+decl @gcd(%a: i32, %b: i32) : i64;
+
+fun @main() : i64 {
+^entry:
+  ret call @gcd(2, 4);
+}

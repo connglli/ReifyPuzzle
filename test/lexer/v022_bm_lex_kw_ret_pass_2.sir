@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §5.4 - `ret` as identifier inside `post` clause.
+decl @f(%a: i32) : i32 {
+  post ret == %a + 1;
+};
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

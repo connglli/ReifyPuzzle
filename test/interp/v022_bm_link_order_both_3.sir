@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.1
+// INTERP_ARGS: -I test/tmp/bm_link_dir_a -I test/tmp/bm_link_dir_b
+// COMPILER_ARGS: -I test/tmp/bm_link_dir_a -I test/tmp/bm_link_dir_b
+// Intention: Two decls each resolved from a different -I dir.
+decl @bm_only_a(%x: i32) : i32;
+decl @bm_only_b(%x: i32) : i32;
+
+fun @main() : i32 {
+  let mut %s: i32 = 0;
+  let mut %t: i32 = 0;
+^entry:
+  %s = call @bm_only_a(3);
+  %t = call @bm_only_b(2);
+  ret %s + %t;
+}

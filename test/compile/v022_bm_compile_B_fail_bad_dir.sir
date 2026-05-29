@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// COMPILER_ARGS: -I /nonexistent/dir/that/does/not/exist
+// SPEC v0.2.2 §11.1
+// Intention: -I to nonexistent dir; link-form decl unresolved.
+
+decl @some_helper(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @some_helper(1);
+}

@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §9.7
+// INTERP_ARGS: -I test/tmp/bm_link_chain_a -I test/tmp/bm_link_chain_b -I test/tmp/bm_link_chain_c
+// COMPILER_ARGS: -I test/tmp/bm_link_chain_a -I test/tmp/bm_link_chain_b -I test/tmp/bm_link_chain_c
+// Intention: Long acyclic chain across 3 -I dirs.
+decl @bm_chain_step1(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @bm_chain_step1(2);
+}

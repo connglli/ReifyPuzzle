@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.11
+// Intention: post clause references a free variable that is neither a parameter nor `ret`.
+decl @c(%x: i32) : i32 {
+  post ret == %z;
+};
+fun @main() : i32 { ^entry: ret 0; }

@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.1
+// INTERP_ARGS: -I test/tmp/bm_lib_a
+// Intention: link-form decl for a name with NO matching fun in the dir (only @bm_inc/@bm_dbl are present).
+decl @no_such(%x: i32) : i32;
+fun @main() : i32 {
+^entry:
+  ret call @no_such(0);
+}

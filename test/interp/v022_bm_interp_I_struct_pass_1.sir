@@ -1,0 +1,27 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12 ptr @S argument navigation
+struct @Pt { x: i32; y: i32; }
+
+fun @sum_pt(%p: ptr @Pt) : i32 {
+  let mut %fx: ptr i32 = null;
+  let mut %fy: ptr i32 = null;
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+^entry:
+  %fx = ptrfield %p, x;
+  %fy = ptrfield %p, y;
+  %a = load %fx;
+  %b = load %fy;
+  ret %a + %b;
+}
+fun @main() : i32 {
+  let mut %pt: @Pt = { 3, 7 };
+  let mut %s: i32 = 0;
+^entry:
+  %s = call @sum_pt(addr %pt);
+  br %s == 10, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

@@ -122,6 +122,17 @@ namespace symir {
       validateTypeWF(i.retType, diags);
       for (const auto &p: i.params)
         validateTypeWF(p.type, diags);
+      // [v0.2.2 §12] Standard intrinsics are defined over `iN` only.
+      // Reject declarations whose parameter or return type is not an
+      // integer — without this check `intrinsic @clz(%x: f32) : f32;`
+      // would be accepted and surface only at link time as a missing
+      // `_symir_clz_f32` symbol.
+      auto isInt = [](const TypePtr &t) { return t && std::holds_alternative<IntType>(t->v); };
+      if (!isInt(i.retType))
+        diags.error("`intrinsic " + i.name.name + "` return type must be `iN` (§12)", i.span);
+      for (const auto &p: i.params)
+        if (!isInt(p.type))
+          diags.error("`intrinsic " + i.name.name + "` parameter type must be `iN` (§12)", i.span);
       auto it = callees_.find(i.name.name);
       if (it != callees_.end()) {
         diags.error(
@@ -197,12 +208,27 @@ namespace symir {
       if (exprMentionsRet(pre.cond.lhs) || exprMentionsRet(pre.cond.rhs)) {
         diags.error("`ret` may not appear in `pre` clauses (§6.11)", pre.span);
       }
+      // [v0.2.2 §6.11] pre clauses must be scalar Cond; vector-typed
+      // operands would produce a `<N> i1` mask, which is not a single
+      // truth value. Type the LHS first (with null disallowed); if the
+      // LHS is a vector, flag the error before delegating to checkCond
+      // (which doesn't enforce scalar-only).
+      {
+        auto lt = typeOfExpr(pre.cond.lhs, vars, syms, ann, diags, std::nullopt);
+        if (lt.isVec())
+          diags.error("`pre` condition must be scalar, not vector (§6.11)", pre.span);
+      }
       checkCond(pre.cond, vars, syms, ann, diags);
     }
 
     // Post clauses: `ret` is a synthetic immutable local of declared return type.
     vars["ret"] = VarInfo{d.retType, /*isMutable=*/false, /*isParam=*/true, d.span};
     for (const auto &post: d.contract->posts) {
+      {
+        auto lt = typeOfExpr(post.cond.lhs, vars, syms, ann, diags, std::nullopt);
+        if (lt.isVec())
+          diags.error("`post` condition must be scalar, not vector (§6.11)", post.span);
+      }
       checkCond(post.cond, vars, syms, ann, diags);
     }
     vars.erase("ret");

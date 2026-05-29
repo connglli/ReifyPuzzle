@@ -1,0 +1,9 @@
+// Calls @bm_inc -- both in same dir; verifies nested call across helper file
+decl @bm_inc(%x: i32) : i32;
+
+fun @bm_chain(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @bm_inc(%x);
+  ret %y + %y;
+}

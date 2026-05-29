@@ -1,0 +1,8 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section 5.4 - ret as identifier is only allowed in post clauses.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+^entry:
+  %x = ret + 1;
+  ret 0;
+}

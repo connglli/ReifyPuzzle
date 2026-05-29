@@ -1,0 +1,47 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3 §6.10 §12
+// INTERP_ARGS: -I test/lib/std/scalar
+// Intention: pointer arg + call into stdlib gcd + intrinsics + 5 blocks.
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+decl @gcd(%a: i32, %b: i32) : i32;
+
+fun @load_and_bump(%p: ptr i32) : i32 {
+  let mut %v: i32 = 0;
+^entry:
+  %v = load %p;
+  %v = %v + 1;
+  store %p, %v;
+  ret %v;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 12;
+  let mut %y: i32 = 18;
+  let mut %t: i32 = 0;
+  let mut %g: i32 = 0;
+  let mut %m: i32 = 0;
+  let mut %p: i32 = 0;
+  let mut %q: ptr i32 = null;
+  let mut %final: i32 = 0;
+^entry:
+  %t = call @load_and_bump(addr %x);
+  %g = call @gcd(%t, %y);
+  br %g > 1, ^a, ^b;
+^a:
+  %m = call @min(%g, %y);
+  %p = call @popcount(%m);
+  %q = addr %y;
+  store %q, %m;
+  br %p >= 1, ^c, ^d;
+^b:
+  %m = 0;
+  %p = 0;
+  br %m == 0, ^c, ^d;
+^c:
+  %final = %m + %p;
+  ret %final;
+^d:
+  %final = 0;
+  ret %final;
+}

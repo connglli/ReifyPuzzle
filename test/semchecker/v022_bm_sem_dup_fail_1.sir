@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3
+// Intention: two `fun @f` definitions in the same file.
+fun @f(%x: i32) : i32 {
+^entry:
+  ret %x;
+}
+fun @f(%x: i32) : i32 {
+^entry:
+  ret %x + 1;
+}
+fun @main() : i32 { ^entry: ret 0; }

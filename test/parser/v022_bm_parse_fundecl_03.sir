@@ -1,0 +1,6 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: fun returning a pointer / vector / float types.
+fun @f1() : ptr i32 { ^entry: ret null; }
+fun @f2() : f64 { ^entry: ret 1.0; }
+fun @main() : i32 { ^entry: ret 0; }

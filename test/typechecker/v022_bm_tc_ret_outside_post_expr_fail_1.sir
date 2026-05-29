@@ -1,0 +1,9 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.4
+// Intention: `ret` is not in scope as an identifier outside post; using it as an expression in a fun body must fail.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+^entry:
+  %x = ret + 1;
+  ret %x;
+}

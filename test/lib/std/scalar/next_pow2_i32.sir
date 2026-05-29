@@ -1,0 +1,42 @@
+// stdlib/scalar/next_pow2_i32 -- smallest power of two >= x.
+//
+// Consumers add `decl @next_pow2_i32(%x: i32) : i32;` and pass
+//   `-I test/lib/std/scalar`
+// to the tools.
+
+intrinsic @clz(%x: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+
+// next_pow2_i32(x) -- smallest power-of-two >= x.
+//
+// Inputs:
+//   %x : i32  -- must be in [1, 2^30] (so the answer fits in signed i32).
+//
+// Output:
+//   i32 -- a power of two p with x <= p.
+//
+// Semantics:
+//   floor_log = 31 - clz(x). If x is already a power of two
+//   (popcount(x) == 1) return x; otherwise return 1 << (floor_log + 1).
+fun @next_pow2_i32(%x: i32) : i32 {
+  let %thirty_one: i32 = 31;
+  let %one: i32 = 1;
+  let mut %clz_val: i32 = 0;
+  let mut %floor_log: i32 = 0;
+  let mut %pop: i32 = 0;
+  let mut %shamt: i32 = 0;
+  let mut %res: i32 = 0;
+^entry:
+  %clz_val = call @clz(%x);
+  %floor_log = %thirty_one - %clz_val;
+  %pop = call @popcount(%x);
+  br %pop == %one, ^is_pow2, ^bump;
+
+^is_pow2:
+  ret %x;
+
+^bump:
+  %shamt = %floor_log + %one;
+  %res = 1 << %shamt;
+  ret %res;
+}

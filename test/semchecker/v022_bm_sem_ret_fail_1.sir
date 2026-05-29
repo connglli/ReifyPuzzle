@@ -1,0 +1,8 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §5.4 §3.4
+// Intention: `ret` referenced in `pre` clause (forbidden).
+decl @c(%x: i32) : i32 {
+  pre ret == 0;
+  post ret >= 0;
+};
+fun @main() : i32 { ^entry: ret 0; }

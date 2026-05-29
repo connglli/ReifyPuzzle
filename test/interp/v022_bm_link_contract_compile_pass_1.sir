@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SKIP: COMPILER
+// SKIP: INTERPRETER, SOLVER
+// Rationale: interpreter rejects contract-form calls per §11.3; solver expands contract but symiri/symirsolve check elsewhere.
+// SPEC v0.2.2 §11.2
+// Intention: symirc must compile a contract-form decl by emitting extern.
+decl @bm_extern_oracle(%x: i32) : i32 {
+  pre %x >= 0, "nonneg";
+  post ret >= %x, "monotone";
+};
+
+fun @main() : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @bm_extern_oracle(3);
+  ret %y;
+}

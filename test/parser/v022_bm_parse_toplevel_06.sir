@@ -1,0 +1,4 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §3.3
+// Intention: unknown top-level keyword `func` (must be `fun`).
+func @main() : i32 { ^entry: ret 0; }

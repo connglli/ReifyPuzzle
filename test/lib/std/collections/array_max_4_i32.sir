@@ -1,0 +1,38 @@
+// stdlib/collections/array_max_4_i32 -- max of a length-4 i32 array.
+//
+// Consumers add `decl @array_max_4_i32(%p: ptr [4] i32) : i32;` and
+// pass `-I test/lib/std/collections` to the tools.
+
+intrinsic @max(%a: i32, %b: i32) : i32;
+
+// array_max_4_i32(p) -- maximum element of a 4-element array.
+//
+// Inputs:
+//   %p : ptr [4] i32 -- non-null pointer to an initialized 4-element array.
+//
+// Output:
+//   i32 -- the maximum element under signed comparison.
+//
+// Semantics:
+//   Loads each element via ptrindex/load and folds with @max.
+fun @array_max_4_i32(%p: ptr [4] i32) : i32 {
+  let %i0: i32 = 0;
+  let %i1: i32 = 1;
+  let %i2: i32 = 2;
+  let %i3: i32 = 3;
+  let mut %elt: ptr i32 = null;
+  let mut %v0: i32 = 0;
+  let mut %v1: i32 = 0;
+  let mut %v2: i32 = 0;
+  let mut %v3: i32 = 0;
+  let mut %m: i32 = 0;
+^entry:
+  %elt = ptrindex %p, %i0; %v0 = load %elt;
+  %elt = ptrindex %p, %i1; %v1 = load %elt;
+  %elt = ptrindex %p, %i2; %v2 = load %elt;
+  %elt = ptrindex %p, %i3; %v3 = load %elt;
+  %m = call @max(%v0, %v1);
+  %m = call @max(%m, %v2);
+  %m = call @max(%m, %v3);
+  ret %m;
+}

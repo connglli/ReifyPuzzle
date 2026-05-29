@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.2
+// Intention: fun call lowering, basic in-file callee.
+// SKIP: INTERPRETER no interp needed for compile-coverage
+// SKIP: SOLVER pure compilation coverage
+
+fun @helper(%x: i32) : i32 { ^entry: ret %x + 1; }
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @helper(10);
+  ret %r;
+}

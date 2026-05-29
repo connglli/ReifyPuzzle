@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.2 @clz at i16 with MSB-set value
+intrinsic @clz(%x: i16) : i16;
+fun @main() : i32 {
+  let mut %r: i16 = 0;
+  let %x: i16 = -32768; // 1000_0000_0000_0000 - leading zero count = 0
+^entry:
+  %r = call @clz(%x);
+  br %r == 0, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

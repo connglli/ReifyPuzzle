@@ -1,0 +1,5 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.3
+// Intention: double comma in argument list.
+intrinsic @min(%a: i32, %b: i32) : i32;
+fun @main(%a: i32, %b: i32) : i32 { ^entry: ret call @min(%a,, %b); }

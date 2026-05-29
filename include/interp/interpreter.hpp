@@ -125,6 +125,13 @@ namespace symir {
     // collide with callee parameter/local names are saved and restored.
     RuntimeValue callFunction(const FunDecl &f, std::vector<RuntimeValue> args);
 
+    // [v0.2.2] §9.6.1 step 5: after a callee returns, refresh caller-side
+    // Store entries for any local that was promoted to memory (addr was
+    // taken). Reads through a pointer commit to `heap_`; without this
+    // refresh, subsequent direct reads of the local from the caller's
+    // Store would observe the stale pre-call value.
+    void syncStoreFromHeap(Store &store);
+
     // [v0.2.2] Run the body of a function whose Store has already been
     // populated. Used by both execFunction (top-level) and callFunction
     // (nested). When `outRet` is non-null, the ret value is written

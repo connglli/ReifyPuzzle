@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §11.1
+// INTERP_ARGS: -I test/tmp/bm_link_multi_decl
+// COMPILER_ARGS: -I test/tmp/bm_link_multi_decl
+// Intention: Multiple decls resolved from the same file in one -I dir.
+decl @bm_md_add(%x: i32, %y: i32) : i32;
+decl @bm_md_sub(%x: i32, %y: i32) : i32;
+decl @bm_md_mul(%x: i32, %y: i32) : i32;
+
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+^entry:
+  %a = call @bm_md_add(3, 4);
+  %b = call @bm_md_sub(10, 1);
+  %c = call @bm_md_mul(%a, %b);
+  ret %c;
+}

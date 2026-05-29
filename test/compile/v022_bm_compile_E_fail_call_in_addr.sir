@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §5.3 (addr takes LValue)
+// Intention: call result is not an lvalue.
+
+fun @one() : i32 { ^entry: ret 1; }
+
+fun @main() : i32 {
+^entry:
+  ret addr call @one();
+}

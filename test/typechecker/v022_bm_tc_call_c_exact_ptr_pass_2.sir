@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.10(c)
+// Intention: exact ptr i32 to ptr i32 parameter match in a fun call.
+fun @rd(%p: ptr i32) : i32 {
+^entry:
+  ret load %p;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 7;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @rd(addr %x);
+  ret %r;
+}

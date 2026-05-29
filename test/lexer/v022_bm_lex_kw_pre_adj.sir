@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - `precondition` is a single ident (longest match), usable as field.
+struct @S { precondition: i32; }
+fun @main() : i32 {
+  let mut %s: @S = { 1 };
+^entry:
+  ret %s.precondition;
+}

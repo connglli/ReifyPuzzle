@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1, §3.3 - `pre` keyword inside contract.
+decl @f(%x: i32) : i32 {
+  pre %x > 0;
+  post ret == %x;
+};
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

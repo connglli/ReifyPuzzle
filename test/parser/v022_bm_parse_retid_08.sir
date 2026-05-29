@@ -1,0 +1,9 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.4
+// Intention: a fun-local %ret is distinct from keyword ret (different sigil).
+fun @main(%a: i32) : i32 {
+  let mut %ret: i32 = 0;
+^entry:
+  %ret = %a;
+  ret %ret;
+}

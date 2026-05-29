@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §12.1, rule 25
+// Intention: @abs(INT_MIN) UB at i32 (-2147483648).
+intrinsic @abs(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let %x: i32 = -2147483648;
+^entry:
+  %r = call @abs(%x);
+  ret 0;
+}

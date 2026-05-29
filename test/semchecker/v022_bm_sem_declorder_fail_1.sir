@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §3.3
+// Intention: call to fun declared LATER in the same file (forward ref).
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @later(1);
+  ret %r;
+}
+fun @later(%x: i32) : i32 {
+^entry:
+  ret %x;
+}

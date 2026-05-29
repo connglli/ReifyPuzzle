@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §2.12 vector of i8 through callee
+fun @neg_v(%v: <4> i8) : <4> i8 {
+  let mut %r: <4> i8 = { 0, 0, 0, 0 };
+  let %z: <4> i8 = { 0, 0, 0, 0 };
+^entry:
+  %r = %z - %v;
+  ret %r;
+}
+fun @main() : i32 {
+  let mut %v: <4> i8 = { 1, 2, 3, 4 };
+  let mut %r: <4> i8 = { 0, 0, 0, 0 };
+  let mut %s: i8 = 0;
+^entry:
+  %r = call @neg_v(%v);
+  %s = %r[0] + %r[1];
+  br %s == -3, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

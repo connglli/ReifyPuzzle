@@ -1,0 +1,7 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 Section 1 - Hard rule: ? is forbidden in identifiers other than @? / %?.
+fun @main() : i32 {
+^entry:
+  %x = call @f?unc();
+  ret %x;
+}

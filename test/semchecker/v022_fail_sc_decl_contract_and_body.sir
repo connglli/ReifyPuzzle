@@ -1,0 +1,14 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section "Restrictions" - decl contract vs body is exclusive.
+decl @foo() : i32 {
+  post ret == 0, "ok";
+};
+fun @foo() : i32 {
+^entry:
+  ret 0;
+}
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

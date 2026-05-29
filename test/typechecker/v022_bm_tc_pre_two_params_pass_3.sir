@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.11 (pre)
+// Intention: pre %a < %b mentioning two params is well-formed.
+decl @f(%a: i32, %b: i32) : i32 {
+  pre %a < %b, "ordered";
+  post ret == %a, "first";
+};
+
+fun @main(%x: i32, %y: i32) : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @f(%x, %y);
+  ret %r;
+}

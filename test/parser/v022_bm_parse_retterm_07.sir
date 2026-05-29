@@ -1,0 +1,7 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §4.1
+// Intention: missing terminating semicolon after `ret`.
+fun @main() : i32 {
+^entry:
+  ret 0
+}

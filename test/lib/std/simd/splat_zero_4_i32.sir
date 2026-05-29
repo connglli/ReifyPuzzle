@@ -1,0 +1,15 @@
+// stdlib/simd/splat_zero_4_i32 -- the all-zero <4> i32 vector.
+//
+// Consumers add `decl @splat_zero_4_i32() : <4> i32;` and pass
+//   `-I test/lib/std/simd`
+// to the tools.
+
+// splat_zero_4_i32() -- returns the constant vector { 0, 0, 0, 0 }.
+//
+// Useful as a clean neutral element for fold patterns where callers
+// don't want to keep typing a literal.
+fun @splat_zero_4_i32() : <4> i32 {
+  let %v: <4> i32 = { 0, 0, 0, 0 };
+^entry:
+  ret %v;
+}

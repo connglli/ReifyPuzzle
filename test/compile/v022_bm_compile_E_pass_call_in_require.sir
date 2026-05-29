@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// SPEC v0.2.2 §2.12
+// Intention: call atom in require condition.
+
+fun @one() : i32 { ^entry: ret 1; }
+
+fun @main() : i32 {
+^entry:
+  require call @one() == 1, "must be one";
+  ret 0;
+}

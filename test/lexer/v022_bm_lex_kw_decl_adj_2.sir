@@ -1,0 +1,8 @@
+// EXPECT: PASS
+// Intention: SPEC v0.2.2 §3.1 - `declare` is a single identifier (longest-match), not `decl` + `are`.
+struct @S { declare: i32; }
+fun @main() : i32 {
+  let mut %s: @S = { 1 };
+^entry:
+  ret %s.declare;
+}

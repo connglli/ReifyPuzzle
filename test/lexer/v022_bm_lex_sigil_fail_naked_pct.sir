@@ -1,0 +1,7 @@
+// EXPECT: FAIL:ParseError
+// Intention: SPEC v0.2.2 §1 - Bare `%` with no following ident is invalid.
+fun @main() : i32 {
+  let mut %: i32 = 0;
+^entry:
+  ret 0;
+}

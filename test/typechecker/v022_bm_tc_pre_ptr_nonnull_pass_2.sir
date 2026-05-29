@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §6.11 (pre)
+// Intention: pre %p != null on a pointer param is well-formed.
+decl @rd(%p: ptr i32) : i32 {
+  pre %p != null, "non-null";
+  post ret == load %p, "reads value";
+};
+
+fun @main() : i32 {
+  let mut %x: i32 = 5;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @rd(addr %x);
+  ret %r;
+}

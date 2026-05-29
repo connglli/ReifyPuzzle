@@ -1,0 +1,7 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §3.1 - Unterminated block comment swallows EOF.
+/* never closed
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

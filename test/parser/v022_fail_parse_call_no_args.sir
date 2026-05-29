@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// Rationale: [v0.2.2] §6.10 - call requires parentheses even with zero args.
+
+fun @main() : i32 {
+^entry:
+  ret call @foo;
+}

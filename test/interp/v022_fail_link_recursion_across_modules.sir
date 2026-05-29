@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// INTERP_ARGS: -I test/tmp/cross_recurse
+// COMPILER_ARGS: -I test/tmp/cross_recurse
+// Intention: SPEC v0.2.2 Section 9.7 / 10.7 - Recursion across compilation units is detected statically.
+decl @cross_module_recurse() : i32;
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+^entry:
+  %a = call @cross_module_recurse();
+  ret %a;
+}

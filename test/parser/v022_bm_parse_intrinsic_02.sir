@@ -1,0 +1,6 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12
+// Intention: two-parameter intrinsics.
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+fun @main() : i32 { ^entry: ret 0; }

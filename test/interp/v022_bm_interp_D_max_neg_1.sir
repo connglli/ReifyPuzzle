@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.1 - max with one positive one negative
+intrinsic @max(%a: i32, %b: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @max(-100, 0);
+  br %r == 0, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

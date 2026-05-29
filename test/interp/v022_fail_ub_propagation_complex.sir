@@ -1,0 +1,64 @@
+// EXPECT: FAIL:UndefinedBehavior
+// Rationale: [v0.2.2] §7.7 Rule 24 - Callee UB propagation across multiple levels.
+// Covers passing levels and final UB level.
+// Main has 5 blocks, 3+ instrs each, with conditional terminators.
+
+fun @level2(%x: i32) : i32 {
+  let mut %t: i32 = 0;
+  let %zero: i32 = 0;
+  let %one: i32 = 1;
+^entry:
+  %t = %x + %one;
+  %t = %t - %one;
+  ret %t / %zero; // UB: division by zero
+}
+
+fun @level1(%x: i32) : i32 {
+  let mut %res: i32 = 0;
+  let %one: i32 = 1;
+^entry:
+  %res = call @level2(%x);
+  %res = %res + %one;
+  %res = %res - %one;
+  ret %res;
+}
+
+fun @main() : i32 {
+  let mut %res: i32 = 0;
+  let %val: i32 = 42;
+  let %one: i32 = 1;
+  let %zero: i32 = 0;
+^entry:
+  %res = %val + %one;
+  %res = %res - %one;
+  br %res == %val, ^next1, ^fail;
+
+^next1:
+  %res = %res * %one;
+  %res = %res / %one;
+  %res = %res + %zero;
+  br %one == %one, ^next2, ^fail;
+
+^next2:
+  %res = %res + %one;
+  %res = call @level1(%val); // Propagates UB from level2
+  %res = %res + %one;
+  br %one == %one, ^exit, ^fail;
+
+^fail:
+  %res = %zero + %zero;
+  %res = %res * %one;
+  %res = %res / %one;
+  br %one == %one, ^real_fail, ^real_fail;
+
+^real_fail:
+  %res = %res + %one;
+  %res = %res - %one;
+  ret %one;
+
+^exit:
+  %res = %res - %one;
+  %res = %res * %one;
+  %res = %res + %one;
+  ret %zero;
+}

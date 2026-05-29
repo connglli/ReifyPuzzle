@@ -1,0 +1,7 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §1 - `%fo?o` has `?` in the middle of identifier; illegal.
+fun @main() : i32 {
+  let mut %fo?o: i32 = 0;
+^entry:
+  ret 0;
+}

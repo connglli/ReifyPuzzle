@@ -1,0 +1,7 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §4.1
+// Intention: two consecutive expressions after `ret` (no operator).
+fun @main(%a: i32) : i32 {
+^entry:
+  ret %a %a;
+}

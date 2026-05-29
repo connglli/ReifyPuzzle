@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.1 @min at i64
+intrinsic @min(%a: i64, %b: i64) : i64;
+fun @main() : i32 {
+  let mut %r: i64 = 0;
+  let %a: i64 = -9223372036854775808;
+  let %b: i64 = 0;
+^entry:
+  %r = call @min(%a, %b);
+  br %r == %a, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

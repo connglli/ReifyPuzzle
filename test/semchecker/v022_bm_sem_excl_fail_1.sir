@@ -1,0 +1,6 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3
+// Intention: decl-contract + fun body in SAME file.
+decl @foo(%x: i32) : i32 { post ret == %x; };
+fun @foo(%x: i32) : i32 { ^entry: ret %x; }
+fun @main() : i32 { ^entry: ret 0; }

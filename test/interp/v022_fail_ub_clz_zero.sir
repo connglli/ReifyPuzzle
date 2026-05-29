@@ -1,0 +1,9 @@
+// EXPECT: FAIL:UndefinedBehavior
+// Rationale: [v0.2.2] §12.2 - @clz(0) is UB.
+
+intrinsic @clz(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @clz(0);
+}

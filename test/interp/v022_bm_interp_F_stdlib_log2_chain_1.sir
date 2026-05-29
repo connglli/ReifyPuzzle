@@ -1,0 +1,46 @@
+// EXPECT: PASS
+// INTERP_ARGS: -I test/lib/std/scalar
+// COMPILER_ARGS: -I test/lib/std/scalar
+// SPEC v0.2.2 §11.3
+decl @log2_floor(%x: i32) : i32;
+decl @log2_ceil_i32(%x: i32) : i32;
+decl @gcd(%a: i32, %b: i32) : i32;
+
+fun @add(%x: i32, %y: i32) : i32 {
+^entry:
+  ret %x + %y;
+}
+
+fun @main() : i32 {
+  let mut %lf: i32 = 0;
+  let mut %lc: i32 = 0;
+  let mut %g: i32 = 0;
+  let mut %h: i32 = 0;
+  let mut %t: i32 = 0;
+  let %z: i32 = 0;
+  let %o: i32 = 1;
+^entry:
+  %lf = call @log2_floor(15); // 3
+  %lc = call @log2_ceil_i32(15); // 4
+  %t = %lf + %lc;
+  br %lf == 3, ^b1, ^bad;
+^b1:
+  %g = call @gcd(12, 8); // 4
+  %t = %g + %lf;
+  %t = %t + %z;
+  br %g == 4, ^b2, ^bad;
+^b2:
+  %h = call @add(%g, %lf); // 7
+  %t = %h - %g;
+  %t = %t + %z;
+  br %h == 7, ^b3, ^bad;
+^b3:
+  %t = %t + %z;
+  %t = %t - %z;
+  %t = %t + %z;
+  br %t == 3, ^ok, ^bad;
+^ok:
+  ret %z;
+^bad:
+  ret %o;
+}

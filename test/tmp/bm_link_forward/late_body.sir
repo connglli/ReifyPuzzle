@@ -1,0 +1,5 @@
+fun @bm_fwd_helper(%x: i32) : i32 {
+  let %five: i32 = 5;
+^entry:
+  ret %x + %five;
+}

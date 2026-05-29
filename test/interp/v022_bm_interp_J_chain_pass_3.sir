@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12
+intrinsic @clz(%x: i32) : i32;
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @min(%a: i32, %b: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @min(call @clz(8), call @ctz(8)); // clz(8)=28 ctz(8)=3 -> 3
+  br %r == 3, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

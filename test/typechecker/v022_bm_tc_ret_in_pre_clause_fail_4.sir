@@ -1,0 +1,12 @@
+// EXPECT: FAIL:ParseError
+// SPEC v0.2.2 §5.4 / §6.11
+// Intention: `ret` is not in scope inside pre clauses of a contract.
+decl @f(%x: i32) : i32 {
+  pre %x + ret > 0, "ret in pre arithmetic";
+  post ret == %x, "ok";
+};
+
+fun @main(%a: i32) : i32 {
+^entry:
+  ret call @f(%a);
+}

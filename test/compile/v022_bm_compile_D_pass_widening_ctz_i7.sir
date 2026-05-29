@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER pure compile coverage of widening-mask
+// SKIP: SOLVER pure compile coverage of widening-mask
+// SPEC v0.2.2 §11.5
+// Intention: widening-mask lowering for @ctz at uncommon width i7.
+
+intrinsic @ctz(%x: i7) : i7;
+
+fun @main() : i32 {
+  let %x: i7 = 1;
+  let mut %r: i7 = 0;
+^entry:
+  %r = call @ctz(%x);
+  ret %r as i32;
+}

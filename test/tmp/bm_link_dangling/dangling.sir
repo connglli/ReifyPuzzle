@@ -1,0 +1,7 @@
+// A library fn whose body calls an unresolved name.
+fun @bm_dangling(%x: i32) : i32 {
+  let mut %y: i32 = 0;
+^entry:
+  %y = call @bm_does_not_exist(%x);
+  ret %y;
+}

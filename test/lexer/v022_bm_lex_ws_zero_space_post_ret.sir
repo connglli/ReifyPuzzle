@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 §3.1 - `postret` is a single ident (longest match), not `post` + `ret`.
+decl @f() : i32 { postret == 0; };
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

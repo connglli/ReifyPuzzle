@@ -1,0 +1,8 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 §3.1 - Newline splits `decl` keyword; tokenized as two idents.
+de
+cl @f() : i32;
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

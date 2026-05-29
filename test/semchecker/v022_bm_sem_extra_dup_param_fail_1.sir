@@ -1,0 +1,8 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §3.3
+// Intention: duplicate parameter names in a fun.
+fun @h(%x: i32, %x: i32) : i32 {
+^entry:
+  ret %x;
+}
+fun @main() : i32 { ^entry: ret 0; }

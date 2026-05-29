@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §5.3
+// Intention: zero-argument call with empty parens is well-formed.
+fun @nullary() : i32 { ^entry: ret 42; }
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @nullary();
+  ret %r;
+}

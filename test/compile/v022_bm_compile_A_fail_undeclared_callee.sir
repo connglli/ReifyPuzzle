@@ -1,0 +1,8 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §6.10
+// Intention: call to undeclared function must error.
+
+fun @main() : i32 {
+^entry:
+  ret call @nobody_declared_me(0);
+}

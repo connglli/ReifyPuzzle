@@ -1,0 +1,10 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §12 chained intrinsics; inner produces 0 -> clz UB
+intrinsic @clz(%x: i32) : i32;
+intrinsic @min(%a: i32, %b: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @clz(call @min(0, 5)); // min=0, clz(0) UB
+  ret %r;
+}

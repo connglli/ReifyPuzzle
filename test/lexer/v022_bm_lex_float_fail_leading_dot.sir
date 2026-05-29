@@ -1,0 +1,6 @@
+// EXPECT: FAIL:ParseError
+// Intention: SPEC v0.2.2 §3.1 - `.5` lacks integer part; not in spec form.
+fun @main() : f32 {
+^entry:
+  ret .5;
+}

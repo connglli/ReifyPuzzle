@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// Intention: SPEC v0.2.2 Section "What's new" - call requires parentheses for arguments.
+fun @main() : i32 {
+^entry:
+  %x = call @foo;
+  ret 0;
+}

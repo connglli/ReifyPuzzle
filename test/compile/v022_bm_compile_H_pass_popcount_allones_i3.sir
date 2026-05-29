@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// EXPECT_RC: 3
+// SPEC v0.2.2 §11.5
+// Intention: popcount(-1) at i3 == N. Tests mask after widen.
+
+intrinsic @popcount(%x: i3) : i3;
+
+fun @main() : i32 {
+  let %x: i3 = -1;
+  let mut %r: i3 = 0;
+^entry:
+  %r = call @popcount(%x);
+  ret %r as i32;
+}

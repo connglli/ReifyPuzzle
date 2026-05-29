@@ -1740,15 +1740,8 @@ namespace symir {
       }
     }
 
-    indent();
-    out_ << "(memory 16)\n"; // 1MB
-    indent();
-    out_ << "(global $__stack_pointer (mut i32) (i32.const 1048576))\n";
-
-    // [v0.2.2] Emit intrinsic helper functions and import link-form decls.
-    for (const auto &intr: prog.intrinsics) {
-      emitIntrinsicHelper(intr);
-    }
+    // [v0.2.2] Import link-form decls FIRST — WAT requires all (import ...)
+    // declarations to precede globals and function definitions in the module.
     for (const auto &d: prog.extDecls) {
       indent();
       out_ << "(import \"\" \"" << stripSigil(d.name.name) << "\" (func "
@@ -1758,6 +1751,16 @@ namespace symir {
         (void) p;
       }
       out_ << " (result " << getWasmType(d.retType) << ")))\n";
+    }
+
+    indent();
+    out_ << "(memory 16)\n"; // 1MB
+    indent();
+    out_ << "(global $__stack_pointer (mut i32) (i32.const 1048576))\n";
+
+    // [v0.2.2] Emit intrinsic helper functions (these are func defs, not imports).
+    for (const auto &intr: prog.intrinsics) {
+      emitIntrinsicHelper(intr);
     }
 
     for (const auto &f: prog.funs) {

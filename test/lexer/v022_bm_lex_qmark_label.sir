@@ -1,0 +1,6 @@
+// EXPECT: FAIL:LexError
+// Intention: SPEC v0.2.2 §1 - `^?lbl` is illegal: `?` only after @/%.
+fun @main() : i32 {
+^?lbl:
+  ret 0;
+}
