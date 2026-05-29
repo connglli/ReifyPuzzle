@@ -914,10 +914,12 @@ namespace symir::reify {
     std::uniform_real_distribution<double> prob(0.0, 1.0);
 
     // Collect mutable (non-ptr) vars for assignment targets
-    // We assign to scalars and array/struct elements
+    // We assign to scalars and array/struct elements.
+    // [v0.2.2] Function parameters are immutable per spec §3.5.2 — exclude.
     std::vector<const VarEntry *> allVars;
     for (const auto &v: vars.vars)
-      allVars.push_back(&v);
+      if (!v.isParam)
+        allVars.push_back(&v);
 
     // Collect ptr vars for store operations
     std::vector<const VarEntry *> ptrVars;

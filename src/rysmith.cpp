@@ -32,6 +32,7 @@
 #include "frontend/semchecker.hpp"
 #include "frontend/typechecker.hpp"
 #include "reify/cfg_gen.hpp"
+#include "reify/func_desc.hpp"
 #include "reify/func_gen.hpp"
 #include "reify/path_sampler.hpp"
 #include "reify/var_catalogue.hpp"
@@ -133,7 +134,12 @@ static GenerateResult generateLeaf(
     // IO
     const fs::path &outDir, bool keepSymbolic, bool verbose,
     // RNG (by value — safe to run in a detached thread)
-    std::mt19937 rng, uint32_t baseSeed
+    std::mt19937 rng, uint32_t baseSeed,
+    // [v0.2.2] 6-char generation ID — used for the per-fn descriptor.
+    const std::string &genId,
+    // [v0.2.2] When true, write the rylink-consumable func_<id>_<i>.json
+    // sidecar next to each successful concrete .sir.
+    bool emitDesc
 ) {
   // S1: CFG
   GenCFGParams cfgParams;
@@ -260,11 +266,47 @@ static GenerateResult generateLeaf(
             std::cerr << "error: cannot open " << concretePath << "\n";
             continue;
           }
+          // [v0.2.2] SOLVED header (same format as symirsolve --output).
+          // Records the synthesised param + ret values so symiri can
+          // re-run via `--main @f <file> -- <p0> <p1>` deterministically.
+          auto fmtVal = [](const SymbolicExecutor::Result::ModelVal &v) {
+            std::ostringstream os;
+            if (std::holds_alternative<int64_t>(v))
+              os << std::get<int64_t>(v);
+            else {
+              os.precision(17);
+              os << std::get<double>(v);
+            }
+            return os.str();
+          };
+          if (!res.paramModel.empty() || res.retModel.has_value()) {
+            ofs << "// SOLVED:";
+            bool first = true;
+            for (const auto &[name, val]: res.paramModel) {
+              ofs << (first ? " " : ", ") << name << "=" << fmtVal(val);
+              first = false;
+            }
+            if (res.retModel.has_value()) {
+              ofs << (first ? " " : ", ") << "ret=" << fmtVal(*res.retModel);
+            }
+            ofs << "\n";
+          }
           writePathHeader(ofs);
           SIRPrinter printer(ofs, res.model);
           printer.print(prog);
         }
+        // [v0.2.2] Write the per-function descriptor (rylink consumer)
+        // when --emit-desc is set. The signature, sym list, struct
+        // layout, and path are identical across inits — only sym
+        // values differ — so we re-write the same descriptor each
+        // time, the `concretes` array just grows. Gated by --emit-desc
+        // so the common standalone-rysmith path doesn't litter the
+        // output dir with unused JSON sidecars.
         produced.push_back(concretePath);
+        if (emitDesc) {
+          auto descPath = outDir / (funcName + ".json");
+          writeFuncDescriptorFromProgram(descPath, funcName, prog, pathLabels, produced, genId);
+        }
         if (verbose)
           std::cout << "[emit] init " << initIdx << ": " << concretePath << "\n";
       } else if (verbose) {
@@ -323,6 +365,11 @@ int main(int argc, char **argv) {
                           cxxopts::value<uint32_t>()->default_value("2000"))
     ("seed",              "Master RNG seed (default: random)",
                           cxxopts::value<uint32_t>())
+    ("id",                "6-char hex generation ID (default: random). Prefixes function and struct names.",
+                          cxxopts::value<std::string>())
+    ("n-params",          "Number of scalar parameters per generated function (default: 0)",
+                          cxxopts::value<int>()->default_value("0"))
+    ("emit-desc",         "Emit per-function descriptor JSON (func_<id>_<i>.json) — needed by rylink")
     // Domains
     ("coef-domain",       "Domain for coef symbols",
                           cxxopts::value<std::string>()->default_value("[-2147483647, 2147483647]"))
@@ -341,7 +388,7 @@ int main(int argc, char **argv) {
                           cxxopts::value<int>())
     // Output
     ("o,output-dir",      "Output directory",
-                          cxxopts::value<std::string>()->default_value("reify_out"))
+                          cxxopts::value<std::string>()->default_value("rysmith_out"))
     ("target",            "Compile concrete .sir to target (sir, c, wasm); sir = no compilation",
                           cxxopts::value<std::string>()->default_value("sir"))
     ("keep-require",      "Include require checks in compiled output (default: omitted)")
@@ -387,6 +434,25 @@ int main(int argc, char **argv) {
   std::cout << "rysmith: master seed = " << masterSeed << "\n";
   std::mt19937 rng(masterSeed);
 
+  // [v0.2.2] 6-char hex generation ID — namespaces function and struct
+  // names so multiple rysmith outputs link without rename.
+  std::string genId;
+  if (result.count("id")) {
+    genId = result["id"].as<std::string>();
+    if (genId.size() != 6 || std::any_of(genId.begin(), genId.end(), [](char c) {
+          return !std::isxdigit((unsigned char) c);
+        })) {
+      std::cerr << "error: --id must be exactly 6 hex characters\n";
+      return 1;
+    }
+  } else {
+    std::uniform_int_distribution<uint32_t> hexd(0, 0xFFFFFF);
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "%06x", hexd(rng));
+    genId = buf;
+  }
+  std::cout << "rysmith: generation id = " << genId << "\n";
+
   fs::path outDir = result["output-dir"].as<std::string>();
   fs::create_directories(outDir);
 
@@ -402,6 +468,8 @@ int main(int argc, char **argv) {
   // Var config
   VarGenConfig varCfg;
   varCfg.nVars = result["n-vars"].as<int>();
+  varCfg.nParams = result["n-params"].as<int>();
+  varCfg.genId = genId;
   varCfg.typeConfig = typeCfg;
 
   // Expr config
@@ -428,6 +496,7 @@ int main(int argc, char **argv) {
   // thread.
   uint32_t funcTimeoutMs = (uint32_t) ((uint64_t) (maxRetries + 1) * nInits * timeoutMs + 50);
   bool keepSymbolic = result.count("keep-symbolic") > 0;
+  bool emitDesc = result.count("emit-desc") > 0;
   bool doValidate = result.count("validate") > 0;
   bool verbose = result.count("verbose") > 0;
   std::string target = result["target"].as<std::string>();
@@ -464,7 +533,7 @@ int main(int argc, char **argv) {
   int nOk = 0, nFail = 0;
 
   for (int i = 0; i < nFuncs; i++) {
-    std::string funcName = "func" + std::to_string(i);
+    std::string funcName = "func_" + genId + "_" + std::to_string(i);
     uint32_t funcSeed = rng();
     std::cout << "[" << (i + 1) << "/" << nFuncs << "] generating " << funcName
               << " (seed=" << funcSeed << ")\n";
@@ -484,7 +553,7 @@ int main(int argc, char **argv) {
           nBbls, pBranch, pBackedge, maxLoopIter, minLoopIter, varCfg, funcName, nStmts,
           safeOffPath, enableInterestCoefs, coefLo, coefHi, valueLo, valueHi, indexLo, indexHi,
           exprCfg, timeoutMs, maxRetries, nInits, outDir, keepSymbolic, verbose, state->rng,
-          funcSeed
+          funcSeed, genId, emitDesc
       );
       state->done.store(true, std::memory_order_release);
     });

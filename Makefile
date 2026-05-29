@@ -65,7 +65,8 @@ SOLVER_MAIN_SRCS = src/symirsolve.cpp src/solver/solver.cpp
 SOLVER_ALL_SRCS = $(SOLVER_MAIN_SRCS) $(SOLVER_SRCS)
 REIFY_SRCS = src/reify/cfg_gen.cpp src/reify/path_sampler.cpp \
              src/reify/type_gen.cpp src/reify/var_catalogue.cpp \
-             src/reify/expr_gen.cpp src/reify/func_gen.cpp
+             src/reify/expr_gen.cpp src/reify/func_gen.cpp \
+             src/reify/func_desc.cpp
 RYSMITH_SRCS = src/rysmith.cpp src/solver/solver.cpp $(REIFY_SRCS)
 
 COMMON_OBJS = $(COMMON_SRCS:.cpp=.o)
@@ -97,7 +98,7 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                src/solver/solver.o \
                $(SOLVER_IMPL_OBJ)
 
-.PHONY: all clean test build
+.PHONY: all clean test test-unit build
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH)
 
@@ -133,6 +134,7 @@ clean:
 	find . -name "*.gcov" -delete
 
 test: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH)
+	$(MAKE) test-unit
 	$(PY) -m test.lib.run_interp_tests test/lexer ./$(TARGET_INTERP) --check
 	$(PY) -m test.lib.run_interp_tests test/parser ./$(TARGET_INTERP) --check
 	$(PY) -m test.lib.run_interp_tests test/cfgbuilder ./$(TARGET_INTERP) --check
@@ -144,6 +146,14 @@ test: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH)
 	$(PY) -m test.lib.run_c_preamble_test ./$(TARGET_COMPILER)
 	$(PY) -m test.lib.run_xval_tests test/xval ./$(TARGET_INTERP) ./$(TARGET_COMPILER)
 	$(PY) -m test.lib.run_solver_tests test/solver ./$(TARGET_SOLVER) ./$(TARGET_INTERP)
-	$(PY) -m test.lib.run_param_features_tests ./$(TARGET_INTERP) ./$(TARGET_COMPILER) ./$(TARGET_SOLVER)
 	$(PY) -m test.lib.run_example_tests examples ./$(TARGET_SOLVER) ./$(TARGET_INTERP)
 	$(PY) -m test.lib.run_reify_diff_tests --rysmith ./$(TARGET_RYSMITH) --symiri ./$(TARGET_INTERP) --symirc ./$(TARGET_COMPILER) --n 100 --seed 1234
+
+# [v0.2.2] Unit tests — end-to-end Python scripts that exercise the
+# CLI surface of individual binaries (positional args, descriptors,
+# split-by-source output, etc.). They don't go through the `.sir`
+# test runner in test/lib because they need to assert on the binary's
+# stdout / sidecar files / output directory layout.
+test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH)
+	$(PY) -m test.unit.run_param_features_tests ./$(TARGET_INTERP) ./$(TARGET_COMPILER) ./$(TARGET_SOLVER)
+	$(PY) -m test.unit.run_rysmith_tests ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)

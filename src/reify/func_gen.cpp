@@ -381,8 +381,18 @@ namespace symir::reify {
     fun.retType = makeI32();
     fun.syms = sym.makeDecls();
 
-    // LetDecls: one per variable + %_chk
+    // [v0.2.2] Split VarCatalogue entries: isParam → FunDecl.params,
+    // others → FunDecl.lets. Parameters carry no initializer (the
+    // solver synthesises their values and the SOLVED header records
+    // them; symiri replays them as positional CLI args).
     for (const auto &v: vars.vars) {
+      if (v.isParam) {
+        ParamDecl pd;
+        pd.name = LocalId{v.name, {}};
+        pd.type = v.type;
+        fun.params.push_back(std::move(pd));
+        continue;
+      }
       LetDecl let;
       let.isMutable = true;
       let.name = LocalId{v.name, {}};

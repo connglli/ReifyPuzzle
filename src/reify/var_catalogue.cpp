@@ -52,8 +52,10 @@ namespace symir::reify {
 
   std::vector<const VarEntry *> VarCatalogue::addressable() const {
     std::vector<const VarEntry *> result;
+    // [v0.2.2] Per spec §3.5.2 `addr` requires a `let mut` root, so
+    // parameters (immutable) are NOT addressable.
     for (const auto &v: vars)
-      if (!isPtrType(v.type) && !isAggType(v.type))
+      if (!v.isParam && !isPtrType(v.type) && !isAggType(v.type))
         result.push_back(&v);
     return result;
   }
@@ -61,7 +63,7 @@ namespace symir::reify {
   std::vector<const VarEntry *> VarCatalogue::allAddressable() const {
     std::vector<const VarEntry *> result;
     for (const auto &v: vars)
-      if (!isAggType(v.type)) // scalars and ptr vars are addressable
+      if (!v.isParam && !isAggType(v.type)) // scalars and ptr vars are addressable
         result.push_back(&v);
     return result;
   }
@@ -80,7 +82,7 @@ namespace symir::reify {
   const VarEntry *VarCatalogue::findAddressableOfType(const TypePtr &t, std::mt19937 &rng) const {
     std::vector<const VarEntry *> candidates;
     for (const auto &v: vars)
-      if (!isAggType(v.type) && typeEquals(v.type, t))
+      if (!v.isParam && !isAggType(v.type) && typeEquals(v.type, t))
         candidates.push_back(&v);
     if (candidates.empty())
       return nullptr;
@@ -114,7 +116,10 @@ namespace symir::reify {
     // Helper: create a struct declaration. Fields are independently drawn —
     // ~30% chance of an array field ([N] scalar) to produce struct-of-arrays.
     auto makeStructDecl = [&](const TypePtr &) -> std::string {
-      std::string sname = "@RY_S" + std::to_string(structIdx++);
+      // [v0.2.2] Namespace struct names by the generation ID so multiple
+      // rysmith outputs can be linked without rename.
+      std::string sname = "@struct_" + (cfg.genId.empty() ? std::string("RY") : cfg.genId) + "_" +
+                          std::to_string(structIdx++);
       std::uniform_int_distribution<int> nfd(1, std::max(1, tcfg.maxAggElems));
       int nf = nfd(rng);
       StructDecl sd;
@@ -291,6 +296,23 @@ namespace symir::reify {
         apv.type = std::make_shared<Type>(Type{pt, {}});
         cat.vars.push_back(std::move(apv));
       }
+    }
+
+    // [v0.2.2] Phase 5: scalar function parameters. Generated last so
+    // they sit at known offsets but participate in every later helper's
+    // RValue lookup (allScalars / scalarsOf / findAny respect them).
+    // Per spec §3.5.2 they're immutable — never targets of `addr` and
+    // never on the LHS of an assignment; the addressable() /
+    // allAddressable() / findAny() / findAddressableOfType() filters
+    // below already exclude them via the `isParam` flag.
+    for (int i = 0; i < cfg.nParams; i++) {
+      VarEntry pv;
+      // [v0.2.2] `%pa<i>` for parameters; `%p<i>` is taken by ptr vars,
+      // `%pp<i>` by ptr-ptr, `%ppp<i>` (if ever generated) by ptr-ptr-ptr.
+      pv.name = "%pa" + std::to_string(i);
+      pv.type = genScalarType(rng, tcfg.enableFp);
+      pv.isParam = true;
+      cat.vars.push_back(std::move(pv));
     }
 
     return cat;

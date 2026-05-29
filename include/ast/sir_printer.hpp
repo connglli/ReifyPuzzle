@@ -26,6 +26,11 @@ namespace symir {
 
     void print(const Program &p);
 
+    // [v0.2.2] Publicly exposed so tools (e.g. rysmith's func_desc
+    // emitter, future rylink) can serialize a TypePtr back to its
+    // canonical SIR surface syntax without rolling a private printer.
+    void printType(const TypePtr &t);
+
   private:
     std::ostream &out_;
     std::unordered_map<std::string, SymbolicExecutor::Result::ModelVal> model_;
@@ -42,7 +47,6 @@ namespace symir {
     std::string vecSymLocalName(const std::string &symName) const;
 
     void indent();
-    void printType(const TypePtr &t);
     void printExpr(const Expr &e);
     void printAtom(const Atom &a);
     void printCond(const Cond &c);

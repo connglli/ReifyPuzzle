@@ -10,12 +10,15 @@
 namespace symir::reify {
 
   struct VarEntry {
-    std::string name; // "%v0", "%a0", "%t0", "%p0"
+    std::string name; // "%v0", "%a0", "%t0", "%p0", "%pa0" (param)
     TypePtr type;
     // For pointer vars: the name of the local this points to (for addr init)
     std::optional<std::string> ptrTarget;
-    // Struct type name if this var has struct type (e.g. "@RY_S0")
+    // Struct type name if this var has struct type (e.g. "@struct_a3f9c2_0")
     std::string structTypeName;
+    // [v0.2.2] true if this is a function parameter (immutable; appears in
+    // FunDecl.params, not FunDecl.lets; never a target of `addr` or LHS).
+    bool isParam = false;
   };
 
   struct VarCatalogue {
@@ -47,6 +50,14 @@ namespace symir::reify {
 
   struct VarGenConfig {
     int nVars = 10;
+    // [v0.2.2] Number of scalar parameters the function takes. Each is
+    // immutable and named %p0, %p1, …. They appear in FunDecl.params
+    // (not .lets) and are usable as RValues throughout the body.
+    int nParams = 0;
+    // [v0.2.2] Unique 6-char hex generation ID, used to namespace
+    // struct names as `@struct_<id>_<j>` so multiple rysmith outputs
+    // can coexist without renaming.
+    std::string genId;
     TypeGenConfig typeConfig;
   };
 
