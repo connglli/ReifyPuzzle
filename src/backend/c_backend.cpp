@@ -1176,9 +1176,33 @@ namespace symir {
               out_ << mangleName(arg.callee.name);
             }
             out_ << "(";
+            // Per-arg context: the callee's i-th param type drives
+            // isDoubleCtx_ so a FloatLit arg emits with/without the
+            // `f` suffix correctly. Without this, args inherit the
+            // surrounding caller context — e.g. an f64 callee param
+            // receiving a -32018945.886718754 literal inside an i32
+            // expression would get the (non-double) `f` suffix and
+            // silently truncate to float precision before the call.
+            std::vector<TypePtr> paramTypes;
+            if (intr) {
+              paramTypes.reserve(intr->params.size());
+              for (const auto &p: intr->params)
+                paramTypes.push_back(p.type);
+            } else {
+              for (const auto &fd: prog_->funs) {
+                if (fd.name.name == arg.callee.name) {
+                  paramTypes.reserve(fd.params.size());
+                  for (const auto &p: fd.params)
+                    paramTypes.push_back(p.type);
+                  break;
+                }
+              }
+            }
             for (size_t i = 0; i < arg.args.size(); ++i) {
               if (i)
                 out_ << ", ";
+              TypePtr argCtxTy = (i < paramTypes.size()) ? paramTypes[i] : TypePtr{};
+              CtxGuard ctx(isDoubleCtx_, argCtxTy ? isOrContainsF64(argCtxTy) : isDoubleCtx_);
               emitExpr(*arg.args[i]);
             }
             out_ << ")";
