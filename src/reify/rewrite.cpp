@@ -228,6 +228,28 @@ namespace symir::reify {
         // user code that reads the let.
         if (caller.blocks.empty())
           return false;
+
+        // Loop guard: if any other block branches back to the entry,
+        // prepending into the entry block re-fires the call on every
+        // back-edge traversal — resetting the let to its original
+        // literal value every iteration, which can flip back-edge
+        // conditions into infinite loops. The original let-init runs
+        // once before any block, so the leaf doesn't have this
+        // problem; only the spliced AssignInstr does. Decline if the
+        // entry has any predecessor.
+        const std::string &entryLabel = caller.blocks.front().label.name;
+        for (size_t bi = 1; bi < caller.blocks.size(); ++bi) {
+          const auto &term = caller.blocks[bi].term;
+          if (auto br = std::get_if<BrTerm>(&term)) {
+            if (br->isConditional) {
+              if (br->thenLabel.name == entryLabel || br->elseLabel.name == entryLabel)
+                return false;
+            } else if (br->dest.name == entryLabel) {
+              return false;
+            }
+          }
+        }
+
         caller.blocks.front().instrs.insert(
             caller.blocks.front().instrs.begin(), Instr{std::move(ai)}
         );
