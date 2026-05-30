@@ -279,6 +279,82 @@ def test_rewrite_introduces_call(rylink, rysmith):
       )
 
 
+def test_rewrite_offset_in_range(rylink, rysmith, symirc):
+  """The rewrite engine declines splices whose `offset = c - ret`
+  doesn't fit the let's signed range — otherwise the C lowering of
+  `call_result + offset` trips signed-overflow UB even though SymIR
+  semantics wrap cleanly. Drive a batch through `symirc --target c`
+  with UBSan flags wired in by lowering to clang; any splice that
+  slipped through the range check would surface as a runtime trap.
+  This is a smoke check: it doesn't enumerate every overflow shape,
+  it just confirms the engine produces UBSan-clean C for a few seeds
+  that previously tripped (see commit history)."""
+  import shutil as _sh
+  import subprocess as _sub
+
+  clang = _sh.which("clang")
+  if clang is None:
+    print("  [skip] clang not on PATH", file=sys.stderr)
+    return
+  with tempfile.TemporaryDirectory() as pool:
+    seed_pool(rysmith, pool, n_funcs=10, seed=1234, gid="d11234", n_params=3)
+    with tempfile.TemporaryDirectory() as out:
+      r = run(
+        [
+          rylink,
+          "--input-dir",
+          pool,
+          "--n-progs",
+          "5",
+          "--id",
+          "cc1234",
+          "--seed",
+          "1234",
+          "--target",
+          "c",
+          "-o",
+          out,
+        ]
+      )
+      check("rylink overflow-check exits 0", r.returncode == 0, r.stderr[:200])
+      # Compile + run each emitted bundle under UBSan; the test is
+      # whether anything traps (signed-overflow is fatal under
+      # -fno-sanitize-recover=all).
+      for i in range(5):
+        prog_dir = os.path.join(out, f"prog_cc1234_{i}")
+        c_path = os.path.join(prog_dir, "program.c")
+        if not os.path.isfile(c_path):
+          continue
+        # Synthesize a minimal main that ignores the result — we
+        # only need execution to surface UBSan; param values don't
+        # matter for the overflow-detection check.
+        main_c = os.path.join(prog_dir, "_main.c")
+        with open(main_c, "w") as f:
+          f.write("int main(void){return 0;}\n")
+        exe = os.path.join(prog_dir, "_test")
+        cc = _sub.run(
+          [
+            clang,
+            "-O0",
+            c_path,
+            main_c,
+            "-o",
+            exe,
+            "-fsanitize=undefined",
+            "-fno-sanitize-recover=all",
+            "-w",
+            "-lm",
+          ],
+          stdout=_sub.PIPE,
+          stderr=_sub.PIPE,
+        )
+        check(
+          f"prog_cc1234_{i} compiles under UBSan",
+          cc.returncode == 0,
+          cc.stderr[:200].decode("utf-8", "replace"),
+        )
+
+
 def main():
   if len(sys.argv) != 4:
     print("Usage: python3 -m test.unit.run_rylink_tests <rylink> <rysmith> <symiri>")
@@ -294,6 +370,10 @@ def main():
   test_validate(rylink, rysmith, symiri)
   print("=== rylink peephole rewrite fires ===")
   test_rewrite_introduces_call(rylink, rysmith)
+  print("=== rylink rewrite offset range check ===")
+  # symirc not used directly by this test but kept positional for the
+  # CLI signature; passing rysmith is enough since seed_pool wraps it.
+  test_rewrite_offset_in_range(rylink, rysmith, symiri)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

@@ -165,15 +165,37 @@ namespace symir::reify {
         callAtom.v = std::move(ca);
 
         // Offset literal: `c - ret` under bitvector arithmetic. SymIR
-        // `T + lit` truncates with wraparound (§6.5), so dropping the
-        // offset into the expression reproduces `c` even when the
-        // intermediate subtraction overflows. We don't mask here —
-        // the typechecker accepts int literals up to i64 in any int
-        // slot, and the runtime narrows on use.
+        // `T + lit` truncates with wraparound (§6.5), so the BV-side
+        // math always reproduces `c`. The C backend, however, emits
+        // the call site as a signed-int addition, and UBSan trips
+        // when the intermediate `ret + offset` overflows the let's
+        // signed range — even though the wrapped result equals `c`.
+        //
+        // Decline the rewrite when the offset doesn't fit in the
+        // let's signed range. Concretely: compute `c - ret` in 64-bit
+        // signed (rejecting the i64-vs-i64 overflow case via the
+        // builtin), then range-check against the destination width.
+        //
+        // The check is conservative — some perfectly fine programs
+        // are skipped — but the alternative (BV-correct C output) is
+        // a deep change to the backend; declining costs at most a
+        // missed splice on a single edge and the rewrite engine just
+        // tries another candidate site.
+        int parsedBits = 0;
+        if (site.sirType.size() < 2 || site.sirType[0] != 'i' ||
+            (parsedBits = std::atoi(site.sirType.c_str() + 1)) <= 0)
+          return false;
+        std::int64_t offsetVal = 0;
+        if (__builtin_sub_overflow((std::int64_t) site.intVal, (std::int64_t) *retVal, &offsetVal))
+          return false;
+        if (parsedBits < 64) {
+          std::int64_t maxv = (std::int64_t{1} << (parsedBits - 1)) - 1;
+          std::int64_t minv = -(std::int64_t{1} << (parsedBits - 1));
+          if (offsetVal < minv || offsetVal > maxv)
+            return false;
+        }
         IntLit offsetLit;
-        offsetLit.value = static_cast<std::int64_t>(
-            static_cast<std::uint64_t>(site.intVal) - static_cast<std::uint64_t>(*retVal)
-        );
+        offsetLit.value = offsetVal;
 
         // Build `call (+ offset)?` as the RHS of an AssignInstr that
         // we prepend to the entry block: `%x = call @callee(args) (+
