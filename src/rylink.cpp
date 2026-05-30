@@ -40,6 +40,7 @@
 #include "reify/cg_gen.hpp"
 #include "reify/func_desc.hpp"
 #include "reify/func_pool.hpp"
+#include "reify/gen_id.hpp"
 #include "reify/hyperparameters.hpp"
 #include "reify/rewrite.hpp"
 
@@ -50,24 +51,6 @@ using namespace symir::reify;
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
-
-static std::string randomHexId(std::mt19937 &rng) {
-  static const char *hex = "0123456789abcdef";
-  std::string out(6, '0');
-  std::uniform_int_distribution<int> d(0, 15);
-  for (auto &c: out)
-    c = hex[d(rng)];
-  return out;
-}
-
-static bool isHex6(const std::string &s) {
-  if (s.size() != 6)
-    return false;
-  for (char c: s)
-    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
-      return false;
-  return true;
-}
 
 static std::string readFile(const fs::path &p) {
   std::ifstream ifs(p);
@@ -383,8 +366,6 @@ int main(int argc, char **argv) {
     ("max-outdeg", "Maximum out-degree per CG node",
         cxxopts::value<int>()->default_value(std::to_string(rylink::hp::kMaxOutDegree)))
     // Input and output
-    ("id", "6-hex-char generation ID (random if omitted)",
-        cxxopts::value<std::string>())
     ("i,input-dir", "Directory of rysmith-emitted (.sir + .json) pairs",
         cxxopts::value<std::string>()->default_value("rysmith_out"))
     ("o,output-dir", "Root output directory; each program lands in <root>/prog_<id>_<i>/",
@@ -417,16 +398,10 @@ int main(int argc, char **argv) {
 
   uint32_t seed = res.count("seed") ? res["seed"].as<uint32_t>() : std::random_device{}();
   std::mt19937 rng(seed);
-  std::string genId;
-  if (res.count("id")) {
-    genId = res["id"].as<std::string>();
-    if (!isHex6(genId)) {
-      std::cerr << "rylink: --id must be exactly 6 hex characters\n";
-      return 2;
-    }
-  } else {
-    genId = randomHexId(rng);
-  }
+  // [v0.2.2] Generation ID is always derived from --seed via the
+  // shared genHexId helper — no CLI override. Two runs with the same
+  // seed produce identical prog_<id>_<i> directories.
+  std::string genId = genHexId(rng);
 
   PerProgConfig pc;
   pc.outRoot = res["output-dir"].as<std::string>();

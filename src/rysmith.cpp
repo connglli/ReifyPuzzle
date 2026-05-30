@@ -34,6 +34,7 @@
 #include "reify/cfg_gen.hpp"
 #include "reify/func_desc.hpp"
 #include "reify/func_gen.hpp"
+#include "reify/gen_id.hpp"
 #include "reify/path_sampler.hpp"
 #include "reify/var_catalogue.hpp"
 #include "solver/solver.hpp"
@@ -441,8 +442,6 @@ int main(int argc, char **argv) {
     ("min-loop-iter",     "Require at least one loop in the EP to iterate this many times",
                           cxxopts::value<int>())
     // Output
-    ("id",                "6-char hex generation ID (default: random). Prefixes function and struct names.",
-                          cxxopts::value<std::string>())
     ("o,output-dir",      "Output directory",
                           cxxopts::value<std::string>()->default_value("rysmith_out"))
     ("target",            "Compile concrete .sir to target (sir, c, wasm); sir = no compilation",
@@ -498,22 +497,10 @@ int main(int argc, char **argv) {
   std::mt19937 rng(masterSeed);
 
   // [v0.2.2] 6-char hex generation ID — namespaces function and struct
-  // names so multiple rysmith outputs link without rename.
-  std::string genId;
-  if (result.count("id")) {
-    genId = result["id"].as<std::string>();
-    if (genId.size() != 6 || std::any_of(genId.begin(), genId.end(), [](char c) {
-          return !std::isxdigit((unsigned char) c);
-        })) {
-      std::cerr << "error: --id must be exactly 6 hex characters\n";
-      return 1;
-    }
-  } else {
-    std::uniform_int_distribution<uint32_t> hexd(0, 0xFFFFFF);
-    char buf[8];
-    std::snprintf(buf, sizeof(buf), "%06x", hexd(rng));
-    genId = buf;
-  }
+  // names so multiple rysmith outputs link without rename. The ID is
+  // always derived from the master seed (via genHexId) so two runs with
+  // the same --seed reproduce the same ID; there is no CLI override.
+  std::string genId = genHexId(rng);
   std::cout << "rysmith: generation id = " << genId << "\n";
 
   fs::path outDir = result["output-dir"].as<std::string>();

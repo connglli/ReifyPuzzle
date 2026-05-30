@@ -32,6 +32,9 @@ NC = "\033[0m"
 
 results = []
 
+# rylink (and rysmith) print a `generation id = <hex>` banner.
+_ID_RE = re.compile(r"generation id\s*=\s*([0-9a-f]{6})")
+
 
 def run(cmd, **kw):
   return subprocess.run(cmd, capture_output=True, text=True, timeout=120, **kw)
@@ -44,7 +47,13 @@ def check(name, ok, detail=""):
   print(f"  [{color}{tag}{NC}] {name}" + (f" — {detail}" if detail and not ok else ""))
 
 
-def seed_pool(rysmith, pool_dir, n_funcs=8, n_params=1, seed=23, gid="5eed01"):
+def extract_id(stdout):
+  m = _ID_RE.search(stdout or "")
+  return m.group(1) if m else None
+
+
+def seed_pool(rysmith, pool_dir, n_funcs=8, n_params=1, seed=23):
+  """Drive rysmith and return the generated 6-hex ID for the run."""
   r = run(
     [
       rysmith,
@@ -54,8 +63,6 @@ def seed_pool(rysmith, pool_dir, n_funcs=8, n_params=1, seed=23, gid="5eed01"):
       str(n_params),
       "--seed",
       str(seed),
-      "--id",
-      gid,
       "--emit-desc",
       "-o",
       pool_dir,
@@ -69,6 +76,12 @@ def seed_pool(rysmith, pool_dir, n_funcs=8, n_params=1, seed=23, gid="5eed01"):
     raise RuntimeError(
       f"rysmith produced too few descriptors ({len(jsons)}); stderr={r.stderr[-300:]!r}"
     )
+  gid = extract_id(r.stdout)
+  if gid is None:
+    raise RuntimeError(
+      f"rysmith stdout missing generation-id banner; stdout={r.stdout[:300]!r}"
+    )
+  return gid
 
 
 def test_basic_run(rylink, rysmith):
@@ -83,8 +96,6 @@ def test_basic_run(rylink, rysmith):
           pool,
           "--n-progs",
           "3",
-          "--id",
-          "ab12cd",
           "--seed",
           "7",
           "-o",
@@ -96,10 +107,18 @@ def test_basic_run(rylink, rysmith):
         r.returncode == 0,
         f"rc={r.returncode}, stderr={r.stderr[:300]!r}",
       )
+      gid = extract_id(r.stdout)
+      check(
+        "rylink stdout reports a 6-hex generation id",
+        gid is not None,
+        f"stdout={r.stdout[:200]!r}",
+      )
+      if gid is None:
+        return
       dirs = sorted(d for d in os.listdir(out) if d.startswith("prog_"))
       check(
-        "three prog_<id>_<i> dirs created",
-        dirs == ["prog_ab12cd_0", "prog_ab12cd_1", "prog_ab12cd_2"],
+        f"three prog_{gid}_<i> dirs created",
+        dirs == [f"prog_{gid}_0", f"prog_{gid}_1", f"prog_{gid}_2"],
         str(dirs),
       )
 
@@ -117,8 +136,6 @@ def test_program_sir_layout(rylink, rysmith):
           pool,
           "--n-progs",
           "1",
-          "--id",
-          "ee01dd",
           "--seed",
           "13",
           "-o",
@@ -126,8 +143,12 @@ def test_program_sir_layout(rylink, rysmith):
         ]
       )
       check("rylink layout-test exits 0", r.returncode == 0, r.stderr[:200])
-      prog_dir = os.path.join(out, "prog_ee01dd_0")
-      check("prog_ee01dd_0/ exists", os.path.isdir(prog_dir))
+      gid = extract_id(r.stdout)
+      if gid is None:
+        check("rylink id discovery for layout-test", False, "no id in stdout")
+        return
+      prog_dir = os.path.join(out, f"prog_{gid}_0")
+      check(f"prog_{gid}_0/ exists", os.path.isdir(prog_dir))
       if not os.path.isdir(prog_dir):
         return
       files = os.listdir(prog_dir)
@@ -173,8 +194,6 @@ def test_c_split_output(rylink, rysmith):
           pool,
           "--n-progs",
           "1",
-          "--id",
-          "cc11aa",
           "--seed",
           "5",
           "--target",
@@ -184,7 +203,11 @@ def test_c_split_output(rylink, rysmith):
         ]
       )
       check("rylink --target c exits 0", r.returncode == 0, r.stderr[:200])
-      prog_dir = os.path.join(out, "prog_cc11aa_0")
+      gid = extract_id(r.stdout)
+      if gid is None:
+        check("rylink id discovery for c-split", False, "no id in stdout")
+        return
+      prog_dir = os.path.join(out, f"prog_{gid}_0")
       if not os.path.isdir(prog_dir):
         check("prog dir present for c-target", False, "missing dir")
         return
@@ -206,7 +229,7 @@ def test_validate(rylink, rysmith, symiri):
   """--validate proves the rewritten entry returns the originally-solved
   value when invoked with the entry's parameter realisation."""
   with tempfile.TemporaryDirectory() as pool:
-    seed_pool(rysmith, pool, n_funcs=10, seed=31, gid="7f0042")
+    seed_pool(rysmith, pool, n_funcs=10, seed=31)
     with tempfile.TemporaryDirectory() as out:
       r = run(
         [
@@ -215,8 +238,6 @@ def test_validate(rylink, rysmith, symiri):
           pool,
           "--n-progs",
           "2",
-          "--id",
-          "dd99ee",
           "--seed",
           "9",
           "--validate",
@@ -245,7 +266,7 @@ def test_rewrite_introduces_call(rylink, rysmith):
   """Default behaviour: at least one prog out of a small batch contains
   a `call @` in program.sir (the rewrite engine actually fired)."""
   with tempfile.TemporaryDirectory() as pool:
-    seed_pool(rysmith, pool, n_funcs=10, seed=29, gid="aa5500")
+    seed_pool(rysmith, pool, n_funcs=10, seed=29)
     with tempfile.TemporaryDirectory() as out:
       r = run(
         [
@@ -254,8 +275,6 @@ def test_rewrite_introduces_call(rylink, rysmith):
           pool,
           "--n-progs",
           "5",
-          "--id",
-          "bb66cc",
           "--seed",
           "17",
           "-o",
@@ -263,9 +282,13 @@ def test_rewrite_introduces_call(rylink, rysmith):
         ]
       )
       check("rylink rewrite-test exits 0", r.returncode == 0, r.stderr[:200])
+      gid = extract_id(r.stdout)
+      if gid is None:
+        check("rylink id discovery for rewrite-test", False, "no id in stdout")
+        return
       any_call = False
       for i in range(5):
-        p = os.path.join(out, f"prog_bb66cc_{i}", "program.sir")
+        p = os.path.join(out, f"prog_{gid}_{i}", "program.sir")
         if not os.path.isfile(p):
           continue
         txt = open(p).read()
@@ -297,7 +320,7 @@ def test_rewrite_offset_in_range(rylink, rysmith, symirc):
     print("  [skip] clang not on PATH", file=sys.stderr)
     return
   with tempfile.TemporaryDirectory() as pool:
-    seed_pool(rysmith, pool, n_funcs=10, seed=1234, gid="d11234", n_params=3)
+    seed_pool(rysmith, pool, n_funcs=10, seed=1234, n_params=3)
     with tempfile.TemporaryDirectory() as out:
       r = run(
         [
@@ -306,8 +329,6 @@ def test_rewrite_offset_in_range(rylink, rysmith, symirc):
           pool,
           "--n-progs",
           "5",
-          "--id",
-          "cc1234",
           "--seed",
           "1234",
           "--target",
@@ -317,11 +338,15 @@ def test_rewrite_offset_in_range(rylink, rysmith, symirc):
         ]
       )
       check("rylink overflow-check exits 0", r.returncode == 0, r.stderr[:200])
+      gid = extract_id(r.stdout)
+      if gid is None:
+        check("rylink id discovery for overflow-check", False, "no id in stdout")
+        return
       # Compile + run each emitted bundle under UBSan; the test is
       # whether anything traps (signed-overflow is fatal under
       # -fno-sanitize-recover=all).
       for i in range(5):
-        prog_dir = os.path.join(out, f"prog_cc1234_{i}")
+        prog_dir = os.path.join(out, f"prog_{gid}_{i}")
         c_path = os.path.join(prog_dir, "program.c")
         if not os.path.isfile(c_path):
           continue
@@ -349,7 +374,7 @@ def test_rewrite_offset_in_range(rylink, rysmith, symirc):
           stderr=_sub.PIPE,
         )
         check(
-          f"prog_cc1234_{i} compiles under UBSan",
+          f"prog_{gid}_{i} compiles under UBSan",
           cc.returncode == 0,
           cc.stderr[:200].decode("utf-8", "replace"),
         )
