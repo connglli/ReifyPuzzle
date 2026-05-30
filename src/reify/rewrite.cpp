@@ -96,6 +96,13 @@ namespace symir::reify {
           const auto &ld = caller.lets[i];
           if (!ld.init)
             continue;
+          // Skip the checksum accumulator — it is unconditionally
+          // overwritten to `0` at the top of the exit block (see
+          // func_gen::buildChecksum), so any splice into its let-init
+          // is dead computation. Filtering it out at the source rule
+          // saves a wasted attempt budget per edge.
+          if (ld.name.name == "%_chk")
+            continue;
           // Only scalar literal initializers — Atom-form inits are
           // skipped (they're already calls/loads/etc.) and aggregate
           // inits are out of scope for v1.
@@ -229,16 +236,17 @@ namespace symir::reify {
         if (caller.blocks.empty())
           return false;
 
-        // Loop guard: if any other block branches back to the entry,
+        // Loop guard: if any block branches back to the entry,
         // prepending into the entry block re-fires the call on every
         // back-edge traversal — resetting the let to its original
         // literal value every iteration, which can flip back-edge
         // conditions into infinite loops. The original let-init runs
         // once before any block, so the leaf doesn't have this
         // problem; only the spliced AssignInstr does. Decline if the
-        // entry has any predecessor.
+        // entry has any predecessor — including a self-loop from the
+        // entry's own terminator (start at bi=0 so we don't miss it).
         const std::string &entryLabel = caller.blocks.front().label.name;
-        for (size_t bi = 1; bi < caller.blocks.size(); ++bi) {
+        for (size_t bi = 0; bi < caller.blocks.size(); ++bi) {
           const auto &term = caller.blocks[bi].term;
           if (auto br = std::get_if<BrTerm>(&term)) {
             if (br->isConditional) {

@@ -307,6 +307,10 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
   const auto &entryEntry = pool.entries[nodes[cg.entry()].poolIdx];
   const auto &entryRz = entryEntry.desc.realizations[nodes[cg.entry()].realizationIdx];
   writeBundledSir(programSir, bundle, cg, nodes, entryRz);
+  // Always echo the bundled .sir path so the user can find it in the
+  // common case (target=sir). Matches rysmith's per-artifact
+  // `concrete: <path>` line.
+  std::cout << "  bundled: " << programSir << "\n";
 
   // Target backends. A symirc failure is fatal for this attempt — the
   // caller will retry with a different rng fork. In non-verbose mode
@@ -318,6 +322,10 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
         std::cerr << "  symirc FAIL (" << progDir.filename().string() << ")\n";
       return false;
     }
+    // Mirror rysmith's `compiled: <path>` per-emission line. We report
+    // the per-program directory because --split-by-source produces
+    // multiple .c files there.
+    std::cout << "  compiled: " << progDir << "\n";
   } else if (cfg.target == "wasm") {
     fs::path wasmOut = progDir / "program.wasm";
     if (!invokeSymircWasm(cfg.symircPath, programSir, wasmOut, cfg.keepRequire, cfg.verbose)) {
@@ -325,6 +333,7 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
         std::cerr << "  symirc FAIL (" << progDir.filename().string() << ")\n";
       return false;
     }
+    std::cout << "  compiled: " << wasmOut << "\n";
   }
 
   // Validate: run symiri with the entry's param realization values and
@@ -472,9 +481,13 @@ int main(int argc, char **argv) {
     }
     if (succeeded) {
       ++nOk;
+      // Per-program seal — matches rysmith's per-fn `compiled:` /
+      // `validated:` discipline; the actual artefact paths were
+      // already echoed by generateOne.
       std::cout << "  "
-                << (usedAttempts > 1 ? "OK (after " + std::to_string(usedAttempts) + " attempts): "
-                                     : "OK: ")
+                << (usedAttempts > 1
+                        ? "completed (after " + std::to_string(usedAttempts) + " attempts): "
+                        : "completed: ")
                 << progName << "\n";
     } else {
       ++nFail;

@@ -159,9 +159,12 @@ int main(int argc, char **argv) {
           return 1;
         }
         cb.setVecLowering(std::move(vl));
-        auto files = cb.emitSplit(prog, outDir, primaryStem);
-        for (const auto &p: files)
-          std::cerr << "wrote " << p << "\n";
+        // [v0.2.2] No per-file `wrote …` chatter. rylink consumes this
+        // path and wants a clean stderr so its own `completed: …`
+        // per-program log line is the only thing the user sees; the
+        // returned list is dropped and the caller inspects the output
+        // directory if it cares about which files landed.
+        (void) cb.emitSplit(prog, outDir, primaryStem);
       } else {
         CBackend cb(*outStream);
         cb.setNoRequire(noRequire);

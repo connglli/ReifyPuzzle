@@ -492,10 +492,14 @@ def run(
     ry_progs = []
     if not stopped_early:
       ry_dir = os.path.join(out_dir, "rylink")
+      # Mirror the rysmith batch size: one rylink program per rysmith
+      # function in this batch. The previous version hard-coded
+      # BATCH_SIZE (=100) here, so a `--n 5` run still asked rylink
+      # for 100 programs and the final count ballooned to ~n + 100.
       ry_cmd = [
         rylink,
         "-n",
-        str(BATCH_SIZE),
+        str(batch_n),
         "--target",
         "c",
         "--seed",
@@ -525,9 +529,9 @@ def run(
           if d.startswith("prog_") and os.path.isdir(os.path.join(ry_dir, d))
         )
       rylink_generated_total += len(ry_progs)
-      ry_failed = BATCH_SIZE - len(ry_progs)
+      ry_failed = batch_n - len(ry_progs)
       if ry is None:
-        ry_failed = BATCH_SIZE
+        ry_failed = batch_n
       rylink_gen_failed_total += max(0, ry_failed)
       if verbose:
         print(f"  {green('succeeded')}:     {len(ry_progs)}")
