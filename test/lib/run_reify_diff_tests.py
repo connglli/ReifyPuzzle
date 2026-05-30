@@ -1,10 +1,18 @@
-"""Differential test: rysmith-generated programs interpreted by symiri vs.
-compiled by symirc + gcc and run under UBSan. Catches bugs in any of
-reify / interp / C-backend / solver by cross-checking their outputs.
+"""Differential test: rysmith-generated programs (leaves) and rylink-
+linked whole programs, interpreted by symiri vs. compiled by symirc +
+clang and run under UBSan. Catches bugs in any of reify / interp /
+C-backend / solver / linker by cross-checking outputs.
+
+Each batch runs four phases:
+  (1) rysmith generation     — leaf functions (with --n-params 3 --emit-desc)
+  (2) rysmith test           — symiri vs C-binary cross-validation
+  (3) rylink generation      — whole programs from the same pool
+  (4) rylink test            — symiri vs C-binary on the bundled program
 
 Usage:
   python -m test.lib.run_reify_diff_tests \\
       --rysmith ./rysmith --symiri ./symiri --symirc ./symirc \\
+      --rylink ./rylink \\
       [--n 100] [--seed 1234] [--out build/test_tmp/reify_diff]
 """
 
@@ -17,23 +25,25 @@ import sys
 
 from test.lib.style import bold, green, red, yellow
 
-_FUN_RE = re.compile(r"fun\s+@([a-zA-Z0-9_]+)\(\)\s*:\s*(i[0-9]+|f32|f64)")
 _RESULT_RE = re.compile(r"Result:\s*(-?[0-9]+)")
 
-# rylink-bundled program.sir header lines + entry signature.
-_ENTRY_RE = re.compile(r"^//\s*ENTRY:\s*@([a-zA-Z0-9_]+)")
-_PARAMS_RE = re.compile(r"^//\s*PARAMS:(.*)$")
-_RETURN_RE = re.compile(r"^//\s*RETURN:\s*(.+?)\s*$")
+# Common header / signature regexes shared by leaf and bundled .sir files.
+_SOLVED_RE = re.compile(r"^//\s*SOLVED:\s*(.+?)\s*$")  # leaf rysmith header
+_PARAMS_RE = re.compile(r"^//\s*PARAMS:(.*)$")  # rylink bundled header
+_RETURN_RE = re.compile(r"^//\s*RETURN:\s*(.+?)\s*$")  # rylink bundled header
+_ENTRY_RE = re.compile(r"^//\s*ENTRY:\s*@([a-zA-Z0-9_]+)")  # rylink bundled header
 _FUN_SIG_RE = re.compile(
   r"fun\s+@([a-zA-Z0-9_]+)\s*\(([^)]*)\)\s*:\s*(i[0-9]+|f32|f64)"
 )
 
-
-_CRET = {
+# C surface types for SymIR scalars. Same mapping covers param and ret slots.
+_CTY = {
   "i8": "int8_t",
   "i16": "int16_t",
   "i32": "int32_t",
   "i64": "int64_t",
+  "f32": "float",
+  "f64": "double",
 }
 
 # Batch size for generation + cross-validation. Large -n runs proceed
@@ -44,118 +54,51 @@ _CRET = {
 BATCH_SIZE = 100
 
 
-def _parse_fun(sir_path):
-  """Returns (func_name, ret_type) for the first function declared, or None."""
-  with open(sir_path, "r") as f:
-    for line in f:
-      m = _FUN_RE.search(line)
-      if m:
-        return m.group(1), m.group(2)
-  return None
+# ───────────────────────────────────────────────────────────────────────
+# Header parsing — one parser handles both leaf and bundled .sir files.
+# ───────────────────────────────────────────────────────────────────────
 
 
-def _write_main_c(path, fname, ret_type):
-  cret = _CRET.get(ret_type)
-  if cret is None:
-    return False  # f32/f64 returns: skip (need printf %f and tolerance)
-  with open(path, "w") as f:
-    f.write(
-      "#include <stdint.h>\n"
-      "#include <stdio.h>\n"
-      f"extern {cret} symir_{fname}(void);\n"
-      "int main(void) {\n"
-      f"  {cret} r = symir_{fname}();\n"
-      '  printf("Result: %lld\\n", (long long)r);\n'
-      "  return 0;\n"
-      "}\n"
-    )
-  return True
+def _parse_program(sir_path, entry_hint=None):
+  """Parse a SymIR file and return
+    (entry_name, ret_type, param_types[], param_values[], expected_ret)
+  or None if anything is missing.
 
+  Accepts either format:
+    - Leaf rysmith .sir: `// SOLVED: %pa0=…, %pa1=…, ret=…`
+    - Rylink bundled .sir: `// ENTRY: @f` / `// PARAMS: …` / `// RETURN: …`
 
-def _classify_one(sir_name, out_dir, symiri, clang, main_c, exe, verbose):
-  """Run one (sir, c) pair and return (bucket, msg).
-
-  ``bucket`` is one of: "passed", "skipped" (counter buckets, msg=None);
-  or "mismatch", "ubsan", "cfail", "sirfail" (failure-list buckets, msg=str).
+  When ``entry_hint`` is given it picks that fun; otherwise it takes the
+  first `fun` declaration in the file. The leaf format always has exactly
+  one fun; the bundled format relies on the ENTRY comment.
   """
-  sir_path = os.path.join(out_dir, sir_name)
-  c_path = sir_path[:-4] + ".c"
-  if not os.path.exists(c_path):
-    return ("cfail", f"{sir_name}: no .c emitted")
-
-  fun = _parse_fun(sir_path)
-  if fun is None:
-    return ("sirfail", f"{sir_name}: cannot parse fun decl")
-  fname, rtype = fun
-
-  si = subprocess.run(
-    [symiri, "--main", f"@{fname}", sir_path],
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    text=True,
-    timeout=10,
-  )
-  if si.returncode != 0:
-    return ("sirfail", f"{sir_name}: symiri exit {si.returncode}")
-  sm = _RESULT_RE.search(si.stdout) or _RESULT_RE.search(si.stderr)
-  if sm is None:
-    return ("sirfail", f"{sir_name}: symiri no Result line")
-  sir_val = sm.group(1)
-
-  if not _write_main_c(main_c, fname, rtype):
-    return ("skipped", None)
-  cc = subprocess.run(
-    [
-      clang,
-      "-O0",
-      c_path,
-      main_c,
-      "-o",
-      exe,
-      "-fsanitize=undefined",
-      "-fno-sanitize-recover=all",
-      "-w",
-      "-lm",
-    ],
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    text=True,
-    timeout=15,
-  )
-  if cc.returncode != 0:
-    if verbose:
-      print(cc.stderr)
-    return ("cfail", f"{sir_name}: clang failed")
-  cr = subprocess.run(
-    [exe], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5
-  )
-  if cr.returncode != 0:
-    head = cr.stderr.strip().splitlines()[0] if cr.stderr else "trap"
-    return ("ubsan", f"{sir_name}: {head}")
-  cm = _RESULT_RE.search(cr.stdout)
-  if cm is None:
-    return ("cfail", f"{sir_name}: no Result from C binary")
-  c_val = cm.group(1)
-
-  if sir_val == c_val:
-    return ("passed", None)
-  return ("mismatch", f"{sir_name}: symiri={sir_val} c={c_val}")
-
-
-def _parse_rylink_prog(sir_path):
-  """Parse a rylink-bundled program.sir. Returns
-  (entry_name, ret_type, param_types[], param_values[], expected_ret) or None
-  if any of those pieces are missing / malformed."""
-  entry = None
+  entry = entry_hint
   param_vals = None
+  param_pairs = None  # leaf SOLVED preserves names so we can re-order
   expected = None
   param_types = None
   ret_type = None
   with open(sir_path, "r") as f:
     for line in f:
-      m = _ENTRY_RE.match(line)
+      if entry is None:
+        m = _ENTRY_RE.match(line)
+        if m:
+          entry = m.group(1)
+          continue
+      m = _SOLVED_RE.match(line)
       if m:
-        entry = m.group(1)
+        # Comma-separated `name=value` tokens; the final `ret=…` is split out.
+        tokens = [t.strip() for t in m.group(1).split(",")]
+        pairs = []
+        for t in tokens:
+          if "=" not in t:
+            continue
+          k, v = t.split("=", 1)
+          if k.strip() == "ret":
+            expected = v.strip()
+          else:
+            pairs.append((k.strip(), v.strip()))
+        param_pairs = pairs
         continue
       m = _PARAMS_RE.match(line)
       if m:
@@ -163,7 +106,8 @@ def _parse_rylink_prog(sir_path):
         if body == "(none)":
           param_vals = []
         else:
-          # Whitespace-separated `name=value` tokens.
+          # Whitespace-separated `name=value` tokens; rylink already
+          # emits them in declaration order.
           param_vals = [tok.split("=", 1)[1] for tok in body.split() if "=" in tok]
         continue
       m = _RETURN_RE.match(line)
@@ -171,58 +115,72 @@ def _parse_rylink_prog(sir_path):
         v = m.group(1).strip()
         expected = None if v == "(none)" else v
         continue
-      if entry is not None and ret_type is None:
+      if ret_type is None:
         m = _FUN_SIG_RE.search(line)
-        if m and m.group(1) == entry:
+        if m and (entry is None or m.group(1) == entry):
+          if entry is None:
+            entry = m.group(1)
           ret_type = m.group(3)
           params_str = m.group(2).strip()
           if params_str:
-            # `%pa0: i32, %pa1: i8, %pa2: f64` — keep types in order.
-            param_types = [
-              p.split(":", 1)[1].strip() for p in params_str.split(",") if ":" in p
-            ]
+            # `%pa0: i32, %pa1: i8, %pa2: f64` — keep names+types in order.
+            ptypes = []
+            pnames = []
+            for p in params_str.split(","):
+              if ":" not in p:
+                continue
+              n, t = p.split(":", 1)
+              pnames.append(n.strip())
+              ptypes.append(t.strip())
+            param_types = ptypes
+            # If the SOLVED header named the params, re-order its values
+            # to match the declared param order. Otherwise we trust the
+            # bundled-format positional order already in param_vals.
+            if param_pairs is not None:
+              by_name = {n: v for n, v in param_pairs}
+              try:
+                param_vals = [by_name[n] for n in pnames]
+              except KeyError:
+                return None
           else:
             param_types = []
-  if entry is None or param_vals is None or param_types is None or ret_type is None:
+            if param_pairs is not None:
+              param_vals = []
+  if entry is None or param_types is None or ret_type is None or param_vals is None:
     return None
   if len(param_types) != len(param_vals):
     return None
   return (entry, ret_type, param_types, param_vals, expected)
 
 
-# C type for a rylink param. Mirrors symirc's mangling for scalars; we
-# can't synthesize aggregates or pointers as positional CLI args (rysmith
-# only ever emits scalar params, so this is sufficient in practice).
-_CARG = {
-  "i8": "int8_t",
-  "i16": "int16_t",
-  "i32": "int32_t",
-  "i64": "int64_t",
-  "f32": "float",
-  "f64": "double",
-}
+# ───────────────────────────────────────────────────────────────────────
+# main.c synthesis — extern decl + call with the entry's solved args.
+# Used for both leaf and bundled programs.
+# ───────────────────────────────────────────────────────────────────────
 
 
-def _write_rylink_main_c(path, fname, ret_type, param_types, param_values):
-  cret = _CRET.get(ret_type)
-  if cret is None:
-    return False  # FP return: skip (see _write_main_c).
+def _write_main_c(path, fname, ret_type, param_types, param_values):
+  """Returns True on success, False if the entry has a non-scalar slot
+  we can't synthesize from the CLI (FP return is skippable here, but the
+  caller can opt to print floats too — we keep them disabled for now to
+  avoid FP-printing tolerance issues)."""
+  cret = _CTY.get(ret_type)
+  if cret is None or ret_type in ("f32", "f64"):
+    return False  # FP returns: skip (need printf %f + tolerance handling)
   cparams = []
   for pt in param_types:
-    cp = _CARG.get(pt)
+    cp = _CTY.get(pt)
     if cp is None:
       return False  # non-scalar param: skip.
     cparams.append(cp)
-  # Render literals: integers as-is; floats wrapped in a cast so a
-  # value like "-0" parses as a double rather than int.
   lits = []
   for pt, pv in zip(param_types, param_values):
     if pt in ("f32", "f64"):
-      suffix = "f" if pt == "f32" else ""
-      # Accept solver outputs like "-0" by forcing FP literal form.
+      # Solver may print a float as `-0` — promote to dotted form so the
+      # C lexer parses it as a floating literal rather than an int.
       if "." not in pv and "e" not in pv and "E" not in pv:
         pv = pv + ".0"
-      lits.append(pv + suffix)
+      lits.append(pv + ("f" if pt == "f32" else ""))
     else:
       lits.append(pv)
   decl_params = ", ".join(cparams) if cparams else "void"
@@ -241,48 +199,49 @@ def _write_rylink_main_c(path, fname, ret_type, param_types, param_values):
   return True
 
 
-def _classify_rylink_one(prog_dir, symiri, clang, main_c, exe, verbose):
-  """Cross-validate one rylink-bundled program directory. Mirrors
-  ``_classify_one`` but reads the entry / params / expected ret from
-  program.sir's header comments instead of parsing a parameter-less
-  rysmith function."""
-  sir_path = os.path.join(prog_dir, "program.sir")
-  c_path = os.path.join(prog_dir, "program.c")
-  prog_name = os.path.basename(prog_dir.rstrip("/"))
-  if not os.path.exists(c_path):
-    return ("cfail", f"{prog_name}: no program.c emitted")
+# ───────────────────────────────────────────────────────────────────────
+# Cross-validation — symiri vs clang+exe on one (sir, c) pair.
+# Handles leaf and bundled uniformly: given the parsed (entry, types,
+# values, expected), run symiri and the C binary, classify the outcome.
+# ───────────────────────────────────────────────────────────────────────
 
-  parsed = _parse_rylink_prog(sir_path)
+
+def _classify(label, sir_path, c_path, parsed, symiri, clang, main_c, exe, verbose):
+  """Returns (bucket, msg). ``label`` is the human-readable program name
+  used in failure messages; the bucket vocabulary matches the rest of the
+  harness ("passed" / "skipped" / "mismatch" / "ubsan" / "cfail" / "sirfail")."""
+  if not os.path.exists(c_path):
+    return ("cfail", f"{label}: no .c emitted")
   if parsed is None:
-    return ("sirfail", f"{prog_name}: cannot parse bundled program.sir header")
+    return ("sirfail", f"{label}: cannot parse program header")
   entry, ret_type, ptypes, pvals, expected = parsed
 
-  # symiri side — bundled .sir + positional param values. The
-  # bundled program may execute an unbounded loop; a TimeoutExpired
-  # is bucketed as a sirfail rather than aborting the whole run.
   argv = [symiri, "--main", f"@{entry}", sir_path]
   if pvals:
     argv += ["--"] + pvals
   try:
     si = subprocess.run(
-      argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15
+      argv,
+      stdout=subprocess.PIPE,
+      stderr=subprocess.PIPE,
+      text=True,
+      timeout=15,
     )
   except subprocess.TimeoutExpired:
-    return ("sirfail", f"{prog_name}: symiri timeout")
+    return ("sirfail", f"{label}: symiri timeout")
   if si.returncode != 0:
-    return ("sirfail", f"{prog_name}: symiri exit {si.returncode}")
+    return ("sirfail", f"{label}: symiri exit {si.returncode}")
   sm = _RESULT_RE.search(si.stdout) or _RESULT_RE.search(si.stderr)
   if sm is None:
-    return ("sirfail", f"{prog_name}: symiri no Result line")
+    return ("sirfail", f"{label}: symiri no Result line")
   sir_val = sm.group(1)
 
-  # The descriptor's claimed return value is the third source of truth;
-  # surface a mismatch against symiri as a sirfail rather than silently
-  # trust either side.
+  # If the .sir header recorded a solver-derived expected value, surface
+  # a symiri-vs-expected disagreement before going on to compare to C.
   if expected is not None and expected != sir_val:
-    return ("sirfail", f"{prog_name}: symiri={sir_val} expected={expected}")
+    return ("sirfail", f"{label}: symiri={sir_val} expected={expected}")
 
-  if not _write_rylink_main_c(main_c, entry, ret_type, ptypes, pvals):
+  if not _write_main_c(main_c, entry, ret_type, ptypes, pvals):
     return ("skipped", None)
   cc = subprocess.run(
     [
@@ -305,40 +264,48 @@ def _classify_rylink_one(prog_dir, symiri, clang, main_c, exe, verbose):
   if cc.returncode != 0:
     if verbose:
       print(cc.stderr)
-    return ("cfail", f"{prog_name}: clang failed")
+    return ("cfail", f"{label}: clang failed")
   try:
     cr = subprocess.run(
       [exe], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10
     )
   except subprocess.TimeoutExpired:
-    return ("cfail", f"{prog_name}: c binary timeout")
+    return ("cfail", f"{label}: c binary timeout")
   if cr.returncode != 0:
     head = cr.stderr.strip().splitlines()[0] if cr.stderr else "trap"
-    return ("ubsan", f"{prog_name}: {head}")
+    return ("ubsan", f"{label}: {head}")
   cm = _RESULT_RE.search(cr.stdout)
   if cm is None:
-    return ("cfail", f"{prog_name}: no Result from C binary")
+    return ("cfail", f"{label}: no Result from C binary")
   c_val = cm.group(1)
 
   if sir_val == c_val:
     return ("passed", None)
-  return ("mismatch", f"{prog_name}: symiri={sir_val} c={c_val}")
+  return ("mismatch", f"{label}: symiri={sir_val} c={c_val}")
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Per-batch artefact management
+# ───────────────────────────────────────────────────────────────────────
 
 
 def _clear_batch_files(out_dir):
-  """Remove .sir/.c artefacts from a prior batch, preserving the harness."""
+  """Remove per-batch artefacts (top-level .sir/.c/.json + a stale
+  rylink/ subdirectory) while preserving the persistent harness files
+  (_main.c, _test, bugs/)."""
   for f in os.listdir(out_dir):
-    if f in ("_main.c", "_test"):
+    if f in ("_main.c", "_test", "bugs"):
       continue
-    if f.endswith(".sir") or f.endswith(".c"):
-      os.remove(os.path.join(out_dir, f))
+    p = os.path.join(out_dir, f)
+    if f == "rylink" and os.path.isdir(p):
+      shutil.rmtree(p)
+      continue
+    if f.endswith(".sir") or f.endswith(".c") or f.endswith(".json"):
+      os.remove(p)
 
 
-def _save_bug(bugs_dir, bucket, sir_name, src_dir, batch_num):
-  """Copy the failing .sir (and its companion .c, if present) into
-  ``<bugs_dir>/<bucket>/`` so the case can be replayed/reduced after the
-  next batch clears ``src_dir``. Filenames are prefixed with ``b<N>_`` to
-  avoid collisions when rysmith reuses names across batches."""
+def _save_leaf_bug(bugs_dir, bucket, sir_name, src_dir, batch_num):
+  """Copy the failing leaf .sir (and companion .c) into bugs/<bucket>/."""
   dst_dir = os.path.join(bugs_dir, bucket)
   os.makedirs(dst_dir, exist_ok=True)
   stem = sir_name[:-4] if sir_name.endswith(".sir") else sir_name
@@ -349,15 +316,36 @@ def _save_bug(bugs_dir, bucket, sir_name, src_dir, batch_num):
       shutil.copy2(src, os.path.join(dst_dir, prefix + stem + suffix))
 
 
+def _save_rylink_bug(bugs_dir, bucket, prog_dir, batch_num):
+  """Copy a failing rylink program (program.sir + program.c) into
+  bugs/<bucket>/ with a unique prefix derived from the prog dir."""
+  dst_dir = os.path.join(bugs_dir, bucket)
+  os.makedirs(dst_dir, exist_ok=True)
+  prog_name = os.path.basename(prog_dir.rstrip("/"))
+  prefix = f"b{batch_num}_{prog_name}_"
+  for suffix in (".sir", ".c"):
+    src = os.path.join(prog_dir, "program" + suffix)
+    if os.path.exists(src):
+      shutil.copy2(src, os.path.join(dst_dir, prefix + "program" + suffix))
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Reporting
+# ───────────────────────────────────────────────────────────────────────
+
+
 def _print_test_summary(passed, mismatch, ubsan, cfail, sirfail, skipped):
-  """The legacy per-test-block report. Used per-funder --verbose, and
-  always at the end of a run."""
   print(f"  {green('passed')}:        {passed}")
   print(f"  {red('mismatched')}:    {len(mismatch)}")
   print(f"  {red('ubsan traps')}:   {len(ubsan)}")
   print(f"  {red('compile fail')}:  {len(cfail)}")
   print(f"  {red('symiri fail')}:   {len(sirfail)}")
   print(f"  {yellow('skipped')}:       {skipped}")
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Main loop
+# ───────────────────────────────────────────────────────────────────────
 
 
 def run(
@@ -396,9 +384,14 @@ def run(
   main_c = os.path.join(out_dir, "_main.c")
   exe = os.path.join(out_dir, "_test")
 
-  generated_total = 0  # programs rysmith actually emitted (skips its own FAILs)
-  gen_failed_total = 0  # rysmith [FAIL] lines across batches
-  processed_total = 0  # programs we cross-validated this run
+  # Aggregate counters surfaced in the verbose end-of-run report.
+  leaf_generated_total = 0
+  leaf_gen_failed_total = 0
+  rylink_generated_total = 0
+  rylink_gen_failed_total = 0
+  processed_total = 0
+
+  rylink_active = bool(rylink) and rylink_n_per_batch > 0
 
   stopped_early = False
   done = 0
@@ -408,6 +401,7 @@ def run(
     batch_seed = seed + batch_idx
     _clear_batch_files(out_dir)
 
+    # ── (1) rysmith generation ───────────────────────────────────────
     gen_cmd = [
       rysmith,
       "-n",
@@ -418,44 +412,45 @@ def run(
       str(batch_seed),
       "-o",
       out_dir,
-      # The leaf-phase main.c stub assumes a parameter-less entry. Pin
-      # --n-params=0 here so rysmith's default (3) doesn't render every
-      # leaf undiffable. The rylink phase below reads its own header
-      # comments and handles params on its own.
+      # --n-params 3 matches the realistic shape of rysmith's leaf
+      # output and gives rylink real call-graph edges to splice. The
+      # leaf-test phase below reads the SOLVED header for positional
+      # args, so multi-param leaves are still cross-validatable.
       "--n-params",
-      "0",
+      "3",
+      # --emit-desc is required by rylink (it consumes the per-fn
+      # descriptor JSON sidecar). Cheap when rylink is off, so always on.
+      "--emit-desc",
     ]
-    # rylink consumes the per-fn descriptor JSON sidecar, so when the
-    # rylink phase is active we also have to ask rysmith to emit it.
-    # No cost when the phase is off.
-    if rylink and rylink_n_per_batch > 0:
-      gen_cmd.append("--emit-desc")
     if verbose:
-      print(bold(f"batch #{batch_idx + 1} generation ({done}/{n} programs):"))
+      print(bold(f"batch #{batch_idx + 1} rysmith generation ({done}/{n} programs):"))
       print(f"  running: {' '.join(gen_cmd)}")
     gen = subprocess.run(
       gen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
     )
     batch_gen_failed = (gen.stderr or "").strip().count("[FAIL]")
-    gen_failed_total += batch_gen_failed
+    leaf_gen_failed_total += batch_gen_failed
 
     sirs = sorted(p for p in os.listdir(out_dir) if p.endswith(".sir"))
-    generated_total += len(sirs)
-
+    leaf_generated_total += len(sirs)
     if verbose:
       print(f"  {green('succeeded')}:     {batch_n - batch_gen_failed}")
       print(f"  {yellow('failed')}:        {batch_gen_failed}")
-      print(f"  {'generated'}:     {len(sirs)}")
+      print(f"  generated:     {len(sirs)}")
 
     done += batch_n
 
+    # ── (2) leaf test ────────────────────────────────────────────────
     if verbose:
-      print(bold(f"batch #{batch_idx} testing ({done}/{n} programs):"))
+      print(bold(f"batch #{batch_idx + 1} rysmith test ({done}/{n} programs):"))
       print("  running: symiri vs clang+exe")
 
     for sir_name in sirs:
-      bucket, msg = _classify_one(
-        sir_name, out_dir, symiri, clang, main_c, exe, verbose
+      sir_path = os.path.join(out_dir, sir_name)
+      c_path = sir_path[:-4] + ".c"
+      parsed = _parse_program(sir_path)
+      bucket, msg = _classify(
+        sir_name, sir_path, c_path, parsed, symiri, clang, main_c, exe, verbose
       )
       processed_total += 1
       if bucket == "passed":
@@ -464,25 +459,20 @@ def run(
         skipped += 1
       else:
         _LISTS[bucket].append(msg)
-        _save_bug(bugs_dir, bucket, sir_name, out_dir, batch_idx + 1)
+        _save_leaf_bug(bugs_dir, bucket, sir_name, out_dir, batch_idx + 1)
         if fail_early:
           print(
-            f"  [batch {batch_idx + 1}, prog {sir_name}] "
+            f"  [batch {batch_idx + 1}, rysmith {sir_name}] "
             f"{red('first failure')} ({bucket}): {msg}",
             flush=True,
           )
           stopped_early = True
           break
 
-    # ── rylink phase ──────────────────────────────────────────────
-    # After the per-fn diff test, build whole programs from the same
-    # rysmith batch and cross-validate them too. Inter-procedural
-    # call+offset rewrites stress different paths in symiri / symirc
-    # than leaf functions alone.
-    if rylink and rylink_n_per_batch > 0 and not stopped_early:
+    # ── (3) rylink generation ────────────────────────────────────────
+    ry_progs = []
+    if rylink_active and not stopped_early:
       ry_dir = os.path.join(out_dir, "rylink")
-      if os.path.exists(ry_dir):
-        shutil.rmtree(ry_dir)
       ry_cmd = [
         rylink,
         "-n",
@@ -499,22 +489,46 @@ def run(
         ry_dir,
       ]
       if verbose:
-        print(f"  rylink: {' '.join(ry_cmd)}")
-      ry = subprocess.run(
-        ry_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=300
-      )
-      if ry.returncode != 0 and verbose:
-        print(f"  {yellow('rylink')} exit {ry.returncode}")
-      ry_progs = []
+        print(bold(f"batch #{batch_idx + 1} rylink generation ({done}/{n} programs):"))
+        print(f"  running: {' '.join(ry_cmd)}")
+      try:
+        ry = subprocess.run(
+          ry_cmd,
+          stdout=subprocess.PIPE,
+          stderr=subprocess.PIPE,
+          text=True,
+          timeout=300,
+        )
+      except subprocess.TimeoutExpired:
+        ry = None
       if os.path.isdir(ry_dir):
         ry_progs = sorted(
           os.path.join(ry_dir, d)
           for d in os.listdir(ry_dir)
           if d.startswith("prog_") and os.path.isdir(os.path.join(ry_dir, d))
         )
+      rylink_generated_total += len(ry_progs)
+      ry_failed = rylink_n_per_batch - len(ry_progs)
+      if ry is None:
+        ry_failed = rylink_n_per_batch
+      rylink_gen_failed_total += max(0, ry_failed)
+      if verbose:
+        print(f"  {green('succeeded')}:     {len(ry_progs)}")
+        print(f"  {yellow('failed')}:        {max(0, ry_failed)}")
+        print(f"  generated:     {len(ry_progs)}")
+
+    # ── (4) rylink test ──────────────────────────────────────────────
+    if rylink_active and not stopped_early:
+      if verbose:
+        print(bold(f"batch #{batch_idx + 1} rylink test ({done}/{n} programs):"))
+        print("  running: symiri vs clang+exe")
       for prog_dir in ry_progs:
-        bucket, msg = _classify_rylink_one(
-          prog_dir, symiri, clang, main_c, exe, verbose
+        prog_name = os.path.basename(prog_dir.rstrip("/"))
+        sir_path = os.path.join(prog_dir, "program.sir")
+        c_path = os.path.join(prog_dir, "program.c")
+        parsed = _parse_program(sir_path)
+        bucket, msg = _classify(
+          prog_name, sir_path, c_path, parsed, symiri, clang, main_c, exe, verbose
         )
         processed_total += 1
         if bucket == "passed":
@@ -523,18 +537,7 @@ def run(
           skipped += 1
         else:
           _LISTS[bucket].append(msg)
-          # Save the bundled program.sir + program.c for replay. We use
-          # the program-dir name as the "sir_name" so prefixing logic
-          # downstream stays consistent.
-          prog_name = os.path.basename(prog_dir)
-          stem_src = os.path.join(prog_dir, "program")
-          dst_dir = os.path.join(bugs_dir, bucket)
-          os.makedirs(dst_dir, exist_ok=True)
-          prefix = f"b{batch_idx + 1}_{prog_name}_"
-          for suffix in (".sir", ".c"):
-            src = stem_src + suffix
-            if os.path.exists(src):
-              shutil.copy2(src, os.path.join(dst_dir, prefix + "program" + suffix))
+          _save_rylink_bug(bugs_dir, bucket, prog_dir, batch_idx + 1)
           if fail_early:
             print(
               f"  [batch {batch_idx + 1}, rylink {prog_name}] "
@@ -559,7 +562,7 @@ def run(
         )
       print()
 
-  # Report.
+  # End-of-run report.
   print()
   hdr = f"reify differential test (n={processed_total}, seed={seed}"
   if stopped_early:
@@ -567,8 +570,11 @@ def run(
   hdr += "):"
   print(bold(hdr))
   if verbose:
-    print(f"  {'generated'}:     {generated_total}")
-    print(f"  {red('gen failed')}:    {gen_failed_total}")
+    print(f"  rysmith generated:     {leaf_generated_total}")
+    print(f"  {red('rysmith gen failed')}:    {leaf_gen_failed_total}")
+    if rylink_active:
+      print(f"  rylink generated:      {rylink_generated_total}")
+      print(f"  {red('rylink gen failed')}:     {rylink_gen_failed_total}")
     print("  ---")
   _print_test_summary(passed, mismatch, ubsan, cfail, sirfail, skipped)
 
