@@ -155,8 +155,8 @@ def test_program_sir_layout(rylink, rysmith):
         head[:200],
       )
       check(
-        "program.sir header carries `// RET:` comment",
-        "// RET:" in head,
+        "program.sir header carries `// RETURN:` comment",
+        "// RETURN:" in head,
         head[:200],
       )
 
@@ -220,6 +220,9 @@ def test_validate(rylink, rysmith, symiri):
           "--seed",
           "9",
           "--validate",
+          # Per-init "validated: OK" lines are gated on --verbose
+          # (non-verbose only prints a per-program OK summary).
+          "--verbose",
           "-o",
           out,
         ]

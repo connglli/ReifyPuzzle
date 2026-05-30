@@ -228,6 +228,18 @@ namespace symir::reify::rylink::hp {
   inline constexpr double kPRewrite = 0.50;      // per-site accept probability
 
   // ===========================================================================
+  // Per-program retry budget
+  //
+  // generateOne is deterministic given its rng, but each fork can still
+  // hit a non-rewrite-related dead end downstream (e.g. an `--validate`
+  // run that trips runtime UB inside off-path code spliced into a callee
+  // via a now-on-path branch). 3 attempts is a small budget that
+  // tolerates the occasional rng-induced miss without masking systemic
+  // bugs (which would fail every fork and still surface).
+  // ===========================================================================
+  inline constexpr int kMaxAttemptsPerProg = 3;
+
+  // ===========================================================================
   // Output naming
   //
   // The per-program output directory is `<prog-prefix>_<id>_<i>` (e.g.

@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -220,8 +221,11 @@ static std::optional<std::string> runSymiri(
     const std::vector<std::string> &paramArgs
 ) {
   std::string outPath = "/tmp/rylink_symiri_" + std::to_string(::getpid()) + ".out";
-  std::string cmd =
-      "\"" + symiri.string() + "\" --main " + entryFn + " \"" + programSir.string() + "\"";
+  // Wrap in `timeout` because symiri has no internal wall-clock limit;
+  // a generated program with an unbounded loop can hang the validator
+  // and stall the batch. 10s is plenty for a properly-terminating run.
+  std::string cmd = "timeout 10s \"" + symiri.string() + "\" --main " + entryFn + " \"" +
+                    programSir.string() + "\"";
   if (!paramArgs.empty()) {
     cmd += " --";
     for (const auto &a: paramArgs)
@@ -321,14 +325,23 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
   const auto &entryRz = entryEntry.desc.realizations[nodes[cg.entry()].realizationIdx];
   writeBundledSir(programSir, bundle, cg, nodes, entryRz);
 
-  // Target backends.
+  // Target backends. A symirc failure is fatal for this attempt — the
+  // caller will retry with a different rng fork. In non-verbose mode
+  // we stay silent so a successful retry produces clean output; the
+  // verbose path already streamed symirc's stderr.
   if (cfg.target == "c") {
-    if (!invokeSymircC(cfg.symircPath, programSir, progDir, cfg.keepRequire, cfg.verbose))
-      std::cerr << "rylink: symirc failed for " << progDir << "\n";
+    if (!invokeSymircC(cfg.symircPath, programSir, progDir, cfg.keepRequire, cfg.verbose)) {
+      if (cfg.verbose)
+        std::cerr << "  symirc FAIL (" << progDir.filename().string() << ")\n";
+      return false;
+    }
   } else if (cfg.target == "wasm") {
     fs::path wasmOut = progDir / "program.wasm";
-    if (!invokeSymircWasm(cfg.symircPath, programSir, wasmOut, cfg.keepRequire, cfg.verbose))
-      std::cerr << "rylink: symirc (wasm) failed for " << progDir << "\n";
+    if (!invokeSymircWasm(cfg.symircPath, programSir, wasmOut, cfg.keepRequire, cfg.verbose)) {
+      if (cfg.verbose)
+        std::cerr << "  symirc FAIL (" << progDir.filename().string() << ")\n";
+      return false;
+    }
   }
 
   // Validate: run symiri with the entry's param realization values and
@@ -340,11 +353,13 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     auto got = runSymiri(cfg.symiriPath, programSir, nodes[cg.entry()].funcName, args);
     bool ok = got && (*got == entryRz.retValue);
     if (ok) {
-      std::cout << "  validated: OK (" << progDir.filename().string() << ")\n";
+      if (cfg.verbose)
+        std::cout << "  validated: OK (" << progDir.filename().string() << ")\n";
     } else {
-      std::cerr << "  validated: FAIL (" << progDir.filename().string()
-                << ") expected=" << entryRz.retValue
-                << " got=" << (got ? *got : std::string("<no Result>")) << "\n";
+      if (cfg.verbose)
+        std::cerr << "  validated: FAIL (" << progDir.filename().string()
+                  << ") expected=" << entryRz.retValue
+                  << " got=" << (got ? *got : std::string("<no Result>")) << "\n";
       return false;
     }
   }
@@ -448,7 +463,7 @@ int main(int argc, char **argv) {
   }
 
   std::cout << "rylink: seed = " << seed << "\n";
-  std::cout << "rylink: id = " << genId << "\n";
+  std::cout << "rylink: generation id = " << genId << "\n";
   FuncPool pool = loadFuncPool(res["input-dir"].as<std::string>());
   if (pool.entries.empty()) {
     std::cerr << "rylink: empty pool — aborting\n";
@@ -458,21 +473,20 @@ int main(int argc, char **argv) {
 
   fs::create_directories(pc.outRoot);
   int nProgs = std::max(1, res["n-progs"].as<int>());
-  int ok = 0;
-  // [v0.2.2] Per-program retry budget. The rewrite engine is correct
-  // by construction (`call + (c - ret) == c`), but symiri's nested
-  // call model shares `addrMap_` across frames (interpreter.cpp
-  // §9.6.1), so a rewrite that introduces a callee whose locals alias
-  // the caller's `addr`-promoted vars can trip rule 15b at run time
-  // even though the math is sound. We retry with a fresh per-prog rng
-  // fork rather than failing the whole batch.
-  constexpr int kMaxAttempts = 8;
+  int nOk = 0, nFail = 0;
+  // Per-program retry budget — see rylink::hp::kMaxAttemptsPerProg for
+  // the rationale. The rewrite engine itself is sound; this just
+  // tolerates the occasional rng-induced downstream miss.
+  constexpr int kMaxAttempts = rylink::hp::kMaxAttemptsPerProg;
+  auto wallStart = std::chrono::steady_clock::now();
   for (int i = 0; i < nProgs; ++i) {
     pc.progIdx = i;
-    std::cout << "[" << (i + 1) << "/" << nProgs << "] generating prog_" << genId << "_" << i
-              << "\n";
+    std::string progName = "prog_" + genId + "_" + std::to_string(i);
+    std::cout << "[" << (i + 1) << "/" << nProgs << "] generating " << progName << "\n";
     bool succeeded = false;
+    int usedAttempts = 0;
     for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+      ++usedAttempts;
       std::mt19937 progRng(rng());
       if (generateOne(pool, progRng, pc)) {
         succeeded = true;
@@ -481,10 +495,21 @@ int main(int argc, char **argv) {
       if (pc.verbose)
         std::cerr << "  retry " << (attempt + 1) << "/" << kMaxAttempts << "\n";
     }
-    if (succeeded)
-      ++ok;
+    if (succeeded) {
+      ++nOk;
+      std::cout << "  "
+                << (usedAttempts > 1 ? "OK (after " + std::to_string(usedAttempts) + " attempts): "
+                                     : "OK: ")
+                << progName << "\n";
+    } else {
+      ++nFail;
+      std::cerr << "  [FAIL] " << progName << " after " << kMaxAttempts << " attempts\n";
+    }
   }
-  std::cout << "Done: " << ok << " succeeded, " << (nProgs - ok) << " failed (total " << nProgs
-            << ")\n";
-  return ok == nProgs ? 0 : 1;
+  auto elapsed =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - wallStart).count();
+  double throughput = elapsed > 0 ? nOk / elapsed : 0.0;
+  std::cout << "\nDone: " << nOk << " succeeded, " << nFail << " failed (total " << nProgs << ")"
+            << "  [" << elapsed << "s, " << throughput << " progs/s]\n";
+  return nFail == 0 ? 0 : 1;
 }
