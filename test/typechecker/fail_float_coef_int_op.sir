@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+fun @main() : i32 {
+  let %x: i32 = 1;
+  let %c: f32 = 1.5;
+  let mut %y: i32 = 0;
+^entry:
+  %y = %x * %c; // Coefficient in integer operation must be integer
+  ret 0;
+}

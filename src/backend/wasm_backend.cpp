@@ -257,7 +257,7 @@ namespace symir {
               }
               std::uint32_t srcWidth = 32;
               bool srcIsFloat = false;
-              if (auto bits = TypeUtils::getBitWidth(srcType)) {
+              if (auto bits = TypeUtils::getIntBitWidth(srcType)) {
                 srcWidth = *bits;
               } else if (srcType && std::holds_alternative<FloatType>(srcType->v)) {
                 srcIsFloat = true;
@@ -744,7 +744,7 @@ namespace symir {
             if (locals_.count(pname)) {
               const auto &info = locals_.at(pname);
               if (auto pt = std::get_if<PtrType>(&info.symirType->v)) {
-                if (auto bits = TypeUtils::getBitWidth(pt->pointee)) {
+                if (auto bits = TypeUtils::getIntBitWidth(pt->pointee)) {
                   loadWidth = *bits;
                   loadIsFloat = false;
                 } else if (pt->pointee && std::holds_alternative<FloatType>(pt->pointee->v)) {
@@ -820,7 +820,7 @@ namespace symir {
                           }
                         }
                       }
-                      if (auto bits = TypeUtils::getBitWidth(at_type)) {
+                      if (auto bits = TypeUtils::getIntBitWidth(at_type)) {
                         srcWidth = *bits;
                       } else if (at_type && std::holds_alternative<FloatType>(at_type->v)) {
                         srcIsFloat = true;
@@ -1084,11 +1084,13 @@ namespace symir {
         }
         std::uint32_t width = 0;
         bool valIsFloat = false;
-        if (auto bits = TypeUtils::getBitWidth(curType)) {
+        if (auto bits = TypeUtils::getIntBitWidth(curType)) {
           width = *bits;
         } else if (curType && std::holds_alternative<FloatType>(curType->v)) {
           valIsFloat = true;
           width = (std::get<FloatType>(curType->v).kind == FloatType::Kind::F32) ? 32 : 64;
+        } else if (curType && std::holds_alternative<PtrType>(curType->v)) {
+          width = 32;
         }
 
         if (valIsFloat) {
@@ -1413,7 +1415,7 @@ namespace symir {
           out_ << "i32.sub\n";
           std::uint32_t width = 32;
           bool valIsFloat = false;
-          if (auto bits = TypeUtils::getBitWidth(type)) {
+          if (auto bits = TypeUtils::getIntBitWidth(type)) {
             width = *bits;
           } else if (type && std::holds_alternative<FloatType>(type->v)) {
             valIsFloat = true;
@@ -1436,7 +1438,7 @@ namespace symir {
         const auto &atom = std::get<AtomPtr>(iv.value);
         std::uint32_t width = 32;
         bool valIsFloat = false;
-        if (auto bits = TypeUtils::getBitWidth(type)) {
+        if (auto bits = TypeUtils::getIntBitWidth(type)) {
           width = *bits;
         } else if (type && std::holds_alternative<FloatType>(type->v)) {
           valIsFloat = true;
@@ -1455,7 +1457,7 @@ namespace symir {
 
       std::uint32_t width = 0;
       bool valIsFloat = false;
-      if (auto bits = TypeUtils::getBitWidth(type)) {
+      if (auto bits = TypeUtils::getIntBitWidth(type)) {
         width = *bits;
       } else if (type && std::holds_alternative<FloatType>(type->v)) {
         valIsFloat = true;
@@ -1519,7 +1521,7 @@ namespace symir {
 
         std::uint32_t width = 0;
         bool valIsFloat = false;
-        if (auto bits = TypeUtils::getBitWidth(type)) {
+        if (auto bits = TypeUtils::getIntBitWidth(type)) {
           width = *bits;
         } else if (type && std::holds_alternative<FloatType>(type->v)) {
           valIsFloat = true;
@@ -1545,7 +1547,7 @@ namespace symir {
       // Store destination
       std::uint32_t width = 0;
       bool valIsFloat = false;
-      if (auto bits = TypeUtils::getBitWidth(type)) {
+      if (auto bits = TypeUtils::getIntBitWidth(type)) {
         width = *bits;
       } else if (type && std::holds_alternative<FloatType>(type->v)) {
         valIsFloat = true;
@@ -2091,7 +2093,7 @@ namespace symir {
                       }
                       std::uint32_t width = 0;
                       bool valIsFloat = false;
-                      if (auto bits = TypeUtils::getBitWidth(curType)) {
+                      if (auto bits = TypeUtils::getIntBitWidth(curType)) {
                         width = *bits;
                       } else if (curType && std::holds_alternative<FloatType>(curType->v)) {
                         valIsFloat = true;
@@ -2154,7 +2156,7 @@ namespace symir {
                     if (locals_.count(rva->rval.base.name)) {
                       const auto &pinfo = locals_.at(rva->rval.base.name);
                       if (auto pt = std::get_if<PtrType>(&pinfo.symirType->v)) {
-                        if (auto bits = TypeUtils::getBitWidth(pt->pointee)) {
+                        if (auto bits = TypeUtils::getIntBitWidth(pt->pointee)) {
                           storeWidth = *bits;
                         } else if (pt->pointee &&
                                    std::holds_alternative<FloatType>(pt->pointee->v)) {

@@ -1,0 +1,6 @@
+// EXPECT: FAIL:StaticError
+fun @main() : i32 {
+  let %v: <4> i8 = 300; // 300 overflows signed/unsigned i8 (max 255)
+^entry:
+  ret 0;
+}

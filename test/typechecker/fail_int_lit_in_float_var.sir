@@ -1,0 +1,6 @@
+// EXPECT: FAIL:StaticError
+fun @main() : i32 {
+  let %f: f32 = 42; // Cannot initialize non-integer with integer literal
+^entry:
+  ret 0;
+}

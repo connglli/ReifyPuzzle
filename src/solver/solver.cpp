@@ -2337,7 +2337,7 @@ namespace symir {
               throw std::runtime_error("Solver: call target not found: " + arg.callee.name);
             }
             uint32_t N = 32;
-            if (auto pb = TypeUtils::getBitWidth(intr->retType))
+            if (auto pb = TypeUtils::getIntBitWidth(intr->retType))
               N = *pb;
             auto bvN = solver.make_bv_sort(N);
             const std::string &nm = intr->name.name;

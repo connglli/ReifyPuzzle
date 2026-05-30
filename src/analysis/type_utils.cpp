@@ -2,7 +2,7 @@
 
 namespace symir {
 
-  std::optional<std::uint32_t> TypeUtils::getBitWidth(const TypePtr &t) {
+  std::optional<std::uint32_t> TypeUtils::getIntBitWidth(const TypePtr &t) {
     if (!t)
       return std::nullopt;
     if (auto it = std::get_if<IntType>(&t->v)) {
@@ -15,11 +15,42 @@ namespace symir {
           return it->bits.value_or(0);
       }
     }
-    // Note: getBitWidth deliberately returns nullopt for floats/ptrs/vectors —
-    // the typechecker treats this as "is this an integer type?" because float
-    // and pointer assignments take dedicated paths. Vector assignment also
-    // needs a dedicated path (see typechecker.cpp AssignInstr handling).
     return std::nullopt;
+  }
+
+  std::optional<std::uint32_t> TypeUtils::getFloatBitWidth(const TypePtr &t) {
+    if (!t)
+      return std::nullopt;
+    if (auto ft = std::get_if<FloatType>(&t->v)) {
+      return ft->kind == FloatType::Kind::F32 ? 32u : 64u;
+    }
+    return std::nullopt;
+  }
+
+  std::optional<std::uint32_t> TypeUtils::getScalarBitWidth(const TypePtr &t) {
+    if (!t)
+      return std::nullopt;
+    // Integer types
+    if (auto ib = getIntBitWidth(t))
+      return ib;
+    // Float types
+    return getFloatBitWidth(t);
+  }
+
+  std::optional<std::uint32_t> TypeUtils::getVectorBitWidth(const TypePtr &t) {
+    if (!t)
+      return std::nullopt;
+    if (auto vt = std::get_if<VecType>(&t->v)) {
+      if (auto elemBits = getScalarBitWidth(vt->elem))
+        return static_cast<std::uint32_t>(vt->size) * (*elemBits);
+    }
+    return std::nullopt;
+  }
+
+  std::optional<std::uint32_t> TypeUtils::getBitWidth(const TypePtr &t) {
+    if (auto sb = getScalarBitWidth(t))
+      return sb;
+    return getVectorBitWidth(t);
   }
 
   bool TypeUtils::areTypesEqual(const TypePtr &a, const TypePtr &b) {

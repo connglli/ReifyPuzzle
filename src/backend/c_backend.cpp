@@ -208,7 +208,7 @@ namespace symir {
   // __builtin_trap (matches the `assert`-on-violation pattern other UB
   // sites use).
   void CBackend::emitIntrinsicHelper(const IntrinsicDecl &intr) {
-    auto rb = TypeUtils::getBitWidth(intr.retType);
+    auto rb = TypeUtils::getIntBitWidth(intr.retType);
     if (!rb)
       return; // non-integer intrinsics aren't supported in v0.2.2
     uint32_t N = *rb;
@@ -1170,7 +1170,7 @@ namespace symir {
                 break;
               }
             if (intr) {
-              auto rb = TypeUtils::getBitWidth(intr->retType);
+              auto rb = TypeUtils::getIntBitWidth(intr->retType);
               out_ << intrinsicHelperName(arg.callee.name, rb.value_or(32));
             } else {
               out_ << mangleName(arg.callee.name);
@@ -1240,7 +1240,7 @@ namespace symir {
               if (lv->accesses.empty()) {
                 auto it = varTypes_.find(lv->base.name);
                 if (it != varTypes_.end() && std::holds_alternative<IntType>(it->second->v))
-                  srcBits = TypeUtils::getBitWidth(it->second);
+                  srcBits = TypeUtils::getIntBitWidth(it->second);
               }
             }
             const bool intDst = arg.dstType && std::holds_alternative<IntType>(arg.dstType->v);

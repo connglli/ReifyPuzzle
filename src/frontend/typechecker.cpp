@@ -471,8 +471,12 @@ namespace symir {
     TypePtr initType = nullptr;
     if (iv.kind == InitVal::Kind::Int) {
       // Literals must fit in the target type's range
-      auto bits = TypeUtils::getBitWidth(targetType);
-      if (bits) {
+      for (const auto &leaf: targetLeaves) {
+        auto bits = TypeUtils::getIntBitWidth(leaf);
+        if (!bits) {
+          diags.error("Cannot initialize non-integer with integer literal", iv.span);
+          return;
+        }
         checkLiteralRange(std::get<IntLit>(iv.value).value, *bits, iv.span, diags);
       }
       return;
@@ -567,7 +571,7 @@ namespace symir {
 
     CFG::build(f, diags);
 
-    auto retBits = TypeUtils::getBitWidth(f.retType);
+    auto retBits = TypeUtils::getIntBitWidth(f.retType);
     bool isRetFloat = f.retType && std::holds_alternative<FloatType>(f.retType->v);
     bool isRetPtr = f.retType && std::holds_alternative<PtrType>(f.retType->v);
     bool isRetVec = f.retType && std::holds_alternative<VecType>(f.retType->v); // [v0.2.1]
@@ -617,7 +621,7 @@ namespace symir {
                   } else {
                     std::optional<uint32_t> expected;
                     bool isFloat = false;
-                    if (auto lb = TypeUtils::getBitWidth(lt)) {
+                    if (auto lb = TypeUtils::getIntBitWidth(lt)) {
                       expected = *lb;
                     } else if (std::holds_alternative<FloatType>(lt->v)) {
                       auto &ft = std::get<FloatType>(lt->v);
@@ -656,7 +660,7 @@ namespace symir {
                 } else {
                   auto &pt = std::get<PtrType>(ptrTy.ptrType()->v);
                   TypePtr valueTy = pt.pointee;
-                  if (auto vb = TypeUtils::getBitWidth(valueTy)) {
+                  if (auto vb = TypeUtils::getIntBitWidth(valueTy)) {
                     Ty valTy = typeOfExpr(arg.val, vars, syms, ann, diags, *vb);
                     if (!valTy.isBV() || valTy.bvBits() != *vb)
                       diags.error("'store' value type mismatch", arg.val.span);
@@ -798,7 +802,7 @@ namespace symir {
         diags.error("Undeclared local index: " + lid->name, lid->span);
         return;
       }
-      if (!TypeUtils::getBitWidth(it->second.type))
+      if (!TypeUtils::getIntBitWidth(it->second.type))
         diags.error("Non-integer index", lid->span);
     } else {
       auto sid = std::get_if<SymId>(&id);
@@ -807,7 +811,7 @@ namespace symir {
         diags.error("Undeclared symbol index: " + sid->name, sid->span);
         return;
       }
-      if (!TypeUtils::getBitWidth(it->second.type))
+      if (!TypeUtils::getIntBitWidth(it->second.type))
         diags.error("Non-integer symbol index", sid->span);
     }
   }
@@ -886,7 +890,7 @@ namespace symir {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, OpAtom>) {
             auto rt = typeOfLValue(arg.rval, vars, syms, diags);
-            auto rb = TypeUtils::getBitWidth(rt);
+            auto rb = TypeUtils::getIntBitWidth(rt);
 
             // [v0.2.1] Vector OpAtom: Coef can be a vector LValue of the
             // same type, or a literal that broadcasts to the vector.
@@ -916,9 +920,11 @@ namespace symir {
               // Integer case
               auto targetBits = rb; // Use rval bits as truth
               auto ct = typeOfCoef(arg.coef, vars, syms, diags, targetBits);
-              auto cb = TypeUtils::getBitWidth(ct);
+              auto cb = TypeUtils::getIntBitWidth(ct);
               if (cb && rb && *cb != *rb)
                 diags.error("Bitwidth mismatch in operation", arg.span);
+              else if (!cb && ct)
+                diags.error("Coefficient must be integer type in integer operation", arg.span);
               return Ty{Ty::BVTy{rb.value()}};
             } else if (rt && std::holds_alternative<FloatType>(rt->v)) {
               // Float case
@@ -944,7 +950,7 @@ namespace symir {
             return Ty{std::monostate{}};
           } else if constexpr (std::is_same_v<T, UnaryAtom>) {
             auto rt = typeOfLValue(arg.rval, vars, syms, diags);
-            if (auto rb = TypeUtils::getBitWidth(rt)) {
+            if (auto rb = TypeUtils::getIntBitWidth(rt)) {
               return Ty{Ty::BVTy{*rb}};
             }
             // [v0.2.1] Unary ~ on a vector of integers yields the same type.
@@ -1010,7 +1016,7 @@ namespace symir {
             auto ct = typeOfCoef(arg.coef, vars, syms, diags, expectedBits, ptrCtx);
             if (!ct)
               return Ty{std::monostate{}};
-            if (auto cb = TypeUtils::getBitWidth(ct))
+            if (auto cb = TypeUtils::getIntBitWidth(ct))
               return Ty{Ty::BVTy{*cb}};
             if (std::holds_alternative<FloatType>(ct->v))
               return Ty{
@@ -1030,7 +1036,7 @@ namespace symir {
             return Ty{std::monostate{}};
           } else if constexpr (std::is_same_v<T, RValueAtom>) {
             auto rt = typeOfLValue(arg.rval, vars, syms, diags);
-            if (auto rb = TypeUtils::getBitWidth(rt))
+            if (auto rb = TypeUtils::getIntBitWidth(rt))
               return Ty{Ty::BVTy{*rb}};
             if (rt && std::holds_alternative<FloatType>(rt->v))
               return Ty{
@@ -1181,7 +1187,7 @@ namespace symir {
               );
               return Ty{std::monostate{}};
             }
-            if (auto pb = TypeUtils::getBitWidth(pointee))
+            if (auto pb = TypeUtils::getIntBitWidth(pointee))
               return Ty{Ty::BVTy{*pb}};
             if (std::holds_alternative<FloatType>(pointee->v)) {
               auto &ft = std::get<FloatType>(pointee->v);
@@ -1292,8 +1298,8 @@ namespace symir {
             }
             for (size_t k = 0; k < arg.args.size(); ++k) {
               const auto &paramT = ci.paramTypes[k];
-              auto pbits = TypeUtils::getBitWidth(paramT);
-              // Float param bitwidth isn't covered by getBitWidth (it
+              auto pbits = TypeUtils::getIntBitWidth(paramT);
+              // Float param bitwidth isn't covered by getIntBitWidth (it
               // returns nullopt for non-int types) — feed it explicitly
               // so FloatLit args don't fall back to the f32 default.
               if (!pbits && paramT && std::holds_alternative<FloatType>(paramT->v)) {
@@ -1308,7 +1314,7 @@ namespace symir {
               } else if (argTy.isVec() && paramT && std::holds_alternative<VecType>(paramT->v)) {
                 ok = TypeUtils::areTypesEqual(argTy.vecType(), paramT);
               } else if (argTy.isBV() && paramT && std::holds_alternative<IntType>(paramT->v)) {
-                auto pb = TypeUtils::getBitWidth(paramT);
+                auto pb = TypeUtils::getIntBitWidth(paramT);
                 ok = pb && argTy.bvBits() == *pb;
               } else if (argTy.isFloat() && paramT &&
                          std::holds_alternative<FloatType>(paramT->v)) {
@@ -1334,7 +1340,7 @@ namespace symir {
             const auto &rt = ci.retType;
             if (!rt)
               return Ty{std::monostate{}};
-            if (auto pb = TypeUtils::getBitWidth(rt))
+            if (auto pb = TypeUtils::getIntBitWidth(rt))
               return Ty{Ty::BVTy{*pb}};
             if (std::holds_alternative<FloatType>(rt->v)) {
               auto &ft = std::get<FloatType>(rt->v);
@@ -1436,7 +1442,7 @@ namespace symir {
 
     if (!t)
       return Ty{std::monostate{}};
-    if (auto bits = TypeUtils::getBitWidth(t)) {
+    if (auto bits = TypeUtils::getIntBitWidth(t)) {
       return Ty{Ty::BVTy{*bits}};
     }
     if (std::holds_alternative<FloatType>(t->v)) {

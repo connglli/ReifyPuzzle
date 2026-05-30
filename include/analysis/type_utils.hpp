@@ -9,7 +9,34 @@ namespace symir {
   struct TypeUtils {
     /**
      * Returns the bitwidth of the given type if it is an integer type.
-     * Returns std::nullopt otherwise.
+     * Returns std::nullopt for floats, pointers, vectors, aggregates.
+     */
+    static std::optional<std::uint32_t> getIntBitWidth(const TypePtr &t);
+
+    /**
+     * Returns the bitwidth of the given type if it is a float type.
+     * Returns std::nullopt for integers, pointers, vectors, aggregates.
+     */
+    static std::optional<std::uint32_t> getFloatBitWidth(const TypePtr &t);
+
+    /**
+     * Returns the bitwidth of any scalar type (integer or float).
+     *   i32 → 32, i64 → 64, iN → N, f32 → 32, f64 → 64.
+     * Returns std::nullopt for pointers, vectors, aggregates.
+     */
+    static std::optional<std::uint32_t> getScalarBitWidth(const TypePtr &t);
+
+    /**
+     * Returns the total bitwidth of a vector type: N * scalarBitWidth(elem).
+     * Returns std::nullopt for non-vector types or if the element type
+     * is not a scalar (which the typechecker prevents).
+     */
+    static std::optional<std::uint32_t> getVectorBitWidth(const TypePtr &t);
+
+    /**
+     * Returns the bitwidth of any scalar or vector type.
+     * Equivalent to: getScalarBitWidth(t) || getVectorBitWidth(t).
+     * Returns std::nullopt for pointers, structs, and arrays.
      */
     static std::optional<std::uint32_t> getBitWidth(const TypePtr &t);
 

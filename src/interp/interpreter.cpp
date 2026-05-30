@@ -457,7 +457,7 @@ namespace symir {
     for (size_t i = 0; i < entry->params.size(); ++i) {
       const auto &p = entry->params[i];
       RuntimeValue v;
-      auto bits = TypeUtils::getBitWidth(p.type);
+      auto bits = TypeUtils::getIntBitWidth(p.type);
       if (p.type && std::holds_alternative<FloatType>(p.type->v)) {
         v.kind = RuntimeValue::Kind::Float;
         v.bits = (std::get<FloatType>(p.type->v).kind == FloatType::Kind::F32) ? 32 : 64;
@@ -525,7 +525,7 @@ namespace symir {
   Interpreter::RuntimeValue Interpreter::callIntrinsic(
       const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args, SourceSpan
   ) {
-    auto rbits = TypeUtils::getBitWidth(intr.retType);
+    auto rbits = TypeUtils::getIntBitWidth(intr.retType);
     if (!rbits)
       throw std::runtime_error(
           "Intrinsic " + intr.name.name + " has non-integer return type (unsupported in v0.2.2)"
@@ -636,7 +636,7 @@ namespace symir {
           res.structVal[f.name] = makeUndef(f.type);
       }
     } else {
-      auto bits = TypeUtils::getBitWidth(t);
+      auto bits = TypeUtils::getIntBitWidth(t);
       if (bits) {
         res.kind = RuntimeValue::Kind::Undef;
         res.bits = *bits;
@@ -684,7 +684,7 @@ namespace symir {
       return res;
     } else {
       RuntimeValue res = v;
-      auto bits = TypeUtils::getBitWidth(t);
+      auto bits = TypeUtils::getIntBitWidth(t);
       if (bits) {
         res.bits = *bits;
         res.intVal = canonicalize(res.intVal, res.bits);
@@ -757,7 +757,7 @@ namespace symir {
     }
 
     if (v.kind == RuntimeValue::Kind::Int) {
-      v.bits = TypeUtils::getBitWidth(t).value_or(64);
+      v.bits = TypeUtils::getIntBitWidth(t).value_or(64);
       v.intVal = canonicalize(v.intVal, v.bits);
     } else if (v.kind == RuntimeValue::Kind::Float) {
       v.bits = (t && std::holds_alternative<FloatType>(t->v))
@@ -802,8 +802,9 @@ namespace symir {
 
     for (size_t i = 0; i < f.params.size(); ++i) {
       RuntimeValue v = args[i];
-      v.bits = TypeUtils::getBitWidth(f.params[i].type).value_or(64);
-      v.intVal = canonicalize(v.intVal, v.bits);
+      v.bits = TypeUtils::getIntBitWidth(f.params[i].type).value_or(v.bits ? v.bits : 64);
+      if (v.kind == RuntimeValue::Kind::Int)
+        v.intVal = canonicalize(v.intVal, v.bits);
       store[f.params[i].name.name] = v;
     }
 
@@ -826,7 +827,7 @@ namespace symir {
                 } else {
                   v.intVal = static_cast<std::int64_t>(val);
                 }
-                v.bits = TypeUtils::getBitWidth(s.type).value_or(64);
+                v.bits = TypeUtils::getIntBitWidth(s.type).value_or(64);
                 v.intVal = canonicalize(v.intVal, v.bits);
               } else if (std::holds_alternative<FloatType>(s.type->v)) {
                 v.kind = RuntimeValue::Kind::Float;
@@ -846,7 +847,7 @@ namespace symir {
                   } else {
                     scalar.intVal = static_cast<std::int64_t>(val);
                   }
-                  scalar.bits = TypeUtils::getBitWidth(vt.elem).value_or(64);
+                  scalar.bits = TypeUtils::getIntBitWidth(vt.elem).value_or(64);
                   scalar.intVal = canonicalize(scalar.intVal, scalar.bits);
                 } else if (std::holds_alternative<FloatType>(vt.elem->v)) {
                   scalar.kind = RuntimeValue::Kind::Float;
@@ -926,7 +927,7 @@ namespace symir {
     for (size_t i = 0; i < f.params.size(); ++i) {
       pushType(f.params[i].name.name, f.params[i].type);
       RuntimeValue v = args[i];
-      v.bits = TypeUtils::getBitWidth(f.params[i].type).value_or(v.bits ? v.bits : 64);
+      v.bits = TypeUtils::getIntBitWidth(f.params[i].type).value_or(v.bits ? v.bits : 64);
       if (v.kind == RuntimeValue::Kind::Int)
         v.intVal = canonicalize(v.intVal, v.bits);
       store[f.params[i].name.name] = v;
@@ -949,7 +950,7 @@ namespace symir {
             if (std::holds_alternative<IntType>(s.type->v)) {
               v.kind = RuntimeValue::Kind::Int;
               v.intVal = static_cast<std::int64_t>(val);
-              v.bits = TypeUtils::getBitWidth(s.type).value_or(64);
+              v.bits = TypeUtils::getIntBitWidth(s.type).value_or(64);
               v.intVal = canonicalize(v.intVal, v.bits);
             } else if (std::holds_alternative<FloatType>(s.type->v)) {
               v.kind = RuntimeValue::Kind::Float;
@@ -2134,7 +2135,7 @@ namespace symir {
               RuntimeValue res;
               res.kind = RuntimeValue::Kind::Vec;
               res.arrayVal.reserve(vt->size);
-              auto laneBits = TypeUtils::getBitWidth(vt->elem);
+              auto laneBits = TypeUtils::getIntBitWidth(vt->elem);
               bool isFp = vt->elem && std::holds_alternative<FloatType>(vt->elem->v);
               bool isF32 = isFp && std::get<FloatType>(vt->elem->v).kind == FloatType::Kind::F32;
               uint32_t fpBits = isFp ? (isF32 ? 32u : 64u) : 0u;
@@ -2173,7 +2174,7 @@ namespace symir {
             }
 
             RuntimeValue res;
-            auto dstBits = TypeUtils::getBitWidth(arg.dstType);
+            auto dstBits = TypeUtils::getIntBitWidth(arg.dstType);
             if (dstBits) {
               res.kind = RuntimeValue::Kind::Int;
               res.bits = *dstBits;
