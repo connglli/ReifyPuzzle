@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SKIP: COMPILER -- compile-time args at the C boundary use a different parser
+// INTERP_ARGS: --main @main -- -9.8813129168249309e-324
+// SPEC v0.2.2 §5 — CLI param parser must accept subnormal f64 values
+// Intention: std::stod throws out_of_range on values inside the
+// subnormal range (below DBL_MIN). The interpreter's CLI arg parser
+// would propagate that exception and abort the run. parseFloatLiteral
+// now uses strtod directly and only rejects true overflow, so a
+// representable denormal like `-9.881e-324` flows through unchanged.
+fun @main(%x: f64) : i32 {
+^entry:
+  br %x < 0.0, ^neg, ^pos;
+^neg:
+  ret 0;
+^pos:
+  ret 1;
+}

@@ -25,7 +25,14 @@ import sys
 
 from test.lib.style import bold, green, red, yellow
 
-_RESULT_RE = re.compile(r"Result:\s*(-?[0-9]+)")
+# Match either an integer Result (i*) or a hex-float Result (`%a` form
+# used by both symiri and the C-side printf when the return is f32/f64).
+# Examples: `Result: -42`, `Result: 0x1.5p+10`, `Result: -0x0p+0`,
+# `Result: nan`, `Result: inf`. Group 1 is the value verbatim — the
+# comparison is byte-equal, which is what we want for bit-exact xval.
+_RESULT_RE = re.compile(
+  r"Result:\s*(-?(?:0x[0-9a-fA-F.]+p[+-]?[0-9]+|[0-9]+|nan|-?inf))"
+)
 
 # Common header / signature regexes shared by leaf and bundled .sir files.
 _SOLVED_RE = re.compile(r"^//\s*SOLVED:\s*(.+?)\s*$")  # leaf rysmith header
@@ -161,12 +168,10 @@ def _parse_program(sir_path, entry_hint=None):
 
 def _write_main_c(path, fname, ret_type, param_types, param_values):
   """Returns True on success, False if the entry has a non-scalar slot
-  we can't synthesize from the CLI (FP return is skippable here, but the
-  caller can opt to print floats too — we keep them disabled for now to
-  avoid FP-printing tolerance issues)."""
+  we can't synthesize from the CLI."""
   cret = _CTY.get(ret_type)
-  if cret is None or ret_type in ("f32", "f64"):
-    return False  # FP returns: skip (need printf %f + tolerance handling)
+  if cret is None:
+    return False
   cparams = []
   for pt in param_types:
     cp = _CTY.get(pt)
@@ -177,7 +182,10 @@ def _write_main_c(path, fname, ret_type, param_types, param_values):
   for pt, pv in zip(param_types, param_values):
     if pt in ("f32", "f64"):
       # Solver may print a float as `-0` — promote to dotted form so the
-      # C lexer parses it as a floating literal rather than an int.
+      # C lexer parses it as a floating literal rather than an int. This
+      # is defensive; the bit-exact formatDouble side always emits an
+      # exponent now, but external callers and hand-written cases still
+      # rely on us doing the right thing.
       if "." not in pv and "e" not in pv and "E" not in pv:
         pv = pv + ".0"
       lits.append(pv + ("f" if pt == "f32" else ""))
@@ -185,15 +193,23 @@ def _write_main_c(path, fname, ret_type, param_types, param_values):
       lits.append(pv)
   decl_params = ", ".join(cparams) if cparams else "void"
   call_args = ", ".join(lits)
+  # FP returns are compared bit-exactly against symiri's `%a` output —
+  # decimal printing would silently lose precision at the last digit
+  # and produce spurious mismatches on the diff test. The cast through
+  # `double` is harmless for f32 (widening preserves bits) and required
+  # for f64 to feed printf's promotion rule.
+  is_fp_ret = ret_type in ("f32", "f64")
+  if is_fp_ret:
+    print_stmt = '  printf("Result: %a\\n", (double)r);\n'
+  else:
+    print_stmt = '  printf("Result: %lld\\n", (long long)r);\n'
   with open(path, "w") as f:
     f.write(
       "#include <stdint.h>\n"
       "#include <stdio.h>\n"
       f"extern {cret} symir_{fname}({decl_params});\n"
       "int main(void) {\n"
-      f"  {cret} r = symir_{fname}({call_args});\n"
-      '  printf("Result: %lld\\n", (long long)r);\n'
-      "  return 0;\n"
+      f"  {cret} r = symir_{fname}({call_args});\n" + print_stmt + "  return 0;\n"
       "}\n"
     )
   return True

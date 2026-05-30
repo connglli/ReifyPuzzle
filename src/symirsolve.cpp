@@ -186,7 +186,10 @@ int main(int argc, char **argv) {
           if (std::holds_alternative<int64_t>(val))
             mfs << std::get<int64_t>(val);
           else
-            mfs << std::get<double>(val);
+            // Bit-exact serialization — see symir::formatDouble in
+            // ast.hpp. Default `<<` would silently truncate to ~6
+            // significant digits and lose the model's exact bits.
+            mfs << symir::formatDouble(std::get<double>(val));
           first = false;
         }
         mfs << "\n  }\n";
@@ -218,14 +221,13 @@ int main(int argc, char **argv) {
         // read this header to pin entry-points without running the
         // solver themselves.
         auto fmtVal = [](const SymbolicExecutor::Result::ModelVal &v) {
-          std::ostringstream os;
           if (std::holds_alternative<int64_t>(v))
-            os << std::get<int64_t>(v);
-          else {
-            os.precision(17);
-            os << std::get<double>(v);
-          }
-          return os.str();
+            return std::to_string(std::get<int64_t>(v));
+          // Bit-exact decimal for the SOLVED header — see formatDouble's
+          // comment in ast.hpp for why this matters (round-trip
+          // through parseFloatLiteral, no int/float dispatch ambiguity,
+          // signed zero preserved, subnormals safe).
+          return symir::formatDouble(std::get<double>(v));
         };
         if (!res.paramModel.empty() || res.retModel.has_value()) {
           ofs << "// SOLVED:";

@@ -25,18 +25,13 @@ namespace symir {
     return symName;
   }
 
-  static void printDouble(std::ostream &out, double d) {
-    std::string s = std::to_string(d);
-    // Remove redundant trailing zeros, but keep at least one after '.' if it's not scientific
-    // notation
-    if (s.find('.') != std::string::npos && s.find('e') == std::string::npos &&
-        s.find('E') == std::string::npos) {
-      while (s.size() > 2 && s.back() == '0' && s[s.size() - 2] != '.') {
-        s.pop_back();
-      }
-    }
-    out << s;
-  }
+  // Bit-exact float printing for SymIR source. Delegates to the shared
+  // formatDouble helper (shortest round-trippable decimal); previously
+  // we used std::to_string, which truncates to 6 digits after the
+  // decimal point and silently loses precision when the SIRPrinter
+  // substitutes solver-chosen model values into emitted .sir programs.
+  // See formatDouble's comment in ast.hpp.
+  static void printDouble(std::ostream &out, double d) { out << formatDouble(d); }
 
   void SIRPrinter::print(const Program &p) {
     for (const auto &s: p.structs) {

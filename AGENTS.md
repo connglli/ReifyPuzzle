@@ -256,6 +256,67 @@ ALWAYS follow a strict Test-Driven Development discipline.
 5. Keep a clean, layered project structure
 6. Write high-quality comments that explain *why*, not *what*
 
+
+## Floating-point serialization invariant (MANDATORY)
+
+SymIR carries `f32`/`f64` values bit-exactly across **every** boundary
+that involves text — `.sir` source, descriptor JSON, SOLVED/PARAMS/RETURN
+headers, model-dump files, and CLI positional args. The invariant is:
+
+> **One canonical bit-exact format. One canonical parser. Used everywhere
+> SymIR text crosses a process or file boundary.**
+
+### The two canonical entry points
+
+- **`symir::formatDouble(double)`** (`include/ast/ast.hpp`) — emits the
+  shortest decimal string that round-trips via `std::to_chars(…,
+  std::chars_format::shortest)`, with `.0` appended if neither `.` nor
+  exponent is present so int/float dispatch on the resulting string is
+  unambiguous and signed zero survives.
+- **`symir::parseFloatLiteral(std::string)`** (`include/ast/ast.hpp`) —
+  uses `std::strtod` directly. Subnormals (returned values < `DBL_MIN`)
+  are accepted; only true overflow to `±HUGE_VAL` raises. **Never call
+  `std::stod`** anywhere in SymIR — libstdc++ throws `out_of_range` on
+  any `ERANGE`, including valid subnormals, and a perfectly representable
+  denormal would abort the interpreter.
+
+### Where the invariant must hold
+
+All of these MUST go through the canonical pair:
+
+- `SIRPrinter::printDouble` — `.sir` source emission.
+- `rysmith` `fmtModelVal` — descriptor JSON + SOLVED header.
+- `symirsolve` `fmtVal` — SOLVED header on solved programs.
+- `symirsolve` model-dump JSON output.
+- `reify::rewrite` `parseF64` — descriptor JSON read-back.
+- Parser/Lexer float tokens — already routed through `parseFloatLiteral`.
+- The interpreter's CLI positional-arg parser.
+
+### Where it intentionally diverges
+
+- `src/backend/c_backend.cpp` and `src/backend/wasm_backend.cpp` emit
+  literals in **C** and **WAT** grammar respectively (suffixes, infinity
+  syntax, etc.), so each backend has its own bit-exact formatter. Each
+  carries a comment pointing back to `symir::formatDouble` to flag the
+  divergence as intentional.
+
+### When you add a new producer or consumer
+
+If you are about to write any of these patterns, **stop and use the
+canonical pair instead**:
+
+- `std::stod`, `std::stof`, `std::atof`
+- `std::cout << double_value` with default precision
+- `std::to_string(double)`
+- `std::ostringstream` with explicit `precision(17)` or `max_digits10`
+- `printf("%f", …)` or `printf("%g", …)` for FP output
+
+`printf("%a", …)` is acceptable for **bit-exact xval output** (the
+interpreter's `Result:` line uses this so the C-side `printf("Result:
+%a\n", …)` can be compared byte-equal in the diff test). Hex-float form
+is parseable by `strtod` and lossless by construction; it just isn't the
+canonical *decimal* form.
+
 ## Before Starting Work
 
 1. Review recent history:

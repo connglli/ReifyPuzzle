@@ -34,12 +34,11 @@ namespace symir::reify {
   }
 
   static std::optional<double> parseF64(const std::string &s) {
+    // Delegate to the canonical SymIR float parser so descriptor values
+    // round-trip identically to lexed float literals — same subnormal
+    // handling, same signed-zero behaviour, same overflow rule.
     try {
-      size_t pos = 0;
-      double v = std::stod(s, &pos);
-      if (pos != s.size())
-        return std::nullopt;
-      return v;
+      return parseFloatLiteral(s);
     } catch (...) {
       return std::nullopt;
     }

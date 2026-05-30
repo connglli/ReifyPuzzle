@@ -102,6 +102,27 @@ SymIR uses **finite IEEE 754-2008 semantics** for floating-point:
 
 SMT encoding: `f32` maps to `(_ FloatingPoint 8 24)` and `f64` maps to `(_ FloatingPoint 11 53)`. All FP operations use `roundNearestTiesToEven` except `%`, which encodes as `fp.sub(x, fp.mul(fp.roundToIntegral[RTZ](fp.div[RNE](x, y)), y))`.
 
+**Bit-exact text serialization.** Floats survive every text boundary
+(`.sir` source, descriptor JSON, SOLVED / PARAMS / RETURN headers,
+model-dump files, CLI positional args) bit-exactly. The implementation
+enforces this via one canonical pair:
+
+- `formatDouble(d)` (`include/ast/ast.hpp`) — emits the shortest decimal
+  string that round-trips, using `std::to_chars(…, chars_format::shortest)`,
+  with `.0` appended when neither `.` nor an exponent is present (so a
+  reader cannot misclassify an integer-valued double as an integer, and
+  `-0.0` keeps its sign).
+- `parseFloatLiteral(s)` (`include/ast/ast.hpp`) — wraps `std::strtod`
+  directly; subnormal values are accepted, only true `±HUGE_VAL`
+  overflow raises. **`std::stod` is forbidden in this codebase** —
+  libstdc++ raises `out_of_range` on any `ERANGE`, including valid
+  subnormals.
+
+The C and WASM backends use their own bit-exact formatters because they
+emit C / WAT literals respectively, with target-language-specific
+suffixes; that divergence is intentional and is the only place where
+`formatDouble` is not the canonical SymIR-text formatter.
+
 ### 2.10 Pointer arithmetic
 
 - `ptr T + n` advances the address by `n * sizeof(T)` bytes, where `n` is an integer operand.

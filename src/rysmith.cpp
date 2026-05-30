@@ -65,17 +65,14 @@ static std::pair<int64_t, int64_t> parseDomain(const std::string &s) {
 }
 
 // Format a solved model value as the canonical descriptor / SOLVED-
-// header string. Ints round-trip via decimal; floats use 17-digit
-// precision so std::stod recovers the exact bit pattern.
+// header string. Floats go through symir::formatDouble for bit-exact
+// round-trip — see its comment in ast.hpp for the rationale (signed
+// zero preservation, no int/float dispatch ambiguity, subnormal
+// safety).
 static std::string fmtModelVal(const SymbolicExecutor::Result::ModelVal &v) {
-  std::ostringstream os;
   if (std::holds_alternative<int64_t>(v))
-    os << std::get<int64_t>(v);
-  else {
-    os.precision(17);
-    os << std::get<double>(v);
-  }
-  return os.str();
+    return std::to_string(std::get<int64_t>(v));
+  return formatDouble(std::get<double>(v));
 }
 
 static auto makeSolverFactory() {

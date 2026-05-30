@@ -1,9 +1,15 @@
 #pragma once
 
+#include <cerrno>
+#include <charconv>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <system_error>
 #include <variant>
 #include <vector>
 
@@ -723,7 +729,64 @@ namespace symir {
     return static_cast<int64_t>(std::stoll(s, nullptr, 10));
   }
 
-  inline double parseFloatLiteral(const std::string &s) { return std::stod(s); }
+  // Bit-exact decimal serialization for finite doubles. Pairs with
+  // parseFloatLiteral below: every formatDouble(d) string parses back
+  // to exactly d, including subnormals and signed zero.
+  //
+  // SymIR's finite-only FP model (±inf / NaN are UB) means we never
+  // emit "inf" or "nan" here; if they ever leak through this still
+  // produces a strtod-parseable string ("inf" / "-inf" / "nan").
+  //
+  // Format choice — std::to_chars(shortest) — gives the shortest
+  // decimal string that round-trips to exactly d (Ryū/Grisu). That
+  // means `1.0` stays `"1"`, `0.1` stays `"0.1"`, and edge cases like
+  // subnormals get whatever minimal digits suffice. Bit-exact AND
+  // readable.
+  //
+  // We post-process two cosmetic-but-load-bearing things the standard
+  // doesn't give us:
+  //   * If the output has no '.' or 'e', append `.0`. This protects
+  //     consumers that dispatch int-vs-float on those characters (see
+  //     parseNumberLiteral); without it, an integer-valued double like
+  //     2.0 would print as `"2"` and get re-classified as i64 by some
+  //     readers.
+  //   * Signed zero: to_chars(0.0) → "0", to_chars(-0.0) → "-0". The
+  //     "-0" form *does* round-trip through strtod (sign preserved),
+  //     but the int-vs-float dispatch hazard above still applies, so
+  //     the `.0` append handles both at once: "0.0" / "-0.0".
+  inline std::string formatDouble(double d) {
+    char buf[32];
+    auto res = std::to_chars(buf, buf + sizeof(buf), d);
+    if (res.ec != std::errc())
+      return std::to_string(d); // fallback; should not happen for finite d
+    std::string out(buf, res.ptr);
+    if (out.find('.') == std::string::npos && out.find('e') == std::string::npos &&
+        out.find('E') == std::string::npos && out.find('n') == std::string::npos &&
+        out.find('i') == std::string::npos)
+      out += ".0";
+    return out;
+  }
+
+  inline double parseFloatLiteral(const std::string &s) {
+    // strtod sets errno = ERANGE both on overflow (returns ±HUGE_VAL)
+    // and on subnormal underflow (returns the denormal value it managed
+    // to round to). std::stod conflates the two — libstdc++ throws
+    // out_of_range on either — so a perfectly representable subnormal
+    // like `-9.881…e-324` aborts the interpreter when forwarded as a
+    // positional CLI arg. Use strtod directly and accept the underflow
+    // case: the returned value is the correct denormal. Overflow still
+    // surfaces as an exception so a true out-of-range literal isn't
+    // silently saturated to inf.
+    const char *p = s.c_str();
+    char *end = nullptr;
+    errno = 0;
+    double v = std::strtod(p, &end);
+    if (end == p)
+      throw std::invalid_argument("parseFloatLiteral: not a number: " + s);
+    if (errno == ERANGE && (v == HUGE_VAL || v == -HUGE_VAL))
+      throw std::out_of_range("parseFloatLiteral: overflow: " + s);
+    return v;
+  }
 
   inline std::variant<int64_t, double> parseNumberLiteral(const std::string &s) {
     if (s.find('.') != std::string::npos || s.find('e') != std::string::npos ||

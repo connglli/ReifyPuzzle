@@ -13,6 +13,10 @@ namespace symir {
   // (e.g. 16777216 → "1.67772e+07" = 16777200). 17 digits is sufficient
   // for double per IEEE-754; the WAT parser accepts both fixed and
   // exponent forms.
+  //
+  // Note: SymIR's shared formatter `symir::formatDouble` (ast.hpp) lives
+  // separately because it emits SIR-shaped strings, not WAT — the WAT
+  // float grammar has its own rules. The two are allowed to diverge.
   static std::string formatFloatLit(double v) {
     std::ostringstream os;
     os << std::setprecision(std::numeric_limits<double>::max_digits10) << v;

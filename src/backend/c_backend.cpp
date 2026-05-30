@@ -20,6 +20,13 @@ namespace symir {
   // short of double's ~17 needed for exactness — it would silently turn
   // `16777216.0` into `1.67772e+07` (= 16777200), changing the program's
   // observable behavior.
+  //
+  // Note: SymIR has its own shared bit-exact formatter
+  // `symir::formatDouble` in ast.hpp (used by SIRPrinter, rysmith,
+  // symirsolve). We deliberately keep a separate formatter here because
+  // the C backend emits *C* literals — distinct lexical rules
+  // (`f`/`F` suffix for float, no `nan`/`inf` accepted by strict C, …)
+  // — and the two formatters are allowed to diverge along that axis.
   static std::string formatFloatLit(double v) {
     std::ostringstream os;
     os << std::setprecision(std::numeric_limits<double>::max_digits10) << v;
