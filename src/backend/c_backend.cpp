@@ -310,6 +310,7 @@ namespace symir {
       out_ << "#include <stdint.h>\n";
       out_ << "#include <stddef.h>\n";
       out_ << "#include <stdbool.h>\n";
+      out_ << "#include <stdlib.h>\n";
       out_ << "#include <float.h>\n";
       out_ << "#include <math.h>\n";
       out_ << "#include <string.h>\n";

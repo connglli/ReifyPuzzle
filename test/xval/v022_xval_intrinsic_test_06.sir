@@ -1,0 +1,64 @@
+// Intention: Test @is_pow2, @ilog2, @abs intrinsics on i32 under a Multipath Grid CFG structure.
+// EXPECT: PASS
+// EXPECT_RC: 10
+intrinsic @is_pow2(%x: i32) : i1;
+intrinsic @ilog2(%x: i32) : i32;
+intrinsic @abs(%x: i32) : i32;
+
+fun @my_func(%x: i32, %y: i32) : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i1 = 0;
+^entry:
+  %a = call @abs(%x);
+  %b = call @ilog2(%y);
+  %c = call @is_pow2(%x);
+  br %a > %y, ^b1, ^b2;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  br %a > %b, ^b2, ^b3;
+^b2:
+  %a = %a + 2;
+  %b = %b - 2;
+  br %c == 0, ^b3, ^b4;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  br %a > %b, ^b4, ^entry;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  br %a > %b, ^entry, ^entry;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+  let mut %r: i32 = 0;
+  let mut %p: i1 = 0;
+^entry:
+  %x = -8;
+  %y = 16;
+  %r = call @abs(%x);
+  br %r > 0, ^b1, ^b2;
+^b1:
+  %x = 10;
+  %p = call @is_pow2(%r);
+  br %p == 1, ^b2, ^b3;
+^b2:
+  %x = %x + 20;
+  %y = call @ilog2(%y);
+  br %y > 0, ^b3, ^b4;
+^b3:
+  %r = %r + %x;
+  br %r > 100, ^b4, ^exit;
+^b4:
+  %x = %x + 40;
+  br %x > 0, ^exit, ^exit;
+^exit:
+  %x = %x - %y;
+  %r = %r - %x;
+  %r = %r - 2;
+  ret %r;
+}

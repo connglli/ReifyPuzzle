@@ -1,0 +1,14 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: WASM
+// SPEC v0.2.2 §12.2 @popcount UB when result > INT_MAX_N (for i2, popcount(-1) is 2 > 1)
+intrinsic @popcount(%x: i2) : i2;
+fun @main() : i32 {
+  let mut %r: i2 = 0;
+  let %a: i2 = 1;
+  let %b: i2 = -2;
+  let mut %input: i2 = 0;
+^entry:
+  %input = %a + %b;
+  %r = call @popcount(%input);
+  ret 0;
+}

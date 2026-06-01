@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.3 @signum at i32
+intrinsic @signum(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+^entry:
+  %a = call @signum(-42);
+  %b = call @signum(0);
+  %c = call @signum(99);
+  br %a == -1, ^a_ok, ^bad;
+^a_ok:
+  br %b == 0, ^b_ok, ^bad;
+^b_ok:
+  br %c == 1, ^c_ok, ^bad;
+^c_ok:
+  ret 0;
+^bad:
+  ret 1;
+}

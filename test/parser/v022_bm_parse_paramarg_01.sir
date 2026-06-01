@@ -1,5 +1,5 @@
 // EXPECT: PASS
 // SPEC v0.2.2 §3.3, §5.3
 // Intention: empty ArgList for zero-arg call.
-intrinsic @get() : i32;
+decl @get() : i32;
 fun @main() : i32 { ^entry: ret call @get(); }

@@ -1,7 +1,7 @@
 // EXPECT: PASS
 // SPEC v0.2.2 §4.1
 // Intention: `ret` with multi-atom Expr including call.
-intrinsic @get() : i32;
+decl @get() : i32;
 fun @main(%a: i32) : i32 {
 ^entry:
   ret call @get() + %a - 1;

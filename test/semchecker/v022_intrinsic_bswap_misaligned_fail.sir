@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §12.4 @bswap requires N % 8 == 0; i7 must be rejected at check time.
+intrinsic @bswap(%x: i7) : i7;
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

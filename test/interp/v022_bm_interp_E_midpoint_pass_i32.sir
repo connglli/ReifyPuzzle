@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.3 @midpoint at i32 (truncation toward zero)
+intrinsic @midpoint(%a: i32, %b: i32) : i32;
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+^entry:
+  %a = call @midpoint(3, 0);     // 1 (truncate toward 0)
+  %b = call @midpoint(-3, 0);    // -1 (truncate toward 0; floor would be -2)
+  %c = call @midpoint(2147483647, 2147483647); // exact max
+  br %a == 1, ^a_ok, ^bad;
+^a_ok:
+  br %b == -1, ^b_ok, ^bad;
+^b_ok:
+  br %c == 2147483647, ^c_ok, ^bad;
+^c_ok:
+  ret 0;
+^bad:
+  ret 1;
+}

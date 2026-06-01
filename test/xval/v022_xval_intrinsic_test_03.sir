@@ -1,0 +1,68 @@
+// Intention: Test @abs_diff, @signum, @clamp intrinsics on i32 under a Double-Diamond CFG structure.
+// EXPECT: PASS
+// EXPECT_RC: 10
+intrinsic @abs_diff(%a: i32, %b: i32) : i32;
+intrinsic @signum(%x: i32) : i32;
+intrinsic @clamp(%v: i32, %lo: i32, %hi: i32) : i32;
+
+fun @my_func(%x: i32, %y: i32) : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+^entry:
+  %a = call @abs_diff(%x, %y);
+  %b = call @signum(%x);
+  %c = call @clamp(%x, 0, 100);
+  br %a > %y, ^b1, ^b2;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  %c = 2 * %c;
+  br %a > %b, ^b3, ^b4;
+^b2:
+  %a = %a + 2;
+  %b = %b - 2;
+  %c = 3 * %c;
+  br %b > %c, ^b3, ^b4;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  %c = %c + %a;
+  br %c > %b, ^entry, ^entry;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  %c = %c + %b;
+  br %a > %c, ^entry, ^entry;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %x = -15;
+  %y = 25;
+  %r = call @abs_diff(%x, %y);
+  br %r > 0, ^b1, ^b2;
+^b1:
+  %x = %x + 10;
+  %y = call @signum(%x);
+  br %x < 0, ^b3, ^b4;
+^b2:
+  %x = %x + 20;
+  %y = %y - 20;
+  br %x > 0, ^b3, ^b4;
+^b3:
+  %r = %r + %x;
+  br %r > %y, ^exit, ^exit;
+^b4:
+  %r = call @clamp(%r, 10, 50);
+  br %x > %r, ^exit, ^exit;
+^exit:
+  %x = %x - %y;
+  %y = %y + %r;
+  %r = %x - %y;
+  %r = call @clamp(%r, 10, 20);
+  ret %r;
+}

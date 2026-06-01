@@ -1,0 +1,71 @@
+// Intention: Test @bitreverse, @rotl, @rotr intrinsics on i32 under a Parallel-Join CFG structure.
+// EXPECT: PASS
+// EXPECT_RC: 8
+intrinsic @bitreverse(%x: i32) : i32;
+intrinsic @rotl(%x: i32, %n: i32) : i32;
+intrinsic @rotr(%x: i32, %n: i32) : i32;
+
+fun @my_func(%x: i32, %y: i32) : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+^entry:
+  %a = call @bitreverse(%x);
+  %b = call @rotl(%y, 4);
+  %c = call @rotr(%x, 4);
+  br %a > %y, ^b1, ^b2;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  %c = 2 * %c;
+  br %a > %b, ^b3, ^b4;
+^b2:
+  %a = %a + 2;
+  %b = %b - 2;
+  %c = 3 * %c;
+  br %b > %c, ^b4, ^entry;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  %c = %c + %a;
+  br %c > %b, ^entry, ^entry;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  %c = %c + %b;
+  br %a > %c, ^entry, ^entry;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %x = 1;
+  %y = 2;
+  %r = call @bitreverse(%x);
+  br %r == 0, ^b1, ^b2;
+^b1:
+  %x = %x + 10;
+  br %x > 0, ^b3, ^b4;
+^b2:
+  %x = %x + 20;
+  %y = call @rotr(%y, 1);
+  %r = %r + %y;
+  br %y > 10, ^b3, ^b4;
+^b3:
+  %x = %x + 30;
+  br %x > 0, ^exit, ^exit;
+^b4:
+  %x = %x + 30;
+  %y = call @rotl(%y, 2);
+  %r = %r + %x;
+  br %r > %y, ^exit, ^exit;
+^exit:
+  %x = call @rotl(%x, 0);
+  %y = call @rotr(%y, 0);
+  %r = %r + %x;
+  %r = %r - %y;
+  %r = %r + 2147483557;
+  ret %r;
+}

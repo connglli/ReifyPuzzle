@@ -1,0 +1,11 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SPEC v0.2.2 §12.4 @rotr UB when shift amount n >= N
+intrinsic @rotr(%x: i32, %n: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let mut %n: i32 = 0;
+^entry:
+  %n = 40 - 8;
+  %r = call @rotr(1, %n);
+  ret %r;
+}

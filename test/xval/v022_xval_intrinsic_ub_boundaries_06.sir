@@ -1,0 +1,76 @@
+// Intention: Test UB boundary conditions (extreme valid values) on i16 under a Parallel-Join CFG structure.
+// EXPECT: PASS
+// EXPECT_RC: -16352
+intrinsic @abs(%x: i16) : i16;
+intrinsic @clz(%x: i16) : i16;
+intrinsic @ctz(%x: i16) : i16;
+intrinsic @abs_diff(%a: i16, %b: i16) : i16;
+intrinsic @clamp(%v: i16, %lo: i16, %hi: i16) : i16;
+intrinsic @rotl(%x: i16, %n: i16) : i16;
+intrinsic @rotr(%x: i16, %n: i16) : i16;
+intrinsic @ilog2(%x: i16) : i16;
+
+fun @my_func(%x: i16, %y: i16) : i16 {
+  let mut %a: i16 = 0;
+  let mut %b: i16 = 0;
+  let mut %c: i16 = 0;
+^entry:
+  %a = call @abs(%x);
+  %b = call @clz(%y);
+  %c = call @ctz(%x);
+  br %a > %y, ^b1, ^b2;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  br %a > %b, ^b3, ^b4;
+^b2:
+  %a = %a + 2;
+  %b = %b - 2;
+  br %a > %b, ^b3, ^b4;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  br %a > %b, ^entry, ^entry;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  br %a > %b, ^entry, ^entry;
+}
+
+fun @main() : i16 {
+  let mut %res: i16 = 0;
+  let mut %r1: i16 = 0;
+  let mut %c1: i16 = 0;
+  let mut %t1: i16 = 0;
+  let mut %d1: i16 = 0;
+  let mut %cl: i16 = 0;
+  let mut %rot1: i16 = 0;
+  let mut %rot2: i16 = 0;
+  let mut %il: i16 = 0;
+^entry:
+  %r1 = call @abs(-32767); // Boundary: INT_MIN_16 + 1 (UB is -32768)
+  br %r1 > 0, ^b1, ^b2;
+^b1:
+  %c1 = call @clz(0x2000);
+  br %c1 > 0, ^b3, ^b4;
+^b2:
+  br %c1 > 0, ^b3, ^b4;
+^b3:
+  %t1 = call @ctz(0x2000);
+  %d1 = call @abs_diff(0, -32767); // Boundary: max difference INT_MAX_16
+  %cl = call @clamp(-50, -50, -50); // Boundary: lo == hi (UB when lo > hi)
+  br %d1 > 0, ^exit, ^exit;
+^b4:
+  br %d1 > 0, ^exit, ^exit;
+^exit:
+  %rot1 = call @rotl(0x7FFF, 15); // Boundary: shift amount N-1 = 15 (UB when >= 16 or < 0)
+  %rot2 = call @rotr(0x7FFF, 15); // Boundary: shift amount N-1 = 15 (UB when >= 16 or < 0)
+  %il = call @ilog2(32767); // Boundary: valid positive INT_MAX (UB when <= 0)
+  %res = %c1 + %t1;
+  %res = %res + %cl;
+  %res = %res + %il;
+  %res = %res + %rot1;
+  %res = %res + %rot2;
+  %res = %res + 56;
+  ret %res;
+}

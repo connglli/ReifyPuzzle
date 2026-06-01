@@ -1,0 +1,13 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §12.3 @clamp UB when lo > hi
+intrinsic @clamp(%v: i32, %lo: i32, %hi: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let mut %lo: i32 = 0;
+  let mut %hi: i32 = 0;
+^entry:
+  %lo = 10 + 10;
+  %hi = 20 - 10;
+  %r = call @clamp(5, %lo, %hi);   // lo > hi -> UB
+  ret 0;
+}

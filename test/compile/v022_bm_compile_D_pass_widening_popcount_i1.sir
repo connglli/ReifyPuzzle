@@ -7,7 +7,7 @@
 intrinsic @popcount(%x: i1) : i1;
 
 fun @main() : i32 {
-  let %x: i1 = 1;
+  let %x: i1 = 0;
   let mut %r: i1 = 0;
 ^entry:
   %r = call @popcount(%x);

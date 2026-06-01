@@ -1,0 +1,76 @@
+// Intention: Test UB boundary conditions (extreme valid values) on i8 under a Multipath Grid CFG structure.
+// EXPECT: PASS
+// EXPECT_RC: -112
+intrinsic @abs(%x: i8) : i8;
+intrinsic @clz(%x: i8) : i8;
+intrinsic @ctz(%x: i8) : i8;
+intrinsic @abs_diff(%a: i8, %b: i8) : i8;
+intrinsic @clamp(%v: i8, %lo: i8, %hi: i8) : i8;
+intrinsic @rotl(%x: i8, %n: i8) : i8;
+intrinsic @rotr(%x: i8, %n: i8) : i8;
+intrinsic @ilog2(%x: i8) : i8;
+
+fun @my_func(%x: i8, %y: i8) : i8 {
+  let mut %a: i8 = 0;
+  let mut %b: i8 = 0;
+  let mut %c: i8 = 0;
+^entry:
+  %a = call @abs(%x);
+  %b = call @clz(%y);
+  %c = call @ctz(%x);
+  br %a > %y, ^b1, ^b2;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  br %a > %b, ^b2, ^b3;
+^b2:
+  %a = %a + 2;
+  %b = %b - 2;
+  br %a > %b, ^b3, ^b4;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  br %a > %b, ^b4, ^entry;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  br %a > %b, ^entry, ^entry;
+}
+
+fun @main() : i8 {
+  let mut %res: i8 = 0;
+  let mut %r1: i8 = 0;
+  let mut %c1: i8 = 0;
+  let mut %t1: i8 = 0;
+  let mut %d1: i8 = 0;
+  let mut %cl: i8 = 0;
+  let mut %rot1: i8 = 0;
+  let mut %rot2: i8 = 0;
+  let mut %il: i8 = 0;
+^entry:
+  %r1 = call @abs(-127); // Boundary: INT_MIN_8 + 1 (UB is -128)
+  br %r1 > 0, ^b1, ^b2;
+^b1:
+  %c1 = call @clz(0x10);
+  br %c1 > 0, ^b2, ^b3;
+^b2:
+  %t1 = call @ctz(0x10);
+  br %t1 > 0, ^b3, ^b4;
+^b3:
+  %d1 = call @abs_diff(0, -127); // Boundary: max difference INT_MAX_8
+  %cl = call @clamp(-20, -20, -20); // Boundary: lo == hi (UB when lo > hi)
+  br %d1 > 0, ^b4, ^exit;
+^b4:
+  br %d1 > 0, ^exit, ^exit;
+^exit:
+  %rot1 = call @rotl(0x7F, 7); // Boundary: shift amount N-1 = 7 (UB when >= 8 or < 0)
+  %rot2 = call @rotr(0x7F, 7); // Boundary: shift amount N-1 = 7 (UB when >= 8 or < 0)
+  %il = call @ilog2(127); // Boundary: valid positive INT_MAX (UB when <= 0)
+  %res = %c1 + %t1;
+  %res = %res + %cl;
+  %res = %res + %il;
+  %res = %res + %rot1;
+  %res = %res + %rot2;
+  %res = %res - 38;
+  ret %res;
+}

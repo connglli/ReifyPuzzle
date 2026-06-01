@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+// SPEC v0.2.2 §12.4 — solver synthesizes %?n in [0, 31] such that
+// rotl(0x0000FFFF, %?n) == 0x0FFFF000 = 268431360.
+intrinsic @rotl(%x: i32, %n: i32) : i32;
+fun @main() : i32 {
+  sym %?n: value i32 in [0, 31];
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @rotl(0x0000FFFF, %?n);
+  require %r == 0x0FFFF000, "rotation result must match";
+  br ^exit;
+^exit:
+  ret %?n;
+}

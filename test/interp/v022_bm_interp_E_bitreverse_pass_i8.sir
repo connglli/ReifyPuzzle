@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.4 @bitreverse at i8
+// 0b00000001 (1) bit-reversed in 8 bits is 0b10000000 = -128 as signed i8.
+intrinsic @bitreverse(%x: i8) : i8;
+fun @main() : i32 {
+  let mut %r: i8 = 0;
+  let %x: i8 = 1;
+^entry:
+  %r = call @bitreverse(%x);
+  br %r == -128, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

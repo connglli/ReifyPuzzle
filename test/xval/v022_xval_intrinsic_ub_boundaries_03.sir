@@ -1,0 +1,83 @@
+// Intention: Test UB boundary conditions (extreme valid values) on i8 under a Cascade Decision Tree CFG structure.
+// EXPECT: PASS
+// EXPECT_RC: 20
+intrinsic @abs(%x: i8) : i8;
+intrinsic @clz(%x: i8) : i8;
+intrinsic @ctz(%x: i8) : i8;
+intrinsic @abs_diff(%a: i8, %b: i8) : i8;
+intrinsic @clamp(%v: i8, %lo: i8, %hi: i8) : i8;
+intrinsic @rotl(%x: i8, %n: i8) : i8;
+intrinsic @rotr(%x: i8, %n: i8) : i8;
+intrinsic @ilog2(%x: i8) : i8;
+
+fun @my_func(%x: i8, %y: i8) : i8 {
+  let mut %a: i8 = 0;
+  let mut %b: i8 = 0;
+  let mut %c: i8 = 0;
+^entry:
+  %a = call @abs(%x);
+  %b = call @clz(%y);
+  %c = call @ctz(%x);
+  br %a > %y, ^b1, ^b4;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  br %a > %b, ^b2, ^b4;
+^b2:
+  %a = %a + 2;
+  %b = %b - 2;
+  br %b > 0, ^b3, ^b4;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  br %a > %b, ^entry, ^b4;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  br %a > %b, ^entry, ^entry;
+}
+
+fun @main() : i8 {
+  let mut %res: i8 = 0;
+  let mut %r1: i8 = 0;
+  let mut %r2: i8 = 0;
+  let mut %c1: i8 = 0;
+  let mut %t2: i8 = 0;
+  let mut %d1: i8 = 0;
+  let mut %cl: i8 = 0;
+  let mut %rot1: i8 = 0;
+  let mut %rot2: i8 = 0;
+  let mut %il: i8 = 0;
+^entry:
+  %r1 = call @abs(-127); // Boundary: INT_MIN_8 + 1 (UB is -128)
+  %r2 = call @abs(127); // Boundary: INT_MAX_8
+  %res = %r1 - %r2;
+  br %res > 100, ^exit, ^b1;
+^b1:
+  %c1 = call @clz(1); // Boundary: min non-zero value 1 (UB is 0)
+  %res = %res + %c1;
+  br %res > 100, ^exit, ^b2;
+^b2:
+  %t2 = call @ctz(0x80); // Boundary: extreme INT_MIN
+  %res = %res + %t2;
+  br %res > 100, ^exit, ^b3;
+^b3:
+  %d1 = call @abs_diff(127, 0); // Boundary: max difference INT_MAX_8
+  %cl = call @clamp(5, 10, 10); // Boundary: lo == hi (UB when lo > hi)
+  %res = %res + %cl;
+  br %res > 100, ^exit, ^b4;
+^b4:
+  %rot1 = call @rotl(1, 7); // Boundary: shift amount N-1 = 7 (UB when >= 8 or < 0)
+  %rot1 = 0x80 ^ %rot1;
+  %rot2 = call @rotr(1, 7); // Boundary: shift amount N-1 = 7 (UB when >= 8 or < 0)
+  %il = call @ilog2(1); // Boundary: minimum positive value 1 (UB when <= 0)
+  %res = %res + %rot1;
+  %res = %res + %rot2;
+  %res = %res - 6;
+  br %res > 100, ^exit, ^exit;
+^exit:
+  %res = %res + 0;
+  %res = %res - 0;
+  %res = 1 * %res;
+  ret %res;
+}

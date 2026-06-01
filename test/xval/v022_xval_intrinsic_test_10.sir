@@ -1,0 +1,60 @@
+// Intention: Test @rotl, @rotr, @is_pow2 intrinsics on i32 under a Spiral CFG structure with shortcuts.
+// EXPECT: PASS
+// EXPECT_RC: 16
+intrinsic @rotl(%x: i32, %n: i32) : i32;
+intrinsic @rotr(%x: i32, %n: i32) : i32;
+intrinsic @is_pow2(%x: i32) : i1;
+
+fun @my_func(%x: i32, %y: i32) : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i1 = 0;
+^entry:
+  %a = call @rotl(%x, 2);
+  %b = call @rotr(%y, 2);
+  %c = call @is_pow2(%x);
+  br %a > %y, ^b1, ^b2;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  br %a > %b, ^b3, ^b4;
+^b2:
+  %a = %a + 2;
+  %b = %b - 2;
+  br %c == 0, ^b3, ^b4;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  br %a > %b, ^entry, ^entry;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  br %a > %b, ^entry, ^entry;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+  let mut %r: i32 = 0;
+  let mut %p: i1 = 0;
+^entry:
+  %x = 4;
+  %y = 8;
+  %r = call @rotl(%x, 1);
+  br %r > 0, ^b1, ^exit;
+^b1:
+  %x = call @rotr(%y, 2);
+  br %x > 10, ^b2, ^b4;
+^b2:
+  %p = call @is_pow2(%r);
+  br %p == 1, ^b3, ^exit;
+^b3:
+  %x = %x + 10;
+  br %x > 0, ^b4, ^exit;
+^b4:
+  %x = %x + 14;
+  %y = %y - 4;
+  br %x > %y, ^exit, ^exit;
+^exit:
+  ret %x;
+}

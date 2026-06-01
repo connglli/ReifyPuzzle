@@ -1,0 +1,13 @@
+// EXPECT: FAIL:StaticError
+// SKIP: INTERPRETER, COMPILER
+// Bug-mining: The semantic checker / typechecker fails to reject declarations of unknown/nonexistent intrinsics, passing static check but failing at runtime.
+// Intention: Static checks should reject unknown intrinsic declarations.
+// Expected Behavior: symiri --check fails on unknown intrinsic @nonexistent_op.
+intrinsic @nonexistent_op(%x: i32) : i32;
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @nonexistent_op(5);
+  ret %r;
+}

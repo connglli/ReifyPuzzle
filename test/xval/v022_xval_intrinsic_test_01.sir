@@ -1,0 +1,71 @@
+// Intention: Test @abs, @min, @max intrinsics on i32 under a Diamond CFG structure.
+// EXPECT: PASS
+// EXPECT_RC: 130
+intrinsic @abs(%x: i32) : i32;
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+
+fun @my_func(%x: i32, %y: i32) : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+^entry:
+  %a = call @abs(%x);
+  %b = call @min(%a, %y);
+  %c = call @max(%b, 10);
+  br %a > %y, ^b1, ^b2;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  %c = 2 * %c;
+  br %a > %b, ^b3, ^b3;
+^b2:
+  %a = %a + 2;
+  %b = %b - 2;
+  %c = 3 * %c;
+  br %b > %c, ^b3, ^b3;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  %c = %c + %a;
+  br %c > %b, ^b4, ^b4;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  %c = %c + %b;
+  br %a > %c, ^entry, ^entry;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %x = -50;
+  %y = 25;
+  %r = call @abs(%x);
+  br %r > 0, ^b1, ^b2;
+^b1:
+  %x = %x + 10;
+  %y = call @min(%r, %y);
+  %r = %r + %x;
+  br %r > %y, ^b3, ^b3;
+^b2:
+  %x = %x + 20;
+  %y = %y - 20;
+  %r = %r + %y;
+  br %y > %r, ^b3, ^b3;
+^b3:
+  %x = %x + 40;
+  %y = call @max(%r, %y);
+  %r = %r + %y;
+  br %x > %r, ^b4, ^b4;
+^b4:
+  %x = %x + %y;
+  %y = %y + %r;
+  %r = %x + %y;
+  br %r > 0, ^exit, ^exit;
+^exit:
+  %r = %r + 45;
+  ret %r;
+}

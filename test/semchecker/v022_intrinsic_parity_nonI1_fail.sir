@@ -1,0 +1,7 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §12.4 @parity must return i1 (predicate). i32 return is invalid.
+intrinsic @parity(%x: i32) : i32;
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

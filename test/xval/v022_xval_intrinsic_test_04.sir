@@ -1,0 +1,63 @@
+// Intention: Test @midpoint, @parity, @bswap intrinsics on i32 under a Binary Tree CFG structure.
+// EXPECT: PASS
+// EXPECT_RC: 8
+intrinsic @midpoint(%a: i32, %b: i32) : i32;
+intrinsic @parity(%x: i32) : i1;
+intrinsic @bswap(%x: i32) : i32;
+
+fun @my_func(%x: i32, %y: i32) : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i1 = 0;
+^entry:
+  %a = call @midpoint(%x, %y);
+  %b = call @bswap(%x);
+  %c = call @parity(%x);
+  br %a > %y, ^b1, ^b2;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  br %a > %b, ^b3, ^b4;
+^b2:
+  %a = %a + 2;
+  %b = %b - 2;
+  br %c == 0, ^b3, ^b4;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  br %a > %b, ^entry, ^entry;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  br %a > %b, ^entry, ^entry;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+  let mut %r: i32 = 0;
+  let mut %p: i1 = 0;
+^entry:
+  %x = 0x0F0F0F0F;
+  %y = 0x0000000A;
+  %r = call @bswap(%x);
+  br %r > 0, ^b1, ^b2;
+^b1:
+  %x = 10;
+  %y = 30;
+  %r = call @midpoint(%x, %y);
+  br %x > 0, ^b3, ^b4;
+^b2:
+  %x = 20;
+  br %y > 0, ^exit, ^exit;
+^b3:
+  %x = 15;
+  %p = call @parity(%x);
+  br %p == 0, ^exit, ^exit;
+^b4:
+  %x = 25;
+  br %p == 1, ^exit, ^exit;
+^exit:
+  %x = %x - 7;
+  ret %x;
+}

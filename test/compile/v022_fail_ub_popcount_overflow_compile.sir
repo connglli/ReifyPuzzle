@@ -1,0 +1,14 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER
+// SKIP: WASM
+// Bug-mining: The compiler's C backend does not generate a representation check trap on popcount result overflow.
+// Intention: Expose missing popcount result representation overflow check in compiled C.
+// Expected Behavior: Compiled C code traps/aborts on popcount(-1) for i2.
+intrinsic @popcount(%x: i2) : i2;
+fun @main() : i32 {
+  let mut %x: i2 = -1;
+  let mut %r: i2 = 0;
+^entry:
+  %r = call @popcount(%x);
+  ret 0;
+}

@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.4 @ilog2 at i32
+intrinsic @ilog2(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+^entry:
+  %a = call @ilog2(1);     // 0
+  %b = call @ilog2(1000);  // floor(log2(1000)) = 9
+  br %a == 0, ^a_ok, ^bad;
+^a_ok:
+  br %b == 9, ^b_ok, ^bad;
+^b_ok:
+  ret 0;
+^bad:
+  ret 1;
+}

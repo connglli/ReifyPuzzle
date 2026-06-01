@@ -1,0 +1,13 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SPEC v0.2.2 §12.1 @abs UB when input is INT_MIN_32
+intrinsic @abs(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let %a: i32 = -2147483647;
+  let %b: i32 = 1;
+  let mut %input: i32 = 0;
+^entry:
+  %input = %a - %b;
+  %r = call @abs(%input);
+  ret %r;
+}

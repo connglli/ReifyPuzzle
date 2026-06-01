@@ -1,0 +1,14 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §12.3, §7.7 rule 25
+// |INT_MAX - INT_MIN| = 2^32 - 1, not representable in signed i32.
+intrinsic @abs_diff(%a: i32, %b: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+^entry:
+  %a = 2147483640 + 7;
+  %b = -2147483647 - 1;
+  %r = call @abs_diff(%a, %b);
+  ret 0;
+}

@@ -1,0 +1,81 @@
+// Intention: Test UB boundary conditions (extreme valid values) on i64 under a Double-Diamond CFG structure.
+// EXPECT: PASS
+// EXPECT_RC: 80
+intrinsic @abs(%x: i64) : i64;
+intrinsic @clz(%x: i64) : i64;
+intrinsic @ctz(%x: i64) : i64;
+intrinsic @abs_diff(%a: i64, %b: i64) : i64;
+intrinsic @clamp(%v: i64, %lo: i64, %hi: i64) : i64;
+intrinsic @rotl(%x: i64, %n: i64) : i64;
+intrinsic @rotr(%x: i64, %n: i64) : i64;
+intrinsic @ilog2(%x: i64) : i64;
+
+fun @my_func(%x: i64, %y: i64) : i64 {
+  let mut %a: i64 = 0;
+  let mut %b: i64 = 0;
+  let mut %c: i64 = 0;
+^entry:
+  %a = call @abs(%x);
+  %b = call @clz(%y);
+  %c = call @ctz(%x);
+  br %a > %y, ^b1, ^b2;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  br %a > %b, ^b3, ^b4;
+^b2:
+  %a = %a + 2;
+  %b = %b - 2;
+  br %a > %b, ^b3, ^b4;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  br %a > %b, ^entry, ^entry;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  br %a > %b, ^entry, ^entry;
+}
+
+fun @main() : i64 {
+  let mut %res: i64 = 0;
+  let mut %r1: i64 = 0;
+  let mut %r2: i64 = 0;
+  let mut %c1: i64 = 0;
+  let mut %t2: i64 = 0;
+  let mut %d1: i64 = 0;
+  let mut %cl: i64 = 0;
+  let mut %rot1: i64 = 0;
+  let mut %rot2: i64 = 0;
+  let mut %il: i64 = 0;
+  let mut %input_val: i64 = 0;
+^entry:
+  %r1 = call @abs(-9223372036854775807); // Boundary: INT_MIN_64 + 1 (UB is -9223372036854775808)
+  %r2 = call @abs(9223372036854775807); // Boundary: INT_MAX_64
+  %res = %r1 - %r2;
+  br %res == 0, ^b1, ^b2;
+^b1:
+  %c1 = call @clz(1); // Boundary: min non-zero value 1 (UB is 0)
+  br %c1 > 0, ^b3, ^b4;
+^b2:
+  br %res == 0, ^b3, ^b4;
+^b3:
+  %input_val = call @rotl(1, 63); // Boundary: shift amount N-1 = 63 (UB when >= 64 or < 0)
+  %t2 = call @ctz(%input_val);
+  %d1 = call @abs_diff(9223372036854775807, 0); // Boundary: max difference INT_MAX_64
+  %cl = call @clamp(5, 10, 10); // Boundary: lo == hi (UB when lo > hi)
+  br %res == 0, ^exit, ^exit;
+^b4:
+  br %res == 0, ^exit, ^exit;
+^exit:
+  %rot1 = call @rotl(1, 63); // Boundary: shift amount N-1 = 63 (UB when >= 64 or < 0)
+  %rot1 = %rot1 - %rot1;
+  %rot2 = call @rotr(1, 63); // Boundary: shift amount N-1 = 63 (UB when >= 64 or < 0)
+  %il = call @ilog2(1); // Boundary: minimum positive value 1 (UB when <= 0)
+  %res = %c1 + %cl;
+  %res = %res + %rot1;
+  %res = %res + %rot2;
+  %res = %res + %il;
+  %res = %res + 5;
+  ret %res;
+}

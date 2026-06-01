@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.4 @parity at i32 (returns i1)
+intrinsic @parity(%x: i32) : i1;
+fun @main() : i32 {
+  let mut %p: i1 = 0;
+  let mut %q: i1 = 0;
+^entry:
+  %p = call @parity(7);    // popcount(7) = 3 -> odd -> 1
+  %q = call @parity(15);   // popcount(15) = 4 -> even -> 0
+  br %p == 1, ^p_ok, ^bad;
+^p_ok:
+  br %q == 0, ^q_ok, ^bad;
+^q_ok:
+  ret 0;
+^bad:
+  ret 1;
+}

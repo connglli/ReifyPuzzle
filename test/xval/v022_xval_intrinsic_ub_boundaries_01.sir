@@ -1,0 +1,98 @@
+// Intention: Test UB boundary conditions (extreme valid values) of abs, clz, ctz, popcount, abs_diff, clamp, rotl, rotr, ilog2 on i32.
+// EXPECT: PASS
+// EXPECT_RC: 83
+intrinsic @abs(%x: i32) : i32;
+intrinsic @clz(%x: i32) : i32;
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @popcount(%x: i2) : i2;
+intrinsic @abs_diff(%a: i32, %b: i32) : i32;
+intrinsic @clamp(%v: i32, %lo: i32, %hi: i32) : i32;
+intrinsic @rotl(%x: i32, %n: i32) : i32;
+intrinsic @rotr(%x: i32, %n: i32) : i32;
+intrinsic @ilog2(%x: i32) : i32;
+
+fun @my_func(%x: i32, %y: i32) : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+^entry:
+  %a = call @abs(%x);
+  %b = call @clz(%y);
+  %c = call @ctz(%x);
+  br %a > %y, ^b1, ^b2;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  br %a > %b, ^b3, ^b4;
+^b2:
+  %a = %a + 2;
+  %b = %b - 2;
+  br %a > %b, ^b3, ^b4;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  br %a > %b, ^entry, ^entry;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  br %a > %b, ^entry, ^entry;
+}
+
+fun @main() : i32 {
+  let mut %res: i32 = 0;
+  let mut %r1: i32 = 0;
+  let mut %r2: i32 = 0;
+  let mut %c1: i32 = 0;
+  let mut %c2: i32 = 0;
+  let mut %c3: i32 = 0;
+  let mut %t1: i32 = 0;
+  let mut %t2: i32 = 0;
+  let mut %pop: i2 = 0;
+  let mut %pop32: i32 = 0;
+  let mut %d1: i32 = 0;
+  let mut %cl: i32 = 0;
+  let mut %rot1: i32 = 0;
+  let mut %rot2: i32 = 0;
+  let mut %il: i32 = 0;
+^entry:
+  %r1 = call @abs(-2147483647); // Boundary: INT_MIN_32 + 1 (UB is -2147483648)
+  %r2 = call @abs(2147483647); // Boundary: INT_MAX_32
+  %res = %r1 - %r2;
+  br %res == 0, ^b1, ^exit;
+^b1:
+  %c1 = call @clz(1); // Boundary: min non-zero value 1 (UB is 0)
+  %c2 = call @clz(-1); // Boundary: negative extreme -1
+  %c3 = call @clz(0x80000000); // Boundary: negative extreme INT_MIN
+  %res = %res + %c1;
+  br %res > 0, ^b2, ^exit;
+^b2:
+  %t1 = call @ctz(1); // Boundary: min non-zero value 1 (UB is 0)
+  %t2 = call @ctz(0x80000000); // Boundary: extreme INT_MIN
+  %pop = call @popcount(1); // Boundary: popcount(1) on i2 (UB when result > 1)
+  %pop32 = %pop as i32;
+  %res = %res + %t2;
+  %res = %res + %pop32;
+  br %res > 50, ^b3, ^exit;
+^b3:
+  %d1 = call @abs_diff(2147483647, 0); // Boundary: max difference INT_MAX_32
+  %res = %res - 2147483640;
+  %res = %res + %d1;
+  br %res > 50, ^b4, ^exit;
+^b4:
+  %cl = call @clamp(5, 10, 10); // Boundary: lo == hi (UB when lo > hi)
+  %rot1 = call @rotl(1, 31); // Boundary: shift amount N-1 = 31 (UB when >= 32 or < 0)
+  %rot1 = 0x80000000 ^ %rot1;
+  %rot2 = call @rotr(1, 31); // Boundary: shift amount N-1 = 31 (UB when >= 32 or < 0)
+  %il = call @ilog2(1); // Boundary: minimum positive value 1 (UB when <= 0)
+  %res = %res + %cl;
+  %res = %res + %rot1;
+  %res = %res + call @rotl(1, 0);
+  %res = %res + %rot2;
+  %res = %res + %il;
+  br %res > 80, ^exit, ^exit;
+^exit:
+  %res = %res + 0;
+  %res = %res - 0;
+  %res = 1 * %res;
+  ret %res;
+}

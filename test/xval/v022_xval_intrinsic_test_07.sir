@@ -1,0 +1,66 @@
+// Intention: Test @min, @max, @abs_diff intrinsics on i32 under a Loop CFG structure in main.
+// EXPECT: PASS
+// EXPECT_RC: -10
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+intrinsic @abs_diff(%a: i32, %b: i32) : i32;
+
+fun @my_func(%x: i32, %y: i32) : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+^entry:
+  %a = call @abs_diff(%x, %y);
+  %b = call @min(%x, %y);
+  %c = call @max(%x, %y);
+  br %a > %y, ^b1, ^b2;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  %c = 2 * %c;
+  br %a > %b, ^b3, ^b4;
+^b2:
+  %a = %a + 2;
+  %b = %b - 2;
+  %c = 3 * %c;
+  br %b > %c, ^b3, ^b4;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  %c = %c + %a;
+  br %c > %b, ^entry, ^entry;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  %c = %c + %b;
+  br %a > %c, ^entry, ^entry;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+  let mut %r: i32 = 0;
+  let mut %i: i32 = 0;
+^entry:
+  %x = -30;
+  %y = -10;
+  %r = call @max(%x, %y);
+  br %i < 2, ^b1, ^exit;
+^b1:
+  %x = call @min(%x, %y);
+  %y = call @abs_diff(%x, %y);
+  br %y > 0, ^b2, ^b2;
+^b2:
+  %r = %r + %y;
+  br %r > %x, ^b3, ^b3;
+^b3:
+  %x = %x + 35;
+  %y = %y - 5;
+  %r = %r + %x;
+  br %x > 0, ^b4, ^b4;
+^b4:
+  %i = %i + 1;
+  br %i < 10, ^entry, ^entry;
+^exit:
+  ret %r;
+}

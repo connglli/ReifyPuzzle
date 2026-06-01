@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §12.4 @ilog2 UB when x <= 0
+intrinsic @ilog2(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let mut %x: i32 = 0;
+^entry:
+  %x = 10 - 15;
+  %r = call @ilog2(%x);
+  ret 0;
+}

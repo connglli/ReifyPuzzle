@@ -1,0 +1,63 @@
+// Intention: Test @signum, @clamp, @midpoint intrinsics on i32 under a Skip-Level Branch CFG structure.
+// EXPECT: PASS
+// EXPECT_RC: 3
+intrinsic @signum(%x: i32) : i32;
+intrinsic @clamp(%v: i32, %lo: i32, %hi: i32) : i32;
+intrinsic @midpoint(%a: i32, %b: i32) : i32;
+
+fun @my_func(%x: i32, %y: i32) : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+^entry:
+  %a = call @signum(%x);
+  %b = call @clamp(%x, 0, 10);
+  %c = call @midpoint(%x, %y);
+  br %a > %y, ^b1, ^b3;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  br %a > %b, ^b2, ^entry;
+^b2:
+  %a = %a + 2;
+  br %b > %a, ^b3, ^entry;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  %c = %c + %a;
+  br %c > %b, ^b4, ^b4;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  %c = %c + %b;
+  br %a > %c, ^entry, ^entry;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %x = 5;
+  %y = -15;
+  %r = call @signum(%y);
+  br %r > 0, ^b1, ^b3;
+^b1:
+  %x = call @clamp(%x, 0, 3);
+  br %x > 0, ^b2, ^exit;
+^b2:
+  %y = call @midpoint(%x, %y);
+  br %y < 0, ^b3, ^exit;
+^b3:
+  %x = %x + 10;
+  %y = %y + 10;
+  %r = call @clamp(%r, -5, 5);
+  br %x > %r, ^b4, ^exit;
+^b4:
+  %r = %x + %y;
+  br %r > 0, ^exit, ^exit;
+^exit:
+  %r = call @midpoint(%r, -11);
+  %r = %r + 3;
+  ret %r;
+}

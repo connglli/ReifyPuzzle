@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+// SPEC v0.2.2 §12.4 — solver synthesizes a positive power-of-two %?x in [1, 100].
+intrinsic @is_pow2(%x: i32) : i1;
+fun @main() : i32 {
+  sym %?x: value i32 in [1, 100];
+  let mut %p: i1 = 0;
+^entry:
+  %p = call @is_pow2(%?x);
+  require %p == 1, "%?x must be a power of two";
+  br ^exit;
+^exit:
+  ret %?x;
+}

@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.3 @abs_diff at i32
+intrinsic @abs_diff(%a: i32, %b: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @abs_diff(-5, 7);   // |-5 - 7| = 12
+  br %r == 12, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

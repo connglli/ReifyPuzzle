@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.3 @clamp at i32
+intrinsic @clamp(%v: i32, %lo: i32, %hi: i32) : i32;
+fun @main() : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+^entry:
+  %a = call @clamp(5, 10, 20);    // below lo -> lo
+  %b = call @clamp(15, 10, 20);   // inside -> v
+  %c = call @clamp(25, 10, 20);   // above hi -> hi
+  br %a == 10, ^a_ok, ^bad;
+^a_ok:
+  br %b == 15, ^b_ok, ^bad;
+^b_ok:
+  br %c == 20, ^c_ok, ^bad;
+^c_ok:
+  ret 0;
+^bad:
+  ret 1;
+}

@@ -1,5 +1,7 @@
 #include "frontend/semchecker.hpp"
 #include <algorithm>
+#include "analysis/intrinsics.hpp"
+#include "analysis/type_utils.hpp"
 
 namespace symir {
 
@@ -147,6 +149,114 @@ namespace symir {
         diags.error("Duplicate parameter name: " + p.name.name, p.span);
       }
       params.insert(p.name.name);
+    }
+
+    // [v0.2.2 extra batch A/B] Per-intrinsic signature validation.
+    // The interpreter/solver/codegen rely on these invariants; rejecting
+    // mis-shaped declarations at check time is cheaper than diagnosing
+    // them mid-execution.
+    auto kind = getIntrinsicKind(d.name.name);
+    if (!kind) {
+      diags.error("Unknown intrinsic name: " + d.name.name, d.span);
+      return;
+    }
+
+    auto retBits = TypeUtils::getIntBitWidth(d.retType);
+    auto paramBits = [&](size_t i) -> std::optional<std::uint32_t> {
+      if (i >= d.params.size())
+        return std::nullopt;
+      return TypeUtils::getIntBitWidth(d.params[i].type);
+    };
+    auto expectArity = [&](size_t expected) {
+      if (d.params.size() != expected) {
+        diags.error(
+            "Intrinsic " + d.name.name + " expects " + std::to_string(expected) +
+                " parameter(s), got " + std::to_string(d.params.size()),
+            d.span
+        );
+      }
+    };
+    auto expectAllInt = [&]() {
+      for (size_t i = 0; i < d.params.size(); ++i) {
+        if (!paramBits(i))
+          diags.error(
+              "Intrinsic " + d.name.name + ": parameter " + std::to_string(i) +
+                  " must be an integer type",
+              d.params[i].span
+          );
+      }
+      if (!retBits)
+        diags.error("Intrinsic " + d.name.name + ": return type must be an integer type", d.span);
+    };
+    auto expectAllSameInt = [&]() {
+      expectAllInt();
+      if (!retBits)
+        return;
+      for (size_t i = 0; i < d.params.size(); ++i) {
+        auto pb = paramBits(i);
+        if (pb && *pb != *retBits) {
+          diags.error(
+              "Intrinsic " + d.name.name + ": parameter " + std::to_string(i) + " width (i" +
+                  std::to_string(*pb) + ") must equal return width (i" + std::to_string(*retBits) +
+                  ")",
+              d.params[i].span
+          );
+        }
+      }
+    };
+    auto expectI1Return = [&]() {
+      if (!retBits || *retBits != 1) {
+        diags.error(
+            "Intrinsic " + d.name.name + ": return type must be i1 (predicate intrinsic)", d.span
+        );
+      }
+    };
+
+    switch (*kind) {
+      case IntrinsicKind::Abs:
+      case IntrinsicKind::Signum:
+      case IntrinsicKind::Popcount:
+      case IntrinsicKind::Clz:
+      case IntrinsicKind::Ctz:
+      case IntrinsicKind::Bitreverse:
+      case IntrinsicKind::Ilog2:
+        expectArity(1);
+        expectAllSameInt();
+        break;
+      case IntrinsicKind::Bswap:
+        expectArity(1);
+        expectAllSameInt();
+        if (retBits && (*retBits % 8) != 0) {
+          diags.error(
+              "Intrinsic @bswap requires a return type whose width is a multiple of 8, got i" +
+                  std::to_string(*retBits),
+              d.span
+          );
+        }
+        break;
+      case IntrinsicKind::Min:
+      case IntrinsicKind::Max:
+      case IntrinsicKind::AbsDiff:
+      case IntrinsicKind::Midpoint:
+      case IntrinsicKind::Rotl:
+      case IntrinsicKind::Rotr:
+        expectArity(2);
+        expectAllSameInt();
+        break;
+      case IntrinsicKind::Clamp:
+        expectArity(3);
+        expectAllSameInt();
+        break;
+      case IntrinsicKind::Parity:
+      case IntrinsicKind::IsPow2:
+        expectArity(1);
+        if (!paramBits(0))
+          diags.error(
+              "Intrinsic " + d.name.name + ": parameter 0 must be an integer type",
+              d.params.empty() ? d.span : d.params[0].span
+          );
+        expectI1Return();
+        break;
     }
   }
 

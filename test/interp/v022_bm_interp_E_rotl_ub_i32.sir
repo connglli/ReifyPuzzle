@@ -1,0 +1,12 @@
+// EXPECT: FAIL
+// SPEC v0.2.2 §12.4 @rotl UB when n >= N
+intrinsic @rotl(%x: i32, %n: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let %x: i32 = 1;
+  let mut %n: i32 = 0;
+^entry:
+  %n = 30 + 2;
+  %r = call @rotl(%x, %n);
+  ret 0;
+}

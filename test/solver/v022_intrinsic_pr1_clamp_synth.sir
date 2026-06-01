@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+// SPEC v0.2.2 §12.3 — solver synthesizes %?x such that clamp(%?x, 0, 10) == 5.
+intrinsic @clamp(%v: i32, %lo: i32, %hi: i32) : i32;
+fun @main() : i32 {
+  sym %?x: value i32 in [-100, 100];
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @clamp(%?x, 0, 10);
+  require %r == 5, "clamped value must be 5";
+  br ^exit;
+^exit:
+  ret %?x;
+}

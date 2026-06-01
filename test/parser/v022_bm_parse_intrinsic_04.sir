@@ -1,6 +1,6 @@
 // EXPECT: PASS
 // SPEC v0.2.2 §3.3
 // Intention: i1-typed intrinsic and i128 wide intrinsic.
-intrinsic @abs1(%x: i1) : i1;
-intrinsic @abs128(%x: i128) : i128;
+intrinsic @abs(%x: i1) : i1;
+intrinsic @ctz(%x: i128) : i128;
 fun @main() : i32 { ^entry: ret 0; }

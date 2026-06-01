@@ -1,0 +1,13 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SPEC v0.2.2 §12.2 @clz UB when input is 0
+intrinsic @clz(%x: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+  let %a: i32 = 12345;
+  let %b: i32 = 12345;
+  let mut %input: i32 = 0;
+^entry:
+  %input = %a - %b;
+  %r = call @clz(%input);
+  ret %r;
+}

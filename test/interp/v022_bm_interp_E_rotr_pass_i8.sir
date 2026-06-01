@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.4 @rotr at i8
+// 0b00010010 (18) rotated right by 4 in 8 bits = 0b00100001 (33).
+intrinsic @rotr(%x: i8, %n: i8) : i8;
+fun @main() : i32 {
+  let mut %r: i8 = 0;
+  let %x: i8 = 18;
+  let %n: i8 = 4;
+^entry:
+  %r = call @rotr(%x, %n);
+  br %r == 33, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

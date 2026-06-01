@@ -1,0 +1,71 @@
+// Intention: Test @clz, @ctz, @popcount intrinsics on i32 under a Cascade Decision Tree CFG structure.
+// EXPECT: PASS
+// EXPECT_RC: -28
+intrinsic @clz(%x: i32) : i32;
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+
+fun @my_func(%x: i32, %y: i32) : i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i32 = 0;
+  let mut %c: i32 = 0;
+^entry:
+  %a = call @clz(%x);
+  %b = call @ctz(%y);
+  %c = call @popcount(%x);
+  br %a > %y, ^b1, ^b4;
+^b1:
+  %a = %a + 1;
+  %b = %b - 1;
+  %c = 2 * %c;
+  br %a > %b, ^b2, ^b4;
+^b2:
+  %a = %a + 2;
+  %b = %b - 2;
+  %c = 3 * %c;
+  br %b > %c, ^b3, ^b4;
+^b3:
+  %a = %a + 3;
+  %b = %b - 3;
+  %c = %c + %a;
+  br %c > %b, ^entry, ^b4;
+^b4:
+  %a = %a + 4;
+  %b = %b - 4;
+  %c = %c + %b;
+  br %a > %c, ^entry, ^entry;
+}
+
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %x = 16;
+  %y = 32;
+  %r = call @clz(%x);
+  br %r > 100, ^exit, ^b1;
+^b1:
+  %x = %x + 10;
+  %y = call @ctz(%y);
+  %r = %r + %x;
+  br %r > 100, ^exit, ^b2;
+^b2:
+  %x = %x + 20;
+  %y = %y - 20;
+  %r = %r + %y;
+  br %r > 100, ^exit, ^b3;
+^b3:
+  %x = %x + 10;
+  %y = call @popcount(%y);
+  %r = %r + %y;
+  br %x > 100, ^exit, ^b4;
+^b4:
+  %x = %x - %y;
+  %y = %y + %r;
+  %r = %x - %y;
+  br %r > 100, ^exit, ^exit;
+^exit:
+  %r = %r + 41;
+  ret %r;
+}
