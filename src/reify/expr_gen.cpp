@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include "reify/hyperparameters.hpp"
+#include "reify/intrinsic_whitelist.hpp"
 
 namespace symir::reify {
 
@@ -246,6 +247,59 @@ namespace symir::reify {
     return Atom{std::move(sa), {}};
   }
 
+  // Forward declaration — defined later in this file.
+  static std::pair<Expr, std::vector<Instr>> genExprWithRequires(
+      std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
+      bool onPath, const ExprGenConfig &cfg
+  );
+
+  // Generate an intrinsic-call atom for the given integer target type.
+  // Adds any safety requires from argument generation to extraRequires.
+  // Records the (kind, bitwidth) pair in cfg.usedIntrinsics if non-null.
+  // Now that the toolchain supports overloaded intrinsic declarations,
+  // the same intrinsic can be instantiated at multiple bitwidths.
+  static Atom genIntrinsicCallAtom(
+      std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
+      bool onPath, const ExprGenConfig &cfg, std::vector<Instr> &extraRequires
+  ) {
+    // Skip i1-returning intrinsics since i1 is not a commonly generated target type.
+    const auto &all = getIntrinsicWhitelist();
+    std::vector<const WhitelistedIntrinsic *> compatible;
+    for (const auto &wi: all) {
+      if (wi.returnsI1)
+        continue;
+      compatible.push_back(&wi);
+    }
+    if (compatible.empty())
+      return coefAtom(intCoef(0));
+
+    std::uniform_int_distribution<int> pick(0, (int) compatible.size() - 1);
+    const auto *wi = compatible[pick(rng)];
+
+    // Build argument expressions
+    std::vector<std::shared_ptr<Expr>> args;
+    for (int pi = 0; pi < wi->paramCount; pi++) {
+      if (onPath && sym) {
+        auto [ae, areqs] = genExprWithRequires(rng, sym, vars, targetType, onPath, cfg);
+        for (auto &r: areqs)
+          extraRequires.push_back(std::move(r));
+        args.push_back(std::make_shared<Expr>(std::move(ae)));
+      } else {
+        auto ae = genExpr(rng, sym, vars, targetType, onPath, cfg);
+        args.push_back(std::make_shared<Expr>(std::move(ae)));
+      }
+    }
+
+    // Record the (kind, bitwidth) use
+    if (cfg.usedIntrinsics)
+      cfg.usedIntrinsics->insert({wi->kind, intBitWidth(targetType)});
+
+    CallAtom ca;
+    ca.callee = GlobalId{std::string(wi->name), {}};
+    ca.args = std::move(args);
+    return Atom{std::move(ca), {}};
+  }
+
   // Generate a single Atom of the given integer type (on-path, uses sym)
   static Atom genIntAtomOnPath(
       std::mt19937 &rng, SymCounter &sym, const VarCatalogue &vars, const TypePtr &targetType,
@@ -371,6 +425,9 @@ namespace symir::reify {
     if (s < rysmith::hp::kIntOnPath_SelectEnd && cfg.enableSelect) {
       return genSelectAtom(rng, &sym, vars, targetType);
     }
+    if (s < rysmith::hp::kIntOnPath_IntrinsicEnd && cfg.enableIntrinsics) {
+      return genIntrinsicCallAtom(rng, &sym, vars, targetType, true, cfg, extraRequires);
+    }
     // Fallback: standalone sym
     return coefAtom(symCoef(sym.nextCoef(targetType)));
   }
@@ -445,6 +502,10 @@ namespace symir::reify {
     }
     if (s < rysmith::hp::kIntOffPath_SelectEnd && cfg.enableSelect) {
       return genSelectAtom(rng, /*sym=*/nullptr, vars, targetType);
+    }
+    if (s < rysmith::hp::kIntOffPath_IntrinsicEnd && cfg.enableIntrinsics) {
+      std::vector<Instr> dummyReqs; // off-path args are concrete-only, no requires expected
+      return genIntrinsicCallAtom(rng, /*sym=*/nullptr, vars, targetType, false, cfg, dummyReqs);
     }
     return genConcreteIntAtom(rng, targetType);
   }

@@ -33,15 +33,16 @@ namespace symir::reify::rysmith::hp {
   // ===========================================================================
 
   // --- genIntAtomOnPath: uses sym for coefs ---
-  inline constexpr int kIntOnPath_CoefBareEnd = 40; // standalone sym Coef
-  inline constexpr int kIntOnPath_MulEnd = 60;      // sym * rval
-  inline constexpr int kIntOnPath_BitwiseEnd = 70;  // sym & | ^ rval
-  inline constexpr int kIntOnPath_ShiftEnd = 75;    // sym <</>>/>>> rval
-  inline constexpr int kIntOnPath_UnaryNotEnd = 80; // ~ rval
-  inline constexpr int kIntOnPath_CastEnd = 85;     // var as T
-  inline constexpr int kIntOnPath_DivModEnd = 90;   // sym / % rval (+ guard)
-  inline constexpr int kIntOnPath_LoadEnd = 95;     // load %p
-  inline constexpr int kIntOnPath_SelectEnd = 99;   // select cond, a, b
+  inline constexpr int kIntOnPath_CoefBareEnd = 40;  // standalone sym Coef
+  inline constexpr int kIntOnPath_MulEnd = 60;       // sym * rval
+  inline constexpr int kIntOnPath_BitwiseEnd = 70;   // sym & | ^ rval
+  inline constexpr int kIntOnPath_ShiftEnd = 75;     // sym <</>>/>>> rval
+  inline constexpr int kIntOnPath_UnaryNotEnd = 80;  // ~ rval
+  inline constexpr int kIntOnPath_CastEnd = 85;      // var as T
+  inline constexpr int kIntOnPath_DivModEnd = 90;    // sym / % rval (+ guard)
+  inline constexpr int kIntOnPath_LoadEnd = 93;      // load %p
+  inline constexpr int kIntOnPath_SelectEnd = 96;    // select cond, a, b
+  inline constexpr int kIntOnPath_IntrinsicEnd = 99; // call @intrinsic(args)
   // fallthrough → standalone sym Coef
 
   // --- genIntAtomOffPath: concrete coefs only, no syms ---
@@ -51,8 +52,9 @@ namespace symir::reify::rysmith::hp {
   inline constexpr int kIntOffPath_CastEnd = 65;      // var as T
   inline constexpr int kIntOffPath_DivModEnd = 70;    // lit / % var
   inline constexpr int kIntOffPath_PlainRvalEnd = 75; // bare lvalue
-  inline constexpr int kIntOffPath_LoadEnd = 85;      // load %p
-  inline constexpr int kIntOffPath_SelectEnd = 95;    // select cond, a, b
+  inline constexpr int kIntOffPath_LoadEnd = 83;      // load %p
+  inline constexpr int kIntOffPath_SelectEnd = 93;    // select cond, a, b
+  inline constexpr int kIntOffPath_IntrinsicEnd = 97; // call @intrinsic(args)
   // fallthrough → concrete int literal
 
   // --- genFloatAtomOnPath ---

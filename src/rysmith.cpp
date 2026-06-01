@@ -161,7 +161,7 @@ static GenerateResult generateLeaf(
     // Func params
     const std::string &funcName, int nStmts, bool safeOffPath, bool enableInterestCoefs,
     int64_t coefLo, int64_t coefHi, int64_t valueLo, int64_t valueHi, int64_t indexLo,
-    int64_t indexHi, const ExprGenConfig &exprCfg,
+    int64_t indexHi, const ExprGenConfig &exprCfg, bool enableIntrinsics,
     // Solver params
     uint32_t timeoutMs,
     // Retry params
@@ -235,6 +235,7 @@ static GenerateResult generateLeaf(
       fcfg.safeOffPath = safeOffPath;
       fcfg.enableInterestCoefs = enableInterestCoefs;
       fcfg.enableInterestInits = true;
+      fcfg.enableIntrinsics = enableIntrinsics;
       fcfg.exprCfg = exprCfg;
       fcfg.coefLo = coefLo;
       fcfg.coefHi = coefHi;
@@ -416,6 +417,7 @@ int main(int argc, char **argv) {
     // Operators
     ("no-divmod",         "Disable integer division and modulo")
     ("no-select",         "Disable select ternary expressions")
+    ("no-intrinsics",     "Disable intrinsic call generation")
     // CFG
     ("n-bbls",            "Basic blocks between entry and exit per CFG",
                           cxxopts::value<int>()->default_value("15"))
@@ -528,6 +530,7 @@ int main(int argc, char **argv) {
   exprCfg.enableDiv = !result.count("no-divmod");
   exprCfg.enableSelect = !result.count("no-select");
   exprCfg.enableFp = typeCfg.enableFp;
+  bool enableIntrinsics = !result.count("no-intrinsics");
 
   int nFuncs = result["n-funcs"].as<int>();
   int nBbls = result["n-bbls"].as<int>();
@@ -619,8 +622,8 @@ int main(int argc, char **argv) {
       state->result = generateLeaf(
           nBbls, pBranch, pBackedge, maxLoopIter, minLoopIter, fnVarCfg, funcName, nStmts,
           safeOffPath, enableInterestCoefs, coefLo, coefHi, valueLo, valueHi, indexLo, indexHi,
-          exprCfg, timeoutMs, maxRetries, nInits, outDir, keepSymbolic, verbose, state->rng,
-          funcSeed, genId, emitDesc
+          exprCfg, enableIntrinsics, timeoutMs, maxRetries, nInits, outDir, keepSymbolic, verbose,
+          state->rng, funcSeed, genId, emitDesc
       );
       state->done.store(true, std::memory_order_release);
     });

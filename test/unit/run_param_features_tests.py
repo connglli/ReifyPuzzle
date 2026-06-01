@@ -29,12 +29,14 @@ import tempfile
 
 GREEN = "\033[32m"
 RED = "\033[31m"
+GRAY = "\033[90m"
 NC = "\033[0m"
 
 results = []  # (name, passed, detail)
 
 
 def run(cmd, **kw):
+  print(f"  {GRAY}[RUN>]{NC} " + " ".join(cmd))
   return subprocess.run(cmd, capture_output=True, text=True, timeout=30, **kw)
 
 

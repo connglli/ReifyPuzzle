@@ -17,6 +17,7 @@ namespace symir::reify {
     bool safeOffPath = false;
     bool enableInterestCoefs = true;
     bool enableInterestInits = true;
+    bool enableIntrinsics = true;
     ExprGenConfig exprCfg;
     // Sym counter domains
     int64_t coefLo = -8, coefHi = 8;

@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <cassert>
+#include <set>
 #include <unordered_set>
+#include "analysis/intrinsics.hpp"
+#include "reify/intrinsic_whitelist.hpp"
 
 namespace symir::reify {
 
@@ -12,6 +15,15 @@ namespace symir::reify {
 
   static TypePtr makeI32() {
     return std::make_shared<Type>(Type{IntType{IntType::Kind::I32, {}, {}}, {}});
+  }
+
+  // Build an integer Type from a bitwidth (8 → i8, 16 → i16, 32 → i32, 64 → i64).
+  static TypePtr makeIntTypeByWidth(uint32_t bits) {
+    if (bits == 32)
+      return std::make_shared<Type>(Type{IntType{IntType::Kind::I32, {}, {}}, {}});
+    if (bits == 64)
+      return std::make_shared<Type>(Type{IntType{IntType::Kind::I64, {}, {}}, {}});
+    return std::make_shared<Type>(Type{IntType{IntType::Kind::ICustom, (int) bits, {}}, {}});
   }
 
   static LValue localLV(const std::string &name) { return LValue{LocalId{name, {}}, {}, {}}; }
@@ -265,6 +277,19 @@ namespace symir::reify {
     sym.indexLo = fcfg.indexLo;
     sym.indexHi = fcfg.indexHi;
 
+    // [v0.2.2] Track which (intrinsic, bitwidth) pairs are used during
+    // expression generation so we can emit IntrinsicDecl entries into the
+    // Program.  Make a mutable copy of fcfg.exprCfg so we can attach the
+    // tracking set without mutating the caller's config.
+    std::set<IntrinsicUseKey> usedIntrinsics;
+    ExprGenConfig exprCfg = fcfg.exprCfg;
+    if (fcfg.enableIntrinsics) {
+      exprCfg.usedIntrinsics = &usedIntrinsics;
+    } else {
+      exprCfg.enableIntrinsics = false;
+      exprCfg.usedIntrinsics = nullptr;
+    }
+
     // Generate a single input sym (i32) used for interest-init requires
     std::string inputSym = sym.nextValue();
 
@@ -324,13 +349,13 @@ namespace symir::reify {
 
         // Generate statements for on-path non-exit blocks
         if (onPath) {
-          auto stmts = genBlockStmts(rng, &sym, vars, fcfg.nStmts, true, false, fcfg.exprCfg);
+          auto stmts = genBlockStmts(rng, &sym, vars, fcfg.nStmts, true, false, exprCfg);
           for (auto &s: stmts)
             block.instrs.push_back(std::move(s));
         } else {
           // Off-path: concrete-only stmts
           auto stmts =
-              genBlockStmts(rng, nullptr, vars, fcfg.nStmts, false, fcfg.safeOffPath, fcfg.exprCfg);
+              genBlockStmts(rng, nullptr, vars, fcfg.nStmts, false, fcfg.safeOffPath, exprCfg);
           for (auto &s: stmts)
             block.instrs.push_back(std::move(s));
         }
@@ -344,7 +369,7 @@ namespace symir::reify {
 
         // Terminator
         if (blk->isBranch()) {
-          Cond cond = genCond(rng, onPath ? &sym : nullptr, vars, onPath, fcfg.exprCfg);
+          Cond cond = genCond(rng, onPath ? &sym : nullptr, vars, onPath, exprCfg);
           BrTerm br;
           br.cond = std::move(cond);
           br.thenLabel = BlockLabel{"^" + blk->succs[0], {}};
@@ -375,6 +400,30 @@ namespace symir::reify {
 
     Program prog;
     prog.structs = vars.structDecls;
+
+    // [v0.2.2] Emit IntrinsicDecl entries for each (kind, bitwidth) pair
+    // used during expression generation. The semchecker now supports
+    // overloaded intrinsics with different signatures, so the same intrinsic
+    // may appear at multiple bitwidths (e.g. @popcount i32 / i64).
+    if (fcfg.enableIntrinsics) {
+      for (const auto &[kind, bits]: usedIntrinsics) {
+        for (const auto &wi: getIntrinsicWhitelist()) {
+          if (wi.kind != kind)
+            continue;
+          IntrinsicDecl id;
+          id.name = GlobalId{std::string(wi.name), {}};
+          id.retType = makeIntTypeByWidth(bits);
+          for (int pi = 0; pi < wi.paramCount; pi++) {
+            ParamDecl pd;
+            pd.name = LocalId{"%x" + std::to_string(pi), {}};
+            pd.type = makeIntTypeByWidth(bits);
+            id.params.push_back(std::move(pd));
+          }
+          prog.intrinsics.push_back(std::move(id));
+          break;
+        }
+      }
+    }
 
     FunDecl fun;
     fun.name = GlobalId{"@" + fcfg.funcName, {}};

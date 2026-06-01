@@ -112,6 +112,17 @@ static std::vector<size_t> pickPoolIndices(std::mt19937 &rng, size_t k, size_t p
   return all;
 }
 
+// Build a dedup key for IntrinsicDecl — "name|paramType0|paramType1:retType"
+// so that same-name intrinsics with different signatures (e.g. @popcount i32
+// vs @popcount i64) are kept as separate declarations.
+static std::string intrinsicKey(const IntrinsicDecl &d) {
+  std::string key = d.name.name;
+  for (const auto &p: d.params)
+    key += "|" + SIRPrinter::typeToString(p.type);
+  key += ":" + SIRPrinter::typeToString(d.retType);
+  return key;
+}
+
 // Same-name structs in two merged programs must be structurally
 // identical — otherwise a callee that returns a `@struct_X` would
 // access fields that mean something different in the caller. With the
@@ -146,7 +157,8 @@ static bool structsEqual(const StructDecl &a, const StructDecl &b) {
 // earlier pointer. Assert rather than silently corrupt.
 static FunDecl *mergeInto(
     Program &bundle, Program src, const std::string &sourceStem,
-    std::unordered_map<std::string, std::size_t> &haveStructs
+    std::unordered_map<std::string, std::size_t> &haveStructs,
+    std::unordered_set<std::string> &haveIntrinsics
 ) {
   assert(
       bundle.funs.size() < bundle.funs.capacity() &&
@@ -166,6 +178,14 @@ static FunDecl *mergeInto(
       return nullptr;
     }
   }
+  // Intrinsic declarations: dedup by (name, param types, return type).
+  // The semchecker now supports same-name intrinsics with different
+  // signatures, so we must keep @popcount i32 distinct from @popcount i64.
+  for (auto &id: src.intrinsics) {
+    if (haveIntrinsics.emplace(intrinsicKey(id)).second)
+      bundle.intrinsics.push_back(std::move(id));
+  }
+
   if (src.funs.size() != 1)
     return nullptr; // rysmith always emits exactly one fun per file
   bundle.funs.push_back(std::move(src.funs[0]));
@@ -366,6 +386,7 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
   Program bundle;
   bundle.funs.reserve(k);
   std::unordered_map<std::string, std::size_t> haveStructs;
+  std::unordered_set<std::string> haveIntrinsics;
   std::vector<Node> nodes(k);
   for (int i = 0; i < k; ++i) {
     nodes[i].idx = i;
@@ -379,7 +400,7 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     auto prog = parseSir(sirPath);
     if (!prog)
       return false;
-    nodes[i].fn = mergeInto(bundle, std::move(*prog), nodes[i].stem, haveStructs);
+    nodes[i].fn = mergeInto(bundle, std::move(*prog), nodes[i].stem, haveStructs, haveIntrinsics);
     if (!nodes[i].fn)
       return false;
   }

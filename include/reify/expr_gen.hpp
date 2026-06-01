@@ -2,13 +2,20 @@
 
 #include <cstdint>
 #include <random>
+#include <set>
 #include <string>
 #include <vector>
+#include "analysis/intrinsics.hpp"
 #include "ast/ast.hpp"
 #include "reify/type_gen.hpp"
 #include "reify/var_catalogue.hpp"
 
 namespace symir::reify {
+
+  // Key for tracking which (intrinsic, bitwidth) pairs have been used.
+  // Now that the toolchain supports same-name intrinsics with different
+  // signatures, each (kind, width) pair gets its own IntrinsicDecl.
+  using IntrinsicUseKey = std::pair<IntrinsicKind, uint32_t>;
 
   // ---------------------------------------------------------------------------
   // SymCounter — tracks generated symbols, produces declarations
@@ -56,6 +63,11 @@ namespace symir::reify {
     bool enableDiv = true;    // div/mod with concrete denominators
     bool enableSelect = true; // select ternary
     bool enableFp = true;
+    bool enableIntrinsics = true;
+    // Mutable set populated during expression generation. genFunction
+    // reads it afterward to emit IntrinsicDecl entries. May be nullptr
+    // (e.g. in tests) — intrinsic generation is silently skipped.
+    std::set<IntrinsicUseKey> *usedIntrinsics = nullptr;
   };
 
   // ---------------------------------------------------------------------------
