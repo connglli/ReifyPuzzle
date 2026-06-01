@@ -36,14 +36,38 @@ namespace symir {
       checkExtDecl(d, diags);
     }
 
-    // [v0.2.2] Intrinsic declarations.
+    // [v0.2.2] Intrinsic declarations. Two intrinsics with the same name
+    // but different parameter-type signatures are distinct functions and
+    // may coexist (overloading). Same name + same param types = duplicate.
+    // Intrinsic names are tracked separately so that same-name intrinsics
+    // with different signatures don't collide with each other, but still
+    // conflict with non-intrinsic globals (struct, fun, decl).
+    std::unordered_set<std::string> intrinsicNames;
+    std::unordered_set<std::string> intrinsicSigs;
     for (const auto &d: prog.intrinsics) {
       if (globalNames.count(d.name.name)) {
         diags.error("Duplicate global name (intrinsic): " + d.name.name, d.span);
       }
-      globalNames.insert(d.name.name);
+      std::string sig = d.name.name;
+      sig += "(";
+      for (size_t i = 0; i < d.params.size(); ++i) {
+        if (i > 0)
+          sig += ",";
+        if (auto bits = TypeUtils::getIntBitWidth(d.params[i].type))
+          sig += "i" + std::to_string(*bits);
+        else
+          sig += "?";
+      }
+      sig += ")";
+      if (intrinsicSigs.count(sig)) {
+        diags.error("Duplicate intrinsic signature: " + d.name.name, d.span);
+      }
+      intrinsicNames.insert(d.name.name);
+      intrinsicSigs.insert(sig);
       checkIntrinsicDecl(d, diags);
     }
+    for (const auto &name: intrinsicNames)
+      globalNames.insert(name);
     return diags.hasErrors() ? symir::PassResult::Error : symir::PassResult::Success;
   }
 

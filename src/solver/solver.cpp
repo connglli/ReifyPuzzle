@@ -2307,17 +2307,34 @@ namespace symir {
           } else if constexpr (std::is_same_v<T, CallAtom>) {
             // [v0.2.2] Phase 4 handles intrinsic calls only. Fun/decl
             // targets are stubbed for Phases 6/7/8.
-            const IntrinsicDecl *intr = nullptr;
-            for (const auto &i: prog_.intrinsics)
-              if (i.name.name == arg.callee.name) {
-                intr = &i;
-                break;
-              }
-            // Evaluate arguments left-to-right. §2.12 strict commit.
+            // Evaluate arguments left-to-right first (§2.12 strict commit)
+            // so we can match intrinsic overloads by argument type.
             std::vector<SymbolicValue> argVals;
             argVals.reserve(arg.args.size());
             for (const auto &ap: arg.args) {
               argVals.push_back(evalExpr(*ap, solver, store, pc));
+            }
+            const IntrinsicDecl *intr = nullptr;
+            for (const auto &i: prog_.intrinsics) {
+              if (i.name.name != arg.callee.name)
+                continue;
+              if (i.params.size() != argVals.size())
+                continue;
+              bool match = true;
+              for (size_t k = 0; k < argVals.size(); ++k) {
+                auto pb = TypeUtils::getIntBitWidth(i.params[k].type);
+                if (pb && argVals[k].kind == SymbolicValue::Kind::Int) {
+                  auto sort = solver.get_sort(argVals[k].term);
+                  if (solver.is_bv_sort(sort) && solver.get_bv_width(sort) != *pb) {
+                    match = false;
+                    break;
+                  }
+                }
+              }
+              if (match) {
+                intr = &i;
+                break;
+              }
             }
             if (!intr) {
               // [v0.2.2 Phase 6] `fun` target -- nested symbolic exec.

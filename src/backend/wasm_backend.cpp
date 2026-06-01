@@ -578,11 +578,37 @@ namespace symir {
             // [v0.2.2] Push arguments left-to-right then `call $name`.
             const IntrinsicDecl *intr = nullptr;
             if (prog_) {
-              for (const auto &i: prog_->intrinsics)
-                if (i.name.name == arg.callee.name) {
+              for (const auto &i: prog_->intrinsics) {
+                if (i.name.name != arg.callee.name)
+                  continue;
+                if (i.params.size() != arg.args.size())
+                  continue;
+                if (!intr) {
                   intr = &i;
-                  break;
+                  continue;
                 }
+                // Multiple candidates — disambiguate by first argument.
+                auto bw1 = TypeUtils::getIntBitWidth(intr->params[0].type);
+                auto bw2 = TypeUtils::getIntBitWidth(i.params[0].type);
+                if (!bw1 || !bw2 || *bw1 == *bw2)
+                  continue;
+                uint32_t argBW = *bw1;
+                if (!arg.args.empty() && arg.args[0]->rest.empty()) {
+                  const auto &fa = arg.args[0]->first;
+                  if (auto *ca = std::get_if<CoefAtom>(&fa.v)) {
+                    if (auto lit = std::get_if<IntLit>(&ca->coef))
+                      argBW = (lit->value > 2147483647LL || lit->value < -2147483648LL) ? 64 : 32;
+                  } else if (auto *ra = std::get_if<RValueAtom>(&fa.v)) {
+                    if (ra->rval.accesses.empty()) {
+                      auto lit = locals_.find(ra->rval.base.name);
+                      if (lit != locals_.end())
+                        argBW = lit->second.bitwidth;
+                    }
+                  }
+                }
+                if (*bw2 == argBW && *bw1 != argBW)
+                  intr = &i;
+              }
             }
             // Determine the parameter types so we can pass argWidth correctly.
             std::vector<TypePtr> ptypes;

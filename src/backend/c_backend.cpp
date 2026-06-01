@@ -1078,11 +1078,37 @@ namespace symir {
             // For other targets, use the mangled name directly (link-form
             // decls have extern prototypes; fun bodies are emitted later).
             const IntrinsicDecl *intr = nullptr;
-            for (const auto &i: prog_->intrinsics)
-              if (i.name.name == arg.callee.name) {
+            for (const auto &i: prog_->intrinsics) {
+              if (i.name.name != arg.callee.name)
+                continue;
+              if (i.params.size() != arg.args.size())
+                continue;
+              if (!intr) {
                 intr = &i;
-                break;
+                continue;
               }
+              // Multiple candidates — disambiguate by first argument type.
+              auto bw1 = TypeUtils::getIntBitWidth(intr->params[0].type);
+              auto bw2 = TypeUtils::getIntBitWidth(i.params[0].type);
+              if (!bw1 || !bw2 || *bw1 == *bw2)
+                continue;
+              uint32_t argBW = *bw1; // default: keep current
+              if (!arg.args.empty() && arg.args[0]->rest.empty()) {
+                const auto &fa = arg.args[0]->first;
+                if (auto *ca = std::get_if<CoefAtom>(&fa.v)) {
+                  if (auto lit = std::get_if<IntLit>(&ca->coef))
+                    argBW = (lit->value > 2147483647LL || lit->value < -2147483648LL) ? 64 : 32;
+                } else if (auto *ra = std::get_if<RValueAtom>(&fa.v)) {
+                  if (ra->rval.accesses.empty()) {
+                    auto wit = varWidths_.find(ra->rval.base.name);
+                    if (wit != varWidths_.end())
+                      argBW = wit->second;
+                  }
+                }
+              }
+              if (*bw2 == argBW && *bw1 != argBW)
+                intr = &i;
+            }
             if (intr) {
               auto rb = TypeUtils::getIntBitWidth(intr->retType);
               out_ << intrinsicHelperName(arg.callee.name, rb.value_or(32));

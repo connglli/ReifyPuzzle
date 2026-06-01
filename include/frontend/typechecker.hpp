@@ -112,7 +112,7 @@ namespace symir {
       const IntrinsicDecl *intr = nullptr;
     };
 
-    std::unordered_map<std::string, CalleeInfo> callees_;
+    std::unordered_map<std::string, std::vector<CalleeInfo>> callees_;
 
     struct VarInfo {
       TypePtr type;

@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// [v0.2.2] Two intrinsics with the same name but different parameter types
+// are distinct functions and should both be allowed.
+intrinsic @popcount(%x: i32): i32;
+intrinsic @popcount(%x: i64): i64;
+
+fun @main(): i32 {
+^entry:
+  ret 0;
+}

@@ -2,5 +2,5 @@
 // SPEC v0.2.2 §3.3
 // Intention: two `intrinsic @abs` declarations with identical signatures.
 intrinsic @abs(%x: i32) : i32;
-intrinsic @abs(%x: i64) : i64;
+intrinsic @abs(%x: i32) : i32;
 fun @main() : i32 { ^entry: ret 0; }

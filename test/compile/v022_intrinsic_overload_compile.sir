@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// [v0.2.2] Compiler dispatches same-name intrinsics by parameter types.
+intrinsic @popcount(%x: i32): i32;
+intrinsic @popcount(%x: i64): i64;
+
+fun @main(): i32 {
+  let mut %a: i32 = 0;
+  let mut %b: i64 = 0;
+  let %x: i32 = 0xff;
+  let %y: i64 = 0x100000000;
+  let %eight: i32 = 8;
+  let %one: i64 = 1;
+^entry:
+  %a = call @popcount(%x);
+  require %a == %eight, "popcount(0xff) i32 == 8";
+  %b = call @popcount(%y);
+  require %b == %one, "popcount(2^32) i64 == 1";
+  ret 0;
+}

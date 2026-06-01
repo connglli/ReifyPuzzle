@@ -95,7 +95,7 @@ namespace symir {
       ci.fun = &f;
       for (const auto &p: f.params)
         ci.paramTypes.push_back(p.type);
-      callees_[f.name.name] = std::move(ci);
+      callees_[f.name.name].push_back(std::move(ci));
     }
     // 2. Ext decls.
     for (const auto &d: prog.extDecls) {
@@ -104,7 +104,7 @@ namespace symir {
       for (const auto &p: d.params)
         validateTypeWF(p.type, diags);
       auto it = callees_.find(d.name.name);
-      if (it != callees_.end()) {
+      if (it != callees_.end() && !it->second.empty()) {
         diags.error("`decl " + d.name.name + "` conflicts with a `fun` of the same name", d.span);
       }
       CalleeInfo ci;
@@ -114,8 +114,8 @@ namespace symir {
       ci.ext = &d;
       for (const auto &p: d.params)
         ci.paramTypes.push_back(p.type);
-      if (it == callees_.end())
-        callees_[d.name.name] = std::move(ci);
+      if (it == callees_.end() || it->second.empty())
+        callees_[d.name.name].push_back(std::move(ci));
     }
     // 3. Intrinsics.
     for (const auto &i: prog.intrinsics) {
@@ -134,11 +134,42 @@ namespace symir {
         if (!isInt(p.type))
           diags.error("`intrinsic " + i.name.name + "` parameter type must be `iN` (§12)", i.span);
       auto it = callees_.find(i.name.name);
+      bool hasNonIntrinsic = false;
+      bool hasSameSig = false;
       if (it != callees_.end()) {
-        diags.error(
-            "`intrinsic " + i.name.name + "` conflicts with another declaration of the same name",
-            i.span
-        );
+        // If any existing callee is NOT an intrinsic, reject (name collision
+        // between intrinsic and fun/decl).
+        for (const auto &existing: it->second) {
+          if (existing.kind != CalleeInfo::Kind::Intrinsic) {
+            hasNonIntrinsic = true;
+            break;
+          }
+          // For intrinsic-intrinsic collision, check parameter types.
+          if (existing.paramTypes.size() == i.params.size()) {
+            bool same = true;
+            for (size_t k = 0; k < i.params.size(); ++k) {
+              if (!TypeUtils::areTypesEqual(existing.paramTypes[k], i.params[k].type)) {
+                same = false;
+                break;
+              }
+            }
+            if (same) {
+              hasSameSig = true;
+              break;
+            }
+          }
+        }
+        if (hasNonIntrinsic) {
+          diags.error(
+              "`intrinsic " + i.name.name + "` conflicts with another declaration of the same name",
+              i.span
+          );
+        } else if (hasSameSig) {
+          diags.error(
+              "`intrinsic " + i.name.name + "` conflicts with another declaration of the same name",
+              i.span
+          );
+        }
       }
       CalleeInfo ci;
       ci.kind = CalleeInfo::Kind::Intrinsic;
@@ -147,8 +178,9 @@ namespace symir {
       ci.intr = &i;
       for (const auto &p: i.params)
         ci.paramTypes.push_back(p.type);
-      if (it == callees_.end())
-        callees_[i.name.name] = std::move(ci);
+      // Add to registry unless it's a duplicate signature.
+      if (!hasSameSig || it == callees_.end())
+        callees_[i.name.name].push_back(std::move(ci));
     }
   }
 
@@ -365,7 +397,8 @@ namespace symir {
             cycle += comp[i];
           }
           auto cit = callees_.find(v);
-          SourceSpan sp = (cit != callees_.end()) ? cit->second.declSpan : SourceSpan{};
+          SourceSpan sp = (cit != callees_.end() && !cit->second.empty()) ? cit->second[0].declSpan
+                                                                          : SourceSpan{};
           diags.error("Recursion is not supported in v0.2.2 (cycle: " + cycle + ")", sp);
         }
       }
@@ -1280,24 +1313,89 @@ namespace symir {
           } else if constexpr (std::is_same_v<T, CallAtom>) {
             // [v0.2.2] §6.10 Call typing. Resolve callee against the
             // registry built in collectCallees, verify arity and exact
-            // parameter-type match.
+            // parameter-type match. When multiple callees share a name
+            // (intrinsic overloading), select the one whose param types
+            // match the argument types.
             auto it = callees_.find(arg.callee.name);
-            if (it == callees_.end()) {
+            if (it == callees_.end() || it->second.empty()) {
               diags.error("Call to undeclared function: " + arg.callee.name, arg.span);
               return Ty{std::monostate{}};
             }
-            const auto &ci = it->second;
-            if (arg.args.size() != ci.paramTypes.size()) {
+            const auto &candidates = it->second;
+            // Find a candidate with matching param count and compatible
+            // param types. When multiple candidates have the same count,
+            // peek at argument types (variable declarations, literal sizes)
+            // to select the correct overload.
+            const CalleeInfo *ci = nullptr;
+            for (const auto &cand: candidates) {
+              if (cand.paramTypes.size() != arg.args.size())
+                continue;
+              if (!ci) {
+                ci = &cand;
+                continue;
+              }
+              // Multiple candidates with same arity — compare first param
+              // bitwidth against argument's declared type to disambiguate.
+              auto bw1 = TypeUtils::getIntBitWidth(ci->paramTypes[0]);
+              auto bw2 = TypeUtils::getIntBitWidth(cand.paramTypes[0]);
+              if (!bw1 || !bw2)
+                continue;
+              // Determine expected bitwidth from the first argument.  For
+              // a single-atom expression, peek at the atom: literal
+              // width, or the declared type of a variable/symbol.
+              std::uint32_t argBW = 32;
+              if (arg.args[0]->rest.empty()) {
+                const auto &firstAtom = arg.args[0]->first;
+                // Helper to look up a local/symbol name in vars/syms.
+                auto lookupName = [&](const std::string &name) -> std::optional<uint32_t> {
+                  auto vit = vars.find(name);
+                  if (vit != vars.end() && vit->second.type)
+                    return TypeUtils::getIntBitWidth(vit->second.type);
+                  auto sit = syms.find(name);
+                  if (sit != syms.end() && sit->second.type)
+                    return TypeUtils::getIntBitWidth(sit->second.type);
+                  return std::nullopt;
+                };
+                if (auto *ca = std::get_if<CoefAtom>(&firstAtom.v)) {
+                  if (auto lit = std::get_if<IntLit>(&ca->coef)) {
+                    if (lit->value > 2147483647LL || lit->value < -2147483648LL)
+                      argBW = 64;
+                  } else if (auto *lsid = std::get_if<LocalOrSymId>(&ca->coef)) {
+                    if (auto *lid = std::get_if<LocalId>(lsid)) {
+                      if (auto bw = lookupName(lid->name))
+                        argBW = *bw;
+                    } else if (auto *sid = std::get_if<SymId>(lsid)) {
+                      if (auto bw = lookupName(sid->name))
+                        argBW = *bw;
+                    }
+                  }
+                } else if (auto *ra = std::get_if<RValueAtom>(&firstAtom.v)) {
+                  // Simple variable reference: look up its declared type.
+                  const auto &lv = ra->rval;
+                  if (lv.accesses.empty()) {
+                    if (auto bw = lookupName(lv.base.name))
+                      argBW = *bw;
+                  }
+                }
+              }
+              if (*bw2 == argBW && *bw1 != argBW)
+                ci = &cand;
+            }
+            if (!ci) {
+              diags.error("Call to undeclared function: " + arg.callee.name, arg.span);
+              return Ty{std::monostate{}};
+            }
+            if (arg.args.size() != ci->paramTypes.size()) {
               diags.error(
                   "Argument count mismatch in call to " + arg.callee.name + ": expected " +
-                      std::to_string(ci.paramTypes.size()) + ", got " +
+                      std::to_string(ci->paramTypes.size()) + ", got " +
                       std::to_string(arg.args.size()),
                   arg.span
               );
               return Ty{std::monostate{}};
             }
             for (size_t k = 0; k < arg.args.size(); ++k) {
-              const auto &paramT = ci.paramTypes[k];
+              const auto &paramT = ci->paramTypes[k];
               auto pbits = TypeUtils::getIntBitWidth(paramT);
               // Float param bitwidth isn't covered by getIntBitWidth (it
               // returns nullopt for non-int types) — feed it explicitly
@@ -1337,7 +1435,7 @@ namespace symir {
               }
             }
             // Result type.
-            const auto &rt = ci.retType;
+            const auto &rt = ci->retType;
             if (!rt)
               return Ty{std::monostate{}};
             if (auto pb = TypeUtils::getIntBitWidth(rt))

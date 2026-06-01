@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// [v0.2.2] Solver dispatches same-name intrinsics by parameter types.
+// %?x is i64 in [2^32, 2^32+1]; @popcount i64 is used.
+intrinsic @popcount(%x: i32): i32;
+intrinsic @popcount(%x: i64): i64;
+
+fun @main(): i32 {
+  sym %?x: value i64 in [0x100000000, 0x100000001];
+  let mut %b: i64 = 0;
+  let %target: i64 = 1;
+^entry:
+  %b = call @popcount(%?x);
+  require %b == %target, "popcount i64 == 1";
+  br ^exit;
+^exit:
+  ret 0;
+}
