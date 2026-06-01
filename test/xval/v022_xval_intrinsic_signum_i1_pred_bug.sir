@@ -1,0 +1,27 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// Cross-validate signum at i1 between interpreter and compiled C/WASM.
+//
+// Guarded by EXPECT_RC: 0 — if either the interpreter or backend reverts
+// the i1 unsigned convention (evalCond masking / makeSextN for i1 return),
+// the program takes the ^bad path, returns 1, and EXPECT_RC fails.
+//
+// SPEC v0.2.2 §12.3 signum: returns -1/0/1.
+// SPEC v0.2.2 §10.4: i1 values are 0 (false) and 1 (true).
+intrinsic @signum(%x: i1) : i1;
+fun @main() : i32 {
+  let mut %a: i1 = 0;
+  let mut %b: i1 = 0;
+  let %one: i1 = 1;
+  let %zero: i32 = 0;
+^entry:
+  %a = call @signum(1);
+  %b = call @signum(0);
+  br %a == %one, ^a_ok, ^bad;
+^a_ok:
+  br %b == 0, ^b_ok, ^bad;
+^b_ok:
+  ret %zero;
+^bad:
+  ret 1;
+}

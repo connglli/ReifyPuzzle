@@ -1503,6 +1503,21 @@ namespace symir {
     }
   }
 
+  static bool isI1Type(const TypePtr &t) {
+    if (!t)
+      return false;
+    return std::visit(
+        [](auto &&arg) -> bool {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, IntType>) {
+            return arg.kind == IntType::Kind::ICustom && arg.bits && *arg.bits == 1;
+          }
+          return false;
+        },
+        t->v
+    );
+  }
+
   void CBackend::emitCond(const Cond &cond) {
     // Take the type from either operand: SymIR requires lhs and rhs to share
     // a type, so the disjunction is just defensive against missing lookups.
@@ -1510,7 +1525,12 @@ namespace symir {
         isDoubleCtx_,
         isOrContainsF64(getExprType(cond.lhs)) || isOrContainsF64(getExprType(cond.rhs))
     );
+    bool hasI1 = isI1Type(getExprType(cond.lhs)) || isI1Type(getExprType(cond.rhs));
+    if (hasI1)
+      out_ << "(";
     emitExpr(cond.lhs);
+    if (hasI1)
+      out_ << " & 1)";
     switch (cond.op) {
       case RelOp::EQ:
         out_ << " == ";
@@ -1531,7 +1551,11 @@ namespace symir {
         out_ << " >= ";
         break;
     }
+    if (hasI1)
+      out_ << "(";
     emitExpr(cond.rhs);
+    if (hasI1)
+      out_ << " & 1)";
   }
 
   void CBackend::emitLValue(const LValue &lv) {

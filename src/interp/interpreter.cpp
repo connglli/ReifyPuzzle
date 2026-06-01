@@ -510,6 +510,9 @@ namespace symir {
   static std::int64_t canonicalize(std::int64_t val, std::uint32_t bits) {
     if (bits >= 64)
       return val;
+    // [v0.2.2] i1 (boolean) uses unsigned convention (0/1), not signed (-1/0).
+    if (bits == 1)
+      return val & 1;
     std::uint64_t mask = (1ULL << bits) - 1;
     std::uint64_t sign_bit = 1ULL << (bits - 1);
     std::uint64_t uval = static_cast<std::uint64_t>(val) & mask;
@@ -2410,14 +2413,17 @@ namespace symir {
     }
 
     if (l.kind == RuntimeValue::Kind::Int && r.kind == RuntimeValue::Kind::Int) {
-      // [v0.2.1] For comparisons involving i1 (boolean) values, use the
+      // [v0.2.2] For comparisons involving i1 (boolean) values, use the
       // unsigned (masked) representation so that `true` (canonicalized as
-      // -1 in signed i1) compares equal to literal `1`.
+      // -1 in signed i1) compares equal to literal `-1` or `1`.
+      // Mask BOTH sides when EITHER is i1, because integer literals from
+      // evalCoef always have bits=64 and would otherwise compare raw
+      // int64 values against the masked i1 variable.
       int64_t li = l.intVal, ri = r.intVal;
-      if (l.bits == 1)
+      if (l.bits == 1 || r.bits == 1) {
         li = li & 1;
-      if (r.bits == 1)
         ri = ri & 1;
+      }
       switch (c.op) {
         case RelOp::EQ:
           return li == ri;

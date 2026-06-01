@@ -239,8 +239,17 @@ namespace symir {
           CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
           const std::string &uty
       ) const override {
-        out(backend) << "  " << sty << " r = (" << sty << ")((a0 > 0) - (a0 < 0));\n";
-        out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
+        // Predicate: return type is i1 (N=1, W=8). SymIR's i1 convention
+        // stores the boolean as the literal 0 or 1 (matching `cmp` lowering),
+        // not sign-extended — so no final sextN is applied.
+        if (N == 1) {
+          (void) W;
+          (void) uty;
+          out(backend) << "  return (" << sty << ")((a0 > 0) - (a0 < 0));\n";
+        } else {
+          out(backend) << "  " << sty << " r = (" << sty << ")((a0 > 0) - (a0 < 0));\n";
+          out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
+        }
       }
     };
 

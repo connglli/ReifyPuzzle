@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// REGRESSION: i1 variable comparison with literal -1 must succeed.
+// SPEC v0.2.2 §12.4 parity: returns XOR of all bits.
+// SPEC v0.2.2 §4.1/§6.2: integer literals are type-inferred from context.
+// Fixed in v0.2.2: evalCond now masks BOTH sides to 1 bit when EITHER is i1.
+intrinsic @parity(%x: i1) : i1;
+fun @main() : i32 {
+  let mut %a: i1 = 0;
+  let mut %b: i1 = 0;
+  let %zero: i32 = 0;
+^entry:
+  %a = call @parity(0);
+  %b = call @parity(-1);
+  br %a == 0, ^a_ok, ^bad;
+^a_ok:
+  br %b == -1, ^b_ok, ^bad;
+^b_ok:
+  ret %zero;
+^bad:
+  ret 1;
+}

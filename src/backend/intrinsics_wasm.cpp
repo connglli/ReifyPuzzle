@@ -449,7 +449,9 @@ namespace symir {
         out(backend) << ity << ".lt_s\n";
         indent(backend);
         out(backend) << ity << ".sub\n";
-        sextN(backend, N, W, ity);
+        // [v0.2.2] Predicate: N=1 (i1) — stored as literal 0/1, not sign-extended.
+        if (N > 1)
+          sextN(backend, N, W, ity);
       }
     };
 

@@ -80,6 +80,9 @@ namespace symir {
         throw std::runtime_error("Intrinsic " + intr.name.name + ": non-integer argument");
       auto pb = TypeUtils::getIntBitWidth(intr.params[i].type);
       uint32_t pN = pb ? *pb : args[i].bits;
+      // [v0.2.2] i1 (boolean) uses unsigned convention (0/1), not signed (-1/0).
+      if (pN == 1)
+        return args[i].intVal & 1;
       return sextToInt64(args[i].intVal, pN);
     }
 

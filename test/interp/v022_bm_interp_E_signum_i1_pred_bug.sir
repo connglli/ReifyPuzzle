@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// REGRESSION: i1 variable comparison with literal -1 must succeed.
+// SPEC v0.2.2 §12.3 signum: returns -1/0/1.
+// SPEC v0.2.2 §4.1/§6.2: integer literals are type-inferred from context.
+// Fixed in v0.2.2: evalCond now masks BOTH sides to 1 bit when EITHER is i1.
+intrinsic @signum(%x: i1) : i1;
+fun @main() : i32 {
+  let mut %a: i1 = 0;
+  let mut %b: i1 = 0;
+  let %zero: i32 = 0;
+^entry:
+  %a = call @signum(-1);
+  %b = call @signum(0);
+  br %a == -1, ^a_ok, ^bad;
+^a_ok:
+  br %b == 0, ^b_ok, ^bad;
+^b_ok:
+  ret %zero;
+^bad:
+  ret 1;
+}

@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// REGRESSION: is_pow2 for i1 with input 1 must return 1 (1 is a positive power of 2).
+// SPEC v0.2.2 §12.4: is_pow2 returns true iff x is a positive power of 2.
+// SPEC v0.2.2 §10.4: i1 values are 0 (false) and 1 (true).
+// Fixed in v0.2.2: argSint now treats i1 as unsigned (0/1) not signed (-1/0).
+intrinsic @is_pow2(%x: i1) : i1;
+fun @main() : i32 {
+  let mut %a: i1 = 0;
+  let %one: i1 = 1;
+  let %zero: i32 = 0;
+^entry:
+  %a = call @is_pow2(1);
+  br %a == %one, ^a_ok, ^bad;
+^a_ok:
+  ret %zero;
+^bad:
+  ret 1;
+}

@@ -1,0 +1,26 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// Cross-validate parity at i1 between interpreter and compiled C/WASM.
+//
+// Guarded by EXPECT_RC: 0 — if either the interpreter or backend reverts
+// the i1 unsigned convention (argSint / evalCond masking), the program
+// takes the ^bad path, returns 1, and EXPECT_RC fails.
+//
+// SPEC v0.2.2 §12.4 parity: returns XOR of all bits.
+// SPEC v0.2.2 §10.4: i1 values are 0 (false) and 1 (true).
+intrinsic @parity(%x: i1) : i1;
+fun @main() : i32 {
+  let mut %a: i1 = 0;
+  let mut %b: i1 = 0;
+  let %zero: i32 = 0;
+^entry:
+  %a = call @parity(0);
+  %b = call @parity(-1);
+  br %a == 0, ^a_ok, ^bad;
+^a_ok:
+  br %b == -1, ^b_ok, ^bad;
+^b_ok:
+  ret %zero;
+^bad:
+  ret 1;
+}
