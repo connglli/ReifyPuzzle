@@ -32,11 +32,6 @@ namespace symir {
     run(const std::string &entryFuncName, const SymBindings &symBindings,
         const std::vector<std::string> &paramArgs = {}, bool dumpExec = false);
 
-  private:
-    const Program &prog_;
-    bool dumpExec_ = false;
-    std::unordered_map<std::string, const StructDecl *> structs_;
-
     /**
      * Represents a value during runtime.
      */
@@ -56,6 +51,11 @@ namespace symir {
     };
 
     using Store = std::unordered_map<std::string, RuntimeValue>;
+
+  private:
+    const Program &prog_;
+    bool dumpExec_ = false;
+    std::unordered_map<std::string, const StructDecl *> structs_;
 
     // ---- Memory model for pointer operations ----
 

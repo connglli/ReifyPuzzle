@@ -7,32 +7,223 @@
 // UB-preconditions abort via __builtin_trap.
 //
 // To add a new intrinsic:
-//   1. Add its `intrinsic @name(...)` declaration to the test / user
-//      program.
-//   2. Add a branch in CBackend::emitIntrinsicHelper below.
-//   3. Add the matching branches in:
-//        src/interp/intrinsics.cpp        (interpreter concrete evaluation)
-//        src/solver/intrinsics.cpp        (SMT lowering)
-//        src/backend/intrinsics_wasm.cpp  (WASM code-gen helper)
-//
-// Currently supported (§12):
-//   @abs(x)      – branch-free abs via negation; UB trap on INT_MIN_N
-//   @min(a, b)   – ternary conditional
-//   @max(a, b)   – ternary conditional
-//   @popcount(x) – __builtin_popcount / __builtin_popcountll
-//   @clz(x)      – __builtin_clz / __builtin_clzll with bias; UB trap on 0
-//   @ctz(x)      – __builtin_ctz / __builtin_ctzll; UB trap on 0
+//   1. Add its IntrinsicKind to include/analysis/intrinsics.hpp.
+//   2. Implement a subclass of CIntrinsic and register it below.
 
 #include "backend/c_backend.hpp"
 
 #include <cstdint>
+#include <functional>
+#include <memory>
+#include <unordered_map>
+#include "analysis/intrinsics.hpp"
 #include "analysis/type_utils.hpp"
 
 namespace symir {
 
+  /**
+   * @brief Abstract base class for C code-generation of intrinsics.
+   * Subclasses generate C function bodies to emulate SymIR standard intrinsics.
+   */
+  class CIntrinsic {
+  public:
+    virtual ~CIntrinsic() = default;
+
+    /**
+     * @brief Generates C statements inside the helper function body.
+     * @param backend Reference to the code-generation engine.
+     * @param N Declared bit-width of the intrinsic.
+     * @param W Smallest native machine width fitting N (8, 16, 32, or 64).
+     * @param sty Name of the signed type corresponding to width W (e.g., "int32_t").
+     * @param uty Name of the unsigned type corresponding to width W (e.g., "uint32_t").
+     */
+    virtual void emit(
+        CBackend &backend, uint32_t N, uint32_t W, const std::string &sty, const std::string &uty
+    ) const = 0;
+
+  protected:
+    /**
+     * @brief Helper to fetch the C backend's private stream via CIntrinsicRegistry.
+     */
+    static std::ostream &out(CBackend &backend);
+
+    /**
+     * @brief Generates a sign-extension expression back to N bits in C.
+     * Uses arithmetic right shift for sign extension: (sty)((uty)(expr) << (W - N)) >> (W - N).
+     */
+    static std::string makeSextN(
+        uint32_t N, uint32_t W, const std::string &sty, const std::string &uty,
+        const std::string &expr
+    ) {
+      if (N == W)
+        return expr;
+      return "(" + sty + ")((" + uty + ")(" + expr + ") << " + std::to_string(W - N) + ") >> " +
+             std::to_string(W - N);
+    }
+
+    /**
+     * @brief Generates an unsigned bitmask expression to clear bits above N-1.
+     */
+    static std::string
+    makeMaskU(uint32_t N, uint32_t W, const std::string &uty, const std::string &expr) {
+      if (N == W)
+        return "(" + uty + ")(" + expr + ")";
+      return "((" + uty + ")(" + expr + ") & ((" + uty + ")1 << " + std::to_string(N) + ") - 1)";
+    }
+  };
+
+  /**
+   * @brief Friendship-mediator registry to fetch private members of CBackend.
+   * This class is declared as a friend of CBackend, allowing subclasses of
+   * CIntrinsic (which are located in the anonymous namespace) to access CBackend's
+   * private stream `out_` safely.
+   */
+  struct CIntrinsicRegistry {
+    /**
+     * @brief Exposes the output stream of the given CBackend.
+     */
+    static std::ostream &out(CBackend &backend) { return backend.out_; }
+
+    using CIntrinsicGenFn = std::unique_ptr<class CIntrinsic>;
+
+    /**
+     * @brief Singleton registry getter for all supported CIntrinsic generators.
+     */
+    static const std::unordered_map<IntrinsicKind, CIntrinsicGenFn> &getRegistry();
+  };
+
+  std::ostream &CIntrinsic::out(CBackend &backend) { return CIntrinsicRegistry::out(backend); }
+
+  namespace {
+
+    /**
+     * @brief C emission for the @abs(x) intrinsic.
+     * Generates a sign-extension ternary branch-free operation: x < 0 ? -x : x.
+     * Inserts an assertion check that traps if input is INT_MIN_N.
+     */
+    class AbsIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, uint32_t N, uint32_t W, const std::string &sty, const std::string &uty
+      ) const override {
+        int64_t int_min_N = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        out(backend) << "  if (a0 == (" << sty << ")" << int_min_N << "LL) __builtin_trap();\n";
+        out(backend) << "  " << sty << " r = a0 < 0 ? -a0 : a0;\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
+      }
+    };
+
+    /**
+     * @brief C emission for the @min(a, b) intrinsic.
+     * Emits a simple ternary condition: a < b ? a : b.
+     */
+    class MinIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, uint32_t N, uint32_t W, const std::string &sty, const std::string &uty
+      ) const override {
+        out(backend) << "  " << sty << " r = a0 < a1 ? a0 : a1;\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
+      }
+    };
+
+    /**
+     * @brief C emission for the @max(a, b) intrinsic.
+     * Emits a simple ternary condition: a > b ? a : b.
+     */
+    class MaxIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, uint32_t N, uint32_t W, const std::string &sty, const std::string &uty
+      ) const override {
+        out(backend) << "  " << sty << " r = a0 > a1 ? a0 : a1;\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
+      }
+    };
+
+    /**
+     * @brief C emission for the @popcount(x) intrinsic.
+     * Emits Clang/GCC __builtin_popcount or __builtin_popcountll depending on width W.
+     * Widens the operand, applies an unsigned mask, counts bits, and sign-masks the result.
+     */
+    class PopcountIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, uint32_t N, uint32_t W, const std::string &sty, const std::string &uty
+      ) const override {
+        out(backend) << "  " << uty << " u = " << makeMaskU(N, W, uty, "a0") << ";\n";
+        if (W <= 32)
+          out(backend) << "  " << sty << " r = (" << sty << ")__builtin_popcount(u);\n";
+        else
+          out(backend) << "  " << sty << " r = (" << sty << ")__builtin_popcountll((uint64_t)u);\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
+      }
+    };
+
+    /**
+     * @brief C emission for the @clz(x) intrinsic.
+     * Emits Clang/GCC __builtin_clz or __builtin_clzll.
+     * Pre-masks the value and checks for zero (trapping if true).
+     * Adjusts the builtin result by subtracting the bias (32-N or 64-N)
+     * because the builtin counts zeros in the full machine word W.
+     */
+    class ClzIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, uint32_t N, uint32_t W, const std::string &sty, const std::string &uty
+      ) const override {
+        out(backend) << "  " << uty << " u = " << makeMaskU(N, W, uty, "a0") << ";\n";
+        out(backend) << "  if (u == 0) __builtin_trap();\n";
+        if (W <= 32) {
+          out(backend) << "  " << sty << " r = (" << sty << ")__builtin_clz((uint32_t)u) - "
+                       << std::to_string(32 - N) << ";\n";
+        } else {
+          out(backend) << "  " << sty << " r = (" << sty << ")__builtin_clzll((uint64_t)u) - "
+                       << std::to_string(64 - N) << ";\n";
+        }
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
+      }
+    };
+
+    /**
+     * @brief C emission for the @ctz(x) intrinsic.
+     * Emits Clang/GCC __builtin_ctz or __builtin_ctzll.
+     * Checks for zero (trapping if true).
+     */
+    class CtzIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, uint32_t N, uint32_t W, const std::string &sty, const std::string &uty
+      ) const override {
+        out(backend) << "  " << uty << " u = " << makeMaskU(N, W, uty, "a0") << ";\n";
+        out(backend) << "  if (u == 0) __builtin_trap();\n";
+        if (W <= 32)
+          out(backend) << "  " << sty << " r = (" << sty << ")__builtin_ctz((uint32_t)u);\n";
+        else
+          out(backend) << "  " << sty << " r = (" << sty << ")__builtin_ctzll((uint64_t)u);\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
+      }
+    };
+
+  } // namespace
+
+  const std::unordered_map<IntrinsicKind, CIntrinsicRegistry::CIntrinsicGenFn> &
+  CIntrinsicRegistry::getRegistry() {
+    static const std::unordered_map<IntrinsicKind, CIntrinsicGenFn> registry = []() {
+      std::unordered_map<IntrinsicKind, CIntrinsicGenFn> r;
+      r[IntrinsicKind::Abs] = std::make_unique<AbsIntrinsic>();
+      r[IntrinsicKind::Min] = std::make_unique<MinIntrinsic>();
+      r[IntrinsicKind::Max] = std::make_unique<MaxIntrinsic>();
+      r[IntrinsicKind::Popcount] = std::make_unique<PopcountIntrinsic>();
+      r[IntrinsicKind::Clz] = std::make_unique<ClzIntrinsic>();
+      r[IntrinsicKind::Ctz] = std::make_unique<CtzIntrinsic>();
+      return r;
+    }();
+    return registry;
+  }
+
   // ── naming ───────────────────────────────────────────────────────────────
   std::string CBackend::intrinsicHelperName(const std::string &intrName, uint32_t bits) const {
-    // intrName begins with '@'; drop it.
     std::string base = intrName;
     if (!base.empty() && base[0] == '@')
       base.erase(0, 1);
@@ -40,12 +231,6 @@ namespace symir {
   }
 
   // ── emission ─────────────────────────────────────────────────────────────
-  // [v0.2.2] §11.5 widening-and-mask lowering. We emit one static inline
-  // helper per (intrinsic, bit-width). Each helper widens to the next
-  // larger machine width, performs the operation, then sign-extends /
-  // masks the result back to N bits. UB-preconditions abort via
-  // __builtin_trap (matches the `assert`-on-violation pattern other UB
-  // sites use).
   void CBackend::emitIntrinsicHelper(const IntrinsicDecl &intr) {
     auto rb = TypeUtils::getIntBitWidth(intr.retType);
     if (!rb)
@@ -65,75 +250,18 @@ namespace symir {
     }
     out_ << ") {\n";
 
-    // Sign-mask helper: arithmetic-shift back to N bits.
-    auto sextN = [&](const std::string &expr) -> std::string {
-      if (N == W)
-        return expr;
-      return "(" + sty + ")((" + uty + ")(" + expr + ") << " + std::to_string(W - N) + ") >> " +
-             std::to_string(W - N);
-    };
-    // Unsigned mask to N bits: zero out the high (W-N) bits.
-    auto maskU = [&](const std::string &expr) -> std::string {
-      if (N == W)
-        return "(" + uty + ")(" + expr + ")";
-      return "((" + uty + ")(" + expr + ") & ((" + uty + ")1 << " + std::to_string(N) + ") - 1)";
-    };
-
-    const std::string &n = intr.name.name;
-
-    // ── @abs ───────────────────────────────────────────────────────────────
-    if (n == "@abs") {
-      int64_t int_min_N = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
-      out_ << "  if (a0 == (" << sty << ")" << int_min_N << "LL) __builtin_trap();\n";
-      out_ << "  " << sty << " r = a0 < 0 ? -a0 : a0;\n";
-      out_ << "  return " << sextN("r") << ";\n";
-
-      // ── @min ───────────────────────────────────────────────────────────────
-    } else if (n == "@min") {
-      out_ << "  " << sty << " r = a0 < a1 ? a0 : a1;\n";
-      out_ << "  return " << sextN("r") << ";\n";
-
-      // ── @max ───────────────────────────────────────────────────────────────
-    } else if (n == "@max") {
-      out_ << "  " << sty << " r = a0 > a1 ? a0 : a1;\n";
-      out_ << "  return " << sextN("r") << ";\n";
-
-      // ── @popcount ──────────────────────────────────────────────────────────
-    } else if (n == "@popcount") {
-      out_ << "  " << uty << " u = " << maskU("a0") << ";\n";
-      if (W <= 32)
-        out_ << "  " << sty << " r = (" << sty << ")__builtin_popcount(u);\n";
-      else
-        out_ << "  " << sty << " r = (" << sty << ")__builtin_popcountll((uint64_t)u);\n";
-      out_ << "  return " << sextN("r") << ";\n";
-
-      // ── @clz ───────────────────────────────────────────────────────────────
-    } else if (n == "@clz") {
-      out_ << "  " << uty << " u = " << maskU("a0") << ";\n";
-      out_ << "  if (u == 0) __builtin_trap();\n";
-      if (W <= 32) {
-        out_ << "  " << sty << " r = (" << sty << ")__builtin_clz((uint32_t)u) - "
-             << std::to_string(32 - N) << ";\n";
-      } else {
-        out_ << "  " << sty << " r = (" << sty << ")__builtin_clzll((uint64_t)u) - "
-             << std::to_string(64 - N) << ";\n";
+    auto kind = getIntrinsicKind(intr.name.name);
+    if (kind) {
+      const auto &registry = CIntrinsicRegistry::getRegistry();
+      auto it = registry.find(*kind);
+      if (it != registry.end()) {
+        it->second->emit(*this, N, W, sty, uty);
+        out_ << "}\n\n";
+        return;
       }
-      out_ << "  return " << sextN("r") << ";\n";
-
-      // ── @ctz ───────────────────────────────────────────────────────────────
-    } else if (n == "@ctz") {
-      out_ << "  " << uty << " u = " << maskU("a0") << ";\n";
-      out_ << "  if (u == 0) __builtin_trap();\n";
-      if (W <= 32)
-        out_ << "  " << sty << " r = (" << sty << ")__builtin_ctz((uint32_t)u);\n";
-      else
-        out_ << "  " << sty << " r = (" << sty << ")__builtin_ctzll((uint64_t)u);\n";
-      out_ << "  return " << sextN("r") << ";\n";
-
-      // ── unknown (defensive) ────────────────────────────────────────────────
-    } else {
-      out_ << "  __builtin_trap(); /* unknown intrinsic */\n";
     }
+
+    out_ << "  __builtin_trap(); /* unknown intrinsic */\n";
     out_ << "}\n\n";
   }
 

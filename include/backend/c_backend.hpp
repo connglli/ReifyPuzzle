@@ -20,6 +20,8 @@ namespace symir {
    * at runtime using sanitizers (ASan, UBSan, pointer-compare, etc.).
    */
   class CBackend {
+    friend struct CIntrinsicRegistry;
+
   public:
     explicit CBackend(std::ostream &out) : out_(out) {}
 

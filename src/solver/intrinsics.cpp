@@ -3,28 +3,231 @@
 // This file is the single source of truth for every intrinsic
 // supported by the SymIR symbolic executor / SMT constraint generator.
 // To add a new intrinsic:
-//   1. Add its `intrinsic @name(...)` declaration to the test / user
-//      program.
-//   2. Add a branch in callBuiltinIntrinsicSMT below.
-//   3. Add the matching branches in:
-//        src/interp/intrinsics.cpp        (interpreter concrete evaluation)
-//        src/backend/intrinsics_c.cpp     (C code-gen helper)
-//        src/backend/intrinsics_wasm.cpp  (WASM code-gen helper)
-//
-// Currently supported (§12):
-//   @abs(x)      – ITE(x >= 0, x, -x); UB guard: x != INT_MIN_N
-//   @min(a, b)   – ITE(a <= b, a, b) using BV_SLE
-//   @max(a, b)   – ITE(a >= b, a, b) using BV_SGE
-//   @popcount(x) – sum of N 1-bit extracts zero-extended to N bits
-//   @clz(x)      – ITE chain over bit positions; UB guard: x != 0
-//   @ctz(x)      – ITE chain over bit positions; UB guard: x != 0
+//   1. Add its IntrinsicKind to include/analysis/intrinsics.hpp.
+//   2. Implement a subclass of SolverIntrinsic and register it below.
 
 #include "solver/solver.hpp"
 
+#include <functional>
+#include <memory>
 #include <stdexcept>
+#include <unordered_map>
+#include "analysis/intrinsics.hpp"
 #include "analysis/type_utils.hpp"
 
 namespace symir {
+
+  namespace {
+
+    /**
+     * @brief Abstract base class for lowering built-in intrinsics to SMT terms.
+     * Subclasses implement the translation logic using SMT bit-vector logic.
+     */
+    class SolverIntrinsic {
+    public:
+      virtual ~SolverIntrinsic() = default;
+
+      /**
+       * @brief Lowers the intrinsic call into a SymbolicValue.
+       * @param N Declared bit-width of the intrinsic.
+       * @param argVals Symbolic values for all inputs.
+       * @param bvN Bit-vector sort of width N.
+       * @param solver Reference to the SMT solver backend.
+       * @param pc Accumulator for path conditions / UB constraints.
+       * @return The lowered symbolic result.
+       */
+      virtual SymbolicExecutor::SymbolicValue solve(
+          uint32_t N, const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+          smt::ISolver &solver, std::vector<smt::Term> &pc
+      ) const = 0;
+    };
+
+    /**
+     * @brief SMT translation for the @abs(x) intrinsic.
+     * Encodes absolute value using an SMT ITE term: (ITE (x >= 0) x (- x)).
+     * Appends an SMT DISTINCT assertion to check for UB (x != INT_MIN_N).
+     */
+    class AbsIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          uint32_t N, const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+          smt::ISolver &solver, std::vector<smt::Term> &pc
+      ) const override {
+        smt::Term x = argVals[0].term;
+        int64_t int_min_N = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        auto minT = solver.make_bv_value_int64(bvN, int_min_N);
+        pc.push_back(solver.make_term(smt::Kind::DISTINCT, {x, minT}));
+        auto zero = solver.make_bv_value_int64(bvN, 0);
+        auto cond = solver.make_term(smt::Kind::BV_SGE, {x, zero});
+        auto neg = solver.make_term(smt::Kind::BV_NEG, {x});
+        auto res = solver.make_term(smt::Kind::ITE, {cond, x, neg});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, res, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief SMT translation for the @min(a, b) intrinsic.
+     * Encodes minimum using (ITE (a <= b) a b) with signed comparison (BV_SLE).
+     */
+    class MinIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          uint32_t /*N*/, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::Sort /*bvN*/, smt::ISolver &solver, std::vector<smt::Term> & /*pc*/
+      ) const override {
+        smt::Term a0 = argVals[0].term;
+        smt::Term a1 = argVals[1].term;
+        auto cond = solver.make_term(smt::Kind::BV_SLE, {a0, a1});
+        auto res = solver.make_term(smt::Kind::ITE, {cond, a0, a1});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, res, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief SMT translation for the @max(a, b) intrinsic.
+     * Encodes maximum using (ITE (a >= b) a b) with signed comparison (BV_SGE).
+     */
+    class MaxIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          uint32_t /*N*/, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::Sort /*bvN*/, smt::ISolver &solver, std::vector<smt::Term> & /*pc*/
+      ) const override {
+        smt::Term a0 = argVals[0].term;
+        smt::Term a1 = argVals[1].term;
+        auto cond = solver.make_term(smt::Kind::BV_SGE, {a0, a1});
+        auto res = solver.make_term(smt::Kind::ITE, {cond, a0, a1});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, res, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief SMT translation for the @popcount(x) intrinsic.
+     * Encodes population count as the sum of all bits extracted from x.
+     * Extracts each bit as a 1-bit value, zero-extends it to width N,
+     * and accumulates using bit-vector addition (BV_ADD).
+     */
+    class PopcountIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          uint32_t N, const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+          smt::ISolver &solver, std::vector<smt::Term> & /*pc*/
+      ) const override {
+        smt::Term x = argVals[0].term;
+        smt::Term acc = solver.make_bv_value_int64(bvN, 0);
+        for (uint32_t k = 0; k < N; ++k) {
+          auto bit = solver.make_term(smt::Kind::BV_EXTRACT, {x}, {k, k});
+          smt::Term ext =
+              (N == 1) ? bit : solver.make_term(smt::Kind::BV_ZERO_EXTEND, {bit}, {N - 1});
+          acc = solver.make_term(smt::Kind::BV_ADD, {acc, ext});
+        }
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, acc, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief SMT translation for the @clz(x) intrinsic.
+     * Encodes leading zero count by building a cascading chain of SMT ITEs.
+     * Traverses bit positions from most significant to least significant.
+     * Appends a DISTINCT assertion to require input x != 0.
+     */
+    class ClzIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          uint32_t N, const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+          smt::ISolver &solver, std::vector<smt::Term> &pc
+      ) const override {
+        smt::Term x = argVals[0].term;
+        auto zero = solver.make_bv_value_int64(bvN, 0);
+        pc.push_back(solver.make_term(smt::Kind::DISTINCT, {x, zero}));
+
+        smt::Term defaultT = solver.make_bv_value_int64(bvN, N);
+        smt::Term result = defaultT;
+        auto one1 = solver.make_bv_value_int64(solver.make_bv_sort(1), 1);
+        for (int i = (int) N - 1; i >= 0; --i) {
+          int bitPos = (int) N - 1 - i;
+          auto bit =
+              solver.make_term(smt::Kind::BV_EXTRACT, {x}, {(uint32_t) bitPos, (uint32_t) bitPos});
+          auto cond = solver.make_term(smt::Kind::EQUAL, {bit, one1});
+          auto iT = solver.make_bv_value_int64(bvN, i);
+          result = solver.make_term(smt::Kind::ITE, {cond, iT, result});
+        }
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, result, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief SMT translation for the @ctz(x) intrinsic.
+     * Encodes trailing zero count by building a cascading chain of SMT ITEs.
+     * Traverses bit positions from least significant to most significant.
+     * Appends a DISTINCT assertion to require input x != 0.
+     */
+    class CtzIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          uint32_t N, const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+          smt::ISolver &solver, std::vector<smt::Term> &pc
+      ) const override {
+        smt::Term x = argVals[0].term;
+        auto zero = solver.make_bv_value_int64(bvN, 0);
+        pc.push_back(solver.make_term(smt::Kind::DISTINCT, {x, zero}));
+
+        smt::Term defaultT = solver.make_bv_value_int64(bvN, N);
+        smt::Term result = defaultT;
+        auto one1 = solver.make_bv_value_int64(solver.make_bv_sort(1), 1);
+        for (int i = (int) N - 1; i >= 0; --i) {
+          auto bit = solver.make_term(smt::Kind::BV_EXTRACT, {x}, {(uint32_t) i, (uint32_t) i});
+          auto cond = solver.make_term(smt::Kind::EQUAL, {bit, one1});
+          auto iT = solver.make_bv_value_int64(bvN, i);
+          result = solver.make_term(smt::Kind::ITE, {cond, iT, result});
+        }
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, result, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief Registry class to instantiate and find solver intrinsics.
+     */
+    class IntrinsicRegistry {
+    public:
+      static const IntrinsicRegistry &get() {
+        static IntrinsicRegistry instance;
+        return instance;
+      }
+
+      const SolverIntrinsic *lookup(IntrinsicKind kind) const {
+        auto it = registry_.find(kind);
+        if (it != registry_.end())
+          return it->second.get();
+        return nullptr;
+      }
+
+    private:
+      IntrinsicRegistry() {
+        registry_[IntrinsicKind::Abs] = std::make_unique<AbsIntrinsic>();
+        registry_[IntrinsicKind::Min] = std::make_unique<MinIntrinsic>();
+        registry_[IntrinsicKind::Max] = std::make_unique<MaxIntrinsic>();
+        registry_[IntrinsicKind::Popcount] = std::make_unique<PopcountIntrinsic>();
+        registry_[IntrinsicKind::Clz] = std::make_unique<ClzIntrinsic>();
+        registry_[IntrinsicKind::Ctz] = std::make_unique<CtzIntrinsic>();
+      }
+
+      std::unordered_map<IntrinsicKind, std::unique_ptr<SolverIntrinsic>> registry_;
+    };
+
+  } // namespace
 
   SymbolicExecutor::SymbolicValue SymbolicExecutor::callBuiltinIntrinsicSMT(
       const IntrinsicDecl &intr, std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
@@ -34,94 +237,15 @@ namespace symir {
     if (auto pb = TypeUtils::getIntBitWidth(intr.retType))
       N = *pb;
     auto bvN = solver.make_bv_sort(N);
-    const std::string &nm = intr.name.name;
 
-    // ── @abs ─────────────────────────────────────────────────────────────
-    if (nm == "@abs") {
-      smt::Term x = argVals[0].term;
-      // UB: x == INT_MIN_N.
-      int64_t int_min_N = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
-      auto minT = solver.make_bv_value_int64(bvN, int_min_N);
-      pc.push_back(solver.make_term(smt::Kind::DISTINCT, {x, minT}));
-      auto zero = solver.make_bv_value_int64(bvN, 0);
-      auto cond = solver.make_term(smt::Kind::BV_SGE, {x, zero});
-      auto neg = solver.make_term(smt::Kind::BV_NEG, {x});
-      auto res = solver.make_term(smt::Kind::ITE, {cond, x, neg});
-      return SymbolicValue(SymbolicValue::Kind::Int, res, solver.make_true());
-    }
-
-    // ── @min ─────────────────────────────────────────────────────────────
-    if (nm == "@min") {
-      smt::Term a0 = argVals[0].term;
-      smt::Term a1 = argVals[1].term;
-      auto cond = solver.make_term(smt::Kind::BV_SLE, {a0, a1});
-      auto res = solver.make_term(smt::Kind::ITE, {cond, a0, a1});
-      return SymbolicValue(SymbolicValue::Kind::Int, res, solver.make_true());
-    }
-
-    // ── @max ─────────────────────────────────────────────────────────────
-    if (nm == "@max") {
-      smt::Term a0 = argVals[0].term;
-      smt::Term a1 = argVals[1].term;
-      auto cond = solver.make_term(smt::Kind::BV_SGE, {a0, a1});
-      auto res = solver.make_term(smt::Kind::ITE, {cond, a0, a1});
-      return SymbolicValue(SymbolicValue::Kind::Int, res, solver.make_true());
-    }
-
-    // ── @popcount ────────────────────────────────────────────────────────
-    if (nm == "@popcount") {
-      smt::Term x = argVals[0].term;
-      // popcount = sum of bits. Sum each bit extracted as 1-bit BV
-      // zero-extended to N bits, then BV_ADD.
-      smt::Term acc = solver.make_bv_value_int64(bvN, 0);
-      for (uint32_t k = 0; k < N; ++k) {
-        auto bit = solver.make_term(smt::Kind::BV_EXTRACT, {x}, {k, k});
-        smt::Term ext =
-            (N == 1) ? bit : solver.make_term(smt::Kind::BV_ZERO_EXTEND, {bit}, {N - 1});
-        acc = solver.make_term(smt::Kind::BV_ADD, {acc, ext});
+    auto kind = getIntrinsicKind(intr.name.name);
+    if (kind) {
+      if (auto impl = IntrinsicRegistry::get().lookup(*kind)) {
+        return impl->solve(N, argVals, bvN, solver, pc);
       }
-      return SymbolicValue(SymbolicValue::Kind::Int, acc, solver.make_true());
     }
 
-    // ── @clz / @ctz ──────────────────────────────────────────────────────
-    if (nm == "@clz" || nm == "@ctz") {
-      smt::Term x = argVals[0].term;
-      // UB: x == 0.
-      auto zero = solver.make_bv_value_int64(bvN, 0);
-      pc.push_back(solver.make_term(smt::Kind::DISTINCT, {x, zero}));
-
-      // ITE chain: walk bit positions and pick the first set bit.
-      // For @clz: result == i iff bit (N-1-i) == 1 and all bits
-      //   N-1 .. N-i are 0. Iterate i = 0 .. N-1; first match wins.
-      // For @ctz: result == i iff bit i == 1 and bits 0 .. i-1 are 0.
-      // We build from the back: start with a default value of N (never
-      // reached because x != 0), then wrap with ITE for each position.
-      smt::Term defaultT = solver.make_bv_value_int64(bvN, N);
-      smt::Term result = defaultT;
-      auto one1 = solver.make_bv_value_int64(solver.make_bv_sort(1), 1);
-      if (nm == "@clz") {
-        // Iterate i = N-1 down to 0; ITE(bit(N-1-i) == 1, i, result).
-        for (int i = (int) N - 1; i >= 0; --i) {
-          int bitPos = (int) N - 1 - i;
-          auto bit =
-              solver.make_term(smt::Kind::BV_EXTRACT, {x}, {(uint32_t) bitPos, (uint32_t) bitPos});
-          auto cond = solver.make_term(smt::Kind::EQUAL, {bit, one1});
-          auto iT = solver.make_bv_value_int64(bvN, i);
-          result = solver.make_term(smt::Kind::ITE, {cond, iT, result});
-        }
-      } else {
-        // @ctz: iterate i = N-1 down to 0; ITE(bit(i) == 1, i, result).
-        for (int i = (int) N - 1; i >= 0; --i) {
-          auto bit = solver.make_term(smt::Kind::BV_EXTRACT, {x}, {(uint32_t) i, (uint32_t) i});
-          auto cond = solver.make_term(smt::Kind::EQUAL, {bit, one1});
-          auto iT = solver.make_bv_value_int64(bvN, i);
-          result = solver.make_term(smt::Kind::ITE, {cond, iT, result});
-        }
-      }
-      return SymbolicValue(SymbolicValue::Kind::Int, result, solver.make_true());
-    }
-
-    throw std::runtime_error("Solver: unknown intrinsic " + nm);
+    throw std::runtime_error("Solver: unknown intrinsic " + intr.name.name);
   }
 
 } // namespace symir

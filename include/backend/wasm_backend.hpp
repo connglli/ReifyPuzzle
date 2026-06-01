@@ -19,6 +19,8 @@ namespace symir {
    * model, behavior is only guaranteed for UB-free inputs.
    */
   class WasmBackend {
+    friend struct WasmIntrinsicRegistry;
+
   public:
     explicit WasmBackend(std::ostream &out) : out_(out) {}
 

@@ -79,11 +79,6 @@ namespace symir {
         const std::unordered_map<std::string, int64_t> &fixedSyms = {}
     );
 
-  private:
-    const Program &prog_;
-    Config config_;
-    SolverFactory solverFactory_;
-
     /**
      * Represents a symbolic value during execution.
      * Maps to SMT terms or nested aggregate structures.
@@ -117,6 +112,11 @@ namespace symir {
     };
 
     using SymbolicStore = std::unordered_map<std::string, SymbolicValue>;
+
+  private:
+    const Program &prog_;
+    Config config_;
+    SolverFactory solverFactory_;
 
     // --- Symbolic evaluation helpers ---
     SymbolicValue
