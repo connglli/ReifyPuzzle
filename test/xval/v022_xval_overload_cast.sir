@@ -1,0 +1,29 @@
+// EXPECT: PASS
+// EXPECT_RC: 100
+// [v0.2.2] Test overload resolution where the argument contains cast operations.
+
+intrinsic @popcount(%x: i32) : i32;
+intrinsic @popcount(%x: i64) : i64;
+
+fun @main() : i32 {
+  let mut %x8: i8 = 7; // 3 set bits
+  let mut %res32: i32 = 0;
+  let mut %res64: i64 = 0;
+  let mut %temp32: i32 = 0;
+^entry:
+  // popcount(7 as i32) resolves to popcount i32
+  %res32 = call @popcount(%x8 as i32);
+  require %res32 == 3, "popcount(7 as i32) == 3";
+
+  // popcount(7 as i64) resolves to popcount i64
+  %res64 = call @popcount(%x8 as i64);
+  require %res64 == 3, "popcount(7 as i64) == 3";
+
+  // Nested call with cast: popcount(popcount(7 as i32) as i64)
+  // popcount(7 as i32) = 3 (i32). 3 as i64 = 3 (i64). popcount(3) = 2.
+  %temp32 = call @popcount(%x8 as i32);
+  %res64 = call @popcount(%temp32 as i64);
+  require %res64 == 2, "popcount(popcount(7 as i32) as i64) == 2";
+
+  ret 100;
+}

@@ -1,0 +1,29 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// [v0.2.2] Test overload resolution where the argument is loaded from a pointer.
+
+intrinsic @clz(%x: i32) : i32;
+intrinsic @clz(%x: i64) : i64;
+
+fun @main() : i32 {
+  let mut %val32: i32 = 4;
+  let mut %val64: i64 = 8;
+  let mut %p32: ptr i32 = null;
+  let mut %p64: ptr i64 = null;
+  let mut %res32: i32 = 0;
+  let mut %res64: i64 = 0;
+  let %zero: i32 = 0;
+^entry:
+  %p32 = addr %val32;
+  %p64 = addr %val64;
+
+  // clz(load %p32) -> resolves to clz i32
+  %res32 = call @clz(load %p32);
+  require %res32 == 29, "clz(load %p32) i32 == 29";
+
+  // clz(load %p64) -> resolves to clz i64
+  %res64 = call @clz(load %p64);
+  require %res64 == 60, "clz(load %p64) i64 == 60";
+
+  ret %zero;
+}

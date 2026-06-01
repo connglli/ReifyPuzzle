@@ -1,0 +1,47 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// [v0.2.2] Test overload resolution of same-name intrinsics in nested calls and complex expressions.
+
+intrinsic @bitreverse(%x: i32) : i32;
+intrinsic @bitreverse(%x: i64) : i64;
+
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @ctz(%x: i64) : i64;
+
+fun @main() : i32 {
+  let mut %x32: i32 = 1;
+  let mut %x64: i64 = 1;
+  let mut %res32: i32 = 0;
+  let mut %res64: i64 = 0;
+  let %zero: i32 = 0;
+^entry:
+  // 1. Nested call expression on i32: bitreverse(bitreverse(1)) -> 1
+  %res32 = call @bitreverse(call @bitreverse(%x32));
+  require %res32 == 1, "bitreverse(bitreverse(1)) i32 == 1";
+
+  // 2. Nested call expression on i64: bitreverse(bitreverse(1)) -> 1
+  %res64 = call @bitreverse(call @bitreverse(%x64));
+  require %res64 == 1, "bitreverse(bitreverse(1)) i64 == 1";
+
+  // 3. Complex binary chain expression on i32: bitreverse(2 - 1) -> bitreverse(1)
+  // 1 in i32 bitreversed is 0x80000000 (signed min: -2147483648)
+  %res32 = call @bitreverse(%x32 + 1 - 1);
+  require %res32 == -0x80000000, "bitreverse(1) i32 == -0x80000000";
+
+  // 4. Complex binary chain expression on i64: bitreverse(2 - 1) -> bitreverse(1)
+  // 1 in i64 bitreversed is 0x8000000000000000 (signed min: -9223372036854775808)
+  %res64 = call @bitreverse(%x64 + 1 - 1);
+  require %res64 == -0x7fffffffffffffff - 1, "bitreverse(1) i64 == -9223372036854775808";
+
+  // 5. Nested call with arithmetic mixed on i32: ctz(bitreverse(2))
+  // bitreverse(2) i32 is 0x40000000. ctz(0x40000000) is 30.
+  %res32 = call @ctz(call @bitreverse(%x32 + %x32));
+  require %res32 == 30, "ctz(bitreverse(2)) i32 == 30";
+
+  // 6. Nested call with arithmetic mixed on i64: ctz(bitreverse(2))
+  // bitreverse(2) i64 is 0x4000000000000000. ctz(0x4000000000000000) is 62.
+  %res64 = call @ctz(call @bitreverse(%x64 + %x64));
+  require %res64 == 62, "ctz(bitreverse(2)) i64 == 62";
+
+  ret %zero;
+}

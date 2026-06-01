@@ -1,0 +1,23 @@
+// EXPECT: PASS
+// EXPECT_RC: 42
+// [v0.2.2] Test overload resolution where argument types alone are ambiguous,
+// but the expected return type context uniquely disambiguates the candidate.
+
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @ctz(%x: i16) : i16;
+
+fun @main() : i32 {
+  let mut %res16: i16 = 0;
+  let mut %res32: i32 = 0;
+^entry:
+  // Both @ctz i32 and @ctz i16 accept literal 4 (matching arguments = 1).
+  // But context expects i16 return because target %res16 is i16.
+  %res16 = call @ctz(4);
+  require %res16 == 2, "ctz(4) i16 == 2";
+
+  // Context expects i32 return because target %res32 is i32.
+  %res32 = call @ctz(4);
+  require %res32 == 2, "ctz(4) i32 == 2";
+
+  ret 42;
+}

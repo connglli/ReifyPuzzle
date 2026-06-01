@@ -101,6 +101,9 @@ namespace symir {
     std::uint64_t sizeofType(const TypePtr &t) const;
     TypePtr getCellTypeAtOffset(TypePtr t, std::uint64_t offset) const;
     TypePtr getLValueType(const LValue &lv) const;
+    TypePtr getCoefType(const Coef &coef) const;
+    TypePtr getAtomType(const Atom &atom) const;
+    TypePtr getExprType(const Expr &expr) const;
     std::uint64_t allocObject(const std::string &varName, const TypePtr &t, const Store &store);
     std::uint64_t fieldOffset(const StructDecl &s, const std::string &fieldName) const;
     std::uint64_t

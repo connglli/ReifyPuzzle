@@ -1334,52 +1334,76 @@ namespace symir {
                 ci = &cand;
                 continue;
               }
-              // Multiple candidates with same arity — compare first param
-              // bitwidth against argument's declared type to disambiguate.
-              auto bw1 = TypeUtils::getIntBitWidth(ci->paramTypes[0]);
-              auto bw2 = TypeUtils::getIntBitWidth(cand.paramTypes[0]);
-              if (!bw1 || !bw2)
-                continue;
-              // Determine expected bitwidth from the first argument.  For
-              // a single-atom expression, peek at the atom: literal
-              // width, or the declared type of a variable/symbol.
-              std::uint32_t argBW = 32;
-              if (arg.args[0]->rest.empty()) {
-                const auto &firstAtom = arg.args[0]->first;
-                // Helper to look up a local/symbol name in vars/syms.
-                auto lookupName = [&](const std::string &name) -> std::optional<uint32_t> {
-                  auto vit = vars.find(name);
-                  if (vit != vars.end() && vit->second.type)
-                    return TypeUtils::getIntBitWidth(vit->second.type);
-                  auto sit = syms.find(name);
-                  if (sit != syms.end() && sit->second.type)
-                    return TypeUtils::getIntBitWidth(sit->second.type);
-                  return std::nullopt;
-                };
-                if (auto *ca = std::get_if<CoefAtom>(&firstAtom.v)) {
-                  if (auto lit = std::get_if<IntLit>(&ca->coef)) {
-                    if (lit->value > 2147483647LL || lit->value < -2147483648LL)
-                      argBW = 64;
-                  } else if (auto *lsid = std::get_if<LocalOrSymId>(&ca->coef)) {
-                    if (auto *lid = std::get_if<LocalId>(lsid)) {
-                      if (auto bw = lookupName(lid->name))
-                        argBW = *bw;
-                    } else if (auto *sid = std::get_if<SymId>(lsid)) {
-                      if (auto bw = lookupName(sid->name))
-                        argBW = *bw;
+              // Multiple candidates with same arity — disambiguate by
+              // probing each candidate's param bitwidth on every argument
+              // and picking the candidate with the most matching arguments.
+              auto paramBW = [](const TypePtr &t) -> std::optional<uint32_t> {
+                if (auto b = TypeUtils::getIntBitWidth(t))
+                  return b;
+                if (t && std::holds_alternative<FloatType>(t->v))
+                  return std::get<FloatType>(t->v).kind == FloatType::Kind::F64 ? 64u : 32u;
+                return std::nullopt;
+              };
+              auto countArgMatches = [&](const CalleeInfo *c) -> int {
+                int n = 0;
+                for (size_t ai = 0; ai < std::min(c->paramTypes.size(), arg.args.size()); ++ai) {
+                  auto pbw = paramBW(c->paramTypes[ai]);
+                  if (!pbw)
+                    continue;
+                  DiagBag td;
+                  Ty at = typeOfExpr(*arg.args[ai], vars, syms, ann, td, *pbw, c->paramTypes[ai]);
+                  uint32_t r = at.isBV() ? at.bvBits() : at.isFloat() ? at.floatBits() : 0;
+                  if (r == *pbw && !td.hasErrors())
+                    ++n;
+                }
+                return n;
+              };
+              auto matchesContext = [&](const CalleeInfo &c) -> bool {
+                if (ptrCtx) {
+                  return TypeUtils::areTypesEqual(c.retType, ptrCtx);
+                }
+                if (expectedBits) {
+                  if (auto bw = TypeUtils::getIntBitWidth(c.retType)) {
+                    return *bw == *expectedBits;
+                  }
+                  if (c.retType && std::holds_alternative<FloatType>(c.retType->v)) {
+                    auto &ft = std::get<FloatType>(c.retType->v);
+                    uint32_t fwb = (ft.kind == FloatType::Kind::F32) ? 32u : 64u;
+                    return fwb == *expectedBits;
+                  }
+                }
+                return true;
+              };
+              bool ciMatch = matchesContext(*ci);
+              bool candMatch = matchesContext(cand);
+              if (candMatch && !ciMatch) {
+                ci = &cand;
+              } else if (ciMatch && !candMatch) {
+                // Keep ci
+              } else {
+                int ciN = countArgMatches(ci);
+                int candN = countArgMatches(&cand);
+                if (candN > ciN) {
+                  ci = &cand;
+                } else if (candN == ciN) {
+                  // Tie breaker: if the first argument is a literal, determine its natural width.
+                  std::uint32_t argBW = 32;
+                  if (!arg.args.empty() && arg.args[0]->rest.empty()) {
+                    const auto &fa = arg.args[0]->first;
+                    if (auto *ca = std::get_if<CoefAtom>(&fa.v)) {
+                      if (auto lit = std::get_if<IntLit>(&ca->coef)) {
+                        if (lit->value > 2147483647LL || lit->value < -2147483648LL)
+                          argBW = 64;
+                      }
                     }
                   }
-                } else if (auto *ra = std::get_if<RValueAtom>(&firstAtom.v)) {
-                  // Simple variable reference: look up its declared type.
-                  const auto &lv = ra->rval;
-                  if (lv.accesses.empty()) {
-                    if (auto bw = lookupName(lv.base.name))
-                      argBW = *bw;
+                  auto pbw1 = paramBW(ci->paramTypes[0]);
+                  auto pbw2 = paramBW(cand.paramTypes[0]);
+                  if (pbw2 && *pbw2 == argBW && pbw1 && *pbw1 != argBW) {
+                    ci = &cand;
                   }
                 }
               }
-              if (*bw2 == argBW && *bw1 != argBW)
-                ci = &cand;
             }
             if (!ci) {
               diags.error("Call to undeclared function: " + arg.callee.name, arg.span);

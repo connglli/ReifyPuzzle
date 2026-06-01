@@ -1,0 +1,43 @@
+// EXPECT: PASS
+// EXPECT_RC: 42
+// [v0.2.2] Test overload resolution of same-name intrinsics inside select expressions.
+
+intrinsic @clz(%x: i32) : i32;
+intrinsic @clz(%x: i64) : i64;
+
+fun @main() : i32 {
+  let mut %cond: i1 = 1;
+  let mut %x32: i32 = 4;
+  let mut %y32: i32 = 8;
+  let mut %x64: i64 = 4;
+  let mut %y64: i64 = 8;
+  let mut %res32: i32 = 0;
+  let mut %res64: i64 = 0;
+  let mut %c32_x: i32 = 0;
+  let mut %c32_y: i32 = 0;
+  let mut %c64_x: i64 = 0;
+  let mut %c64_y: i64 = 0;
+^entry:
+  // clz(4) = 29, clz(8) = 28
+  %c32_x = call @clz(%x32);
+  %c32_y = call @clz(%y32);
+  %res32 = select %cond, %c32_x, %c32_y;
+  require %res32 == 29, "clz(4) i32 == 29";
+
+  %cond = 0;
+  %res32 = select %cond, %c32_x, %c32_y;
+  require %res32 == 28, "clz(8) i32 == 28";
+
+  // clz(4) i64 = 61, clz(8) i64 = 60
+  %c64_x = call @clz(%x64);
+  %c64_y = call @clz(%y64);
+  %cond = 1;
+  %res64 = select %cond, %c64_x, %c64_y;
+  require %res64 == 61, "clz(4) i64 == 61";
+
+  %cond = 0;
+  %res64 = select %cond, %c64_x, %c64_y;
+  require %res64 == 60, "clz(8) i64 == 60";
+
+  ret 42;
+}
