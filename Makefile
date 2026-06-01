@@ -161,6 +161,18 @@ clean:
 	find . -name "*.gcda" -delete
 	find . -name "*.gcov" -delete
 
+# [v0.2.2] Unit tests — end-to-end Python scripts that exercise the
+# CLI surface of individual binaries (positional args, descriptors,
+# split-by-source output, etc.). They don't go through the `.sir`
+# test runner in test/lib because they need to assert on the binary's
+# stdout / sidecar files / output directory layout.
+test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK)
+	$(PY) -m test.unit.run_param_features_tests ./$(TARGET_INTERP) ./$(TARGET_COMPILER) ./$(TARGET_SOLVER)
+	$(PY) -m test.unit.run_rysmith_tests ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
+	$(PY) -m test.unit.run_rylink_tests ./$(TARGET_RYLINK) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
+
+# Integration tests — run the full suite of .sir test cases through the
+# interpreter, compiler, and solver. These are slower than the unit tests.
 test: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH)
 	$(MAKE) test-unit
 	$(PY) -m test.lib.run_interp_tests test/lexer ./$(TARGET_INTERP) --check
@@ -176,13 +188,3 @@ test: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH)
 	$(PY) -m test.lib.run_solver_tests test/solver ./$(TARGET_SOLVER) ./$(TARGET_INTERP)
 	$(PY) -m test.lib.run_example_tests examples ./$(TARGET_SOLVER) ./$(TARGET_INTERP)
 	$(PY) -m test.lib.run_reify_diff_tests --rysmith ./$(TARGET_RYSMITH) --symiri ./$(TARGET_INTERP) --symirc ./$(TARGET_COMPILER) --rylink ./$(TARGET_RYLINK) --n 100 --seed 1234
-
-# [v0.2.2] Unit tests — end-to-end Python scripts that exercise the
-# CLI surface of individual binaries (positional args, descriptors,
-# split-by-source output, etc.). They don't go through the `.sir`
-# test runner in test/lib because they need to assert on the binary's
-# stdout / sidecar files / output directory layout.
-test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK)
-	$(PY) -m test.unit.run_param_features_tests ./$(TARGET_INTERP) ./$(TARGET_COMPILER) ./$(TARGET_SOLVER)
-	$(PY) -m test.unit.run_rysmith_tests ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
-	$(PY) -m test.unit.run_rylink_tests ./$(TARGET_RYLINK) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
