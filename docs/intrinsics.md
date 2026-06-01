@@ -321,15 +321,144 @@ semantics.*
 
 ---
 
-## Planned / not-yet-supported intrinsics
+## Priority tiers and rejection policy
 
-The following are explicitly out of scope for v0.2.2 (see §13):
+The six intrinsics above are only the seed of the design space. The
+target surface spans the full C `<math.h>` / WASM numeric / Rust
+`iN`/`fN` API. We deliberately do **not** intend to implement all of it:
+many functions (transcendentals, recursive number theory) have no
+efficient SMT-BV / QF_FP encoding, and shipping them anyway would let
+users write programs that hang the solver. Each candidate intrinsic is
+therefore classified by **how cleanly the solver and the C backend can
+handle it** — those two backends drive prioritization; WASM is the
+second-to-last priority; anything the solver cannot handle precisely is
+the last priority.
 
-- **Memory intrinsics** (`@memcpy`, `@memset`): require byte-level array
-  reasoning with potentially symbolic sizes. Deferred.
-- **Vector reductions** (`@reduce_add`, `@reduce_max`, …): horizontal
-  lane-wise reductions. Planned for v0.2.3; use manual lane subscripts
-  (`%v[0] + %v[1] + …`) in the meantime.
-- **Floating-point intrinsics**: `f32`/`f64` variants of the above. The
-  finite-only FP domain makes `@abs` trivially expressible as `fabs`, but
-  the full SMT encoding for FP is deferred.
+### Rejection layers
+
+Each intrinsic carries per-backend support flags. Calling an
+unsupported intrinsic produces an error at the earliest layer that can
+detect it:
+
+| Layer | Rejection means | Used for |
+|---|---|---|
+| **Frontend (semantic checker)** | `intrinsic @x` declaration is refused. Program will not parse. | Truly nonsensical or stateful intrinsics: `@rand`, `@time`, anything impure, anything that produces non-finite FP. |
+| **Solver (`symirsolve`)** | Declaration and program are accepted; reaching a `call @x` on a *symbolic* path makes that path infeasible (the same effect as UB pruning). Concrete-only paths still solve. | Transcendentals, recursive number theory, anything without a precise SMT encoding. |
+| **WASM backend** | Compile-time error from `symirc --target wasm`: "`@x` not lowerable to WASM target". | Intrinsics with no native WASM op whose polyfill would diverge from the C target (e.g. `wasi-libc` vs `glibc` libm last-ULP drift). The C target may still accept them. |
+| **Interpreter** | Runtime error (distinct from UB: "intrinsic not implemented in this build"). | Reserved. The interpreter is the reference oracle; aim to keep this empty. |
+
+**Consistency rule.** The interpreter must agree with every other
+backend on every value. When a libm-based intrinsic is supported by
+both the C backend and the interpreter, both must link against the
+same libm so cross-validation is byte-equal by construction.
+
+### Tier summary
+
+| Tier | Solver | C | WASM | Interp | Plan |
+|---|---|---|---|---|---|
+| **P0** | ★ / ◐ | ★ | ★ / ◐ | ★ | v0.2.2: ship in three PRs (below) |
+| **P1** | ★ / ◐ | ★ | ◐ / ◑ (composed lowerings) | ★ | Planned for a later version |
+| **P2** | ◑ (bounded encoding, may time out) | ★ | ◑ | ★ | Planned behind a feature flag |
+| **P3** | rejects path | ★ via libm | rejected (or libm with ULP drift) | ★ via libm | Planned |
+| **P4** | — | — | — | — | Rejected at frontend, permanently |
+
+Difficulty legend: ★ trivial · ◐ easy · ◑ medium · ◯ hard but feasible.
+
+### P0 — solver-★/◐, C-★, WASM-★/◐
+
+**Integer extras** (around the existing `@abs`/`@min`/`@max` family):
+`@abs_diff`, `@signum`, `@umin`, `@umax`, `@clamp`, `@midpoint`.
+
+**Bit-manipulation:**
+`@parity`, `@bswap`, `@bitreverse`, `@rotl`, `@rotr`, `@is_pow2`,
+`@ilog2`.
+
+**Integer overflow family:**
+`@wrapping_{add,sub,mul,neg,shl,shr}`,
+`@checked_{add,sub,mul,div,rem,neg,shl,shr}`,
+`@saturating_{add,sub,mul,neg}`,
+`@overflowing_{add,sub,mul,neg,shl,shr}`,
+`@widening_mul` (`iN×iN → i2N`),
+`@div_euclid`, `@rem_euclid`.
+
+**Floating-point basic IEEE family** (PR 3 opens the FP intrinsic gate
+in spec §12 — currently §13 defers FP intrinsics):
+`@fabs`, `@fneg`, `@copysign`, `@fmin`, `@fmax`, `@sqrt`, `@fma`,
+`@floor`, `@ceil`, `@trunc`, `@rint` (ties-to-even),
+`@signbit`, `@is_normal`, `@is_subnormal`,
+`@to_bits`, `@from_bits`,
+`@ldexp`, `@scalbn`, `@ilogb`, `@logb`,
+`@fract`, `@recip`, `@to_degrees`, `@to_radians`.
+
+### v0.2.2 rollout: three PRs for P0
+
+Each PR ships the full four-backend implementation + spec section +
+tests (`test/interp/`, `test/compile/`, `test/solver/`, `test/xval/`)
+mandated by *"Adding a new intrinsic"* above.
+
+| PR | Scope | Intrinsics |
+|---|---|---|
+| **PR 1** | Intrinsic registry refactor + integer extras + bit-manipulation. Introduces per-intrinsic `supported_in: {interp, solver, c, wasm}` flags and a uniform diagnostic for the rejection layers above (front-loaded so PR 2/3 only add table entries). | `@abs_diff`, `@signum`, `@umin`, `@umax`, `@clamp`, `@midpoint`, `@parity`, `@bswap`, `@bitreverse`, `@rotl`, `@rotr`, `@is_pow2`, `@ilog2`. |
+| **PR 2** | Integer overflow family. Adds an ABI for tuple/struct returns from intrinsics (required by `@checked_*` and `@overflowing_*` — they return `(value, overflow_flag)`). | `@wrapping_*`, `@checked_*`, `@saturating_*`, `@overflowing_*`, `@widening_mul`, `@div_euclid`, `@rem_euclid`. |
+| **PR 3** | Floating-point basic IEEE family. Opens the FP intrinsic gate: edit spec §12 to admit FP-typed intrinsics, remove the FP-intrinsics deferral from §13. All entries map to QF_FP ops and direct WASM `fN.*` opcodes. | `@fabs`, `@fneg`, `@copysign`, `@fmin`, `@fmax`, `@sqrt`, `@fma`, `@floor`, `@ceil`, `@trunc`, `@rint`, `@signbit`, `@is_normal`, `@is_subnormal`, `@to_bits`, `@from_bits`, `@ldexp`, `@scalbn`, `@ilogb`, `@logb`, `@fract`, `@recip`, `@to_degrees`, `@to_radians`. |
+
+### P1 — solver-easy, WASM-tricky (planned)
+
+Solver and C lowerings remain trivial; WASM has no direct op and needs
+a small composition. Ship after P0 stabilizes.
+
+`@ffs` (`ctz+1` with 0→0), `@next_pow2`, `@round` (away-from-zero;
+distinct from `@rint` ties-to-even), `@fmod` (truncated remainder —
+**not** the same as `@remainder`), `@remainder` (IEEE `fp.rem`),
+`@fdim`, `@modf`, `@frexp`, `@nextafter`, `@fpclassify`, `@total_cmp`,
+saturating fp→int conversions (Rust's default `as`).
+
+Vector reductions (`@reduce_add`, `@reduce_max`, …) also land here in
+spirit but are bundled with the v0.2.3 SIMD work — see spec §13.
+
+### P2 — solver-feasible-but-expensive (planned, behind a flag)
+
+Encodable in SMT but at quadratic-or-worse cost. Gate behind
+`--enable-experimental-intrinsics` and enforce a per-call solver
+timeout with a clear "intrinsic @X is too expensive on this path"
+diagnostic.
+
+`@isqrt` (bit-by-bit synthesis), `@pow(b, e)` with symbolic `e`
+(bounded unroll up to `--max-pow-iters`), `@ilog10` (decimal-power ITE
+chain), `@hypot` with both args symbolic (nonlinear FP).
+
+### P3 — solver rejects path, libm on host targets (planned)
+
+The C backend and the interpreter link the host libm; calling these
+is fine on concrete inputs and on symbolic paths the user does not
+intend to solve. Reaching one on a path passed to `symirsolve` prunes
+the path, identically to UB.
+
+The WASM backend rejects these at compile time. `wasi-libc`'s libm
+diverges from `glibc` at the last ULP for transcendentals, which would
+silently break xval; the C-target-only contract is simpler than
+tolerating per-target ULP drift in test harnesses.
+
+- **Transcendentals:** `@exp`, `@exp2`, `@expm1`, `@log`, `@log2`,
+  `@log10`, `@log1p`, `@pow`/`@powf` with symbolic exponent, `@cbrt`,
+  `@sin`, `@cos`, `@tan`, `@asin`, `@acos`, `@atan`, `@atan2`,
+  `@sin_cos`, `@sinh`, `@cosh`, `@tanh`, `@asinh`, `@acosh`, `@atanh`,
+  `@erf`, `@erfc`, `@tgamma`, `@lgamma`. Bessel (`@j0`/`@y0`/`@jn`/
+  `@yn`) only if there is concrete demand.
+- **Number theory:** `@gcd`, `@lcm`, `@ilog(base)` with symbolic base.
+
+### P4 — frontend rejects (planned, permanent)
+
+Declarations of these are refused outright — there is no point letting
+a user write a program SymIR cannot reason about.
+
+- **Stateful / impure:** `@rand`, `@srand`, `@time`, `@clock`,
+  `@getpid`, environment access. Would break determinism: re-execution
+  must give the same result.
+- **I/O:** `@printf`, `@scanf`, `@fopen`, file/network handles.
+- **Non-finite FP producers:** `@nan`, `@inf`. The finite-only FP
+  domain (spec §2.9) is a hard invariant.
+- **Byte-level memory intrinsics:** `@memcpy`, `@memset` — already
+  deferred in spec §13. Require byte-level array reasoning the solver
+  backend does not yet support. May be re-promoted to a higher tier if
+  the solver gains byte-addressable memory.
