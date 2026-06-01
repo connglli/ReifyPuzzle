@@ -4,6 +4,7 @@ symiri
 symirsolve
 rysmith
 rylink
+*.vsix
 
 # Object files
 build/

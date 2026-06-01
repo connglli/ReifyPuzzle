@@ -1,8 +1,12 @@
 {
     "name": "symlang-syntax",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/connglli/symlang"
+    },
     "displayName": "SymLang Syntax Highlighting",
     "description": "Syntax highlighting for SymLang (.sir) files",
-    "version": "0.2.0",
+    "version": "0.2.2",
     "engines": {
         "vscode": "^1.75.0"
     },
@@ -10,16 +14,27 @@
         "Programming Languages"
     ],
     "contributes": {
-        "languages": [{
-            "id": "symlang",
-            "aliases": ["SymLang", "symlang", "SymIR", "symir"],
-            "extensions": [".sir"],
-            "configuration": "./language-configuration.json"
-        }],
-        "grammars": [{
-            "language": "symlang",
-            "scopeName": "source.symlang",
-            "path": "./syntaxes/symlang.tmLanguage.json"
-        }]
+        "languages": [
+            {
+                "id": "symlang",
+                "aliases": [
+                    "SymLang",
+                    "symlang",
+                    "SymIR",
+                    "symir"
+                ],
+                "extensions": [
+                    ".sir"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "symlang",
+                "scopeName": "source.symlang",
+                "path": "./syntaxes/symlang.tmLanguage.json"
+            }
+        ]
     }
 }

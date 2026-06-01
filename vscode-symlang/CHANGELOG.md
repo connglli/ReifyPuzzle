@@ -1,6 +1,22 @@
 # Changelog
-
 All notable changes to the "symlang-syntax" extension will be documented in this file.
+
+## [0.2.2] - 2026-06-01
+
+- Add `pre` and `post` contract-clause keywords (new in spec v0.2.2); scoped as
+  `keyword.other.contract` so themes can colour them distinctly from declaration
+  or control-flow keywords.
+- Add `cmp` to expression keywords alongside `select` and `as` (was missing from
+  all prior releases despite being in the grammar since v0.2.1).
+- Promote `call` from "control-flow terminator" comment to a first-class entry:
+  spec v0.2.2 makes it an expression `Atom` and a valid `let`-initializer, not
+  only a statement-position keyword.
+- Fix `addr`, `load`, `store`, `ptrindex`, `ptrfield` scope from
+  `keyword.control` to `keyword.other.memory` — none of these alter control flow.
+- Remove erroneous `@?name` and `%?name` identifier patterns. In the Oniguruma
+  engine used by VS Code, `@\\?` matches the two-character literal sequence `@?`,
+  which is not a valid symlang sigil; the patterns never matched real source text
+  and shadowed the correct `@name` / `%name` rules.
 
 ## [0.2.0] - 2026-05-18
 
