@@ -55,13 +55,14 @@ COMMON_SRCS = src/frontend/lexer.cpp src/frontend/parser.cpp src/frontend/ast_du
               src/frontend/diagnostics.cpp
 
 TEST_SRCS =
-INTERP_SRCS = src/symiri.cpp src/interp/interpreter.cpp
+INTERP_SRCS = src/symiri.cpp src/interp/interpreter.cpp src/interp/intrinsics.cpp
 COMPILER_SRCS = src/symirc.cpp src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
+                src/backend/intrinsics_c.cpp src/backend/intrinsics_wasm.cpp \
                 src/backend/vec_lowering_vecext.cpp \
                 src/backend/vec_lowering_array.cpp \
                 src/backend/vec_lowering_scalars.cpp \
                 src/backend/vec_lowering_struct.cpp
-SOLVER_MAIN_SRCS = src/symirsolve.cpp src/solver/solver.cpp
+SOLVER_MAIN_SRCS = src/symirsolve.cpp src/solver/solver.cpp src/solver/intrinsics.cpp
 SOLVER_ALL_SRCS = $(SOLVER_MAIN_SRCS) $(SOLVER_SRCS)
 REIFY_SRCS = src/reify/cfg_gen.cpp src/reify/path_sampler.cpp \
              src/reify/type_gen.cpp src/reify/var_catalogue.cpp \
@@ -69,7 +70,7 @@ REIFY_SRCS = src/reify/cfg_gen.cpp src/reify/path_sampler.cpp \
              src/reify/func_desc.cpp \
              src/reify/func_pool.cpp src/reify/cg_gen.cpp \
              src/reify/rewrite.cpp
-RYSMITH_SRCS = src/rysmith.cpp src/solver/solver.cpp $(REIFY_SRCS)
+RYSMITH_SRCS = src/rysmith.cpp src/solver/solver.cpp src/solver/intrinsics.cpp $(REIFY_SRCS)
 # [v0.2.2] rylink links the C / WASM backends in-process so the bundle's
 # FunDecl::sourceStem survives all the way to emitSplit. Driving symirc
 # as a subprocess instead would parse the bundled .sir back from text
@@ -77,6 +78,7 @@ RYSMITH_SRCS = src/rysmith.cpp src/solver/solver.cpp $(REIFY_SRCS)
 # single program.c.
 RYLINK_SRCS = src/rylink.cpp $(REIFY_SRCS) \
               src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
+              src/backend/intrinsics_c.cpp src/backend/intrinsics_wasm.cpp \
               src/backend/vec_lowering_vecext.cpp \
               src/backend/vec_lowering_array.cpp \
               src/backend/vec_lowering_scalars.cpp \
@@ -104,13 +106,17 @@ INC_DIR = $(BUILD_DIR)/include
 LIB_NAME = libsymir.a
 LIBRARY_OBJS = $(COMMON_OBJS) \
                src/interp/interpreter.o \
+               src/interp/intrinsics.o \
                src/backend/c_backend.o \
+               src/backend/intrinsics_c.o \
+               src/backend/intrinsics_wasm.o \
                src/backend/vec_lowering_vecext.o \
                src/backend/vec_lowering_array.o \
                src/backend/vec_lowering_scalars.o \
                src/backend/vec_lowering_struct.o \
                src/backend/wasm_backend.o \
                src/solver/solver.o \
+               src/solver/intrinsics.o \
                $(SOLVER_IMPL_OBJ)
 
 .PHONY: all clean test test-unit build
@@ -133,7 +139,7 @@ $(TARGET_RYSMITH): $(COMMON_OBJS) $(RYSMITH_OBJS)
 # the SMT solver itself, but the reify libs (and SIRPrinter) include
 # solver headers and reference its types, so the linker needs the
 # symbols. We don't link the Bitwuzla impl since rylink never solves.
-$(TARGET_RYLINK): $(COMMON_OBJS) $(RYLINK_OBJS) src/solver/solver.o
+$(TARGET_RYLINK): $(COMMON_OBJS) $(RYLINK_OBJS) src/solver/solver.o src/solver/intrinsics.o
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 %.o: %.cpp

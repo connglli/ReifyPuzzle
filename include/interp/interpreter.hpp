@@ -150,6 +150,8 @@ namespace symir {
     RuntimeValue evalAtom(const Atom &a, const Store &store);
     // [v0.2.2] Execute a built-in intrinsic. Argument values are already
     // evaluated. Result has the intrinsic's declared return bitwidth.
+    // Implemented in src/interp/intrinsics.cpp — the single source of
+    // truth for interpreter-side intrinsic semantics.
     RuntimeValue callIntrinsic(
         const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args, SourceSpan callSpan
     );

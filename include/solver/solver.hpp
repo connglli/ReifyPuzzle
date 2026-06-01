@@ -197,6 +197,15 @@ namespace symir {
     TypePtr resolveAtomType(const Atom &a) const;
     TypePtr resolveSelectValType(const SelectVal &sv) const;
 
+    // [v0.2.2] SMT lowering for built-in intrinsics.
+    // Implemented in src/solver/intrinsics.cpp — the single source of
+    // truth for solver-side intrinsic semantics. Adds UB path conditions
+    // (e.g. x != 0 for @clz/@ctz) directly to `pc`.
+    SymbolicValue callBuiltinIntrinsicSMT(
+        const IntrinsicDecl &intr, std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
+        std::vector<smt::Term> &pc
+    );
+
     std::unordered_map<std::string, const StructDecl *> structs_;
 
     // Pointer dispatch helpers (v0.2.0):
