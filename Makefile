@@ -119,7 +119,7 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                src/solver/intrinsics.o \
                $(SOLVER_IMPL_OBJ)
 
-.PHONY: all clean test test-unit build
+.PHONY: all clean test test-unit test-frontend test-interp test-backends test-cross-validation test-solver test-reify cross-validation build
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK)
 
@@ -171,20 +171,56 @@ test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH
 	$(PY) -m test.unit.run_rysmith_tests ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
 	$(PY) -m test.unit.run_rylink_tests ./$(TARGET_RYLINK) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
 
-# Integration tests — run the full suite of .sir test cases through the
-# interpreter, compiler, and solver. These are slower than the unit tests.
-test: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH)
-	$(MAKE) test-unit
+# Integration tests, grouped by the component under test. Each component
+# target is callable on its own (e.g. `make test-frontend`) so a developer
+# touching one area can run just the relevant suite. `make test` invokes
+# them in dependency order via `$(MAKE)` so a failure in an earlier group
+# halts the run with the right exit code and the per-group banners stay
+# legible in CI logs.
+
+# Frontend: lexer, parser, CFG builder, type checker, sem checker.
+test-frontend: $(TARGET_INTERP)
 	$(PY) -m test.lib.run_interp_tests test/lexer ./$(TARGET_INTERP) --check
 	$(PY) -m test.lib.run_interp_tests test/parser ./$(TARGET_INTERP) --check
 	$(PY) -m test.lib.run_interp_tests test/cfgbuilder ./$(TARGET_INTERP) --check
 	$(PY) -m test.lib.run_interp_tests test/typechecker ./$(TARGET_INTERP) --check
 	$(PY) -m test.lib.run_interp_tests test/semchecker ./$(TARGET_INTERP) --check
+
+# Interpreter: end-to-end .sir execution.
+test-interp: $(TARGET_INTERP)
 	$(PY) -m test.lib.run_interp_tests test/interp ./$(TARGET_INTERP)
+
+# Backends: C / WASM emission + the C preamble. Cross-validation lives in
+# its own target below so it can be run on its own.
+test-backends: $(TARGET_INTERP) $(TARGET_COMPILER)
 	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target c
 	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target wasm
 	$(PY) -m test.lib.run_c_preamble_test ./$(TARGET_COMPILER)
+
+# Cross-validation: run every test/xval/*.sir through symiri *and* through
+# the C backend + compiled-C and diff their behaviour. This is a separate
+# group because it's the only suite that exercises the interpreter and the
+# C backend together end-to-end, and a developer touching either side may
+# want to run it on its own (`make cross-validation`).
+test-cross-validation cross-validation: $(TARGET_INTERP) $(TARGET_COMPILER)
 	$(PY) -m test.lib.run_xval_tests test/xval ./$(TARGET_INTERP) ./$(TARGET_COMPILER)
+
+# Solver: symirsolve + curated examples that depend on solving.
+test-solver: $(TARGET_SOLVER) $(TARGET_INTERP)
 	$(PY) -m test.lib.run_solver_tests test/solver ./$(TARGET_SOLVER) ./$(TARGET_INTERP)
 	$(PY) -m test.lib.run_example_tests examples ./$(TARGET_SOLVER) ./$(TARGET_INTERP)
+
+# Reify: rysmith + rylink differential generation pipeline.
+test-reify: $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_INTERP) $(TARGET_COMPILER)
 	$(PY) -m test.lib.run_reify_diff_tests --rysmith ./$(TARGET_RYSMITH) --symiri ./$(TARGET_INTERP) --symirc ./$(TARGET_COMPILER) --rylink ./$(TARGET_RYLINK) --n 100 --seed 1234
+
+# Aggregator. Recursive $(MAKE) calls keep per-component logs separated and
+# let CI selectively re-run a single group on retry.
+test: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK)
+	$(MAKE) test-unit
+	$(MAKE) test-frontend
+	$(MAKE) test-interp
+	$(MAKE) test-backends
+	$(MAKE) cross-validation
+	$(MAKE) test-solver
+	$(MAKE) test-reify
