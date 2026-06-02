@@ -222,12 +222,32 @@ UB encountered during symbolic execution of a `fun` callee makes the **caller's*
 - **symirc:** the emitted code is monomorphised into a single C/WASM function, so UB in the inlined callee body is caught by the usual UBSan instrumentation. No special cross-function handling needed.
 - **symirsolve:** the callee's `PC` is conjoined to the caller's `PC`. If the callee's `PC` becomes `false`, the caller's `PC` also becomes `false`.
 
-### Rule 25 — Intrinsic result-overflow
-Any intrinsic whose result is not representable in its declared return type is UB. Examples: `@abs(INT_MIN)` (since `-INT_MIN` overflows `iN`). Per-intrinsic UB-preconditions (e.g., `@ctz`/`@clz` require `%x != 0`) are listed in §12.
+### Rule 25 — Intrinsic UB preconditions
+Any intrinsic whose declared semantics requires a precondition treats violations of that precondition as UB. This umbrella covers two patterns:
 
-- **symiri:** the intrinsic implementation checks the precondition (e.g., `x != INT_MIN` for `@abs`, `x != 0` for `@ctz`/`@clz`) and raises a UB exception if violated.
-- **symirc:** the lowering emits the precondition check before computing the result; a failed check calls `abort()` / `unreachable`.
-- **symirsolve:** the UB-precondition (e.g., `x != INT_MIN`, `x != 0`) is conjoined to `PC` at the call site. Violations prune the path.
+- **Result not representable**: the computed result would overflow the intrinsic's declared return type (e.g., `@abs(INT_MIN_N)`, `@abs_diff(INT_MIN_N, INT_MAX_N)`).
+- **Operand-domain restriction**: an operand falls outside the domain the intrinsic is defined on (e.g., `@ctz`/`@clz` require non-zero input; `@ilog2` requires strictly positive input; `@div_euclid` requires non-zero divisor).
+
+The table below enumerates every UB precondition shipped in v0.2.2 batches A, B, and C. Adding a new intrinsic requires (i) declaring its UB preconditions in §12 of `intrinsics.md`, (ii) raising a UB exception in `symiri` when violated, (iii) emitting a guard in `symirc` (C and WASM), and (iv) conjoining the precondition to `PC` in `symirsolve`.
+
+| Intrinsic | UB precondition(s) | Spec |
+|---|---|---|
+| `@abs(x)` | `x == INT_MIN_N` | §12.1 |
+| `@clz(x)`, `@ctz(x)` | `x == 0` | §12.2 |
+| `@popcount(x)` | result `> INT_MAX_N` (only triggers for narrow `N`) | §12.2 |
+| `@abs_diff(a, b)` | `\|a − b\|` not representable in iN | §12.3 |
+| `@clamp(v, lo, hi)` | `lo > hi` (signed) | §12.3 |
+| `@rotl(x, n)`, `@rotr(x, n)` | `n < 0` or `n >= N` | §12.4 |
+| `@ilog2(x)` | `x <= 0` (signed) | §12.4 |
+| `@bswap(x)` | declaration-time: `N % 8 != 0` (rejected at check time, not runtime UB) | §12.4 |
+| `@wrapping_shl(x, n)`, `@wrapping_shr(x, n)` | `n < 0` or `n >= N` | §12.5 |
+| `@div_euclid(a, b)`, `@rem_euclid(a, b)` | `b == 0` or `(a == INT_MIN_N ∧ b == -1)` | §12.5 |
+
+Intrinsics not listed (e.g., `@min`, `@max`, `@signum`, `@midpoint`, `@parity`, `@bitreverse`, `@is_pow2`, the six `@wrapping_*` arithmetic ops, the four `@saturating_*` ops) have **no UB precondition** — their result is defined for every input in their declared signature.
+
+- **symiri:** every intrinsic implementation in `src/interp/intrinsics.cpp` checks its precondition and throws `UndefinedBehaviorError` on violation.
+- **symirc:** the C-backend helper (`src/backend/intrinsics_c.cpp`) emits an `if (cond) __builtin_trap();` guard ahead of the computation; the WASM-backend helper (`src/backend/intrinsics_wasm.cpp`) emits an `if … unreachable end` sequence.
+- **symirsolve:** the solver lowering in `src/solver/intrinsics.cpp` pushes the precondition to `pc` so unsatisfying inputs are pruned from the model search.
 
 ---
 
@@ -274,4 +294,4 @@ For completeness, a few choices SymIR deliberately makes well-defined where othe
 | 22 | Reading `undef` vector lane **[v0.2.1]** | §7.6 |
 | 23 | Contract precondition violation **[v0.2.2]** | §7.7 |
 | 24 | Callee UB propagation **[v0.2.2]** | §7.7 |
-| 25 | Intrinsic result-overflow **[v0.2.2]** | §7.7 |
+| 25 | Intrinsic UB preconditions **[v0.2.2]** | §7.7 |

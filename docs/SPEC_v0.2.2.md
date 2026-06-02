@@ -515,7 +515,7 @@ See §2.9 for the full floating-point value model.
 
 24. **Callee UB propagation**: UB encountered during execution of a `fun` callee makes the **caller's** path infeasible. UB is not a sandbox — it propagates across call boundaries. If any statement, condition, or nested `call` inside the callee triggers UB, the calling path is pruned.
 
-25. **Intrinsic result-overflow**: any intrinsic whose result is not representable in its declared return type is UB. This applies uniformly to all intrinsics (e.g., `@abs(INT_MIN)`), consistent with rule 4. Per-intrinsic UB-preconditions (e.g., `@ctz`/`@clz` require non-zero input) are listed in §12.
+25. **Intrinsic UB preconditions**: any intrinsic whose declared semantics requires a precondition treats violation as UB. This covers (i) results not representable in the declared return type (e.g., `@abs(INT_MIN)`, consistent with rule 4) and (ii) operand-domain restrictions (e.g., `@ctz`/`@clz` require non-zero input, `@ilog2` requires `x > 0`, `@div_euclid` requires non-zero divisor). Per-intrinsic preconditions are listed in §12 and consolidated in [`docs/undefined.md`](./undefined.md).
 
 **Not UB (static checks).** The following are caught before execution and are **not** runtime UB:
 - Call to an undeclared function (semantic error at check time).

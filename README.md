@@ -258,7 +258,7 @@ Find more examples in [./examples](./examples/) and [./test/](./test/).
 - **[Language Specification (v0.2.1, current)](./docs/SPEC_v0.2.1.md)** — the current normative spec, including v0.2.1 additions: aggregate pointers (`ptr [N] T`, `ptr @S`, `ptrindex`, `ptrfield`), SIMD vector types (`<N> T`), and `cmp` expressions.
 - **[Language Specification (v0.2.0, archived)](./docs/SPEC_v0.2.0.md)** — the pointer baseline (`ptr T`, `addr`, `load`, `store`, `null`).
 - **[Language Specification (v0.1.0, archived)](./docs/SPEC_v0.1.0.md)** — the pre-pointer baseline, kept for reference.
-- **[Undefined Behaviour reference](./docs/UB.md)**
+- **[Undefined Behaviour reference](./docs/undefined.md)**
 - **[symiri User Guide](./docs/symiri.md)**
 - **[symirc User Guide](./docs/symirc.md)**
 - **[symirsolve User Guide](./docs/symirsolve.md)**
