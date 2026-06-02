@@ -1,0 +1,10 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.5 — @wrapping_neg's return width must equal its parameter
+// width; mismatch is rejected (this also forecloses the cross-width
+// @widening_mul shape — deferred to a follow-up batch with its own ABI).
+intrinsic @wrapping_neg(%x: i32) : i64;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

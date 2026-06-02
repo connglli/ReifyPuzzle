@@ -281,6 +281,27 @@ namespace symir {
           );
         expectI1Return();
         break;
+      // [v0.2.2 extra batch C] Overflow-aware family — every member is
+      // declared at one common iN width across all parameters and the
+      // return.
+      case IntrinsicKind::WrappingNeg:
+      case IntrinsicKind::SaturatingNeg:
+        expectArity(1);
+        expectAllSameInt();
+        break;
+      case IntrinsicKind::WrappingAdd:
+      case IntrinsicKind::WrappingSub:
+      case IntrinsicKind::WrappingMul:
+      case IntrinsicKind::WrappingShl:
+      case IntrinsicKind::WrappingShr:
+      case IntrinsicKind::SaturatingAdd:
+      case IntrinsicKind::SaturatingSub:
+      case IntrinsicKind::SaturatingMul:
+      case IntrinsicKind::DivEuclid:
+      case IntrinsicKind::RemEuclid:
+        expectArity(2);
+        expectAllSameInt();
+        break;
     }
   }
 

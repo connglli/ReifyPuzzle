@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// [v0.2.2] §12.5 — solver must respect batch-C UB preconditions.
+// Domain has two values: 0 forces @div_euclid divisor-is-zero UB, 4
+// satisfies require %r == 1 (since div_euclid(7,4) = 1).  Only ?b == 4
+// is feasible; the solver must reject ?b == 0 via the UB constraint.
+intrinsic @div_euclid(%a: i32, %b: i32) : i32;
+
+fun @main() : i32 {
+  sym %?b : value i32 in {0, 4};
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @div_euclid(7, %?b);
+  require %r == 1, "div_euclid 7,?b == 1";
+  br ^exit;
+^exit:
+  ret 0;
+}

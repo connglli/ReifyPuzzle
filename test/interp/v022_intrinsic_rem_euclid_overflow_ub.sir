@@ -1,0 +1,11 @@
+// EXPECT: FAIL:UndefinedBehavior
+// [v0.2.2] §12.5 — @rem_euclid(INT_MIN_N, -1) shares the @div_euclid UB:
+// the true quotient overflows iN even though the remainder is 0.
+intrinsic @rem_euclid(%a: i32, %b: i32) : i32;
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @rem_euclid(-2147483648, -1);
+  ret %r;
+}

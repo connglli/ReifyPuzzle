@@ -473,6 +473,272 @@ namespace symir {
       }
     };
 
+    // ── §12.5 Integer overflow-aware family (v0.2.2 extra batch C) ────────
+    //
+    // Conventions: all members are declared at one common iN.  Width-mod
+    // arithmetic is computed on int64 and then masked / sign-extended
+    // back to iN via makeInt.  No reinterpretation as unsigned —
+    // saturation bounds and div_euclid signs are all derived from the
+    // signed semantics of iN.
+
+    /**
+     * @brief @wrapping_add(a, b) — `(a + b) mod 2^N`, sign-extended to iN.
+     */
+    class WrappingAddIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
+        uint64_t a = argUint(intr, args, 0), b = argUint(intr, args, 1);
+        return makeInt(N, static_cast<int64_t>(a + b));
+      }
+    };
+
+    /**
+     * @brief @wrapping_sub(a, b) — `(a − b) mod 2^N`, sign-extended to iN.
+     */
+    class WrappingSubIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
+        uint64_t a = argUint(intr, args, 0), b = argUint(intr, args, 1);
+        return makeInt(N, static_cast<int64_t>(a - b));
+      }
+    };
+
+    /**
+     * @brief @wrapping_mul(a, b) — `(a * b) mod 2^N`, sign-extended to iN.
+     */
+    class WrappingMulIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
+        uint64_t a = argUint(intr, args, 0), b = argUint(intr, args, 1);
+        // Unsigned mul on the iN-sized values; for N < 64 the high bits
+        // are discarded by makeInt's mask + sign-extend.  For N == 64 the
+        // low 64 bits of a 128-bit product equal `(uint64_t)(a * b)`.
+        return makeInt(N, static_cast<int64_t>(a * b));
+      }
+    };
+
+    /**
+     * @brief @wrapping_neg(x) — `(-x) mod 2^N`.  Maps INT_MIN_N to itself.
+     */
+    class WrappingNegIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
+        uint64_t a = argUint(intr, args, 0);
+        return makeInt(N, static_cast<int64_t>(-a));
+      }
+    };
+
+    /**
+     * @brief @wrapping_shl(x, n) — left-shift modulo 2^N.  UB if `n < 0` or
+     * `n >= N` (same as the OpAtom shift rule §7.1 rule 5).
+     */
+    class WrappingShlIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
+        uint64_t a = argUint(intr, args, 0);
+        int64_t n = argSint(intr, args, 1);
+        if (n < 0 || n >= static_cast<int64_t>(N))
+          throw UndefinedBehaviorError("UB: @wrapping_shl requires 0 <= n < N");
+        return makeInt(N, static_cast<int64_t>(a << n));
+      }
+    };
+
+    /**
+     * @brief @wrapping_shr(x, n) — arithmetic right-shift mod 2^N.  UB if
+     * `n < 0` or `n >= N`.  Sign bit is preserved (matches SymIR's signed
+     * convention; `LShr` is the OpAtom path for logical shift).
+     */
+    class WrappingShrIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
+        int64_t x = argSint(intr, args, 0);
+        int64_t n = argSint(intr, args, 1);
+        if (n < 0 || n >= static_cast<int64_t>(N))
+          throw UndefinedBehaviorError("UB: @wrapping_shr requires 0 <= n < N");
+        // Arithmetic shift in C++20 is implementation-defined before
+        // C++20 but well-defined as sign-preserving since.  GCC / clang
+        // both perform an arithmetic shift on signed types.
+        return makeInt(N, x >> n);
+      }
+    };
+
+    /**
+     * @brief @saturating_add(a, b) — clamp the true sum to [INT_MIN_N,
+     * INT_MAX_N].
+     */
+    class SaturatingAddIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
+        int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
+        int64_t lo = intMinN(N), hi = intMaxN(N);
+#if defined(__SIZEOF_INT128__)
+        __int128 s = static_cast<__int128>(a) + static_cast<__int128>(b);
+        int64_t r = (s < lo) ? lo : (s > hi ? hi : static_cast<int64_t>(s));
+#else
+        // Fallback: detect overflow by sign analysis on the true sum.
+        int64_t s = a + b;
+        bool ovPos = (a > 0 && b > 0 && s < 0);
+        bool ovNeg = (a < 0 && b < 0 && s >= 0);
+        int64_t r = ovPos ? hi : ovNeg ? lo : (s < lo ? lo : (s > hi ? hi : s));
+#endif
+        return makeInt(N, r);
+      }
+    };
+
+    /**
+     * @brief @saturating_sub(a, b) — clamp the true difference to
+     * [INT_MIN_N, INT_MAX_N].
+     */
+    class SaturatingSubIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
+        int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
+        int64_t lo = intMinN(N), hi = intMaxN(N);
+#if defined(__SIZEOF_INT128__)
+        __int128 s = static_cast<__int128>(a) - static_cast<__int128>(b);
+        int64_t r = (s < lo) ? lo : (s > hi ? hi : static_cast<int64_t>(s));
+#else
+        int64_t s = a - b;
+        bool ovPos = (a >= 0 && b < 0 && s < 0);
+        bool ovNeg = (a < 0 && b > 0 && s >= 0);
+        int64_t r = ovPos ? hi : ovNeg ? lo : (s < lo ? lo : (s > hi ? hi : s));
+#endif
+        return makeInt(N, r);
+      }
+    };
+
+    /**
+     * @brief @saturating_mul(a, b) — clamp the true product to [INT_MIN_N,
+     * INT_MAX_N].
+     */
+    class SaturatingMulIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
+        int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
+        int64_t lo = intMinN(N), hi = intMaxN(N);
+#if defined(__SIZEOF_INT128__)
+        __int128 p = static_cast<__int128>(a) * static_cast<__int128>(b);
+        int64_t r = (p < lo) ? lo : (p > hi ? hi : static_cast<int64_t>(p));
+#else
+        // No __int128: cover N <= 32 fully via int64 multiplication, and
+        // fall back to a sign-only saturation for N == 64.
+        if (N <= 32) {
+          int64_t p = a * b;
+          int64_t r = p < lo ? lo : (p > hi ? hi : p);
+          return makeInt(N, r);
+        }
+        bool resPos = ((a >= 0) == (b >= 0));
+        int64_t r;
+        if (a == 0 || b == 0)
+          r = 0;
+        else if (resPos && a > hi / b)
+          r = hi;
+        else if (!resPos && a != 0 && (b < lo / a))
+          r = lo;
+        else
+          r = a * b;
+#endif
+        return makeInt(N, r);
+      }
+    };
+
+    /**
+     * @brief @saturating_neg(x) — `-x`, clamped at INT_MAX_N when
+     * `x == INT_MIN_N` (the only saturating case).
+     */
+    class SaturatingNegIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
+        int64_t x = argSint(intr, args, 0);
+        int64_t r = (x == intMinN(N)) ? intMaxN(N) : -x;
+        return makeInt(N, r);
+      }
+    };
+
+    /**
+     * @brief @div_euclid(a, b) — Euclidean division; result rounds toward
+     * −∞ when the remainder would be negative.  UB on `b == 0` and on
+     * `a == INT_MIN_N && b == -1` (true quotient `-INT_MIN_N` does not
+     * fit in iN).
+     */
+    class DivEuclidIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
+        int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
+        if (b == 0)
+          throw UndefinedBehaviorError("UB: @div_euclid divisor is zero");
+        if (a == intMinN(N) && b == -1)
+          throw UndefinedBehaviorError(
+              "UB: @div_euclid INT_MIN_N / -1 not representable in declared iN"
+          );
+        int64_t q = a / b;
+        // Truncation toward zero -> Euclidean: if remainder is negative,
+        // step the quotient toward -infinity.
+        int64_t r = a - q * b;
+        if (r < 0)
+          q -= (b > 0) ? 1 : -1;
+        return makeInt(N, q);
+      }
+    };
+
+    /**
+     * @brief @rem_euclid(a, b) — `a − @div_euclid(a, b) * b`; result is
+     * always in `[0, |b|)`.  UB on `b == 0` and on `a == INT_MIN_N &&
+     * b == -1` (matches @div_euclid).
+     */
+    class RemEuclidIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
+        int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
+        if (b == 0)
+          throw UndefinedBehaviorError("UB: @rem_euclid divisor is zero");
+        if (a == intMinN(N) && b == -1)
+          throw UndefinedBehaviorError(
+              "UB: @rem_euclid INT_MIN_N rem -1 paired with non-representable quotient"
+          );
+        int64_t r = a % b;
+        if (r < 0)
+          r += (b > 0) ? b : -b;
+        return makeInt(N, r);
+      }
+    };
+
     // ── Registry ────────────────────────────────────────────────────────────
 
     /**
@@ -511,6 +777,19 @@ namespace symir {
         registry_[IntrinsicKind::Rotr] = std::make_unique<RotrIntrinsic>();
         registry_[IntrinsicKind::IsPow2] = std::make_unique<IsPow2Intrinsic>();
         registry_[IntrinsicKind::Ilog2] = std::make_unique<Ilog2Intrinsic>();
+        // §12.5 — overflow-aware family.
+        registry_[IntrinsicKind::WrappingAdd] = std::make_unique<WrappingAddIntrinsic>();
+        registry_[IntrinsicKind::WrappingSub] = std::make_unique<WrappingSubIntrinsic>();
+        registry_[IntrinsicKind::WrappingMul] = std::make_unique<WrappingMulIntrinsic>();
+        registry_[IntrinsicKind::WrappingNeg] = std::make_unique<WrappingNegIntrinsic>();
+        registry_[IntrinsicKind::WrappingShl] = std::make_unique<WrappingShlIntrinsic>();
+        registry_[IntrinsicKind::WrappingShr] = std::make_unique<WrappingShrIntrinsic>();
+        registry_[IntrinsicKind::SaturatingAdd] = std::make_unique<SaturatingAddIntrinsic>();
+        registry_[IntrinsicKind::SaturatingSub] = std::make_unique<SaturatingSubIntrinsic>();
+        registry_[IntrinsicKind::SaturatingMul] = std::make_unique<SaturatingMulIntrinsic>();
+        registry_[IntrinsicKind::SaturatingNeg] = std::make_unique<SaturatingNegIntrinsic>();
+        registry_[IntrinsicKind::DivEuclid] = std::make_unique<DivEuclidIntrinsic>();
+        registry_[IntrinsicKind::RemEuclid] = std::make_unique<RemEuclidIntrinsic>();
       }
 
       std::unordered_map<IntrinsicKind, std::unique_ptr<InterpreterIntrinsic>> registry_;

@@ -1,0 +1,61 @@
+// EXPECT: PASS
+// [v0.2.2] §12.5 — saturating-arithmetic edge cases that are easy to
+// get wrong: INT_MIN × INT_MIN, INT_MIN × -1, the two ±INT_MAX boundaries
+// for add/sub, and wrapping_neg vs saturating_neg on INT_MIN.
+intrinsic @saturating_add(%a: i32, %b: i32) : i32;
+intrinsic @saturating_sub(%a: i32, %b: i32) : i32;
+intrinsic @saturating_mul(%a: i32, %b: i32) : i32;
+intrinsic @saturating_neg(%x: i32) : i32;
+intrinsic @wrapping_neg(%x: i32) : i32;
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  // INT_MAX + INT_MAX saturates to INT_MAX.
+  %r = call @saturating_add(2147483647, 2147483647);
+  require %r == 2147483647, "sat_add INT_MAX+INT_MAX -> INT_MAX";
+
+  // INT_MIN + INT_MIN saturates to INT_MIN.
+  %r = call @saturating_add(-2147483648, -2147483648);
+  require %r == -2147483648, "sat_add INT_MIN+INT_MIN -> INT_MIN";
+
+  // INT_MIN - 1 saturates to INT_MIN.
+  %r = call @saturating_sub(-2147483648, 1);
+  require %r == -2147483648, "sat_sub INT_MIN-1 -> INT_MIN";
+
+  // INT_MAX - INT_MIN saturates to INT_MAX (true value = 2^32 - 1).
+  %r = call @saturating_sub(2147483647, -2147483648);
+  require %r == 2147483647, "sat_sub INT_MAX-INT_MIN -> INT_MAX";
+
+  // INT_MIN × -1 = -INT_MIN = INT_MAX + 1 → saturates to INT_MAX.
+  %r = call @saturating_mul(-2147483648, -1);
+  require %r == 2147483647, "sat_mul INT_MIN * -1 -> INT_MAX";
+
+  // INT_MIN × INT_MIN = 2^62 (positive) → saturates to INT_MAX.
+  %r = call @saturating_mul(-2147483648, -2147483648);
+  require %r == 2147483647, "sat_mul INT_MIN * INT_MIN -> INT_MAX";
+
+  // INT_MAX × 2 → saturates to INT_MAX.
+  %r = call @saturating_mul(2147483647, 2);
+  require %r == 2147483647, "sat_mul INT_MAX*2 -> INT_MAX";
+
+  // INT_MAX × -2 → saturates to INT_MIN.
+  %r = call @saturating_mul(2147483647, -2);
+  require %r == -2147483648, "sat_mul INT_MAX*-2 -> INT_MIN";
+
+  // wrapping_neg(INT_MIN) is a fixed point — stays INT_MIN.
+  %r = call @wrapping_neg(-2147483648);
+  require %r == -2147483648, "wrap_neg INT_MIN -> INT_MIN";
+
+  // saturating_neg(INT_MIN) jumps to INT_MAX (the only saturating case).
+  %r = call @saturating_neg(-2147483648);
+  require %r == 2147483647, "sat_neg INT_MIN -> INT_MAX";
+
+  // saturating_neg(0) is 0.
+  %r = call @saturating_neg(0);
+  require %r == 0, "sat_neg 0 -> 0";
+
+  // wrapping_mul wraps INT_MAX × 2 to -2 (low 32 bits of 0xFFFFFFFE = -2).
+  // Compare with the saturating case above.
+  ret 0;
+}

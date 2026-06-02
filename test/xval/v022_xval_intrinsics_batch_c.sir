@@ -1,0 +1,63 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// [v0.2.2] §12.5 — cross-validation of the batch-C overflow-aware family.
+// Same workload as test/interp/v022_intrinsics_batch_c.sir, kept here so
+// the xval runner compares symiri and the C backend on every member.
+
+intrinsic @wrapping_add(%a: i8, %b: i8) : i8;
+intrinsic @wrapping_sub(%a: i8, %b: i8) : i8;
+intrinsic @wrapping_mul(%a: i8, %b: i8) : i8;
+intrinsic @wrapping_neg(%x: i32) : i32;
+intrinsic @wrapping_shl(%x: i32, %n: i32) : i32;
+intrinsic @wrapping_shr(%x: i32, %n: i32) : i32;
+
+intrinsic @saturating_add(%a: i8, %b: i8) : i8;
+intrinsic @saturating_sub(%a: i8, %b: i8) : i8;
+intrinsic @saturating_mul(%a: i8, %b: i8) : i8;
+intrinsic @saturating_neg(%x: i32) : i32;
+
+intrinsic @div_euclid(%a: i32, %b: i32) : i32;
+intrinsic @rem_euclid(%a: i32, %b: i32) : i32;
+
+fun @main() : i32 {
+  let mut %r8: i8 = 0;
+  let mut %r32: i32 = 0;
+^entry:
+  %r8 = call @wrapping_add(127 as i8, 1 as i8);
+  require %r8 == -128, "wrapping_add 127+1";
+
+  %r8 = call @wrapping_sub(-128 as i8, 1 as i8);
+  require %r8 == 127, "wrapping_sub -128-1";
+
+  %r8 = call @wrapping_mul(16 as i8, 16 as i8);
+  require %r8 == 0, "wrapping_mul 16*16";
+
+  %r32 = call @wrapping_neg(-2147483648);
+  require %r32 == -2147483648, "wrapping_neg INT_MIN";
+
+  %r32 = call @wrapping_shl(1, 31);
+  require %r32 == -2147483648, "wrapping_shl 1,31";
+
+  %r32 = call @wrapping_shr(-8, 2);
+  require %r32 == -2, "wrapping_shr -8,2";
+
+  %r8 = call @saturating_add(120 as i8, 50 as i8);
+  require %r8 == 127, "saturating_add overshoot";
+
+  %r8 = call @saturating_sub(-100 as i8, 50 as i8);
+  require %r8 == -128, "saturating_sub overshoot";
+
+  %r8 = call @saturating_mul(-128 as i8, 2 as i8);
+  require %r8 == -128, "saturating_mul overshoot low";
+
+  %r32 = call @saturating_neg(-2147483648);
+  require %r32 == 2147483647, "saturating_neg INT_MIN";
+
+  %r32 = call @div_euclid(-7, 2);
+  require %r32 == -4, "div_euclid -7,2";
+
+  %r32 = call @rem_euclid(-7, 2);
+  require %r32 == 1, "rem_euclid -7,2";
+
+  ret 0;
+}

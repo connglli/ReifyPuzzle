@@ -1,0 +1,10 @@
+// EXPECT: FAIL:UndefinedBehavior
+// [v0.2.2] §12.5 — @div_euclid(INT_MIN_N, -1) is UB.
+intrinsic @div_euclid(%a: i32, %b: i32) : i32;
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @div_euclid(-2147483648, -1);
+  ret %r;
+}

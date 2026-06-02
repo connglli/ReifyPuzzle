@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.5 — @wrapping_add is binary; declaring it with a single
+// parameter must be rejected.
+intrinsic @wrapping_add(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

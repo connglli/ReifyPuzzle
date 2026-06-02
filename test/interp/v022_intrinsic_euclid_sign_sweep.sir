@@ -1,0 +1,37 @@
+// EXPECT: PASS
+// [v0.2.2] §12.5 — sign sweep for @div_euclid / @rem_euclid.  The
+// Euclidean quotient rounds toward −∞ and the Euclidean remainder is
+// always non-negative — exercise both for every combination of dividend
+// and divisor signs.
+intrinsic @div_euclid(%a: i32, %b: i32) : i32;
+intrinsic @rem_euclid(%a: i32, %b: i32) : i32;
+
+fun @main() : i32 {
+  let mut %q: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  // (+, +): identical to truncating division.
+  %q = call @div_euclid(7, 2);   require %q == 3, "div_euclid 7,2 -> 3";
+  %r = call @rem_euclid(7, 2);   require %r == 1, "rem_euclid 7,2 -> 1";
+
+  // (+, -): trunc gives -3 r 1; euclid keeps remainder ≥ 0 → q=-3, r=1.
+  %q = call @div_euclid(7, -2);  require %q == -3, "div_euclid 7,-2 -> -3";
+  %r = call @rem_euclid(7, -2);  require %r == 1, "rem_euclid 7,-2 -> 1";
+
+  // (-, +): trunc gives -3 r -1; euclid steps q to -4 so remainder is 1.
+  %q = call @div_euclid(-7, 2);  require %q == -4, "div_euclid -7,2 -> -4";
+  %r = call @rem_euclid(-7, 2);  require %r == 1, "rem_euclid -7,2 -> 1";
+
+  // (-, -): trunc gives 3 r -1; euclid steps q toward -∞ → q=4, r=1.
+  %q = call @div_euclid(-7, -2); require %q == 4, "div_euclid -7,-2 -> 4";
+  %r = call @rem_euclid(-7, -2); require %r == 1, "rem_euclid -7,-2 -> 1";
+
+  // Exact division boundary: remainder is always 0, no quotient step.
+  %q = call @div_euclid(-6, 2);  require %q == -3, "div_euclid -6,2 -> -3";
+  %r = call @rem_euclid(-6, 2);  require %r == 0, "rem_euclid -6,2 -> 0";
+
+  %q = call @div_euclid(-6, -2); require %q == 3, "div_euclid -6,-2 -> 3";
+  %r = call @rem_euclid(-6, -2); require %r == 0, "rem_euclid -6,-2 -> 0";
+
+  ret 0;
+}

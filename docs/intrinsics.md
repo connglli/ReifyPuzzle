@@ -497,6 +497,129 @@ highest possible MSB position is `N − 2`).
 | C codegen | UB-trap; `(N − 1) − __builtin_clz[ll](u)` widened. |
 | WASM codegen | UB-check (`iW.const 0; iW.le_s; if; unreachable; end`); mask, `iW.clz`, `iW.const (W − 1); iW.sub`. |
 
+## 12.5 Integer overflow-aware family (v0.2.2 extra batch C)
+
+Wrapping arithmetic computes `(op) mod 2^N` with no UB on overflow.
+Saturating arithmetic clamps at `[INT_MIN_N, INT_MAX_N]`.  Euclidean
+division differs from the C-style truncating division in §7.2 only when
+the dividend's sign forces a negative remainder.  All members are
+declared at one common `iN` width — input and result share the same
+type.
+
+The tuple-returning members of this family (`@checked_*`,
+`@overflowing_*`) and the cross-width `@widening_mul` are slated for a
+follow-up batch that introduces a multi-value return ABI; the scalar-
+result subset shipped here exercises the same arithmetic primitives.
+
+### `@wrapping_add`, `@wrapping_sub`, `@wrapping_mul`, `@wrapping_neg` — modular arithmetic
+
+```text
+intrinsic @wrapping_add(%a: iN, %b: iN) : iN;
+intrinsic @wrapping_sub(%a: iN, %b: iN) : iN;
+intrinsic @wrapping_mul(%a: iN, %b: iN) : iN;
+intrinsic @wrapping_neg(%x: iN) : iN;
+```
+
+Compute the operation modulo `2^N` and sign-extend the low `N` bits
+back into the declared `iN`.  None of these intrinsics raises UB on
+overflow; `@wrapping_neg(INT_MIN_N) == INT_MIN_N` is the canonical
+fixed point.
+
+| Tool | Behaviour |
+|---|---|
+| Interpreter | Compute on `uint64_t`, narrow via the iN mask. |
+| Solver | Direct `bvadd / bvsub / bvmul / bvneg` (modular by construction). |
+| C codegen | `(uty)(ua op ub)` then `sextN`. |
+| WASM codegen | `iW.{add,sub,mul,sub}`, then `sextN`. |
+
+### `@wrapping_shl`, `@wrapping_shr` — modular shifts
+
+```text
+intrinsic @wrapping_shl(%x: iN, %n: iN) : iN;
+intrinsic @wrapping_shr(%x: iN, %n: iN) : iN;
+```
+
+`@wrapping_shl` is a left shift mod `2^N`; `@wrapping_shr` is the
+arithmetic right shift (preserves the sign bit).  Both require the
+shift count to be in `[0, N)` — matching the OpAtom shift rule §7.1
+rule 5.
+
+**UB conditions**: `n < 0` or `n >= N`.
+
+| Tool | Behaviour |
+|---|---|
+| Interpreter | `argSint` for the shift; `x << n` / `x >> n` on int64, then narrow. |
+| Solver | Push `0 ≤ n < N` to `PC`; `bvshl` / `bvashr`. |
+| C codegen | Trap on UB; shift the widened unsigned (shl) or sign-extended signed (shr) value. |
+| WASM codegen | UB-check via two `lt_s` / `ge_s` traps; `iW.{shl,shr_s}`. |
+
+### `@saturating_add`, `@saturating_sub`, `@saturating_mul`, `@saturating_neg` — clamp at iN bounds
+
+```text
+intrinsic @saturating_add(%a: iN, %b: iN) : iN;
+intrinsic @saturating_sub(%a: iN, %b: iN) : iN;
+intrinsic @saturating_mul(%a: iN, %b: iN) : iN;
+intrinsic @saturating_neg(%x: iN) : iN;
+```
+
+Compute the true result over the integers and clamp to
+`[INT_MIN_N, INT_MAX_N]`.  `@saturating_neg(INT_MIN_N) == INT_MAX_N` is
+the only overflow case for the unary form.
+
+| Tool | Behaviour |
+|---|---|
+| Interpreter | Widen to `int64` (or `__int128` for N == 64); compute true result; clamp. |
+| Solver | `BV_S{ADD,SUB,MUL}_OVERFLOW` predicate plus `BV_NEG`; ITE-select the saturated bound from the sign of `a` (or `a XOR b` for mul). |
+| C codegen | Widen to `int64` (N ≤ 32) / `__int128` (N == 64), clamp; narrow back. |
+| WASM codegen | i64-widen + clamp for N ≤ 32; sign-bit identity overflow detection for N == 64. |
+
+### `@div_euclid`, `@rem_euclid` — Euclidean division
+
+```text
+intrinsic @div_euclid(%a: iN, %b: iN) : iN;
+intrinsic @rem_euclid(%a: iN, %b: iN) : iN;
+```
+
+The Euclidean quotient rounds toward `−∞` instead of toward 0; the
+Euclidean remainder is always non-negative and strictly less than
+`|b|`.  Equivalent to Rust's `i*::div_euclid` / `i*::rem_euclid`.
+
+**UB conditions**:
+- `b == 0` for either.
+- `a == INT_MIN_N && b == -1`: the true quotient `−INT_MIN_N` overflows
+  the iN range (identical to the C-style div / mod UB §7.2).
+
+| Tool | Behaviour |
+|---|---|
+| Interpreter | Trunc div; if the trunc remainder is negative, step the quotient toward `−∞`. |
+| Solver | Push `b ≠ 0` and `¬(a = INT_MIN ∧ b = −1)` to `PC`; combine `bvsdiv` / `bvsrem` with an ITE adjustment. |
+| C codegen | Trap on UB; `q = a / b`, `r = a − q·b`, adjust if `r < 0`. |
+| WASM codegen | Two unreachable-guarded checks; `iW.div_s` + `iW.mul / iW.sub`; conditional adjustment via `if/end`. |
+
+### Example — overflow-aware accumulator
+
+```text
+intrinsic @saturating_add(%a: i16, %b: i16) : i16;
+intrinsic @wrapping_mul(%a: i16, %b: i16) : i16;
+intrinsic @rem_euclid(%a: i32, %b: i32) : i32;
+
+fun @reduce(%xs: [4] i16, %m: i32) : i32 {
+  let mut %acc: i16 = 0;
+  let mut %i:   i32 = 0;
+  let mut %wide: i32 = 0;
+  let mut %r:   i32 = 0;
+^loop:
+  %acc  = call @saturating_add(%acc, %xs[%i]);
+  %acc  = call @wrapping_mul(%acc, 3 as i16);
+  %i    = %i + 1;
+  br %i < 4, ^loop, ^done;
+^done:
+  %wide = %acc as i32;
+  %r    = call @rem_euclid(%wide, %m);
+  ret %r;
+}
+```
+
 ### Example — bit-manipulation family
 
 ```text
@@ -543,6 +666,18 @@ fun @demo(%x: i32) : i32 {
 | `@rotr` | `(iN, iN) → iN` | `n < 0` or `n >= N` | full `iN` |
 | `@is_pow2` | `(iN) → i1` | — | `{0, 1}` |
 | `@ilog2` | `(iN) → iN` | `x <= 0` (signed) | `[0, N − 2]` |
+| `@wrapping_add` | `(iN, iN) → iN` | — | full `iN` |
+| `@wrapping_sub` | `(iN, iN) → iN` | — | full `iN` |
+| `@wrapping_mul` | `(iN, iN) → iN` | — | full `iN` |
+| `@wrapping_neg` | `(iN) → iN` | — | full `iN` |
+| `@wrapping_shl` | `(iN, iN) → iN` | `n < 0` or `n >= N` | full `iN` |
+| `@wrapping_shr` | `(iN, iN) → iN` | `n < 0` or `n >= N` | full `iN` |
+| `@saturating_add` | `(iN, iN) → iN` | — | `[INT_MIN_N, INT_MAX_N]` |
+| `@saturating_sub` | `(iN, iN) → iN` | — | `[INT_MIN_N, INT_MAX_N]` |
+| `@saturating_mul` | `(iN, iN) → iN` | — | `[INT_MIN_N, INT_MAX_N]` |
+| `@saturating_neg` | `(iN) → iN` | — | `[INT_MIN_N, INT_MAX_N]` |
+| `@div_euclid` | `(iN, iN) → iN` | `b == 0` or `(a == INT_MIN_N ∧ b == -1)` | `[INT_MIN_N, INT_MAX_N]` |
+| `@rem_euclid` | `(iN, iN) → iN` | `b == 0` or `(a == INT_MIN_N ∧ b == -1)` | `[0, \|b\| − 1]` |
 
 ---
 
@@ -636,14 +771,13 @@ FP intrinsic gate in spec §12 to open before it can land.
 **v0.2.2 extra batch B - Bit-manipulation** (shipped — §12.4): `@parity`, `@bswap`,
 `@bitreverse`, `@rotl`, `@rotr`, `@is_pow2`, `@ilog2`.
 
-**v0.2.2 extra batch C - Integer overflow family** (planned). Adds an ABI for tuple/struct
-returns from intrinsics, required by `@checked_*` / `@overflowing_*`:
+**v0.2.2 extra batch C - Integer overflow family** (scalar-result subset shipped — §12.5):
 `@wrapping_{add,sub,mul,neg,shl,shr}`,
-`@checked_{add,sub,mul,div,rem,neg,shl,shr}`,
 `@saturating_{add,sub,mul,neg}`,
-`@overflowing_{add,sub,mul,neg,shl,shr}`,
-`@widening_mul` (`iN×iN → i2N`),
 `@div_euclid`, `@rem_euclid`.
+The tuple-returning members (`@checked_*`, `@overflowing_*`) and the
+cross-width `@widening_mul` (`iN×iN → i2N`) are slated for a follow-up
+batch that introduces the multi-value return ABI.
 
 **v0.2.2 extra batch D - Floating-point basic IEEE family** (planned — gate currently closed
 by spec §13). All entries map to QF_FP ops and direct WASM `fN.*`

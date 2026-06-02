@@ -1,0 +1,10 @@
+// EXPECT: FAIL:UndefinedBehavior
+// [v0.2.2] §12.5 — @div_euclid divisor must be non-zero.
+intrinsic @div_euclid(%a: i32, %b: i32) : i32;
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @div_euclid(7, 0);
+  ret %r;
+}

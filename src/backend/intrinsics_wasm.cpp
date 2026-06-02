@@ -924,6 +924,717 @@ namespace symir {
       }
     };
 
+    // ── §12.5 Integer overflow-aware family (v0.2.2 extra batch C) ────────
+    //
+    // The widening-and-mask discipline already supplies modular wrap, so
+    // the @wrapping_* helpers are direct iW.{add,sub,mul,neg,shl,shr_s}
+    // followed by `sextN`.  Saturating helpers extend to i64 (for N <= 32)
+    // and clamp; N == 64 uses signed-overflow detection identities since
+    // WASM has no `i128`.
+
+    class WrappingAddIntrinsic final : public WasmIntrinsic {
+    public:
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W,
+          const std::string &ity
+      ) const override {
+        pushArg(backend, 0);
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".add\n";
+        sextN(backend, N, W, ity);
+      }
+    };
+
+    class WrappingSubIntrinsic final : public WasmIntrinsic {
+    public:
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W,
+          const std::string &ity
+      ) const override {
+        pushArg(backend, 0);
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".sub\n";
+        sextN(backend, N, W, ity);
+      }
+    };
+
+    class WrappingMulIntrinsic final : public WasmIntrinsic {
+    public:
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W,
+          const std::string &ity
+      ) const override {
+        pushArg(backend, 0);
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".mul\n";
+        sextN(backend, N, W, ity);
+      }
+    };
+
+    class WrappingNegIntrinsic final : public WasmIntrinsic {
+    public:
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W,
+          const std::string &ity
+      ) const override {
+        indent(backend);
+        out(backend) << ity << ".const 0\n";
+        pushArg(backend, 0);
+        indent(backend);
+        out(backend) << ity << ".sub\n";
+        sextN(backend, N, W, ity);
+      }
+    };
+
+    class WrappingShlIntrinsic final : public WasmIntrinsic {
+    public:
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W,
+          const std::string &ity
+      ) const override {
+        // UB: a1 < 0 || a1 >= N
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".const 0\n";
+        indent(backend);
+        out(backend) << ity << ".lt_s\n";
+        unreachableIfTop(backend);
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".const " << N << "\n";
+        indent(backend);
+        out(backend) << ity << ".ge_s\n";
+        unreachableIfTop(backend);
+        pushArg(backend, 0);
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".shl\n";
+        sextN(backend, N, W, ity);
+      }
+    };
+
+    class WrappingShrIntrinsic final : public WasmIntrinsic {
+    public:
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W,
+          const std::string &ity
+      ) const override {
+        // UB: a1 < 0 || a1 >= N
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".const 0\n";
+        indent(backend);
+        out(backend) << ity << ".lt_s\n";
+        unreachableIfTop(backend);
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".const " << N << "\n";
+        indent(backend);
+        out(backend) << ity << ".ge_s\n";
+        unreachableIfTop(backend);
+        // shr_s preserves the iW sign; the iN sign sits at bit N-1.  For
+        // N < W we must first sign-extend a0 so the iW sign bit reflects
+        // the iN value's true sign, otherwise shr_s drags the wrong bit
+        // in for negative iN values.  Args already arrive sign-extended
+        // by the caller (caller stores were sign-extended to the helper's
+        // widened param type), so a direct shr_s is correct.
+        pushArg(backend, 0);
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".shr_s\n";
+        sextN(backend, N, W, ity);
+      }
+    };
+
+    /**
+     * @brief @saturating_add — widen to i64 for N <= 32 and clamp; for
+     * N == 64 use signed-overflow detection.
+     */
+    class SaturatingAddIntrinsic final : public WasmIntrinsic {
+    public:
+      void declareLocals(
+          WasmBackend &b, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &ity
+      ) const override {
+        if (N <= 32) {
+          declLocal(b, "s64", "i64");
+        } else {
+          declLocal(b, "s", ity);
+        }
+        (void) W;
+      }
+
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W,
+          const std::string &ity
+      ) const override {
+        int64_t hi = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
+        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        if (N <= 32) {
+          // i64-widen, add, clamp to [lo, hi], narrow.
+          pushArg(backend, 0);
+          indent(backend);
+          out(backend) << "i64.extend_i32_s\n";
+          pushArg(backend, 1);
+          indent(backend);
+          out(backend) << "i64.extend_i32_s\n";
+          indent(backend);
+          out(backend) << "i64.add\n";
+          indent(backend);
+          out(backend) << "local.set $s64\n";
+          // clamp lo: select stack is [val1, val2, cond]; returns val1 if
+          // cond is true.  We want `s < lo ? lo : s`, so val1 = lo and
+          // val2 = s — push lo first (bottom), then s.
+          indent(backend);
+          out(backend) << "i64.const " << lo << "\n"; // val1 = lo
+          indent(backend);
+          out(backend) << "local.get $s64\n"; // val2 = s
+          indent(backend);
+          out(backend) << "local.get $s64\n";
+          indent(backend);
+          out(backend) << "i64.const " << lo << "\n";
+          indent(backend);
+          out(backend) << "i64.lt_s\n"; // cond = (s < lo)
+          indent(backend);
+          out(backend) << "select\n"; // cond ? lo : s
+          indent(backend);
+          out(backend) << "local.set $s64\n";
+          // clamp hi: want `s > hi ? hi : s`.  val1 = hi (push first), val2
+          // = s.
+          indent(backend);
+          out(backend) << "i64.const " << hi << "\n"; // val1 = hi
+          indent(backend);
+          out(backend) << "local.get $s64\n"; // val2 = s
+          indent(backend);
+          out(backend) << "local.get $s64\n";
+          indent(backend);
+          out(backend) << "i64.const " << hi << "\n";
+          indent(backend);
+          out(backend) << "i64.gt_s\n"; // cond = (s > hi)
+          indent(backend);
+          out(backend) << "select\n"; // cond ? hi : s
+          // narrow back to i32
+          indent(backend);
+          out(backend) << "i32.wrap_i64\n";
+          sextN(backend, N, W, ity);
+        } else {
+          // N == 64.  Detect signed-add overflow via the two's-complement
+          // identity: (a ^ s) & (b ^ s) < 0.  When overflow, choose
+          // INT_MAX if a >= 0 else INT_MIN.
+          pushArg(backend, 0);
+          pushArg(backend, 1);
+          indent(backend);
+          out(backend) << ity << ".add\n";
+          indent(backend);
+          out(backend) << "local.set $s\n";
+          // saturation candidate
+          indent(backend);
+          out(backend) << ity << ".const " << hi << "\n";
+          indent(backend);
+          out(backend) << ity << ".const " << lo << "\n";
+          pushArg(backend, 0);
+          indent(backend);
+          out(backend) << ity << ".const 0\n";
+          indent(backend);
+          out(backend) << ity << ".ge_s\n";
+          indent(backend);
+          out(backend) << "select\n";
+          // pick s vs candidate
+          indent(backend);
+          out(backend) << "local.get $s\n";
+          // overflow test
+          pushArg(backend, 0);
+          indent(backend);
+          out(backend) << "local.get $s\n";
+          indent(backend);
+          out(backend) << ity << ".xor\n";
+          pushArg(backend, 1);
+          indent(backend);
+          out(backend) << "local.get $s\n";
+          indent(backend);
+          out(backend) << ity << ".xor\n";
+          indent(backend);
+          out(backend) << ity << ".and\n";
+          indent(backend);
+          out(backend) << ity << ".const 0\n";
+          indent(backend);
+          out(backend) << ity << ".lt_s\n";
+          // (true sat-candidate, true s, true overflow_flag) → select
+          // pops s then candidate based on flag.  Note: select(cond, a, b)
+          // returns `a` if cond, else `b`.  We want overflow ? candidate : s,
+          // which is select(cond=overflow, a=candidate, b=s).  Adjust ordering:
+          // Currently on the stack (bottom → top): candidate, s, overflow.
+          // `select` pops in order: cond, b, a — so we need stack order
+          // candidate, s, overflow → select takes overflow as cond, s as
+          // false-arm, candidate as true-arm? In WAT `select` pops 3 vals
+          // (cond, val2, val1) and returns val1 if cond else val2.  Stack:
+          // …, val1, val2, cond → returns val1 if cond.  So our val1 is
+          // candidate (we want when overflow), val2 is s (when no overflow).
+          // We already have candidate at the bottom and overflow on top;
+          // re-establish the right order by swapping below — easier: emit
+          // explicit `select`.
+          indent(backend);
+          out(backend) << "select\n";
+        }
+      }
+    };
+
+    /**
+     * @brief @saturating_sub — analogous to @saturating_add via i64-widen
+     * (N <= 32) or signed-sub overflow detection (N == 64).
+     */
+    class SaturatingSubIntrinsic final : public WasmIntrinsic {
+    public:
+      void declareLocals(
+          WasmBackend &b, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &ity
+      ) const override {
+        if (N <= 32) {
+          declLocal(b, "s64", "i64");
+        } else {
+          declLocal(b, "s", ity);
+        }
+        (void) W;
+      }
+
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W,
+          const std::string &ity
+      ) const override {
+        int64_t hi = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
+        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        if (N <= 32) {
+          pushArg(backend, 0);
+          indent(backend);
+          out(backend) << "i64.extend_i32_s\n";
+          pushArg(backend, 1);
+          indent(backend);
+          out(backend) << "i64.extend_i32_s\n";
+          indent(backend);
+          out(backend) << "i64.sub\n";
+          indent(backend);
+          out(backend) << "local.set $s64\n";
+          // clamp lo / hi: see saturating_add comment for select operand
+          // ordering.  val1 (the value returned when cond is true) is
+          // pushed first.
+          indent(backend);
+          out(backend) << "i64.const " << lo << "\n"; // val1 = lo
+          indent(backend);
+          out(backend) << "local.get $s64\n"; // val2 = s
+          indent(backend);
+          out(backend) << "local.get $s64\n";
+          indent(backend);
+          out(backend) << "i64.const " << lo << "\n";
+          indent(backend);
+          out(backend) << "i64.lt_s\n";
+          indent(backend);
+          out(backend) << "select\n";
+          indent(backend);
+          out(backend) << "local.set $s64\n";
+          indent(backend);
+          out(backend) << "i64.const " << hi << "\n"; // val1 = hi
+          indent(backend);
+          out(backend) << "local.get $s64\n"; // val2 = s
+          indent(backend);
+          out(backend) << "local.get $s64\n";
+          indent(backend);
+          out(backend) << "i64.const " << hi << "\n";
+          indent(backend);
+          out(backend) << "i64.gt_s\n";
+          indent(backend);
+          out(backend) << "select\n";
+          indent(backend);
+          out(backend) << "i32.wrap_i64\n";
+          sextN(backend, N, W, ity);
+        } else {
+          // N == 64 sat-sub.  Overflow when (a ^ b) & (a ^ s) < 0.
+          pushArg(backend, 0);
+          pushArg(backend, 1);
+          indent(backend);
+          out(backend) << ity << ".sub\n";
+          indent(backend);
+          out(backend) << "local.set $s\n";
+          // Saturation candidate.
+          indent(backend);
+          out(backend) << ity << ".const " << hi << "\n";
+          indent(backend);
+          out(backend) << ity << ".const " << lo << "\n";
+          pushArg(backend, 0);
+          indent(backend);
+          out(backend) << ity << ".const 0\n";
+          indent(backend);
+          out(backend) << ity << ".ge_s\n";
+          indent(backend);
+          out(backend) << "select\n";
+          indent(backend);
+          out(backend) << "local.get $s\n";
+          // Overflow flag.
+          pushArg(backend, 0);
+          pushArg(backend, 1);
+          indent(backend);
+          out(backend) << ity << ".xor\n";
+          pushArg(backend, 0);
+          indent(backend);
+          out(backend) << "local.get $s\n";
+          indent(backend);
+          out(backend) << ity << ".xor\n";
+          indent(backend);
+          out(backend) << ity << ".and\n";
+          indent(backend);
+          out(backend) << ity << ".const 0\n";
+          indent(backend);
+          out(backend) << ity << ".lt_s\n";
+          indent(backend);
+          out(backend) << "select\n";
+        }
+      }
+    };
+
+    /**
+     * @brief @saturating_mul — widen to i64 (N <= 32) or use a
+     * sign-prediction + i64-mul fallback (N == 64 — WASM has no native
+     * i128 widen).  For N == 64 we fall back to splitting via the
+     * sign-bit identity, but the common case (N <= 32) is the
+     * straightforward path.
+     */
+    class SaturatingMulIntrinsic final : public WasmIntrinsic {
+    public:
+      void declareLocals(
+          WasmBackend &b, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &ity
+      ) const override {
+        if (N <= 32) {
+          declLocal(b, "p64", "i64");
+        } else {
+          declLocal(b, "p", ity);
+          declLocal(b, "ov", "i32");
+        }
+        (void) W;
+      }
+
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W,
+          const std::string &ity
+      ) const override {
+        int64_t hi = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
+        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        if (N <= 32) {
+          pushArg(backend, 0);
+          indent(backend);
+          out(backend) << "i64.extend_i32_s\n";
+          pushArg(backend, 1);
+          indent(backend);
+          out(backend) << "i64.extend_i32_s\n";
+          indent(backend);
+          out(backend) << "i64.mul\n";
+          indent(backend);
+          out(backend) << "local.set $p64\n";
+          // clamp lo / hi — val1 pushed first.
+          indent(backend);
+          out(backend) << "i64.const " << lo << "\n"; // val1 = lo
+          indent(backend);
+          out(backend) << "local.get $p64\n"; // val2 = p
+          indent(backend);
+          out(backend) << "local.get $p64\n";
+          indent(backend);
+          out(backend) << "i64.const " << lo << "\n";
+          indent(backend);
+          out(backend) << "i64.lt_s\n";
+          indent(backend);
+          out(backend) << "select\n";
+          indent(backend);
+          out(backend) << "local.set $p64\n";
+          indent(backend);
+          out(backend) << "i64.const " << hi << "\n"; // val1 = hi
+          indent(backend);
+          out(backend) << "local.get $p64\n"; // val2 = p
+          indent(backend);
+          out(backend) << "local.get $p64\n";
+          indent(backend);
+          out(backend) << "i64.const " << hi << "\n";
+          indent(backend);
+          out(backend) << "i64.gt_s\n";
+          indent(backend);
+          out(backend) << "select\n";
+          indent(backend);
+          out(backend) << "i32.wrap_i64\n";
+          sextN(backend, N, W, ity);
+        } else {
+          // N == 64.  Detect overflow with the inverse identity:
+          // overflow iff (b != 0) AND (p / b != a) where p = a * b
+          // (signed division).  This is one comparison + one signed
+          // division which WASM has (i64.div_s).  Avoid div by zero by
+          // short-circuiting `b == 0 → no overflow`.  WASM has no
+          // short-circuit primitive; emit an `if` block.
+          pushArg(backend, 0);
+          pushArg(backend, 1);
+          indent(backend);
+          out(backend) << ity << ".mul\n";
+          indent(backend);
+          out(backend) << "local.set $p\n";
+          // Compute ov = 0 default.
+          indent(backend);
+          out(backend) << "i32.const 0\n";
+          indent(backend);
+          out(backend) << "local.set $ov\n";
+          // if (b != 0) { ov = (p / b != a) }
+          pushArg(backend, 1);
+          indent(backend);
+          out(backend) << ity << ".const 0\n";
+          indent(backend);
+          out(backend) << ity << ".ne\n";
+          indent(backend);
+          out(backend) << "if\n";
+          incrIndent(backend);
+          indent(backend);
+          out(backend) << "local.get $p\n";
+          pushArg(backend, 1);
+          indent(backend);
+          out(backend) << ity << ".div_s\n";
+          pushArg(backend, 0);
+          indent(backend);
+          out(backend) << ity << ".ne\n";
+          indent(backend);
+          out(backend) << "local.set $ov\n";
+          decrIndent(backend);
+          indent(backend);
+          out(backend) << "end\n";
+          // Saturation candidate: sign(a)==sign(b) → INT_MAX else INT_MIN.
+          indent(backend);
+          out(backend) << ity << ".const " << hi << "\n";
+          indent(backend);
+          out(backend) << ity << ".const " << lo << "\n";
+          // sign(a) XOR sign(b) gives 0/1 in the sign bit; turn into bool.
+          pushArg(backend, 0);
+          indent(backend);
+          out(backend) << ity << ".const 0\n";
+          indent(backend);
+          out(backend) << ity << ".ge_s\n";
+          pushArg(backend, 1);
+          indent(backend);
+          out(backend) << ity << ".const 0\n";
+          indent(backend);
+          out(backend) << ity << ".ge_s\n";
+          indent(backend);
+          out(backend) << "i32.eq\n"; // same sign?
+          indent(backend);
+          out(backend) << "select\n"; // → sat candidate on stack
+          indent(backend);
+          out(backend) << "local.get $p\n";
+          indent(backend);
+          out(backend) << "local.get $ov\n";
+          indent(backend);
+          out(backend) << "select\n";
+        }
+      }
+    };
+
+    /**
+     * @brief @saturating_neg — `-x`, with INT_MIN_N saturated to
+     * INT_MAX_N.
+     */
+    class SaturatingNegIntrinsic final : public WasmIntrinsic {
+    public:
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W,
+          const std::string &ity
+      ) const override {
+        int64_t hi = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
+        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        // candidate INT_MAX_N
+        indent(backend);
+        out(backend) << ity << ".const " << hi << "\n";
+        // candidate -a0
+        indent(backend);
+        out(backend) << ity << ".const 0\n";
+        pushArg(backend, 0);
+        indent(backend);
+        out(backend) << ity << ".sub\n";
+        // cond: a0 == INT_MIN_N
+        pushArg(backend, 0);
+        indent(backend);
+        out(backend) << ity << ".const " << lo << "\n";
+        indent(backend);
+        out(backend) << ity << ".eq\n";
+        indent(backend);
+        out(backend) << "select\n";
+        sextN(backend, N, W, ity);
+      }
+    };
+
+    /**
+     * @brief @div_euclid — adjust truncating quotient toward `-∞` when the
+     * truncated remainder is negative.  UB on `b == 0` or
+     * `a == INT_MIN_N && b == -1`.
+     */
+    class DivEuclidIntrinsic final : public WasmIntrinsic {
+    public:
+      void declareLocals(
+          WasmBackend &b, const IntrinsicDecl &, uint32_t, uint32_t, const std::string &ity
+      ) const override {
+        declLocal(b, "q", ity);
+        declLocal(b, "r", ity);
+      }
+
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W,
+          const std::string &ity
+      ) const override {
+        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        // UB: a1 == 0
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".eqz\n";
+        unreachableIfTop(backend);
+        // UB: a0 == INT_MIN_N && a1 == -1
+        pushArg(backend, 0);
+        indent(backend);
+        out(backend) << ity << ".const " << lo << "\n";
+        indent(backend);
+        out(backend) << ity << ".eq\n";
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".const -1\n";
+        indent(backend);
+        out(backend) << ity << ".eq\n";
+        indent(backend);
+        out(backend) << "i32.and\n";
+        unreachableIfTop(backend);
+        // q = a0 / a1
+        pushArg(backend, 0);
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".div_s\n";
+        indent(backend);
+        out(backend) << "local.set $q\n";
+        // r = a0 - q * a1
+        pushArg(backend, 0);
+        indent(backend);
+        out(backend) << "local.get $q\n";
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".mul\n";
+        indent(backend);
+        out(backend) << ity << ".sub\n";
+        indent(backend);
+        out(backend) << "local.set $r\n";
+        // if (r < 0) q -= sign(a1)
+        indent(backend);
+        out(backend) << "local.get $r\n";
+        indent(backend);
+        out(backend) << ity << ".const 0\n";
+        indent(backend);
+        out(backend) << ity << ".lt_s\n";
+        indent(backend);
+        out(backend) << "if\n";
+        incrIndent(backend);
+        // step = b > 0 ? 1 : -1
+        indent(backend);
+        out(backend) << "local.get $q\n";
+        indent(backend);
+        out(backend) << ity << ".const 1\n";
+        indent(backend);
+        out(backend) << ity << ".const -1\n";
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".const 0\n";
+        indent(backend);
+        out(backend) << ity << ".gt_s\n";
+        indent(backend);
+        out(backend) << "select\n";
+        indent(backend);
+        out(backend) << ity << ".sub\n";
+        indent(backend);
+        out(backend) << "local.set $q\n";
+        decrIndent(backend);
+        indent(backend);
+        out(backend) << "end\n";
+        indent(backend);
+        out(backend) << "local.get $q\n";
+        sextN(backend, N, W, ity);
+      }
+    };
+
+    /**
+     * @brief @rem_euclid — add `|b|` to the truncated remainder when it is
+     * negative.
+     */
+    class RemEuclidIntrinsic final : public WasmIntrinsic {
+    public:
+      void declareLocals(
+          WasmBackend &b, const IntrinsicDecl &, uint32_t, uint32_t, const std::string &ity
+      ) const override {
+        declLocal(b, "r", ity);
+      }
+
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W,
+          const std::string &ity
+      ) const override {
+        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".eqz\n";
+        unreachableIfTop(backend);
+        pushArg(backend, 0);
+        indent(backend);
+        out(backend) << ity << ".const " << lo << "\n";
+        indent(backend);
+        out(backend) << ity << ".eq\n";
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".const -1\n";
+        indent(backend);
+        out(backend) << ity << ".eq\n";
+        indent(backend);
+        out(backend) << "i32.and\n";
+        unreachableIfTop(backend);
+        // r = a0 rem a1 (signed)
+        pushArg(backend, 0);
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".rem_s\n";
+        indent(backend);
+        out(backend) << "local.set $r\n";
+        // if (r < 0) r += |b|
+        indent(backend);
+        out(backend) << "local.get $r\n";
+        indent(backend);
+        out(backend) << ity << ".const 0\n";
+        indent(backend);
+        out(backend) << ity << ".lt_s\n";
+        indent(backend);
+        out(backend) << "if\n";
+        incrIndent(backend);
+        indent(backend);
+        out(backend) << "local.get $r\n";
+        // |b| via select
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".const 0\n";
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".sub\n";
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << ity << ".const 0\n";
+        indent(backend);
+        out(backend) << ity << ".gt_s\n";
+        indent(backend);
+        out(backend) << "select\n";
+        indent(backend);
+        out(backend) << ity << ".add\n";
+        indent(backend);
+        out(backend) << "local.set $r\n";
+        decrIndent(backend);
+        indent(backend);
+        out(backend) << "end\n";
+        indent(backend);
+        out(backend) << "local.get $r\n";
+        sextN(backend, N, W, ity);
+      }
+    };
+
   } // namespace
 
   const std::unordered_map<IntrinsicKind, WasmIntrinsicRegistry::WasmIntrinsicGenFn> &
@@ -947,6 +1658,19 @@ namespace symir {
       r[IntrinsicKind::Rotr] = std::make_unique<RotrIntrinsic>();
       r[IntrinsicKind::IsPow2] = std::make_unique<IsPow2Intrinsic>();
       r[IntrinsicKind::Ilog2] = std::make_unique<Ilog2Intrinsic>();
+      // §12.5 — overflow-aware family.
+      r[IntrinsicKind::WrappingAdd] = std::make_unique<WrappingAddIntrinsic>();
+      r[IntrinsicKind::WrappingSub] = std::make_unique<WrappingSubIntrinsic>();
+      r[IntrinsicKind::WrappingMul] = std::make_unique<WrappingMulIntrinsic>();
+      r[IntrinsicKind::WrappingNeg] = std::make_unique<WrappingNegIntrinsic>();
+      r[IntrinsicKind::WrappingShl] = std::make_unique<WrappingShlIntrinsic>();
+      r[IntrinsicKind::WrappingShr] = std::make_unique<WrappingShrIntrinsic>();
+      r[IntrinsicKind::SaturatingAdd] = std::make_unique<SaturatingAddIntrinsic>();
+      r[IntrinsicKind::SaturatingSub] = std::make_unique<SaturatingSubIntrinsic>();
+      r[IntrinsicKind::SaturatingMul] = std::make_unique<SaturatingMulIntrinsic>();
+      r[IntrinsicKind::SaturatingNeg] = std::make_unique<SaturatingNegIntrinsic>();
+      r[IntrinsicKind::DivEuclid] = std::make_unique<DivEuclidIntrinsic>();
+      r[IntrinsicKind::RemEuclid] = std::make_unique<RemEuclidIntrinsic>();
       return r;
     }();
     return registry;

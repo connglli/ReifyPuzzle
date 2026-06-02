@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// [v0.2.2] §12.5 — solver synthesis through batch-C intrinsics.
+// Find %?k in [-100, 100] such that saturating_mul(?k, 5) lands at 100
+// AND div_euclid(?k, 3) is exactly 6 (true quotient 6 implies k in
+// [18, 20]; the saturating constraint narrows it to ?k = 20).
+intrinsic @saturating_mul(%a: i32, %b: i32) : i32;
+intrinsic @div_euclid(%a: i32, %b: i32) : i32;
+
+fun @main() : i32 {
+  sym %?k : value i32 in [-100, 100];
+  let mut %sat: i32 = 0;
+  let mut %q:   i32 = 0;
+^entry:
+  %sat = call @saturating_mul(%?k, 5);
+  require %sat == 100, "sat_mul ?k*5 == 100";
+  %q = call @div_euclid(%?k, 3);
+  require %q == 6, "div_euclid ?k,3 == 6";
+  br ^exit;
+^exit:
+  ret 0;
+}

@@ -8,7 +8,7 @@ namespace symir::reify {
   /**
    * Metadata for a solver-friendly intrinsic that rysmith is allowed to generate.
    *
-   * All 17 intrinsics shipped in v0.2.2 (baseline + extra batches A/B) are P0
+   * All 29 intrinsics shipped in v0.2.2 (baseline + extra batches A/B/C) are P0
    * (solver-friendly) — they decompose into quantifier-free BV operations with
    * bounded O(N) ITE chains.
    */
@@ -41,6 +41,19 @@ namespace symir::reify {
         {IntrinsicKind::Rotr, "@rotr", 2, false},
         {IntrinsicKind::IsPow2, "@is_pow2", 1, true},
         {IntrinsicKind::Ilog2, "@ilog2", 1, false},
+        // v0.2.2 extra batch C — integer overflow-aware family (§12.5)
+        {IntrinsicKind::WrappingAdd, "@wrapping_add", 2, false},
+        {IntrinsicKind::WrappingSub, "@wrapping_sub", 2, false},
+        {IntrinsicKind::WrappingMul, "@wrapping_mul", 2, false},
+        {IntrinsicKind::WrappingNeg, "@wrapping_neg", 1, false},
+        {IntrinsicKind::WrappingShl, "@wrapping_shl", 2, false},
+        {IntrinsicKind::WrappingShr, "@wrapping_shr", 2, false},
+        {IntrinsicKind::SaturatingAdd, "@saturating_add", 2, false},
+        {IntrinsicKind::SaturatingSub, "@saturating_sub", 2, false},
+        {IntrinsicKind::SaturatingMul, "@saturating_mul", 2, false},
+        {IntrinsicKind::SaturatingNeg, "@saturating_neg", 1, false},
+        {IntrinsicKind::DivEuclid, "@div_euclid", 2, false},
+        {IntrinsicKind::RemEuclid, "@rem_euclid", 2, false},
     };
     return list;
   }

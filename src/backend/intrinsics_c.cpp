@@ -417,6 +417,252 @@ namespace symir {
       }
     };
 
+    // ── §12.5 Integer overflow-aware family (v0.2.2 extra batch C) ────────
+    //
+    // The widening-and-mask strategy already gives us native wrapping at
+    // the helper width `W`; for return widths `N < W` we mask + sign-extend
+    // back into iN.  Saturating helpers fall back to a wider type (int64 /
+    // __int128) so the true sum/diff/product never wraps; UB cases for
+    // shifts and div_euclid abort via `__builtin_trap`.
+
+    /**
+     * @brief @wrapping_add — (a + b) mod 2^N.
+     */
+    class WrappingAddIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
+          const std::string &uty
+      ) const override {
+        out(backend) << "  " << uty << " ua = " << makeMaskU(N, W, uty, "a0") << ";\n";
+        out(backend) << "  " << uty << " ub = " << makeMaskU(N, W, uty, "a1") << ";\n";
+        out(backend) << "  " << uty << " r = (" << uty << ")(ua + ub);\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")r") << ";\n";
+      }
+    };
+
+    /**
+     * @brief @wrapping_sub — (a − b) mod 2^N.
+     */
+    class WrappingSubIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
+          const std::string &uty
+      ) const override {
+        out(backend) << "  " << uty << " ua = " << makeMaskU(N, W, uty, "a0") << ";\n";
+        out(backend) << "  " << uty << " ub = " << makeMaskU(N, W, uty, "a1") << ";\n";
+        out(backend) << "  " << uty << " r = (" << uty << ")(ua - ub);\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")r") << ";\n";
+      }
+    };
+
+    /**
+     * @brief @wrapping_mul — (a * b) mod 2^N.
+     */
+    class WrappingMulIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
+          const std::string &uty
+      ) const override {
+        out(backend) << "  " << uty << " ua = " << makeMaskU(N, W, uty, "a0") << ";\n";
+        out(backend) << "  " << uty << " ub = " << makeMaskU(N, W, uty, "a1") << ";\n";
+        out(backend) << "  " << uty << " r = (" << uty << ")(ua * ub);\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")r") << ";\n";
+      }
+    };
+
+    /**
+     * @brief @wrapping_neg — (-x) mod 2^N.  INT_MIN_N is its own negation.
+     */
+    class WrappingNegIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
+          const std::string &uty
+      ) const override {
+        out(backend) << "  " << uty << " ua = " << makeMaskU(N, W, uty, "a0") << ";\n";
+        out(backend) << "  " << uty << " r = (" << uty << ")(0 - ua);\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")r") << ";\n";
+      }
+    };
+
+    /**
+     * @brief @wrapping_shl — left-shift with mod-2^N wrap.  UB on `n` out
+     * of `[0, N)`.  The shift itself is done on the unsigned widened type
+     * to avoid signed-shift UB at the host level.
+     */
+    class WrappingShlIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
+          const std::string &uty
+      ) const override {
+        out(backend) << "  if (a1 < 0 || a1 >= " << N << ") __builtin_trap();\n";
+        out(backend) << "  " << uty << " ua = " << makeMaskU(N, W, uty, "a0") << ";\n";
+        out(backend) << "  " << uty << " r = (" << uty << ")(ua << a1);\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")r") << ";\n";
+      }
+    };
+
+    /**
+     * @brief @wrapping_shr — arithmetic right shift.  UB on `n` out of
+     * `[0, N)`.
+     */
+    class WrappingShrIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
+          const std::string &uty
+      ) const override {
+        out(backend) << "  if (a1 < 0 || a1 >= " << N << ") __builtin_trap();\n";
+        // Sign-extend a0 to W bits so the host >> performs an arithmetic
+        // shift over the full iN sign bit, then re-mask/sext into iN.
+        out(backend) << "  " << sty << " sa = " << makeSextN(N, W, sty, uty, "a0") << ";\n";
+        out(backend) << "  " << sty << " r = sa >> a1;\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
+      }
+    };
+
+    /**
+     * @brief @saturating_add — clamp the true sum to [INT_MIN_N,
+     * INT_MAX_N].  We promote to a strictly wider integer type so the
+     * true sum cannot overflow; only the final clamp matters.
+     */
+    class SaturatingAddIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
+          const std::string &uty
+      ) const override {
+        int64_t hi = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
+        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        if (N <= 32) {
+          out(backend) << "  int64_t s = (int64_t)a0 + (int64_t)a1;\n";
+          out(backend) << "  if (s > " << hi << "LL) s = " << hi << "LL;\n";
+          out(backend) << "  if (s < " << lo << "LL) s = " << lo << "LL;\n";
+          out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")s") << ";\n";
+        } else {
+          out(backend) << "  __int128 s = (__int128)a0 + (__int128)a1;\n";
+          out(backend) << "  if (s > (__int128)" << hi << "LL) s = (__int128)" << hi << "LL;\n";
+          out(backend) << "  if (s < (__int128)" << lo << "LL) s = (__int128)" << lo << "LL;\n";
+          out(backend) << "  return (" << sty << ")s;\n";
+        }
+      }
+    };
+
+    /**
+     * @brief @saturating_sub — clamp the true difference.
+     */
+    class SaturatingSubIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
+          const std::string &uty
+      ) const override {
+        int64_t hi = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
+        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        if (N <= 32) {
+          out(backend) << "  int64_t s = (int64_t)a0 - (int64_t)a1;\n";
+          out(backend) << "  if (s > " << hi << "LL) s = " << hi << "LL;\n";
+          out(backend) << "  if (s < " << lo << "LL) s = " << lo << "LL;\n";
+          out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")s") << ";\n";
+        } else {
+          out(backend) << "  __int128 s = (__int128)a0 - (__int128)a1;\n";
+          out(backend) << "  if (s > (__int128)" << hi << "LL) s = (__int128)" << hi << "LL;\n";
+          out(backend) << "  if (s < (__int128)" << lo << "LL) s = (__int128)" << lo << "LL;\n";
+          out(backend) << "  return (" << sty << ")s;\n";
+        }
+      }
+    };
+
+    /**
+     * @brief @saturating_mul — clamp the true product.
+     */
+    class SaturatingMulIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
+          const std::string &uty
+      ) const override {
+        int64_t hi = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
+        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        if (N <= 32) {
+          out(backend) << "  int64_t s = (int64_t)a0 * (int64_t)a1;\n";
+          out(backend) << "  if (s > " << hi << "LL) s = " << hi << "LL;\n";
+          out(backend) << "  if (s < " << lo << "LL) s = " << lo << "LL;\n";
+          out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")s") << ";\n";
+        } else {
+          out(backend) << "  __int128 s = (__int128)a0 * (__int128)a1;\n";
+          out(backend) << "  if (s > (__int128)" << hi << "LL) s = (__int128)" << hi << "LL;\n";
+          out(backend) << "  if (s < (__int128)" << lo << "LL) s = (__int128)" << lo << "LL;\n";
+          out(backend) << "  return (" << sty << ")s;\n";
+        }
+      }
+    };
+
+    /**
+     * @brief @saturating_neg — `-x`, with INT_MIN_N saturated to
+     * INT_MAX_N.
+     */
+    class SaturatingNegIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
+          const std::string &uty
+      ) const override {
+        int64_t hi = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
+        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        out(backend) << "  " << sty << " r;\n";
+        out(backend) << "  if (a0 == (" << sty << ")" << lo << "LL) r = (" << sty << ")" << hi
+                     << "LL;\n";
+        out(backend) << "  else r = (" << sty << ")(-(int64_t)a0);\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
+      }
+    };
+
+    /**
+     * @brief @div_euclid — `(a / b)` adjusted toward `−∞` when the truncated
+     * remainder is negative.  UB on `b == 0` and on
+     * `a == INT_MIN_N && b == -1` (true quotient -INT_MIN_N overflows).
+     */
+    class DivEuclidIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
+          const std::string &uty
+      ) const override {
+        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        out(backend) << "  if (a1 == 0) __builtin_trap();\n";
+        out(backend) << "  if (a0 == (" << sty << ")" << lo << "LL && a1 == (" << sty
+                     << ")-1) __builtin_trap();\n";
+        out(backend) << "  " << sty << " q = a0 / a1;\n";
+        out(backend) << "  " << sty << " r = a0 - q * a1;\n";
+        out(backend) << "  if (r < 0) q -= (a1 > 0) ? 1 : -1;\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "q") << ";\n";
+      }
+    };
+
+    /**
+     * @brief @rem_euclid — `a − @div_euclid(a, b) * b`; result in [0, |b|).
+     */
+    class RemEuclidIntrinsic final : public CIntrinsic {
+    public:
+      void emit(
+          CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
+          const std::string &uty
+      ) const override {
+        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        out(backend) << "  if (a1 == 0) __builtin_trap();\n";
+        out(backend) << "  if (a0 == (" << sty << ")" << lo << "LL && a1 == (" << sty
+                     << ")-1) __builtin_trap();\n";
+        out(backend) << "  " << sty << " r = a0 % a1;\n";
+        out(backend) << "  if (r < 0) r += (a1 > 0) ? a1 : -a1;\n";
+        out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
+      }
+    };
+
   } // namespace
 
   const std::unordered_map<IntrinsicKind, CIntrinsicRegistry::CIntrinsicGenFn> &
@@ -440,6 +686,19 @@ namespace symir {
       r[IntrinsicKind::Rotr] = std::make_unique<RotrIntrinsic>();
       r[IntrinsicKind::IsPow2] = std::make_unique<IsPow2Intrinsic>();
       r[IntrinsicKind::Ilog2] = std::make_unique<Ilog2Intrinsic>();
+      // §12.5 — overflow-aware family.
+      r[IntrinsicKind::WrappingAdd] = std::make_unique<WrappingAddIntrinsic>();
+      r[IntrinsicKind::WrappingSub] = std::make_unique<WrappingSubIntrinsic>();
+      r[IntrinsicKind::WrappingMul] = std::make_unique<WrappingMulIntrinsic>();
+      r[IntrinsicKind::WrappingNeg] = std::make_unique<WrappingNegIntrinsic>();
+      r[IntrinsicKind::WrappingShl] = std::make_unique<WrappingShlIntrinsic>();
+      r[IntrinsicKind::WrappingShr] = std::make_unique<WrappingShrIntrinsic>();
+      r[IntrinsicKind::SaturatingAdd] = std::make_unique<SaturatingAddIntrinsic>();
+      r[IntrinsicKind::SaturatingSub] = std::make_unique<SaturatingSubIntrinsic>();
+      r[IntrinsicKind::SaturatingMul] = std::make_unique<SaturatingMulIntrinsic>();
+      r[IntrinsicKind::SaturatingNeg] = std::make_unique<SaturatingNegIntrinsic>();
+      r[IntrinsicKind::DivEuclid] = std::make_unique<DivEuclidIntrinsic>();
+      r[IntrinsicKind::RemEuclid] = std::make_unique<RemEuclidIntrinsic>();
       return r;
     }();
     return registry;

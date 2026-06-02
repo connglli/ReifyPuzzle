@@ -1,0 +1,10 @@
+// EXPECT: FAIL:UndefinedBehavior
+// [v0.2.2] §12.5 — @wrapping_shl(x, n) with n out of [0, N) is UB.
+intrinsic @wrapping_shl(%x: i32, %n: i32) : i32;
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @wrapping_shl(1, 32); // n == N: UB
+  ret %r;
+}

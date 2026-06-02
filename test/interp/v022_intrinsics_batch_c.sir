@@ -1,0 +1,70 @@
+// EXPECT: PASS
+// Rationale: [v0.2.2] §12.5 - Integer overflow-aware family.
+// Exercises every shipped batch-C intrinsic on representative inputs.
+
+intrinsic @wrapping_add(%a: i8, %b: i8) : i8;
+intrinsic @wrapping_sub(%a: i8, %b: i8) : i8;
+intrinsic @wrapping_mul(%a: i8, %b: i8) : i8;
+intrinsic @wrapping_neg(%x: i32) : i32;
+intrinsic @wrapping_shl(%x: i32, %n: i32) : i32;
+intrinsic @wrapping_shr(%x: i32, %n: i32) : i32;
+
+intrinsic @saturating_add(%a: i8, %b: i8) : i8;
+intrinsic @saturating_sub(%a: i8, %b: i8) : i8;
+intrinsic @saturating_mul(%a: i8, %b: i8) : i8;
+intrinsic @saturating_neg(%x: i32) : i32;
+
+intrinsic @div_euclid(%a: i32, %b: i32) : i32;
+intrinsic @rem_euclid(%a: i32, %b: i32) : i32;
+
+fun @main() : i32 {
+  let mut %r8: i8 = 0;
+  let mut %r32: i32 = 0;
+^entry:
+  // ── wrapping ────────────────────────────────────────────────────────
+  %r8 = call @wrapping_add(127 as i8, 1 as i8);     // 127 + 1 wraps to -128
+  require %r8 == -128, "wrapping_add 127+1 -> -128";
+
+  %r8 = call @wrapping_sub(-128 as i8, 1 as i8);    // -128 - 1 wraps to 127
+  require %r8 == 127, "wrapping_sub -128-1 -> 127";
+
+  %r8 = call @wrapping_mul(16 as i8, 16 as i8);     // 16*16=256 mod 256 = 0
+  require %r8 == 0, "wrapping_mul 16*16 -> 0";
+
+  %r32 = call @wrapping_neg(-2147483648);            // INT_MIN_32 stays
+  require %r32 == -2147483648, "wrapping_neg INT_MIN -> INT_MIN";
+
+  %r32 = call @wrapping_shl(1, 31);                  // 1 << 31 = INT_MIN_32
+  require %r32 == -2147483648, "wrapping_shl 1,31 -> INT_MIN";
+
+  %r32 = call @wrapping_shr(-8, 2);                  // -8 >> 2 = -2 (arithmetic)
+  require %r32 == -2, "wrapping_shr -8,2 -> -2";
+
+  // ── saturating ──────────────────────────────────────────────────────
+  %r8 = call @saturating_add(120 as i8, 50 as i8);   // overshoot -> 127
+  require %r8 == 127, "saturating_add 120+50 -> 127";
+
+  %r8 = call @saturating_sub(-100 as i8, 50 as i8);  // overshoot low -> -128
+  require %r8 == -128, "saturating_sub -100-50 -> -128";
+
+  %r8 = call @saturating_mul(-128 as i8, 2 as i8);   // -256 -> -128
+  require %r8 == -128, "saturating_mul -128*2 -> -128";
+
+  %r32 = call @saturating_neg(-2147483648);          // INT_MIN -> INT_MAX
+  require %r32 == 2147483647, "saturating_neg INT_MIN -> INT_MAX";
+
+  // ── euclidean div/rem ──────────────────────────────────────────────
+  %r32 = call @div_euclid(-7, 2);                    // floor(-7/2) = -4
+  require %r32 == -4, "div_euclid -7,2 -> -4";
+
+  %r32 = call @rem_euclid(-7, 2);                    // -7 - (-4*2) = 1
+  require %r32 == 1, "rem_euclid -7,2 -> 1";
+
+  %r32 = call @div_euclid(-7, -2);                   // toward -inf -> 4
+  require %r32 == 4, "div_euclid -7,-2 -> 4";
+
+  %r32 = call @rem_euclid(-7, -2);                   // non-negative -> 1
+  require %r32 == 1, "rem_euclid -7,-2 -> 1";
+
+  ret 0;
+}

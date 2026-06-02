@@ -14,9 +14,17 @@ namespace symir {
    * v0.2.2 extra A/B (§12.3 integer extras, §12.4 bit-manipulation):
    *   AbsDiff, Signum, Clamp, Midpoint,
    *   Parity, Bswap, Bitreverse, Rotl, Rotr, IsPow2, Ilog2.
+   * v0.2.2 extra C — integer overflow-aware family (§12.5):
+   *   WrappingAdd, WrappingSub, WrappingMul, WrappingNeg,
+   *   WrappingShl, WrappingShr,
+   *   SaturatingAdd, SaturatingSub, SaturatingMul, SaturatingNeg,
+   *   DivEuclid, RemEuclid.
    *
    * Note: there is no @umin / @umax — SymIR has no unsigned integer types
    * and the toolchain does not implicitly reinterpret iN bits as uN.
+   * The tuple-returning members of the overflow family (`@checked_*`,
+   * `@overflowing_*`) and the cross-width `@widening_mul` are deferred
+   * to a follow-up batch that introduces the multi-value return ABI.
    */
   enum class IntrinsicKind {
     // v0.2.2 baseline
@@ -39,6 +47,19 @@ namespace symir {
     Rotr,
     IsPow2,
     Ilog2,
+    // v0.2.2 extra batch C — integer overflow-aware family (§12.5)
+    WrappingAdd,
+    WrappingSub,
+    WrappingMul,
+    WrappingNeg,
+    WrappingShl,
+    WrappingShr,
+    SaturatingAdd,
+    SaturatingSub,
+    SaturatingMul,
+    SaturatingNeg,
+    DivEuclid,
+    RemEuclid,
   };
 
   /**
@@ -83,6 +104,31 @@ namespace symir {
       return IntrinsicKind::IsPow2;
     if (name == "@ilog2")
       return IntrinsicKind::Ilog2;
+    // v0.2.2 extra batch C — integer overflow-aware family (§12.5)
+    if (name == "@wrapping_add")
+      return IntrinsicKind::WrappingAdd;
+    if (name == "@wrapping_sub")
+      return IntrinsicKind::WrappingSub;
+    if (name == "@wrapping_mul")
+      return IntrinsicKind::WrappingMul;
+    if (name == "@wrapping_neg")
+      return IntrinsicKind::WrappingNeg;
+    if (name == "@wrapping_shl")
+      return IntrinsicKind::WrappingShl;
+    if (name == "@wrapping_shr")
+      return IntrinsicKind::WrappingShr;
+    if (name == "@saturating_add")
+      return IntrinsicKind::SaturatingAdd;
+    if (name == "@saturating_sub")
+      return IntrinsicKind::SaturatingSub;
+    if (name == "@saturating_mul")
+      return IntrinsicKind::SaturatingMul;
+    if (name == "@saturating_neg")
+      return IntrinsicKind::SaturatingNeg;
+    if (name == "@div_euclid")
+      return IntrinsicKind::DivEuclid;
+    if (name == "@rem_euclid")
+      return IntrinsicKind::RemEuclid;
     return std::nullopt;
   }
 

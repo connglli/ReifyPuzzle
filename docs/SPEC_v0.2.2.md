@@ -905,6 +905,24 @@ An intrinsic is accepted only if all four are defined. "Delegate to the target" 
 
 **Priority taxonomy and rejection layers.** The six intrinsics defined above are the v0.2.2 baseline. The full design space — covering C `<math.h>`, WASM numeric instructions, and Rust `iN`/`fN` inherent methods — is classified into priority tiers **P0–P4** in [`docs/intrinsics.md`](./intrinsics.md). The tiering decides which intrinsics ship next, which are gated behind a feature flag, and which are deliberately rejected (at the frontend, by the solver, or by a specific backend). Solver and C support drive the priority; WASM is second-to-last; intrinsics with no efficient SMT encoding are last. v0.2.2 commits to shipping the **P0** tier.
 
+**Shipped batches.** §12 ships in the following increments inside the
+v0.2.2 line, each adding one solver-friendly group:
+
+- Batch A — §12 *integer extras*: `@abs_diff`, `@signum`, `@clamp`,
+  `@midpoint`.
+- Batch B — §12 *bit-manipulation*: `@parity`, `@bswap`, `@bitreverse`,
+  `@rotl`, `@rotr`, `@is_pow2`, `@ilog2`.
+- Batch C — §12 *integer overflow-aware family (scalar-result subset)*:
+  `@wrapping_{add,sub,mul,neg,shl,shr}`,
+  `@saturating_{add,sub,mul,neg}`, `@div_euclid`, `@rem_euclid`.  See
+  [`docs/intrinsics.md`](./intrinsics.md) §12.5 for the per-intrinsic
+  signatures, SMT encodings, and UB conditions.  The tuple-returning
+  members of this family (`@checked_*`, `@overflowing_*`) and the
+  cross-width `@widening_mul` remain planned, gated on the multi-value
+  return ABI.
+- Batch D — §12 *floating-point basic IEEE family*: planned, gated on
+  the FP-intrinsic gate.
+
 
 ## 13. Non-goals for v0.2.2 (planned for later)
 

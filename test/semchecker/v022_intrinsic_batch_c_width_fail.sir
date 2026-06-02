@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.5 — @saturating_mul requires both parameters and the
+// return type to share a single iN width.  Mixing widths is rejected.
+intrinsic @saturating_mul(%a: i32, %b: i64) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

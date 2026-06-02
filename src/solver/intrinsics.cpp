@@ -476,6 +476,307 @@ namespace symir {
       }
     };
 
+    // ── §12.5 Integer overflow-aware family (v0.2.2 extra batch C) ────────
+
+    /**
+     * @brief @wrapping_add(a, b) — BV_ADD already operates modulo 2^N.
+     */
+    class WrappingAddIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t,
+          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        auto r = solver.make_term(smt::Kind::BV_ADD, {argVals[0].term, argVals[1].term});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief @wrapping_sub(a, b) — BV_SUB is modular.
+     */
+    class WrappingSubIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t,
+          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        auto r = solver.make_term(smt::Kind::BV_SUB, {argVals[0].term, argVals[1].term});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief @wrapping_mul(a, b) — BV_MUL is modular.
+     */
+    class WrappingMulIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t,
+          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        auto r = solver.make_term(smt::Kind::BV_MUL, {argVals[0].term, argVals[1].term});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief @wrapping_neg(x) — BV_NEG is modular; INT_MIN_N is fixed.
+     */
+    class WrappingNegIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t,
+          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        auto r = solver.make_term(smt::Kind::BV_NEG, {argVals[0].term});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief @wrapping_shl(x, n) — `n` is signed; UB outside [0, N).
+     */
+    class WrappingShlIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N,
+          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+          smt::ISolver &solver, std::vector<smt::Term> &pc
+      ) const override {
+        smt::Term x = argVals[0].term, n = argVals[1].term;
+        auto zero = solver.make_bv_value_int64(bvN, 0);
+        auto nN = solver.make_bv_value_int64(bvN, (int64_t) N);
+        pc.push_back(solver.make_term(smt::Kind::BV_SGE, {n, zero}));
+        pc.push_back(solver.make_term(smt::Kind::BV_SLT, {n, nN}));
+        auto r = solver.make_term(smt::Kind::BV_SHL, {x, n});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief @wrapping_shr(x, n) — arithmetic right shift; same UB.
+     */
+    class WrappingShrIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N,
+          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+          smt::ISolver &solver, std::vector<smt::Term> &pc
+      ) const override {
+        smt::Term x = argVals[0].term, n = argVals[1].term;
+        auto zero = solver.make_bv_value_int64(bvN, 0);
+        auto nN = solver.make_bv_value_int64(bvN, (int64_t) N);
+        pc.push_back(solver.make_term(smt::Kind::BV_SGE, {n, zero}));
+        pc.push_back(solver.make_term(smt::Kind::BV_SLT, {n, nN}));
+        auto r = solver.make_term(smt::Kind::BV_ASHR, {x, n});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief @saturating_add(a, b) — uses BV_SADD_OVERFLOW: when the true
+     * sum overflows, return INT_MAX_N if `a >= 0` else INT_MIN_N.
+     */
+    class SaturatingAddIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N,
+          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        smt::Term a = argVals[0].term, b = argVals[1].term;
+        int64_t maxN = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
+        int64_t minN = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        auto hi = solver.make_bv_value_int64(bvN, maxN);
+        auto lo = solver.make_bv_value_int64(bvN, minN);
+        auto sum = solver.make_term(smt::Kind::BV_ADD, {a, b});
+        auto ov = solver.make_term(smt::Kind::BV_SADD_OVERFLOW, {a, b});
+        auto zero = solver.make_bv_value_int64(bvN, 0);
+        auto aNonNeg = solver.make_term(smt::Kind::BV_SGE, {a, zero});
+        auto satEdge = solver.make_term(smt::Kind::ITE, {aNonNeg, hi, lo});
+        auto r = solver.make_term(smt::Kind::ITE, {ov, satEdge, sum});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief @saturating_sub(a, b) — analogous to @saturating_add via
+     * BV_SSUB_OVERFLOW.  When overflow fires, `a` non-negative implies the
+     * difference overshoots `INT_MAX_N`.
+     */
+    class SaturatingSubIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N,
+          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        smt::Term a = argVals[0].term, b = argVals[1].term;
+        int64_t maxN = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
+        int64_t minN = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        auto hi = solver.make_bv_value_int64(bvN, maxN);
+        auto lo = solver.make_bv_value_int64(bvN, minN);
+        auto diff = solver.make_term(smt::Kind::BV_SUB, {a, b});
+        auto ov = solver.make_term(smt::Kind::BV_SSUB_OVERFLOW, {a, b});
+        auto zero = solver.make_bv_value_int64(bvN, 0);
+        auto aNonNeg = solver.make_term(smt::Kind::BV_SGE, {a, zero});
+        auto satEdge = solver.make_term(smt::Kind::ITE, {aNonNeg, hi, lo});
+        auto r = solver.make_term(smt::Kind::ITE, {ov, satEdge, diff});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief @saturating_mul(a, b) — uses BV_SMUL_OVERFLOW.  The sign of
+     * the saturated bound is `sign(a) XOR sign(b)`: result-positive maps
+     * to `INT_MAX_N`, result-negative to `INT_MIN_N`.
+     */
+    class SaturatingMulIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N,
+          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        smt::Term a = argVals[0].term, b = argVals[1].term;
+        int64_t maxN = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
+        int64_t minN = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        auto hi = solver.make_bv_value_int64(bvN, maxN);
+        auto lo = solver.make_bv_value_int64(bvN, minN);
+        auto zero = solver.make_bv_value_int64(bvN, 0);
+        auto prod = solver.make_term(smt::Kind::BV_MUL, {a, b});
+        auto ov = solver.make_term(smt::Kind::BV_SMUL_OVERFLOW, {a, b});
+        auto aNonNeg = solver.make_term(smt::Kind::BV_SGE, {a, zero});
+        auto bNonNeg = solver.make_term(smt::Kind::BV_SGE, {b, zero});
+        // True-product sign positive iff signs of a and b agree.
+        auto sameSign = solver.make_term(smt::Kind::EQUAL, {aNonNeg, bNonNeg});
+        auto satEdge = solver.make_term(smt::Kind::ITE, {sameSign, hi, lo});
+        auto r = solver.make_term(smt::Kind::ITE, {ov, satEdge, prod});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief @saturating_neg(x) — `-x`, with `INT_MIN_N` saturated to
+     * `INT_MAX_N`.
+     */
+    class SaturatingNegIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N,
+          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        smt::Term x = argVals[0].term;
+        int64_t maxN = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
+        int64_t minN = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        auto hi = solver.make_bv_value_int64(bvN, maxN);
+        auto minT = solver.make_bv_value_int64(bvN, minN);
+        auto neg = solver.make_term(smt::Kind::BV_NEG, {x});
+        auto isMin = solver.make_term(smt::Kind::EQUAL, {x, minT});
+        auto r = solver.make_term(smt::Kind::ITE, {isMin, hi, neg});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief @div_euclid(a, b) — adjust the truncating quotient by `-1`
+     * when the truncated remainder is negative (matches Rust's signed
+     * `div_euclid`).  UB on `b == 0` and on `a == INT_MIN_N && b == -1`.
+     */
+    class DivEuclidIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N,
+          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+          smt::ISolver &solver, std::vector<smt::Term> &pc
+      ) const override {
+        smt::Term a = argVals[0].term, b = argVals[1].term;
+        auto zero = solver.make_bv_value_int64(bvN, 0);
+        auto one = solver.make_bv_value_int64(bvN, 1);
+        auto minusOne = solver.make_bv_value_int64(bvN, -1);
+        int64_t minN = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        auto minT = solver.make_bv_value_int64(bvN, minN);
+        pc.push_back(solver.make_term(smt::Kind::DISTINCT, {b, zero}));
+        auto aMin = solver.make_term(smt::Kind::EQUAL, {a, minT});
+        auto bNeg1 = solver.make_term(smt::Kind::EQUAL, {b, minusOne});
+        pc.push_back(
+            solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::AND, {aMin, bNeg1})})
+        );
+        auto q = solver.make_term(smt::Kind::BV_SDIV, {a, b});
+        auto r = solver.make_term(smt::Kind::BV_SREM, {a, b});
+        auto rNeg = solver.make_term(smt::Kind::BV_SLT, {r, zero});
+        auto bPos = solver.make_term(smt::Kind::BV_SGT, {b, zero});
+        // Step the quotient: -1 if b > 0, +1 if b < 0.
+        auto step = solver.make_term(smt::Kind::ITE, {bPos, minusOne, one});
+        auto qAdj = solver.make_term(smt::Kind::BV_ADD, {q, step});
+        auto out = solver.make_term(smt::Kind::ITE, {rNeg, qAdj, q});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, out, solver.make_true()
+        );
+      }
+    };
+
+    /**
+     * @brief @rem_euclid(a, b) — add `|b|` to the truncated remainder when
+     * it is negative.
+     */
+    class RemEuclidIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N,
+          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+          smt::ISolver &solver, std::vector<smt::Term> &pc
+      ) const override {
+        smt::Term a = argVals[0].term, b = argVals[1].term;
+        auto zero = solver.make_bv_value_int64(bvN, 0);
+        auto minusOne = solver.make_bv_value_int64(bvN, -1);
+        int64_t minN = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        auto minT = solver.make_bv_value_int64(bvN, minN);
+        pc.push_back(solver.make_term(smt::Kind::DISTINCT, {b, zero}));
+        auto aMin = solver.make_term(smt::Kind::EQUAL, {a, minT});
+        auto bNeg1 = solver.make_term(smt::Kind::EQUAL, {b, minusOne});
+        pc.push_back(
+            solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::AND, {aMin, bNeg1})})
+        );
+        auto r = solver.make_term(smt::Kind::BV_SREM, {a, b});
+        auto rNeg = solver.make_term(smt::Kind::BV_SLT, {r, zero});
+        auto bPos = solver.make_term(smt::Kind::BV_SGT, {b, zero});
+        auto bNeg = solver.make_term(smt::Kind::BV_NEG, {b});
+        auto bAbs = solver.make_term(smt::Kind::ITE, {bPos, b, bNeg});
+        auto rPlus = solver.make_term(smt::Kind::BV_ADD, {r, bAbs});
+        auto out = solver.make_term(smt::Kind::ITE, {rNeg, rPlus, r});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, out, solver.make_true()
+        );
+      }
+    };
+
     // ── Registry ────────────────────────────────────────────────────────────
 
     class IntrinsicRegistry {
@@ -511,6 +812,19 @@ namespace symir {
         registry_[IntrinsicKind::Rotr] = std::make_unique<RotrIntrinsic>();
         registry_[IntrinsicKind::IsPow2] = std::make_unique<IsPow2Intrinsic>();
         registry_[IntrinsicKind::Ilog2] = std::make_unique<Ilog2Intrinsic>();
+        // §12.5 — overflow-aware family.
+        registry_[IntrinsicKind::WrappingAdd] = std::make_unique<WrappingAddIntrinsic>();
+        registry_[IntrinsicKind::WrappingSub] = std::make_unique<WrappingSubIntrinsic>();
+        registry_[IntrinsicKind::WrappingMul] = std::make_unique<WrappingMulIntrinsic>();
+        registry_[IntrinsicKind::WrappingNeg] = std::make_unique<WrappingNegIntrinsic>();
+        registry_[IntrinsicKind::WrappingShl] = std::make_unique<WrappingShlIntrinsic>();
+        registry_[IntrinsicKind::WrappingShr] = std::make_unique<WrappingShrIntrinsic>();
+        registry_[IntrinsicKind::SaturatingAdd] = std::make_unique<SaturatingAddIntrinsic>();
+        registry_[IntrinsicKind::SaturatingSub] = std::make_unique<SaturatingSubIntrinsic>();
+        registry_[IntrinsicKind::SaturatingMul] = std::make_unique<SaturatingMulIntrinsic>();
+        registry_[IntrinsicKind::SaturatingNeg] = std::make_unique<SaturatingNegIntrinsic>();
+        registry_[IntrinsicKind::DivEuclid] = std::make_unique<DivEuclidIntrinsic>();
+        registry_[IntrinsicKind::RemEuclid] = std::make_unique<RemEuclidIntrinsic>();
       }
 
       std::unordered_map<IntrinsicKind, std::unique_ptr<SolverIntrinsic>> registry_;

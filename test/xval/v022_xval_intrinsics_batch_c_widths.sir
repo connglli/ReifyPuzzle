@@ -1,0 +1,56 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// [v0.2.2] §12.5 — same batch-C ops repeated at i8 / i16 / i32 / i64.
+// The widening-and-mask discipline is uniform but each width hits a
+// different code path in every tool (different masks, different
+// __int128 fallbacks for N == 64, different WASM widen/clamp shape).
+// Cross-validation here protects the per-width variants together.
+
+intrinsic @wrapping_add(%a: i8,  %b: i8)  : i8;
+intrinsic @wrapping_add(%a: i16, %b: i16) : i16;
+intrinsic @wrapping_add(%a: i32, %b: i32) : i32;
+intrinsic @wrapping_add(%a: i64, %b: i64) : i64;
+
+intrinsic @saturating_mul(%a: i8,  %b: i8)  : i8;
+intrinsic @saturating_mul(%a: i16, %b: i16) : i16;
+intrinsic @saturating_mul(%a: i32, %b: i32) : i32;
+intrinsic @saturating_mul(%a: i64, %b: i64) : i64;
+
+intrinsic @div_euclid(%a: i8,  %b: i8)  : i8;
+intrinsic @div_euclid(%a: i64, %b: i64) : i64;
+
+fun @main() : i32 {
+  let mut %r8:  i8  = 0;
+  let mut %r16: i16 = 0;
+  let mut %r32: i32 = 0;
+  let mut %r64: i64 = 0;
+^entry:
+  // wrapping_add at each width — same overflow shape (INT_MAX + 1).
+  %r8  = call @wrapping_add(127  as i8,  1 as i8);
+  require %r8  == -128, "wrap_add i8 INT_MAX+1";
+  %r16 = call @wrapping_add(32767 as i16, 1 as i16);
+  require %r16 == -32768, "wrap_add i16 INT_MAX+1";
+  %r32 = call @wrapping_add(2147483647, 1);
+  require %r32 == -2147483648, "wrap_add i32 INT_MAX+1";
+  %r64 = call @wrapping_add(9223372036854775807 as i64, 1 as i64);
+  require %r64 == -9223372036854775807 - 1, "wrap_add i64 INT_MAX+1";
+
+  // saturating_mul where both operands force the positive saturate.
+  %r8  = call @saturating_mul(50  as i8,  50 as i8);
+  require %r8  == 127, "sat_mul i8 50*50";
+  %r16 = call @saturating_mul(200 as i16, 200 as i16);
+  require %r16 == 32767, "sat_mul i16 200*200";
+  %r32 = call @saturating_mul(100000, 100000);
+  require %r32 == 2147483647, "sat_mul i32 1e5*1e5";
+  %r64 = call @saturating_mul(4000000000 as i64, 4000000000 as i64);
+  require %r64 == 9223372036854775807 as i64, "sat_mul i64 4e9*4e9";
+
+  // div_euclid sign-sweep on i8 and i64 (the two extremes of the
+  // widening table — both exercise distinct C and WASM code paths).
+  %r8  = call @div_euclid(-7 as i8, 2 as i8);
+  require %r8  == -4, "div_euclid i8 -7,2 -> -4";
+  %r64 = call @div_euclid(-7 as i64, 2 as i64);
+  require %r64 == -4, "div_euclid i64 -7,2 -> -4";
+
+  ret 0;
+}

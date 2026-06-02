@@ -1,0 +1,10 @@
+// EXPECT: FAIL:UndefinedBehavior
+// [v0.2.2] §12.5 — @wrapping_shr(x, n) with n < 0 is UB.
+intrinsic @wrapping_shr(%x: i32, %n: i32) : i32;
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @wrapping_shr(8, -1);
+  ret %r;
+}
