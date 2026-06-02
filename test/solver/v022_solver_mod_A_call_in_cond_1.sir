@@ -1,6 +1,5 @@
 // EXPECT: PASS
 // SOLVER_ARGS: --main @main --path ^entry,^pos,^accum,^exit --seed 2
-// SKIP: SOLVER -- ptr i32 passed to fun callee + load/store inside callee returns UNSAT (solver gap)
 // SKIP: COMPILER
 // SPEC v0.2.2 §2.12 (calls in conditions; side effects unconditional)
 // Intention: Scenario A8 -- helper called from inside a branch

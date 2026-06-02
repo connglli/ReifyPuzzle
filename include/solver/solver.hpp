@@ -240,12 +240,14 @@ namespace symir {
 
     // [v0.2.2] Symbolic interprocedural call. Evaluates the callee
     // body on its straight-line CFG path and returns the symbolic
-    // value of the ret expression. Caller-side store stays unchanged
-    // for non-pointer locals; pointer-argument havoc (full §9.6.1
-    // step 5) is reserved for Phase 8's contract-form path.
+    // value of the ret expression. The caller's FunDecl and store are
+    // passed in so that `store %p, %v` instructions inside the callee
+    // can reach the caller-side `let mut` whose address backs `%p` —
+    // see SPEC §9.6.1 step 4 ("Mem[T] reflects callee `store`s").
     SymbolicValue callFunction(
         const FunDecl &callee, std::vector<SymbolicValue> args, smt::ISolver &solver,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, const FunDecl *callerFun = nullptr,
+        SymbolicStore *callerStore = nullptr
     );
 
     // [v0.2.2 Phase 8] §9.6.2 contract-form decl expansion. `pre`
@@ -271,6 +273,15 @@ namespace symir {
     // start of solve(). A future sub-path syntax (see SPEC §13) will
     // replace this random sampling with a user-supplied callee path.
     std::mt19937 calleeRng_;
+
+    // [v0.2.2] Caller frame snapshot for the current `callFunction`
+    // activation.  Used by LoadAtom / StoreInstr handlers so that a
+    // pointer parameter dereferenced inside a callee can land its read
+    // / write on the caller-side `let mut` that owns the storage —
+    // SPEC §9.6.1 step 4.  Both fields are null at the top level and
+    // re-saved-and-restored around each nested call.
+    const FunDecl *outerFun_ = nullptr;
+    SymbolicStore *outerStore_ = nullptr;
   };
 
 } // namespace symir

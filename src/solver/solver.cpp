@@ -377,24 +377,38 @@ namespace symir {
   // [v0.2.2] §9.6.1 — symbolic interprocedural call. Phase 6: the
   // callee is restricted to straight-line CFG (single entry block whose
   // terminator is ret). Multi-block callees with conditional branches
-  // would require a sub-path specification (deferred). Pointer-arg
-  // havoc is also deferred to Phase 8's contract path.
+  // would require a sub-path specification (deferred).
+  //
+  // `callerFun` / `callerStore` are non-null when invoked from a
+  // call-site inside a symbolic execution frame. Callee `store`s that
+  // land on a caller-side `let mut` (via a pointer parameter or any
+  // pointer derived from one) are reflected into `callerStore` so the
+  // caller observes the side effect — SPEC §9.6.1 step 4 mandates that
+  // `Mem[T]` reflect callee stores.
   SymbolicExecutor::SymbolicValue SymbolicExecutor::callFunction(
       const FunDecl &callee, std::vector<SymbolicValue> args, smt::ISolver &solver,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> &pc, const FunDecl *callerFun, SymbolicStore *callerStore
   ) {
     // Save caller frame state.
     const FunDecl *prevFun = currentFun_;
     auto savedProv = std::move(ptrProv_);
     ptrProv_.clear();
+    const FunDecl *prevOuterFun = outerFun_;
+    SymbolicStore *prevOuterStore = outerStore_;
 
     currentFun_ = &callee;
+    // Expose the caller frame so LoadAtom / StoreInstr handlers can
+    // route pointer-parameter accesses back to the caller's storage.
+    outerFun_ = callerFun;
+    outerStore_ = callerStore;
 
     SymbolicStore calleeStore;
 
     auto restoreFrame = [&]() {
       currentFun_ = prevFun;
       ptrProv_ = std::move(savedProv);
+      outerFun_ = prevOuterFun;
+      outerStore_ = prevOuterStore;
     };
 
     try {
@@ -472,12 +486,118 @@ namespace symir {
                   if (currentReq_)
                     currentReq_->push_back(evalCond(arg.cond, solver, calleeStore, pc));
                 } else if constexpr (std::is_same_v<T, StoreInstr>) {
-                  // Simplified: evaluate ptr and val and rely on the
-                  // path machinery to push UB constraints. Full
-                  // typed-mem havoc / store enumeration is reused from
-                  // the top-level solver path -- deferred for callees.
-                  (void) evalExpr(arg.ptr, solver, calleeStore, pc);
-                  (void) evalExpr(arg.val, solver, calleeStore, pc);
+                  // [v0.2.2] §9.6.1 step 4 — callee `store`s must update
+                  // every reachable `let mut`, including caller-side
+                  // ones whose addresses are exposed through pointer
+                  // parameters.  Mirror the top-level handler's
+                  // mux-update enumeration; run it on the callee frame
+                  // (callee-local pointers) and the caller frame (so
+                  // pointers passed in as parameters land their stores
+                  // on the caller's view of memory).
+                  SymbolicValue ptrVal = evalExpr(arg.ptr, solver, calleeStore, pc);
+                  smt::Term ptrTerm = ptrVal.term;
+
+                  auto bv64Store = solver.make_bv_sort(kPtrBits);
+                  auto nullStore = solver.make_bv_value_int64(bv64Store, 0);
+                  pc.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullStore}));
+                  if (ptrVal.prov_base.internal && ptrVal.prov_size.internal) {
+                    auto zero = solver.make_bv_value_int64(bv64Store, 0);
+                    auto hasProv = solver.make_term(smt::Kind::DISTINCT, {ptrVal.prov_base, zero});
+                    auto inLow = solver.make_term(smt::Kind::BV_ULE, {ptrVal.prov_base, ptrTerm});
+                    auto endAddr =
+                        solver.make_term(smt::Kind::BV_ADD, {ptrVal.prov_base, ptrVal.prov_size});
+                    auto inHi = solver.make_term(smt::Kind::BV_ULT, {ptrTerm, endAddr});
+                    auto cond = solver.make_term(
+                        smt::Kind::IMPLIES,
+                        {hasProv, solver.make_term(smt::Kind::AND, {inLow, inHi})}
+                    );
+                    pc.push_back(cond);
+                  }
+
+                  TypePtr pointeeType;
+                  if (auto *rv = std::get_if<RValueAtom>(&arg.ptr.first.v)) {
+                    TypePtr rvalType = resolveLValueType(rv->rval);
+                    if (rvalType) {
+                      if (auto pt = std::get_if<PtrType>(&rvalType->v))
+                        pointeeType = pt->pointee;
+                    }
+                  }
+                  if (!pointeeType)
+                    throw std::runtime_error(
+                        "store: cannot derive pointee type (only `store %p, ...` "
+                        "with a ptr-typed local or parameter %p is currently supported)"
+                    );
+
+                  auto pointeeSort = getSort(pointeeType, solver);
+                  SymbolicValue valVal =
+                      evalExpr(arg.val, solver, calleeStore, pc, std::optional(pointeeSort));
+                  smt::Term valTerm = valVal.term;
+
+                  auto bv64 = solver.make_bv_sort(kPtrBits);
+                  std::vector<smt::Term> storeMatchConds;
+                  std::function<
+                      void(const TypePtr &, SymbolicValue &, std::uint64_t, std::uint64_t)>
+                      enumStoreFrame;
+                  enumStoreFrame = [&](const TypePtr &ty, SymbolicValue &sv, std::uint64_t baseTag,
+                                       std::uint64_t off) {
+                    if (!ty)
+                      return;
+                    if (typeMatch(ty, pointeeType)) {
+                      auto tagTerm =
+                          solver.make_bv_value_int64(bv64, static_cast<int64_t>(baseTag + off));
+                      auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, tagTerm});
+                      storeMatchConds.push_back(cond);
+                      sv.term = solver.make_term(smt::Kind::ITE, {cond, valTerm, sv.term});
+                      return;
+                    }
+                    if (auto at = std::get_if<ArrayType>(&ty->v)) {
+                      std::uint64_t stride = sizeofTagUnits(at->elem, structs_);
+                      for (std::uint64_t k = 0; k < at->size && k < sv.arrayVal.size(); ++k)
+                        enumStoreFrame(at->elem, sv.arrayVal[k], baseTag, off + k * stride);
+                      return;
+                    }
+                    if (auto st = std::get_if<StructType>(&ty->v)) {
+                      auto sIt = structs_.find(st->name.name);
+                      if (sIt == structs_.end())
+                        return;
+                      std::uint64_t fOff = 0;
+                      for (const auto &f: sIt->second->fields) {
+                        auto fIt = sv.structVal.find(f.name);
+                        if (fIt != sv.structVal.end())
+                          enumStoreFrame(f.type, fIt->second, baseTag, off + fOff);
+                        fOff += sizeofTagUnits(f.type, structs_);
+                      }
+                      return;
+                    }
+                  };
+
+                  // Callee frame: stores rooted in callee-local addresses.
+                  for (const auto &l: callee.lets) {
+                    auto it = calleeStore.find(l.name.name);
+                    if (it == calleeStore.end())
+                      continue;
+                    enumStoreFrame(l.type, it->second, tagOfLocal(l.name.name), 0);
+                  }
+                  // Caller frame: stores rooted in caller-visible
+                  // addresses exposed via pointer parameters.  The mux
+                  // condition `ptrTerm == tag_of(caller_local) + off`
+                  // is automatically false when the call site passed a
+                  // pointer to a different local, so the wrong frame
+                  // never receives a write.
+                  if (callerFun && callerStore) {
+                    for (const auto &l: callerFun->lets) {
+                      auto it = callerStore->find(l.name.name);
+                      if (it == callerStore->end())
+                        continue;
+                      enumStoreFrame(l.type, it->second, tagOfLocal(l.name.name), 0);
+                    }
+                  }
+                  if (!storeMatchConds.empty()) {
+                    smt::Term anyMatch = storeMatchConds[0];
+                    for (size_t j = 1; j < storeMatchConds.size(); ++j)
+                      anyMatch = solver.make_term(smt::Kind::OR, {anyMatch, storeMatchConds[j]});
+                    pc.push_back(anyMatch);
+                  }
                 }
               },
               ins
@@ -2293,6 +2413,18 @@ namespace symir {
               std::uint64_t baseTag = tagOfLocal(l.name.name);
               enumLoad(l.type, store.at(l.name.name), baseTag, 0);
             }
+            // [v0.2.2] SPEC §9.6.1 step 4: when this load fires inside a
+            // callee, a pointer parameter may point at a caller-owned
+            // `let mut`.  Walk the caller frame too so the load sees
+            // the caller's current value.
+            if (outerFun_ && outerStore_) {
+              for (const auto &l: outerFun_->lets) {
+                auto it = outerStore_->find(l.name.name);
+                if (it == outerStore_->end())
+                  continue;
+                enumLoad(l.type, it->second, tagOfLocal(l.name.name), 0);
+              }
+            }
             auto nullPtr = solver.make_bv_value_int64(bv64, 0);
             pc.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullPtr}));
             if (!matchConds.empty()) {
@@ -2343,9 +2475,11 @@ namespace symir {
             }
             if (!intr) {
               // [v0.2.2 Phase 6] `fun` target -- nested symbolic exec.
+              // Hand the caller frame down so callee `store`s can land
+              // on caller-side `let mut` targets per SPEC §9.6.1 step 4.
               for (const auto &f: prog_.funs)
                 if (f.name.name == arg.callee.name) {
-                  return callFunction(f, std::move(argVals), solver, pc);
+                  return callFunction(f, std::move(argVals), solver, pc, currentFun_, &store);
                 }
               // [v0.2.2 Phase 8] Contract-form `decl` target.
               for (const auto &d: prog_.extDecls)
