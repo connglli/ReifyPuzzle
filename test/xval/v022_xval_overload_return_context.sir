@@ -1,0 +1,41 @@
+// EXPECT: PASS
+// EXPECT_RC: 7
+// [v0.2.2] Regression: dispatch must honour the type checker's return-type
+// context choice. Two overloads accept the same literal argument; only the
+// assignment LHS width disambiguates. Before the resolvedIntrinsic plumbing
+// was added, the C/WASM/interpreter dispatch sites only inspected the first
+// argument and silently selected the i32 overload for *every* call, while the
+// type checker correctly picked i16 / i64 based on the LHS. Truncation
+// masked the wrong-overload symptom — until a value differed across widths.
+//
+// `@popcount(0xffff)` is the canonical witness:
+//   - i16:  popcount(0xffff)            = 16
+//   - i32:  popcount(0x0000ffff)        = 16
+//   - i64:  popcount(0x000000000000ffff)= 16
+// All return 16, so simple `popcount(0xffff)` doesn't separate the overloads.
+// We use `@ilog2` because the answer differs per width when the literal
+// reaches the high bit at a non-i32 position.
+
+intrinsic @ilog2(%x: i16) : i16;
+intrinsic @ilog2(%x: i32) : i32;
+intrinsic @ilog2(%x: i64) : i64;
+
+fun @main() : i32 {
+  let mut %a16:  i16 = 0;
+  let mut %b32:  i32 = 0;
+  let mut %c64:  i64 = 0;
+^entry:
+  // 32768 = 0x8000 — fits exactly into i16 high bit (signed -32768),
+  // but as a bare literal a naïve heuristic would treat it as i32.
+  // The type checker must pick @ilog2 i16 because %a16 is i16.
+  %a16 = call @ilog2(0x4000);             // 16384  → ilog2 = 14 in any width
+  require %a16 == 14, "ilog2(16384) i16 == 14";
+
+  %b32 = call @ilog2(0x40000000);         // ilog2 i32 = 30
+  require %b32 == 30, "ilog2(0x40000000) i32 == 30";
+
+  %c64 = call @ilog2(0x4000000000000000); // ilog2 i64 = 62
+  require %c64 == 62, "ilog2(0x4000000000000000) i64 == 62";
+
+  ret 7;
+}

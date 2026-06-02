@@ -1409,6 +1409,12 @@ namespace symir {
               diags.error("Call to undeclared function: " + arg.callee.name, arg.span);
               return Ty{std::monostate{}};
             }
+            // [v0.2.2] Pin the resolved overload onto the AST node so that
+            // every downstream consumer (interpreter, C/WASM backends,
+            // solver) honours the same decision instead of re-running
+            // their own heuristics. Non-intrinsic callees leave it null.
+            if (ci->kind == CalleeInfo::Kind::Intrinsic)
+              arg.resolvedIntrinsic = ci->intr;
             if (arg.args.size() != ci->paramTypes.size()) {
               diags.error(
                   "Argument count mismatch in call to " + arg.callee.name + ": expected " +

@@ -1,0 +1,51 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// [v0.2.2] Nested same-name intrinsic calls of the shape
+// `a(b(), c(d()), ...)` with multiple overloaded callees per argument
+// position. Exercises that the type checker pins the correct overload
+// at every nesting level, and that backends/interpreter agree.
+
+intrinsic @abs(%x: i32) : i32;
+intrinsic @abs(%x: i64) : i64;
+
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @min(%a: i64, %b: i64) : i64;
+
+intrinsic @max(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i64, %b: i64) : i64;
+
+intrinsic @clamp(%x: i32, %lo: i32, %hi: i32) : i32;
+intrinsic @clamp(%x: i64, %lo: i64, %hi: i64) : i64;
+
+fun @main() : i32 {
+  let mut %a32: i32 = -5;
+  let mut %b32: i32 =  3;
+  let mut %a64: i64 = -5;
+  let mut %b64: i64 =  3;
+  let mut %r32: i32 = 0;
+  let mut %r64: i64 = 0;
+^entry:
+  // a(b(), c(d())) i32: max(abs(-5), min(abs(-5), 3)) = max(5, 3) = 5
+  %r32 = call @max(call @abs(%a32), call @min(call @abs(%a32), %b32));
+  require %r32 == 5, "max(abs,min(abs,b)) i32 == 5";
+
+  // Same shape, all i64.
+  %r64 = call @max(call @abs(%a64), call @min(call @abs(%a64), %b64));
+  require %r64 == 5, "max(abs,min(abs,b)) i64 == 5";
+
+  // clamp(min(abs(a), b), 0, max(abs(a), b)) — three-arg overload of @clamp
+  // selected from i32 first-arg context. Result: clamp(min(5,3), 0, max(5,3))
+  //   = clamp(3, 0, 5) = 3.
+  %r32 = call @clamp(call @min(call @abs(%a32), %b32),
+                     0,
+                     call @max(call @abs(%a32), %b32));
+  require %r32 == 3, "clamp(min,0,max) i32 == 3";
+
+  // Same shape, all i64.
+  %r64 = call @clamp(call @min(call @abs(%a64), %b64),
+                     0,
+                     call @max(call @abs(%a64), %b64));
+  require %r64 == 3, "clamp(min,0,max) i64 == 3";
+
+  ret 0;
+}

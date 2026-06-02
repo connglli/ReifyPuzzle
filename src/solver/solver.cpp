@@ -2314,26 +2314,31 @@ namespace symir {
             for (const auto &ap: arg.args) {
               argVals.push_back(evalExpr(*ap, solver, store, pc));
             }
-            const IntrinsicDecl *intr = nullptr;
-            for (const auto &i: prog_.intrinsics) {
-              if (i.name.name != arg.callee.name)
-                continue;
-              if (i.params.size() != argVals.size())
-                continue;
-              bool match = true;
-              for (size_t k = 0; k < argVals.size(); ++k) {
-                auto pb = TypeUtils::getIntBitWidth(i.params[k].type);
-                if (pb && argVals[k].kind == SymbolicValue::Kind::Int) {
-                  auto sort = solver.get_sort(argVals[k].term);
-                  if (solver.is_bv_sort(sort) && solver.get_bv_width(sort) != *pb) {
-                    match = false;
-                    break;
+            // [v0.2.2] Honour the overload pinned by the type checker
+            // when available. The width-comparison fallback below is
+            // kept for un-typechecked inputs (raw unit tests).
+            const IntrinsicDecl *intr = arg.resolvedIntrinsic;
+            if (!intr) {
+              for (const auto &i: prog_.intrinsics) {
+                if (i.name.name != arg.callee.name)
+                  continue;
+                if (i.params.size() != argVals.size())
+                  continue;
+                bool match = true;
+                for (size_t k = 0; k < argVals.size(); ++k) {
+                  auto pb = TypeUtils::getIntBitWidth(i.params[k].type);
+                  if (pb && argVals[k].kind == SymbolicValue::Kind::Int) {
+                    auto sort = solver.get_sort(argVals[k].term);
+                    if (solver.is_bv_sort(sort) && solver.get_bv_width(sort) != *pb) {
+                      match = false;
+                      break;
+                    }
                   }
                 }
-              }
-              if (match) {
-                intr = &i;
-                break;
+                if (match) {
+                  intr = &i;
+                  break;
+                }
               }
             }
             if (!intr) {

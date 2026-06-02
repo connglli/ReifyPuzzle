@@ -1,0 +1,15 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] Caller invokes @popcount on an i16 value, but only the i32 and
+// i64 overloads are declared. The type checker must reject the call as a
+// type mismatch — silently dispatching to one of the declared overloads
+// would compute the wrong popcount.
+intrinsic @popcount(%x: i32) : i32;
+intrinsic @popcount(%x: i64) : i64;
+
+fun @main() : i32 {
+  let mut %x: i16 = 7;
+  let mut %r: i16 = 0;
+^entry:
+  %r = call @popcount(%x);
+  ret 0;
+}

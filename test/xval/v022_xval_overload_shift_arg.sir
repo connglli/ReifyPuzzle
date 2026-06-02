@@ -1,0 +1,28 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// [v0.2.2] Pass the result of a shift expression as the first argument to
+// an overloaded intrinsic. SymIR OpAtom requires both operands to share a
+// bitwidth, so the shift result type is determined by the operand width
+// (here: i64). The type checker must pick the i64 overload of @popcount.
+
+intrinsic @popcount(%x: i32) : i32;
+intrinsic @popcount(%x: i64) : i64;
+
+fun @main() : i32 {
+  let mut %v64a: i64 = 1;
+  let mut %v64b: i64 = 1;
+  let mut %r64: i64 = 0;
+  let mut %v32a: i32 = 1;
+  let mut %v32b: i32 = 1;
+  let mut %r32: i32 = 0;
+^entry:
+  // (1 << 1) i64 = 2; popcount(2) i64 = 1.
+  %r64 = call @popcount(%v64a << %v64b);
+  require %r64 == 1, "popcount(1<<1) i64 == 1";
+
+  // (1 << 1) i32 = 2; popcount(2) i32 = 1.
+  %r32 = call @popcount(%v32a << %v32b);
+  require %r32 == 1, "popcount(1<<1) i32 == 1";
+
+  ret 0;
+}

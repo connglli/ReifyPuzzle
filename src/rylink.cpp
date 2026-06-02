@@ -112,14 +112,16 @@ static std::vector<size_t> pickPoolIndices(std::mt19937 &rng, size_t k, size_t p
   return all;
 }
 
-// Build a dedup key for IntrinsicDecl — "name|paramType0|paramType1:retType"
-// so that same-name intrinsics with different signatures (e.g. @popcount i32
-// vs @popcount i64) are kept as separate declarations.
+// Build a dedup key for IntrinsicDecl — "name|paramType0|paramType1..."
+// so that same-name intrinsics with different signatures (e.g. @popcount
+// i32 vs @popcount i64) are kept as separate declarations. Match the
+// semchecker's notion of "same intrinsic signature" exactly (it keys on
+// name + parameter types only); including the return type here would let
+// rylink stage a bundle that the semchecker then rejects as duplicate.
 static std::string intrinsicKey(const IntrinsicDecl &d) {
   std::string key = d.name.name;
   for (const auto &p: d.params)
     key += "|" + SIRPrinter::typeToString(p.type);
-  key += ":" + SIRPrinter::typeToString(d.retType);
   return key;
 }
 

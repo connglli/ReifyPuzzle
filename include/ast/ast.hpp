@@ -385,10 +385,19 @@ namespace symir {
    * left-to-right; side effects (memory mutation, PC/REQ updates) commit
    * unconditionally as part of evaluating the call.
    */
+  struct IntrinsicDecl; // fwd
+
   struct CallAtom {
     GlobalId callee;
     std::vector<std::shared_ptr<Expr>> args;
     SourceSpan span;
+    // [v0.2.2] Resolved overload for intrinsic calls. The type checker
+    // pins the exact IntrinsicDecl chosen for this call site (using
+    // arg types + return-type context). Non-intrinsic calls or
+    // un-typechecked AST leave this null; consumers (interp, C/WASM
+    // backends, solver) must consult this first to stay in lockstep
+    // with the type checker's choice.
+    mutable const IntrinsicDecl *resolvedIntrinsic = nullptr;
   };
 
   /**

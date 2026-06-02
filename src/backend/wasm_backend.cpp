@@ -576,8 +576,10 @@ namespace symir {
             out_ << "i32.add\n";
           } else if constexpr (std::is_same_v<T, CallAtom>) {
             // [v0.2.2] Push arguments left-to-right then `call $name`.
-            const IntrinsicDecl *intr = nullptr;
-            if (prog_) {
+            // Use the overload the type checker pinned onto the AST
+            // node — see CallAtom::resolvedIntrinsic.
+            const IntrinsicDecl *intr = arg.resolvedIntrinsic;
+            if (!intr && prog_) {
               for (const auto &i: prog_->intrinsics) {
                 if (i.name.name != arg.callee.name)
                   continue;
@@ -587,7 +589,6 @@ namespace symir {
                   intr = &i;
                   continue;
                 }
-                // Multiple candidates — disambiguate by first argument.
                 auto bw1 = TypeUtils::getIntBitWidth(intr->params[0].type);
                 auto bw2 = TypeUtils::getIntBitWidth(i.params[0].type);
                 if (!bw1 || !bw2 || *bw1 == *bw2)
@@ -2401,8 +2402,10 @@ namespace symir {
             }
             return nullptr;
           } else if constexpr (std::is_same_v<T, CallAtom>) {
-            // [v0.2.2] Function/intrinsic call returns its return type. If
-            // overloaded, resolve using the first argument's type recursively.
+            // [v0.2.2] Honour the overload pinned by the type checker;
+            // see CallAtom::resolvedIntrinsic.
+            if (arg.resolvedIntrinsic)
+              return arg.resolvedIntrinsic->retType;
             if (prog_) {
               for (const auto &f: prog_->funs) {
                 if (f.name.name == arg.callee.name)

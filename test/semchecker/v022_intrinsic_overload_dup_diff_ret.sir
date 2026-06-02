@@ -1,0 +1,12 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] Two intrinsics with the same name AND same parameter types but
+// *different* return types are still ambiguous at the call site — the
+// semchecker keys overloads by name + parameter types alone, so this must
+// be rejected as a duplicate signature.
+intrinsic @abs(%x: i32) : i32;
+intrinsic @abs(%x: i32) : i64;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

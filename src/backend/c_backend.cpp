@@ -1077,31 +1077,35 @@ namespace symir {
             // For intrinsics, dispatch to the helper emitted in emit() §1b.
             // For other targets, use the mangled name directly (link-form
             // decls have extern prototypes; fun bodies are emitted later).
-            const IntrinsicDecl *intr = nullptr;
-            for (const auto &i: prog_->intrinsics) {
-              if (i.name.name != arg.callee.name)
-                continue;
-              if (i.params.size() != arg.args.size())
-                continue;
-              if (!intr) {
-                intr = &i;
-                continue;
-              }
-              // Multiple candidates — disambiguate by first argument type.
-              auto bw1 = TypeUtils::getIntBitWidth(intr->params[0].type);
-              auto bw2 = TypeUtils::getIntBitWidth(i.params[0].type);
-              if (!bw1 || !bw2 || *bw1 == *bw2)
-                continue;
-              uint32_t argBW = *bw1; // default: keep current
-              if (!arg.args.empty()) {
-                auto at = getExprType(*arg.args[0]);
-                if (at) {
-                  if (auto b = TypeUtils::getIntBitWidth(at))
-                    argBW = *b;
+            // [v0.2.2] Use the overload the type checker pinned onto the
+            // AST node — see CallAtom::resolvedIntrinsic. The fallback
+            // path only runs for un-typechecked input.
+            const IntrinsicDecl *intr = arg.resolvedIntrinsic;
+            if (!intr) {
+              for (const auto &i: prog_->intrinsics) {
+                if (i.name.name != arg.callee.name)
+                  continue;
+                if (i.params.size() != arg.args.size())
+                  continue;
+                if (!intr) {
+                  intr = &i;
+                  continue;
                 }
+                auto bw1 = TypeUtils::getIntBitWidth(intr->params[0].type);
+                auto bw2 = TypeUtils::getIntBitWidth(i.params[0].type);
+                if (!bw1 || !bw2 || *bw1 == *bw2)
+                  continue;
+                uint32_t argBW = *bw1;
+                if (!arg.args.empty()) {
+                  auto at = getExprType(*arg.args[0]);
+                  if (at) {
+                    if (auto b = TypeUtils::getIntBitWidth(at))
+                      argBW = *b;
+                  }
+                }
+                if (*bw2 == argBW && *bw1 != argBW)
+                  intr = &i;
               }
-              if (*bw2 == argBW && *bw1 != argBW)
-                intr = &i;
             }
             if (intr) {
               auto rb = TypeUtils::getIntBitWidth(intr->retType);
@@ -1897,8 +1901,11 @@ namespace symir {
             }
             return nullptr;
           } else if constexpr (std::is_same_v<T, CallAtom>) {
-            // [v0.2.2] Function/intrinsic call returns its return type. If
-            // overloaded, resolve using the first argument's type recursively.
+            // [v0.2.2] Use the overload the type checker pinned onto
+            // the AST node. Fall back to the local heuristic only for
+            // un-typechecked input.
+            if (arg.resolvedIntrinsic)
+              return arg.resolvedIntrinsic->retType;
             for (const auto &f: prog_->funs) {
               if (f.name.name == arg.callee.name)
                 return f.retType;
