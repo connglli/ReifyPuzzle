@@ -122,235 +122,118 @@ make SOLVER=alivesmt
 
 ## 📝 SymLang Example
 
-A brainfuck interpreter showcasing v0.2.1 features:
-`ptr @S` + `ptrfield` for register-file navigation, `<N> T` vector opcode table with `cmp`-based decoding, and reified `i1` comparison results.
+A 4-round substitution-permutation cipher that exercises the full v0.2.2 surface area in one file:
+
+- **Structs + `ptrfield`** — the round state (`@CipherState`) is touched exclusively through typed pointers projected from a single `addr` of the struct.
+- **Vectors** — a `<16> i8` S-box and a `<4> i32` round-constant table are held in SIMD registers and indexed per lane.
+- **Function calls** — pure helpers `@sbox` (byte→byte) and `@mix` (i32 accumulator update) are invoked from `@main`'s round loop.
+- **Overloaded intrinsics** — `@popcount` is declared at both `i8` and `i32` widths; the type checker pins each call site to the correct overload, and the C/WASM backends and the solver all agree. `@rotl(i32, i32)` is the diffusion primitive.
+
+One plaintext byte is symbolic (`%?byte2`); the solver synthesises a value that drives the diffusion accumulator to a precomputed target.
 
 ```rust
-struct @BFRegs {
-  dp:      i32;  // Data pointer (index into 'tape')
-  ip:      i32;  // Instruction pointer (index into 'code')
-  out_idx: i32;  // Next write position in 'output'
+struct @CipherState {
+  s0:    i8;   // byte 0 of the 4-byte block
+  s1:    i8;   // byte 1
+  s2:    i8;   // byte 2 (initially symbolic)
+  s3:    i8;   // byte 3
+  acc:   i32;  // diffusion accumulator
+  round: i32;  // round counter (0..3)
+}
+
+// Overloaded intrinsics — same name, distinct signatures.  The type
+// checker pins the chosen overload onto every call site.
+intrinsic @popcount(%x: i8)  : i8;
+intrinsic @popcount(%x: i32) : i32;
+intrinsic @rotl(%x: i32, %n: i32) : i32;
+
+// Pure helper: substitute one byte through a 16-entry SIMD S-box.
+fun @sbox(%v: i8) : i8 {
+  let %tbl: <16> i8 = {0x6, 0xB, 0x5, 0x4, 0x2, 0xE, 0x7, 0xA,
+                       0x9, 0xD, 0xF, 0xC, 0x3, 0x1, 0x0, 0x8};
+  let mut %wide:   i32 = 0;
+  let mut %nibble: i32 = 0;
+  let mut %out:    i8  = 0;
+  let %MASK:       i32 = 15;
+^entry:
+  %wide   = %v as i32;
+  %nibble = %wide & %MASK;
+  %out    = %tbl[%nibble]; // SIMD lane read
+  ret %out;
+}
+
+// Pure helper: round mix —  rotl(acc XOR (byte_pop_sum + popcount(rc)), n).
+fun @mix(%acc: i32, %byte_pop_sum: i32, %rc: i32, %round_idx: i32) : i32 {
+  let mut %pop_rc:  i32 = 0;
+  let mut %mix_in:  i32 = 0;
+  let mut %xored:   i32 = 0;
+  let mut %rotated: i32 = 0;
+^entry:
+  %pop_rc  = call @popcount(%rc);       // @popcount(i32) overload
+  %mix_in  = %byte_pop_sum + %pop_rc;
+  %xored   = %acc ^ %mix_in;
+  %rotated = call @rotl(%xored, %round_idx);
+  ret %rotated;
 }
 
 fun @main() : i32 {
-  // Missing instruction byte — solver must find 60 ('<').
-  sym %?missing : value i8 in {60, 62, 43, 45};
-
-  // BF opcode table as a <8> i8 SIMD vector (v0.2.1).
-  // Each lane holds one command byte; the decoder reads lanes via subscript.
-  let %opcodes: <8> i8 = {62, 60, 43, 45, 46, 91, 93, 0};
-  let %LANE_INC_PTR:    i32 = 0; // '>'
-  let %LANE_DEC_PTR:    i32 = 1; // '<'
-  let %LANE_INC_VAL:    i32 = 2; // '+'
-  let %LANE_DEC_VAL:    i32 = 3; // '-'
-  let %LANE_OUTPUT:     i32 = 4; // '.'
-  let %LANE_LOOP_START: i32 = 5; // '['
-  let %LANE_LOOP_END:   i32 = 6; // ']'
-  let %LANE_NUL:        i32 = 7; // NUL
-
-  let mut %tape:   [100] i8 = 0;
-  let mut %code:   [100] i8 = 0;
-  let mut %output: [100] i8 = 0;
-
-  // Register file in a struct; accessed exclusively through ptrfield (v0.2.1).
-  let mut %regs:  @BFRegs = 0;
-  let mut %pregs: ptr @BFRegs = null;
-  let mut %p_dp:  ptr i32     = null;
-  let mut %p_ip:  ptr i32     = null;
-  let mut %p_out: ptr i32     = null;
-
-  let mut %instr:   i8  = 0;
-  let mut %byte_tmp: i8 = 0;
-  let mut %opcode:  i8  = 0;
-  let mut %ret_val: i32 = 0;
-  let mut %depth:   i32 = 0;
-  let mut %idx_tmp: i32 = 0;
-  let mut %d_plus:  i32 = 0;
-  let mut %d_minus: i32 = 0;
-  // v0.2.1: reified comparison — i1 value produced by cmp.
-  let mut %eq_flag: i1  = 0;
-
-  let %CODE_LIMIT: i32 = 100;
-  let %OUT_LIMIT:  i32 = 100;
-  let %ONE:        i32 = 1;
+  sym %?byte2 : value i8 in [32, 126];  // symbolic plaintext byte
+  let %rconsts: <4> i32 = {0x9E3779B9, 0x85EBCA6B, 0xC2B2AE35, 0x27D4EB2F};
+  let mut %st:  @CipherState = 0;
+  let mut %pst: ptr @CipherState = null;
+  let mut %p_s0:   ptr i8  = null; let mut %p_s1:   ptr i8  = null;
+  let mut %p_s2:   ptr i8  = null; let mut %p_s3:   ptr i8  = null;
+  let mut %p_acc:  ptr i32 = null;
+  let mut %i:      i32 = 0; let mut %rc:    i32 = 0; let mut %rc_lo: i8 = 0;
+  let mut %b0: i8 = 0; let mut %b1: i8 = 0; let mut %b2: i8 = 0; let mut %b3: i8 = 0;
+  let mut %p0: i8 = 0; let mut %p1: i8 = 0; let mut %p2: i8 = 0; let mut %p3: i8 = 0;
+  let mut %w0: i32 = 0; let mut %w1: i32 = 0; let mut %w2: i32 = 0; let mut %w3: i32 = 0;
+  let mut %pop_sum: i32 = 0; let mut %acc: i32 = 0; let mut %r_idx: i32 = 0;
+  let %N: i32 = 4; let %ONE: i32 = 1; let %TARGET: i32 = 51328;
 
 ^entry:
-  // v0.2.1 ptrfield: project typed pointers to each register field.
-  %pregs = addr %regs;
-  %p_dp  = ptrfield %pregs, dp;
-  %p_ip  = ptrfield %pregs, ip;
-  %p_out = ptrfield %pregs, out_idx;
+  // Project typed pointers into the state struct (no aggregate stores).
+  %pst   = addr %st;
+  %p_s0  = ptrfield %pst, s0; %p_s1 = ptrfield %pst, s1;
+  %p_s2  = ptrfield %pst, s2; %p_s3 = ptrfield %pst, s3;
+  %p_acc = ptrfield %pst, acc;
+  store %p_s0, 0x12 as i8; store %p_s1, 0x34 as i8;
+  store %p_s2, %?byte2;    store %p_s3, 0x78 as i8;
+  store %p_acc, 0;
+  br ^loop_cond;
 
-  // Load BF program: ++++++++[>++++++++<-]>+.  (Prints 'A')
-  %code[0] = 43; %code[1] = 43; %code[2] = 43; %code[3] = 43;
-  %code[4] = 43; %code[5] = 43; %code[6] = 43; %code[7] = 43;
-  %code[8] = 91; %code[9] = 62;
-  %code[10] = 43; %code[11] = 43; %code[12] = 43; %code[13] = 43;
-  %code[14] = 43; %code[15] = 43; %code[16] = 43; %code[17] = 43;
-  %code[18] = %?missing; // [SYMBOLIC HOLE] — expected: 60 ('<')
-  %code[19] = 45; %code[20] = 93; %code[21] = 62;
-  %code[22] = 43; %code[23] = 46; %code[24] = 0;
-  br ^dispatch;
+^loop_cond:
+  br %i < %N, ^loop_body, ^check;
 
-^dispatch:
-  %idx_tmp = load %p_ip;
-  br %idx_tmp >= %CODE_LIMIT, ^exit, ^fetch;
+^loop_body:
+  %rc    = %rconsts[%i];                  // SIMD lane read
+  %rc_lo = %rc as i8;
+  %b0 = load %p_s0; %b1 = load %p_s1; %b2 = load %p_s2; %b3 = load %p_s3;
+  %b0 = call @sbox(%b0); %b1 = call @sbox(%b1);
+  %b2 = call @sbox(%b2); %b3 = call @sbox(%b3);
+  %b0 = %b0 ^ %rc_lo;    %b1 = %b1 ^ %rc_lo;
+  %b2 = %b2 ^ %rc_lo;    %b3 = %b3 ^ %rc_lo;
+  %p0 = call @popcount(%b0); %p1 = call @popcount(%b1); // @popcount(i8)
+  %p2 = call @popcount(%b2); %p3 = call @popcount(%b3);
+  %w0 = %p0 as i32; %w1 = %p1 as i32; %w2 = %p2 as i32; %w3 = %p3 as i32;
+  %pop_sum = %w0 + %w1 + %w2 + %w3;
+  %acc   = load %p_acc;
+  %r_idx = %i + %ONE;
+  %acc   = call @mix(%acc, %pop_sum, %rc, %r_idx);
+  store %p_s0, %b0; store %p_s1, %b1;
+  store %p_s2, %b2; store %p_s3, %b3;
+  store %p_acc, %acc;
+  %i = %i + %ONE;
+  br ^loop_cond;
 
-^fetch:
-  %idx_tmp = load %p_ip;
-  %instr   = %code[%idx_tmp];
-  // v0.2.1 cmp: compare against NUL lane — produces a reified i1.
-  %opcode  = %opcodes[%LANE_NUL];
-  %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^exit, ^decode_inc_ptr;
-
-^decode_inc_ptr:
-  %opcode  = %opcodes[%LANE_INC_PTR];
-  %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_inc_ptr, ^decode_dec_ptr;
-
-^decode_dec_ptr:
-  %opcode  = %opcodes[%LANE_DEC_PTR];
-  %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_dec_ptr, ^decode_inc_val;
-
-^decode_inc_val:
-  %opcode  = %opcodes[%LANE_INC_VAL];
-  %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_inc_val, ^decode_dec_val;
-
-^decode_dec_val:
-  %opcode  = %opcodes[%LANE_DEC_VAL];
-  %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_dec_val, ^decode_output;
-
-^decode_output:
-  %opcode  = %opcodes[%LANE_OUTPUT];
-  %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_output, ^decode_loop_start;
-
-^decode_loop_start:
-  %opcode  = %opcodes[%LANE_LOOP_START];
-  %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_loop_start, ^decode_loop_end;
-
-^decode_loop_end:
-  %opcode  = %opcodes[%LANE_LOOP_END];
-  %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_loop_end, ^next_instr;
-
-// Register mutations go through ptrfield-derived pointers.
-^do_inc_ptr:
-  %idx_tmp = load %p_dp;
-  %idx_tmp = %idx_tmp + %ONE;
-  store %p_dp, %idx_tmp;
-  br ^next_instr;
-
-^do_dec_ptr:
-  %idx_tmp = load %p_dp;
-  %idx_tmp = %idx_tmp - %ONE;
-  store %p_dp, %idx_tmp;
-  br ^next_instr;
-
-^do_inc_val:
-  %idx_tmp  = load %p_dp;
-  %byte_tmp = %tape[%idx_tmp];
-  %byte_tmp = %byte_tmp + 1;
-  %tape[%idx_tmp] = %byte_tmp;
-  br ^next_instr;
-
-^do_dec_val:
-  %idx_tmp  = load %p_dp;
-  %byte_tmp = %tape[%idx_tmp];
-  %byte_tmp = %byte_tmp - 1;
-  %tape[%idx_tmp] = %byte_tmp;
-  br ^next_instr;
-
-^do_output:
-  %idx_tmp = load %p_out;
-  br %idx_tmp < %OUT_LIMIT, ^write_out, ^next_instr;
-
-^write_out:
-  %idx_tmp  = load %p_dp;
-  %byte_tmp = %tape[%idx_tmp];
-  %idx_tmp  = load %p_out;
-  %output[%idx_tmp] = %byte_tmp;
-  %idx_tmp = %idx_tmp + %ONE;
-  store %p_out, %idx_tmp;
-  br ^next_instr;
-
-^do_loop_start:
-  %idx_tmp  = load %p_dp;
-  %byte_tmp = %tape[%idx_tmp];
-  br %byte_tmp == 0, ^scan_fwd_init, ^next_instr;
-
-^do_loop_end:
-  %idx_tmp  = load %p_dp;
-  %byte_tmp = %tape[%idx_tmp];
-  br %byte_tmp != 0, ^scan_bwd_init, ^next_instr;
-
-^scan_fwd_init:
-  %depth = 1; br ^scan_fwd_step;
-
-^scan_fwd_step:
-  %idx_tmp = load %p_ip;
-  %idx_tmp = %idx_tmp + %ONE;
-  store %p_ip, %idx_tmp;
-  br %idx_tmp >= %CODE_LIMIT, ^exit, ^scan_fwd_check;
-
-^scan_fwd_check:
-  %idx_tmp  = load %p_ip;
-  %byte_tmp = %code[%idx_tmp];
-  // cmp + select to update bracket depth without branching.
-  %opcode  = %opcodes[%LANE_LOOP_START];
-  %eq_flag = cmp == %byte_tmp, %opcode;
-  %d_plus  = %depth + 1;
-  %depth   = select %eq_flag == 1, %d_plus, %depth;
-  %opcode  = %opcodes[%LANE_LOOP_END];
-  %eq_flag = cmp == %byte_tmp, %opcode;
-  %d_minus = %depth - 1;
-  %depth   = select %eq_flag == 1, %d_minus, %depth;
-  br %depth == 0, ^next_instr, ^scan_fwd_step;
-
-^scan_bwd_init:
-  %depth = 1; br ^scan_bwd_step;
-
-^scan_bwd_step:
-  %idx_tmp = load %p_ip;
-  %idx_tmp = %idx_tmp - %ONE;
-  store %p_ip, %idx_tmp;
-  br %idx_tmp < 0, ^exit, ^scan_bwd_check;
-
-^scan_bwd_check:
-  %idx_tmp  = load %p_ip;
-  %byte_tmp = %code[%idx_tmp];
-  %opcode  = %opcodes[%LANE_LOOP_END];
-  %eq_flag = cmp == %byte_tmp, %opcode;
-  %d_plus  = %depth + 1;
-  %depth   = select %eq_flag == 1, %d_plus, %depth;
-  %opcode  = %opcodes[%LANE_LOOP_START];
-  %eq_flag = cmp == %byte_tmp, %opcode;
-  %d_minus = %depth - 1;
-  %depth   = select %eq_flag == 1, %d_minus, %depth;
-  br %depth == 0, ^scan_bwd_done, ^scan_bwd_step;
-
-^scan_bwd_done:
-  br ^dispatch;
-
-^next_instr:
-  %idx_tmp = load %p_ip;
-  %idx_tmp = %idx_tmp + %ONE;
-  store %p_ip, %idx_tmp;
-  br ^dispatch;
-
-^exit:
-  %byte_tmp = %output[0];
-  %ret_val  = %byte_tmp as i32;
-  ret %ret_val;
+^check:
+  %acc = load %p_acc;
+  require %acc == %TARGET, "minicipher hits target";
+  ret 0;
 }
 ```
 
-The full annotated source is at [./examples/brainfuck_v021.sir](./examples/brainfuck_v021.sir).
+The full annotated source is at [./examples/minicipher_v022.sir](./examples/minicipher_v022.sir).
 Find more examples in [./examples](./examples/) and [./test/](./test/).
 
 ## 📁 Project Structure
