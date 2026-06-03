@@ -48,6 +48,7 @@
 #include "frontend/semchecker.hpp"
 #include "frontend/typechecker.hpp"
 #include "reify/cg_gen.hpp"
+#include "reify/common.hpp"
 #include "reify/func_desc.hpp"
 #include "reify/func_pool.hpp"
 #include "reify/hyperparameters.hpp"
@@ -274,7 +275,7 @@ static bool runAnalysisPasses(Program &prog, bool verbose) {
 // is still required by CBackend::emitSplit).
 static bool emitCInProcess(
     Program &prog, const fs::path &outDir, const std::string &primaryStem, bool keepRequire,
-    bool verbose
+    const std::string &vecLowering, bool verbose
 ) {
   if (!runAnalysisPasses(prog, verbose))
     return false;
@@ -284,7 +285,10 @@ static bool emitCInProcess(
   std::ofstream sink;
   CBackend cb(sink);
   cb.setNoRequire(!keepRequire);
-  cb.setVecLowering(makeVecLowering("vecext"));
+  // `vecLowering` is the resolved strategy name (caller already
+  // expanded `random` against the per-program rng).  An empty string
+  // falls back to vecext to preserve rylink's historical default.
+  cb.setVecLowering(makeVecLowering(vecLowering.empty() ? "vecext" : vecLowering));
   try {
     cb.emitSplit(prog, outDir.string(), primaryStem);
   } catch (const std::exception &e) {
@@ -365,7 +369,12 @@ struct PerProgConfig {
   std::string genId;
   int progIdx = 0;
   fs::path outRoot;
-  std::string target; // "sir" | "c" | "wasm"
+  std::string target;      // "sir" | "c" | "wasm"
+  std::string vecLowering; // "vecext" | "scalars" | "array" |
+                           // "structscalars" | "structarray" | "random"
+                           // (per-program resolution against `random`
+                           // happens inside generateOne so each prog
+                           // sweeps independently — matching rysmith).
   bool keepRequire = false;
   bool validate = false;
   fs::path symiriPath;
@@ -444,7 +453,16 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     // .sir file. No fn has empty sourceStem (every merge sets one),
     // so the resulting "program.c" stays empty of bodies and the
     // per-source .c files carry the funs.
-    if (!emitCInProcess(bundle, progDir, "program", cfg.keepRequire, cfg.verbose)) {
+    //
+    // Resolve `--vec-lowering` once per program against the per-prog
+    // rng so each emitted bundle stamps a single strategy — matching
+    // rysmith's per-fn semantics.  `random` cycles across the five
+    // strategies so a multi-prog sweep exercises every backend
+    // lowering.
+    std::string vecLow = reify::pickVecLowering(rng, cfg.vecLowering);
+    if (cfg.verbose && !vecLow.empty())
+      std::cout << "  vec-lowering: " << vecLow << "\n";
+    if (!emitCInProcess(bundle, progDir, "program", cfg.keepRequire, vecLow, cfg.verbose)) {
       if (cfg.verbose)
         std::cerr << "  backend FAIL (" << progDir.filename().string() << ")\n";
       return false;
@@ -506,6 +524,9 @@ int main(int argc, char **argv) {
         cxxopts::value<std::string>()->default_value("rylink_out"))
     ("target", "sir | c | wasm",
         cxxopts::value<std::string>()->default_value("sir"))
+    ("vec-lowering", "Vec-lowering strategy for C backend "
+                     "(random|vecext|scalars|array|structscalars|structarray)",
+        cxxopts::value<std::string>()->default_value("random"))
     ("keep-require", "Keep `require` checks in C/WASM output",
         cxxopts::value<bool>()->default_value("false"))
     // Validate
@@ -544,6 +565,7 @@ int main(int argc, char **argv) {
   pc.pEdge = rylink::hp::kPEdge;
   pc.genId = genId;
   pc.target = res["target"].as<std::string>();
+  pc.vecLowering = res["vec-lowering"].as<std::string>();
   pc.keepRequire = res["keep-require"].as<bool>();
   pc.validate = res["validate"].as<bool>();
   pc.verbose = res["v"].as<bool>();
@@ -551,6 +573,25 @@ int main(int argc, char **argv) {
   if (pc.target != "sir" && pc.target != "c" && pc.target != "wasm") {
     std::cerr << "rylink: --target must be sir | c | wasm\n";
     return 2;
+  }
+  // Validate `--vec-lowering` up-front so a typo bites before any
+  // generation work — passing through to `pickVecLowering` would
+  // silently fall through to the verbatim path and then trip an
+  // unrecognised strategy inside `makeVecLowering`.
+  {
+    static const char *known[] = {"random", "vecext",        "scalars",
+                                  "array",  "structscalars", "structarray"};
+    bool ok = false;
+    for (const char *k: known)
+      if (pc.vecLowering == k) {
+        ok = true;
+        break;
+      }
+    if (!ok) {
+      std::cerr << "rylink: --vec-lowering must be one of "
+                   "random|vecext|scalars|array|structscalars|structarray\n";
+      return 2;
+    }
   }
 
   // Locate symiri/symirc as siblings of this binary (same pattern as

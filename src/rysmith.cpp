@@ -32,6 +32,7 @@
 #include "frontend/semchecker.hpp"
 #include "frontend/typechecker.hpp"
 #include "reify/cfg_gen.hpp"
+#include "reify/common.hpp"
 #include "reify/func_desc.hpp"
 #include "reify/func_gen.hpp"
 #include "reify/id_gen.hpp"
@@ -126,14 +127,6 @@ static bool compileWithSymirc(
     cmd += " > /dev/null 2>&1";
   int status = std::system(cmd.c_str());
   return status == 0;
-}
-
-static std::string pickVecLowering(std::mt19937 &rng, const std::string &requested) {
-  if (requested != "random")
-    return requested;
-  static const char *strategies[] = {"vecext", "scalars", "array", "structscalars", "structarray"};
-  std::uniform_int_distribution<int> d(0, 4);
-  return strategies[d(rng)];
 }
 
 // [v0.2.2] One per concretized .sir file. Bundles the on-disk path
@@ -663,7 +656,7 @@ int main(int argc, char **argv) {
       if (target != "sir") {
         std::string ext = (target == "c") ? ".c" : ".wat";
         fs::path outPath = p.parent_path() / (p.stem().string() + ext);
-        std::string vecLowering = pickVecLowering(rng, vecLoweringOpt);
+        std::string vecLowering = reify::pickVecLowering(rng, vecLoweringOpt);
         if (verbose && !vecLowering.empty())
           std::cout << "  vec-lowering: " << vecLowering << "\n";
         bool ok =
