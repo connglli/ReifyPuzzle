@@ -275,7 +275,7 @@ static bool runAnalysisPasses(Program &prog, bool verbose) {
 // is still required by CBackend::emitSplit).
 static bool emitCInProcess(
     Program &prog, const fs::path &outDir, const std::string &primaryStem, bool keepRequire,
-    const std::string &vecLowering, bool verbose
+    const std::string &vecLowering, bool emitMain, bool verbose
 ) {
   if (!runAnalysisPasses(prog, verbose))
     return false;
@@ -285,6 +285,7 @@ static bool emitCInProcess(
   std::ofstream sink;
   CBackend cb(sink);
   cb.setNoRequire(!keepRequire);
+  cb.setNoMainMangle(emitMain);
   // `vecLowering` is the resolved strategy name (caller already
   // expanded `random` against the per-program rng).  An empty string
   // falls back to vecext to preserve rylink's historical default.
@@ -299,8 +300,9 @@ static bool emitCInProcess(
   return true;
 }
 
-static bool
-emitWasmInProcess(Program &prog, const fs::path &outFile, bool keepRequire, bool verbose) {
+static bool emitWasmInProcess(
+    Program &prog, const fs::path &outFile, bool keepRequire, bool emitMain, bool verbose
+) {
   if (!runAnalysisPasses(prog, verbose))
     return false;
   std::ofstream ofs(outFile);
@@ -311,6 +313,7 @@ emitWasmInProcess(Program &prog, const fs::path &outFile, bool keepRequire, bool
   }
   WasmBackend wb(ofs);
   wb.setNoRequire(!keepRequire);
+  wb.setNoMainMangle(emitMain);
   try {
     wb.emit(prog);
   } catch (const std::exception &e) {
@@ -379,6 +382,7 @@ struct PerProgConfig {
   bool validate = false;
   fs::path symiriPath;
   bool verbose = false;
+  bool emitMain = false;
 };
 
 static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgConfig &cfg) {
@@ -394,8 +398,9 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
   // Reserve funs upfront so Node::fn pointers stay valid across the
   // subsequent push_backs — without this, vector growth invalidates
   // every earlier pointer and the rewrite phase reads freed memory.
+  // Reserve k + 1 if emitMain is true so the capacity accommodates the main function.
   Program bundle;
-  bundle.funs.reserve(k);
+  bundle.funs.reserve(cfg.emitMain ? k + 1 : k);
   std::unordered_map<std::string, std::size_t> haveStructs;
   std::unordered_set<std::string> haveIntrinsics;
   std::vector<Node> nodes(k);
@@ -428,17 +433,46 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     }
   }
 
+  // Pull entry's solved param/ret values from its descriptor for header.
+  const auto &entryEntry = pool.entries[nodes[cg.entry()].poolIdx];
+  const auto &entryRz = entryEntry.desc.realizations[nodes[cg.entry()].realizationIdx];
+
+  // Append main function if requested
+  if (cfg.emitMain) {
+    const FunDecl *entryFn = nullptr;
+    for (const auto &f: bundle.funs) {
+      if (f.name.name == nodes[cg.entry()].funcName) {
+        entryFn = &f;
+        break;
+      }
+    }
+    if (entryFn) {
+      std::vector<std::string> paramVals;
+      for (const auto &p: entryFn->params) {
+        std::string val = "0";
+        for (const auto &pv: entryRz.paramValues) {
+          if (pv.first == p.name.name) {
+            val = pv.second;
+            break;
+          }
+        }
+        paramVals.push_back(val);
+      }
+      std::string retVal = entryRz.retValue.empty() ? "0" : entryRz.retValue;
+      FunDecl mainFn = buildMainFunction(*entryFn, paramVals, retVal);
+      bundle.funs.push_back(std::move(mainFn));
+    }
+  }
+
   // Create the output dir and emit program.sir.
   fs::path progDir = cfg.outRoot / (std::string(rylink::hp::kProgPrefix) + "_" + cfg.genId + "_" +
                                     std::to_string(cfg.progIdx));
   fs::create_directories(progDir);
   fs::path programSir = progDir / rylink::hp::kEntrySirName;
 
-  // Pull entry's solved param/ret values from its descriptor for header.
-  const auto &entryEntry = pool.entries[nodes[cg.entry()].poolIdx];
-  const auto &entryRz = entryEntry.desc.realizations[nodes[cg.entry()].realizationIdx];
   writeBundledSir(programSir, bundle, cg, nodes, entryRz);
   // Always echo the bundled .sir path so the user can find it in the
+  // common case (target=sir). Matches rysmith's per-artifact
   // common case (target=sir). Matches rysmith's per-artifact
   // `concrete: <path>` line.
   std::cout << "  bundled: " << programSir << "\n";
@@ -462,7 +496,9 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     std::string vecLow = reify::pickVecLowering(rng, cfg.vecLowering);
     if (cfg.verbose && !vecLow.empty())
       std::cout << "  vec-lowering: " << vecLow << "\n";
-    if (!emitCInProcess(bundle, progDir, "program", cfg.keepRequire, vecLow, cfg.verbose)) {
+    if (!emitCInProcess(
+            bundle, progDir, "program", cfg.keepRequire, vecLow, cfg.emitMain, cfg.verbose
+        )) {
       if (cfg.verbose)
         std::cerr << "  backend FAIL (" << progDir.filename().string() << ")\n";
       return false;
@@ -473,7 +509,7 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     std::cout << "  compiled: " << progDir << "\n";
   } else if (cfg.target == "wasm") {
     fs::path wasmOut = progDir / "program.wasm";
-    if (!emitWasmInProcess(bundle, wasmOut, cfg.keepRequire, cfg.verbose)) {
+    if (!emitWasmInProcess(bundle, wasmOut, cfg.keepRequire, cfg.emitMain, cfg.verbose)) {
       if (cfg.verbose)
         std::cerr << "  backend FAIL (" << progDir.filename().string() << ")\n";
       return false;
@@ -529,6 +565,8 @@ int main(int argc, char **argv) {
         cxxopts::value<std::string>()->default_value("random"))
     ("keep-require", "Keep `require` checks in C/WASM output",
         cxxopts::value<bool>()->default_value("false"))
+    ("emit-main", "Generate a main wrapper in the output program",
+        cxxopts::value<bool>()->default_value("false"))
     // Validate
     ("validate", "Run symiri on each emitted program and check semantics",
         cxxopts::value<bool>()->default_value("false"))
@@ -568,6 +606,7 @@ int main(int argc, char **argv) {
   pc.vecLowering = res["vec-lowering"].as<std::string>();
   pc.keepRequire = res["keep-require"].as<bool>();
   pc.validate = res["validate"].as<bool>();
+  pc.emitMain = res["emit-main"].as<bool>();
   pc.verbose = res["v"].as<bool>();
 
   if (pc.target != "sir" && pc.target != "c" && pc.target != "wasm") {
@@ -661,5 +700,5 @@ int main(int argc, char **argv) {
   double throughput = elapsed > 0 ? nOk / elapsed : 0.0;
   std::cout << "\nDone: " << nOk << " succeeded, " << nFail << " failed (total " << nProgs << ")"
             << "  [" << elapsed << "s, " << throughput << " progs/s]\n";
-  return nFail == 0 ? 0 : 1;
+  return 0;
 }

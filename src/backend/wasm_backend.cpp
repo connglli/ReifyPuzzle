@@ -2164,9 +2164,15 @@ namespace symir {
       out_ << ")\n\n";
       indent();
       std::string exportedName = stripSigil(f.name.name);
-      if (exportedName == "main")
-        exportedName = "symir_main";
-      out_ << "(export \"" << exportedName << "\" (func " << mangleName(f.name.name) << "))\n";
+      if (exportedName == "main") {
+        if (noMainMangle_) {
+          out_ << "(export \"main\" (func " << mangleName(f.name.name) << "))\n";
+        } else {
+          out_ << "(export \"symir_main\" (func " << mangleName(f.name.name) << "))\n";
+        }
+      } else {
+        out_ << "(export \"" << exportedName << "\" (func " << mangleName(f.name.name) << "))\n";
+      }
     }
 
     if (!noModuleTags_) {

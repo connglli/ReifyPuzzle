@@ -42,6 +42,8 @@ namespace symir {
 
     void setNoRequire(bool val) { noRequire_ = val; }
 
+    void setNoMainMangle(bool val) { noMainMangle_ = val; }
+
     /// [v0.2.1] Set the vector-lowering strategy. Takes ownership. If
     /// never called, the backend defaults to "vecext" on first emit.
     void setVecLowering(std::unique_ptr<VecLowering> vl) { vecLowering_ = std::move(vl); }
@@ -59,6 +61,7 @@ namespace symir {
     bool suppressPreamble_ = false;
     int indent_level_ = 0;
     bool noRequire_ = false;
+    bool noMainMangle_ = false;
     const Program *prog_ = nullptr; // [v0.2.2] for callee lookup in emitAtom
     std::string curFuncName_;
     std::unique_ptr<VecLowering> vecLowering_; // [v0.2.1] strategy, see vec_lowering.hpp

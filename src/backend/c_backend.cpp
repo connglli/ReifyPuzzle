@@ -82,6 +82,9 @@ namespace symir {
   std::string CBackend::mangleName(const std::string &name) {
     if (name.empty())
       return name;
+    if (noMainMangle_ && name == "@main") {
+      return "main";
+    }
     size_t start = 0;
     if (name[0] == '@' || name[0] == '%' || name[0] == '^') {
       start = 1;
@@ -362,6 +365,7 @@ namespace symir {
       // matches no fun, so the body loop emits nothing.
       CBackend hdr(cofs);
       hdr.noRequire_ = noRequire_;
+      hdr.noMainMangle_ = noMainMangle_;
       hdr.vecLowering_ = makeVecLowering(vecLowering_ ? vecLowering_->name() : "vecext");
       hdr.emitOnlySourceStem_ = "__symir_no_fun_bodies__";
       hdr.emit(prog);
@@ -384,6 +388,7 @@ namespace symir {
         throw std::runtime_error("Cannot open " + p);
       CBackend body(cofs);
       body.noRequire_ = noRequire_;
+      body.noMainMangle_ = noMainMangle_;
       body.vecLowering_ = makeVecLowering(vecLowering_ ? vecLowering_->name() : "vecext");
       body.suppressPreamble_ = true;
       // Map the primary stem to "" (empty sourceStem on FunDecl).

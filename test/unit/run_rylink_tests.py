@@ -392,6 +392,111 @@ def test_rewrite_offset_in_range(rylink, rysmith, symirc):
         )
 
 
+def test_rylink_main(rylink, rysmith, symiri):
+  """rylink --emit-main generates a @main wrapper in program.sir and standard main in C."""
+  # Create a temporary directory for seeding the pool of functions
+  with tempfile.TemporaryDirectory() as pool:
+    seed_pool(rysmith, pool)
+
+    # Create a temporary directory for output programs
+    with tempfile.TemporaryDirectory() as out:
+      # Run rylink with target 'c' and '--emit-main' enabled
+      r = run(
+        [
+          rylink,
+          "--input-dir",
+          pool,
+          "--n-progs",
+          "1",
+          "--seed",
+          "42",
+          "--target",
+          "c",
+          "--emit-main",
+          "-o",
+          out,
+        ]
+      )
+
+      # Verify rylink execution succeeds
+      check(
+        "rylink with --emit-main exits 0",
+        r.returncode == 0,
+        f"rc={r.returncode}, stderr={r.stderr[:300]!r}",
+      )
+
+      # Extract the generation ID from stdout
+      gid = extract_id(r.stdout)
+      if gid is None:
+        check("rylink id discovery for main-test", False, "no id in stdout")
+        return
+
+      prog_dir = os.path.join(out, f"prog_{gid}_0")
+      if not os.path.isdir(prog_dir):
+        check("prog dir present for main-test", False, "missing dir")
+        return
+
+      # 1. Read program.sir and verify @main function wrapper is present
+      sir_path = os.path.join(prog_dir, "program.sir")
+      check("program.sir exists", os.path.isfile(sir_path))
+      if os.path.isfile(sir_path):
+        with open(sir_path) as f:
+          content = f.read()
+        check(
+          "generated bundled program contains fun @main",
+          "fun @main(" in content,
+          "fun @main not found in generated SIR",
+        )
+
+        # 2. Run symiri directly on the program.sir (without specifying arguments, as @main wraps them)
+        r2 = run([symiri, sir_path])
+        check(
+          "executing @main directly via symiri exits 0 and returns Result: 0",
+          r2.returncode == 0 and "Result: 0" in r2.stdout,
+          f"rc={r2.returncode}, stdout={r2.stdout[:200]!r}, stderr={r2.stderr[:200]!r}",
+        )
+
+      # 3. Read program.c and verify standard C main function wrapper is present
+      c_path = os.path.join(prog_dir, "program.c")
+      check("program.c exists", os.path.isfile(c_path))
+      if os.path.isfile(c_path):
+        with open(c_path) as f:
+          c_content = f.read()
+        check(
+          "generated C program contains standard main wrapper",
+          "int32_t main(" in c_content,
+          "int32_t main not found in generated C file",
+        )
+
+        # Try compiling the generated C files with gcc/clang if available
+        import shutil as _sh
+        import subprocess as _sub
+
+        cc_bin = _sh.which("clang") or _sh.which("gcc")
+        if cc_bin:
+          exe = os.path.join(prog_dir, "_test")
+          c_files = [
+            os.path.join(prog_dir, f) for f in os.listdir(prog_dir) if f.endswith(".c")
+          ]
+          cc = _sub.run(
+            [cc_bin, "-O0"] + c_files + ["-o", exe, "-lm"],
+            stdout=_sub.PIPE,
+            stderr=_sub.PIPE,
+          )
+          check(
+            "C compilation with generated main exits 0",
+            cc.returncode == 0,
+            cc.stderr.decode("utf-8", "replace")[:300],
+          )
+          if cc.returncode == 0:
+            run_exe = _sub.run([exe], stdout=_sub.PIPE, stderr=_sub.PIPE)
+            check(
+              "running compiled C binary with main returns 0",
+              run_exe.returncode == 0,
+              f"rc={run_exe.returncode}",
+            )
+
+
 def main():
   if len(sys.argv) != 4:
     print("Usage: python3 -m test.unit.run_rylink_tests <rylink> <rysmith> <symiri>")
@@ -411,6 +516,8 @@ def main():
   # symirc not used directly by this test but kept positional for the
   # CLI signature; passing rysmith is enough since seed_pool wraps it.
   test_rewrite_offset_in_range(rylink, rysmith, symiri)
+  print("=== rylink --emit-main wrapper ===")
+  test_rylink_main(rylink, rysmith, symiri)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

@@ -307,6 +307,55 @@ def test_solved_replay(rysmith, symiri):
     )
 
 
+def test_rysmith_main(rysmith, symiri):
+  """rysmith --emit-main generates a @main wrapper that we can execute directly via symiri."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "1",
+        "--seed",
+        "42",
+        "--n-params",
+        "2",
+        "--emit-main",
+        "-o",
+        d,
+      ]
+    )
+    check(
+      "rysmith --emit-main run exits 0",
+      r.returncode == 0,
+      f"rc={r.returncode}, stderr={r.stderr[:300]!r}",
+    )
+    gid = extract_id(r.stdout)
+    if gid is None:
+      return
+    sirs = [f for f in os.listdir(d) if f.endswith(".sir")]
+    if not sirs:
+      check("at least one concrete .sir for main test", False, "no sirs")
+      return
+    sir_path = os.path.join(d, sirs[0])
+
+    # Read file and verify @main is present
+    with open(sir_path) as f:
+      content = f.read()
+    check(
+      "generated program contains fun @main",
+      "fun @main(" in content,
+      "fun @main not found in generated SIR",
+    )
+
+    # Execute symiri on it directly without entry or parameters!
+    r2 = run([symiri, sir_path])
+    check(
+      "executing @main directly via symiri exits 0 and returns Result: 0",
+      r2.returncode == 0 and "Result: 0" in r2.stdout,
+      f"rc={r2.returncode}, stdout={r2.stdout[:200]!r}, stderr={r2.stderr[:200]!r}",
+    )
+
+
 def main():
   if len(sys.argv) != 3:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri>")
@@ -322,6 +371,8 @@ def main():
   test_descriptor_schema(rysmith)
   print("=== rysmith SOLVED header replay via symiri ===")
   test_solved_replay(rysmith, symiri)
+  print("=== rysmith --emit-main wrapper ===")
+  test_rysmith_main(rysmith, symiri)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

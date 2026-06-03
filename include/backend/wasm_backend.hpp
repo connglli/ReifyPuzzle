@@ -33,12 +33,15 @@ namespace symir {
 
     void setNoRequire(bool val) { noRequire_ = val; }
 
+    void setNoMainMangle(bool val) { noMainMangle_ = val; }
+
   private:
     std::ostream &out_;
     int indent_level_ = 0;
     std::string curFuncName_;
     bool noModuleTags_ = false;
     bool noRequire_ = false;
+    bool noMainMangle_ = false;
     const Program *prog_ = nullptr; // [v0.2.2] for callee lookup in emitAtom
 
     // Maps local/param names to their WASM local index or info

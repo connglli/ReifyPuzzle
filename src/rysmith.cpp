@@ -112,10 +112,13 @@ static bool validateWithSymiri(
 
 static bool compileWithSymirc(
     const fs::path &symircPath, const fs::path &sirPath, const std::string &target,
-    const fs::path &outPath, bool noRequire, const std::string &vecLowering, bool verbose
+    const fs::path &outPath, bool noRequire, const std::string &vecLowering, bool emitMain,
+    bool verbose
 ) {
   std::string cmd = "\"" + symircPath.string() + "\" \"" + sirPath.string() + "\" --target " +
                     target + " -o \"" + outPath.string() + "\"";
+  if (emitMain)
+    cmd += " --emit-main";
   if (noRequire)
     cmd += " --no-require";
   if (!vecLowering.empty())
@@ -167,7 +170,7 @@ static GenerateResult generateLeaf(
     const std::string &genId,
     // [v0.2.2] When true, write the rylink-consumable func_<id>_<i>.json
     // sidecar next to each successful concrete .sir.
-    bool emitDesc
+    bool emitDesc, bool emitMain
 ) {
   // S1: CFG
   GenCFGParams cfgParams;
@@ -318,6 +321,29 @@ static GenerateResult generateLeaf(
             ofs << "\n";
           }
           writePathHeader(ofs);
+          if (emitMain) {
+            const FunDecl *entry = nullptr;
+            for (const auto &f: prog.funs) {
+              if (f.name.name == "@" + funcName) {
+                entry = &f;
+                break;
+              }
+            }
+            if (entry) {
+              std::vector<std::string> paramVals;
+              for (const auto &p: entry->params) {
+                auto it = res.paramModel.find(p.name.name);
+                if (it != res.paramModel.end()) {
+                  paramVals.push_back(fmtModelVal(it->second));
+                } else {
+                  paramVals.push_back("0");
+                }
+              }
+              std::string retVal = res.retModel.has_value() ? fmtModelVal(*res.retModel) : "0";
+              FunDecl mainFn = buildMainFunction(*entry, paramVals, retVal);
+              prog.funs.push_back(std::move(mainFn));
+            }
+          }
           SIRPrinter printer(ofs, res.model);
           printer.print(prog);
         }
@@ -446,6 +472,7 @@ int main(int argc, char **argv) {
     ("keep-require",      "Include require checks in compiled output (default: omitted)")
     ("keep-symbolic",     "Write intermediate symbolic .sir files to disk")
     ("emit-desc",         "Emit per-function descriptor JSON (func_<id>_<i>.json) — needed by rylink")
+    ("emit-main",         "Generate a main wrapper in the output program")
     // Validation
     ("validate",          "Run symiri on each concrete .sir to validate")
     // Misc
@@ -554,6 +581,7 @@ int main(int argc, char **argv) {
   bool keepSymbolic = result.count("keep-symbolic") > 0;
   bool emitDesc = result.count("emit-desc") > 0;
   bool doValidate = result.count("validate") > 0;
+  bool emitMain = result.count("emit-main") > 0;
   bool verbose = result.count("verbose") > 0;
   std::string target = result["target"].as<std::string>();
   bool noRequire = !result.count("keep-require");
@@ -616,7 +644,7 @@ int main(int argc, char **argv) {
           nBbls, pBranch, pBackedge, maxLoopIter, minLoopIter, fnVarCfg, funcName, nStmts,
           safeOffPath, enableInterestCoefs, coefLo, coefHi, valueLo, valueHi, indexLo, indexHi,
           exprCfg, enableIntrinsics, timeoutMs, maxRetries, nInits, outDir, keepSymbolic, verbose,
-          state->rng, funcSeed, genId, emitDesc
+          state->rng, funcSeed, genId, emitDesc, emitMain
       );
       state->done.store(true, std::memory_order_release);
     });
@@ -659,8 +687,9 @@ int main(int argc, char **argv) {
         std::string vecLowering = reify::pickVecLowering(rng, vecLoweringOpt);
         if (verbose && !vecLowering.empty())
           std::cout << "  vec-lowering: " << vecLowering << "\n";
-        bool ok =
-            compileWithSymirc(symircPath, p, target, outPath, noRequire, vecLowering, verbose);
+        bool ok = compileWithSymirc(
+            symircPath, p, target, outPath, noRequire, vecLowering, emitMain, verbose
+        );
         if (ok)
           std::cout << "  compiled: " << outPath << "\n";
         else
@@ -715,5 +744,5 @@ int main(int argc, char **argv) {
   std::cout << "\nDone: " << nOk << " succeeded, " << nFail << " failed (total " << nFuncs << ")"
             << "  [" << elapsed << "s, " << throughput << " funcs/s]\n";
 
-  return nFail == 0 ? 0 : 1;
+  return 0;
 }

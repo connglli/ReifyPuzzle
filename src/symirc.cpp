@@ -37,6 +37,7 @@ int main(int argc, char **argv) {
     ("vec-lowering", "C-backend vector lowering: vecext|scalars|array|structscalars|structarray", cxxopts::value<std::string>()->default_value("vecext"))
     ("I", "Include path for resolving link-form `decl`s (may repeat)", cxxopts::value<std::vector<std::string>>())
     ("split-by-source", "C target: emit one <stem>.c per source file plus common.h into the directory given by -o (instead of a single bundled .c)", cxxopts::value<bool>()->default_value("false"))
+    ("emit-main", "Do not mangle @main function in emitted target code", cxxopts::value<bool>()->default_value("false"))
     ("h,help", "Print usage");
   options.parse_positional({"input"});
   // clang-format on
@@ -135,6 +136,7 @@ int main(int argc, char **argv) {
     }
 
     bool noRequire = result["no-require"].as<bool>();
+    bool emitMain = result["emit-main"].as<bool>();
     if (target == "c") {
       // [v0.2.2] --split-by-source: emit one <stem>.c per source file
       // + common.h into the directory specified by -o.
@@ -152,6 +154,7 @@ int main(int argc, char **argv) {
         std::string primaryStem = std::filesystem::path(inputPath).stem().string();
         CBackend cb(std::cout); // sink; unused — emitSplit opens its own streams
         cb.setNoRequire(noRequire);
+        cb.setNoMainMangle(emitMain);
         std::string vlName = result["vec-lowering"].as<std::string>();
         auto vl = makeVecLowering(vlName);
         if (!vl) {
@@ -168,6 +171,7 @@ int main(int argc, char **argv) {
       } else {
         CBackend cb(*outStream);
         cb.setNoRequire(noRequire);
+        cb.setNoMainMangle(emitMain);
         // [v0.2.1] Set up the vector-lowering strategy.
         std::string vlName = result["vec-lowering"].as<std::string>();
         auto vl = makeVecLowering(vlName);
@@ -185,6 +189,7 @@ int main(int argc, char **argv) {
         wb.setNoModuleTags(result["no-module-tags"].as<bool>());
       }
       wb.setNoRequire(noRequire);
+      wb.setNoMainMangle(emitMain);
       wb.emit(prog);
     } else {
       std::cerr << "Error: Unsupported target: " << target << "\n";
