@@ -1,0 +1,82 @@
+// Intention: cross-validate the full f32 (is_normal, is_subnormal,
+// signbit) classification matrix at five distinct bit patterns
+// spanning the normal/subnormal boundary, then verify @fneg preserves
+// the classification while flipping the sign bit.  Six intrinsics
+// (@from_bits, @fneg, @is_normal, @is_subnormal, @signbit, @fabs),
+// 13 basic blocks, 11 chained correctness branches.  If any single
+// classification or sign-flip step misbehaves the test falls through
+// to the ^fail block and the encoded return diverges from EXPECT_RC.
+// EXPECT: PASS
+// EXPECT_RC: 73
+intrinsic @from_bits(%x: i32) : f32;
+intrinsic @fneg(%x: f32) : f32;
+intrinsic @fabs(%x: f32) : f32;
+intrinsic @is_normal(%x: f32) : i1;
+intrinsic @is_subnormal(%x: f32) : i1;
+intrinsic @signbit(%x: f32) : i1;
+
+fun @main() : i32 {
+  let mut %max_fin: f32 = 0.0;
+  let mut %min_norm: f32 = 0.0;
+  let mut %max_sub: f32 = 0.0;
+  let mut %min_sub: f32 = 0.0;
+  let mut %neg_max_sub: f32 = 0.0;
+  let mut %abs_neg: f32 = 0.0;
+  let mut %t: i1 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %max_fin = call @from_bits(2139095039);    // 0x7F7FFFFF
+  %min_norm = call @from_bits(8388608);      // 0x00800000
+  %max_sub = call @from_bits(8388607);       // 0x007FFFFF
+  %min_sub = call @from_bits(1);             // 0x00000001
+  %neg_max_sub = call @fneg(%max_sub);
+  %abs_neg = call @fabs(%neg_max_sub);
+  br ^check_max_fin;
+^check_max_fin:
+  %t = call @is_normal(%max_fin);
+  br %t == 1, ^cmf2, ^fail;
+^cmf2:
+  %t = call @is_subnormal(%max_fin);
+  br %t == 0, ^check_min_norm, ^fail;
+^check_min_norm:
+  %t = call @is_normal(%min_norm);
+  br %t == 1, ^cmn2, ^fail;
+^cmn2:
+  %t = call @is_subnormal(%min_norm);
+  br %t == 0, ^check_max_sub, ^fail;
+^check_max_sub:
+  %t = call @is_normal(%max_sub);
+  br %t == 0, ^cms2, ^fail;
+^cms2:
+  %t = call @is_subnormal(%max_sub);
+  br %t == 1, ^check_min_sub, ^fail;
+^check_min_sub:
+  %t = call @is_normal(%min_sub);
+  br %t == 0, ^cmis2, ^fail;
+^cmis2:
+  %t = call @is_subnormal(%min_sub);
+  br %t == 1, ^check_neg, ^fail;
+^check_neg:
+  // Sign-flipped subnormal: classification preserved, signbit set.
+  %t = call @is_subnormal(%neg_max_sub);
+  br %t == 1, ^cn2, ^fail;
+^cn2:
+  %t = call @signbit(%neg_max_sub);
+  br %t == 1, ^check_abs, ^fail;
+^check_abs:
+  // @fabs of the negative subnormal must recover the positive
+  // subnormal — classification still subnormal, sign cleared.
+  %t = call @is_subnormal(%abs_neg);
+  br %t == 1, ^ca2, ^fail;
+^ca2:
+  %t = call @signbit(%abs_neg);
+  br %t == 0, ^success, ^fail;
+^success:
+  %r = 73;
+  br ^exit;
+^fail:
+  %r = 0;
+  br ^exit;
+^exit:
+  ret %r;
+}

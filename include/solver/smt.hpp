@@ -87,7 +87,9 @@ namespace symir::smt {
     // FP predicates (unary, return Bool)
     FP_IS_INF,
     FP_IS_NAN,
-    FP_IS_NEG, // sign bit = 1 (covers -finite and -0.0); used by @signbit
+    FP_IS_NEG,       // sign bit = 1 (covers -finite and -0.0); used by @signbit
+    FP_IS_NORMAL,    // biased exp in [1, max-1]; used by @is_normal
+    FP_IS_SUBNORMAL, // biased exp == 0 and mantissa != 0; used by @is_subnormal
 
     // FP unary (return FP)
     FP_ABS, // |x|; used by @fabs

@@ -877,6 +877,42 @@ namespace symir {
       }
     };
 
+    // ── v0.2.2 extra batch D.2 — classification predicates (§12.6) ──
+
+    class IsNormalSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        auto bv1 = solver.make_bv_sort(1);
+        auto one = solver.make_bv_value_int64(bv1, 1);
+        auto zero = solver.make_bv_value_int64(bv1, 0);
+        auto pred = solver.make_term(smt::Kind::FP_IS_NORMAL, {argVals[0].term});
+        auto r = solver.make_term(smt::Kind::ITE, {pred, one, zero});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    class IsSubnormalSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        auto bv1 = solver.make_bv_sort(1);
+        auto one = solver.make_bv_value_int64(bv1, 1);
+        auto zero = solver.make_bv_value_int64(bv1, 0);
+        auto pred = solver.make_term(smt::Kind::FP_IS_SUBNORMAL, {argVals[0].term});
+        auto r = solver.make_term(smt::Kind::ITE, {pred, one, zero});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
     class ToBitsSolverIntrinsic final : public SolverFpIntrinsic {
     public:
       SymbolicExecutor::SymbolicValue solve(
@@ -940,6 +976,8 @@ namespace symir {
         registry_[IntrinsicKind::Copysign] = std::make_unique<CopysignSolverIntrinsic>();
         registry_[IntrinsicKind::Signbit] = std::make_unique<SignbitSolverIntrinsic>();
         registry_[IntrinsicKind::ToBits] = std::make_unique<ToBitsSolverIntrinsic>();
+        registry_[IntrinsicKind::IsNormal] = std::make_unique<IsNormalSolverIntrinsic>();
+        registry_[IntrinsicKind::IsSubnormal] = std::make_unique<IsSubnormalSolverIntrinsic>();
         registry_[IntrinsicKind::FromBits] = std::make_unique<FromBitsSolverIntrinsic>();
       }
 

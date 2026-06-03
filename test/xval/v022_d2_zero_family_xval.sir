@@ -1,0 +1,72 @@
+// Intention: cross-validate the four observable identities of zero.
+// SymIR's signed-zero model (§2.9) keeps +0.0 and -0.0 numerically
+// equal but distinguishable via @signbit and via @to_bits.  This
+// test pins both behaviors against the C backend, and additionally
+// verifies neither zero classifies as normal or subnormal, AND that
+// @copysign correctly transfers the sign bit between zeros.  Six
+// intrinsics, 13 basic blocks, 9 chained correctness branches.
+// EXPECT: PASS
+// EXPECT_RC: 211
+intrinsic @to_bits(%x: f64) : i64;
+intrinsic @fneg(%x: f64) : f64;
+intrinsic @copysign(%x: f64, %y: f64) : f64;
+intrinsic @signbit(%x: f64) : i1;
+intrinsic @is_normal(%x: f64) : i1;
+intrinsic @is_subnormal(%x: f64) : i1;
+
+fun @main() : i32 {
+  let %pz: f64 = 0.0;
+  let mut %nz: f64 = 0.0;
+  let mut %back_to_pos: f64 = 0.0;
+  let mut %back_to_neg: f64 = 0.0;
+  let mut %b_pz: i64 = 0;
+  let mut %b_nz: i64 = 0;
+  let mut %t: i1 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %nz = call @fneg(%pz);
+  %b_pz = call @to_bits(%pz);
+  %b_nz = call @to_bits(%nz);
+  br ^check_bits;
+^check_bits:
+  // +0.0 bits == 0; -0.0 bits == INT64_MIN (as signed).
+  br %b_pz == 0, ^cb2, ^fail;
+^cb2:
+  br %b_nz == -9223372036854775808, ^check_signs, ^fail;
+^check_signs:
+  %t = call @signbit(%pz);
+  br %t == 0, ^cs2, ^fail;
+^cs2:
+  %t = call @signbit(%nz);
+  br %t == 1, ^check_class, ^fail;
+^check_class:
+  // Neither zero is normal or subnormal.
+  %t = call @is_normal(%pz);
+  br %t == 0, ^cc2, ^fail;
+^cc2:
+  %t = call @is_subnormal(%pz);
+  br %t == 0, ^cc3, ^fail;
+^cc3:
+  %t = call @is_normal(%nz);
+  br %t == 0, ^cc4, ^fail;
+^cc4:
+  %t = call @is_subnormal(%nz);
+  br %t == 0, ^check_copysign, ^fail;
+^check_copysign:
+  // @copysign should move sign bits between zeros.
+  %back_to_pos = call @copysign(%nz, 1.0);
+  %t = call @signbit(%back_to_pos);
+  br %t == 0, ^cp2, ^fail;
+^cp2:
+  %back_to_neg = call @copysign(%pz, -1.0);
+  %t = call @signbit(%back_to_neg);
+  br %t == 1, ^success, ^fail;
+^success:
+  %r = 211;
+  br ^exit;
+^fail:
+  %r = 0;
+  br ^exit;
+^exit:
+  ret %r;
+}

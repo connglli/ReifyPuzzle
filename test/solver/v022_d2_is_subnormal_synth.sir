@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+// [v0.2.2] §12.6 D.2 — solver synthesizes a value for %?x such that
+// @is_subnormal(%?x) == 1.  Many models exist (any subnormal magnitude
+// of either sign); the solver picks one.
+intrinsic @is_subnormal(%x: f64) : i1;
+fun @main() : f64 {
+  sym %?x : value f64;
+  let mut %s: i1 = 0;
+^entry:
+  %s = call @is_subnormal(%?x);
+  require %s == 1, "@is_subnormal(?x) must be 1";
+  br ^exit;
+^exit:
+  ret %?x;
+}

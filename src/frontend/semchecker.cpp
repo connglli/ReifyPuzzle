@@ -55,6 +55,13 @@ namespace symir {
           sig += ",";
         if (auto bits = TypeUtils::getIntBitWidth(d.params[i].type))
           sig += "i" + std::to_string(*bits);
+        else if (auto ft =
+                     d.params[i].type ? std::get_if<FloatType>(&d.params[i].type->v) : nullptr)
+          // [v0.2.2 D.1+] FP overloads must not collide on the same arity:
+          // @to_bits(f32) and @to_bits(f64) are distinct intrinsics with
+          // distinct lowerings.  Use the FP precision in the sig string so
+          // both can be declared in the same program.
+          sig += "f" + std::string(ft->kind == FloatType::Kind::F32 ? "32" : "64");
         else
           sig += "?";
       }
@@ -422,6 +429,10 @@ namespace symir {
         expectAllSameFp();
         break;
       case IntrinsicKind::Signbit:
+      // [v0.2.2 extra batch D.2] FP classification predicates (§12.6) —
+      // same shape as @signbit (fN parameter, i1 return).
+      case IntrinsicKind::IsNormal:
+      case IntrinsicKind::IsSubnormal:
         expectArity(1);
         expectFpToPredicate();
         break;

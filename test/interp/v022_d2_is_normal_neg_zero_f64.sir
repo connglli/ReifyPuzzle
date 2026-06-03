@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.2 @is_normal at f64 — -0.0 is NOT normal
+// (signbit set but biased exponent still 0).
+intrinsic @is_normal(%x: f64) : i1;
+intrinsic @fneg(%x: f64) : f64;
+fun @main() : i32 {
+  let %pz: f64 = 0.0;
+  let mut %nz: f64 = 0.0;
+  let mut %r: i1 = 0;
+^entry:
+  %nz = call @fneg(%pz);
+  %r = call @is_normal(%nz);
+  require %r == 0, "is_normal(-0.0) == 0";
+  ret 0;
+}

@@ -836,6 +836,52 @@ namespace symir {
     };
 
     /**
+     * @brief @is_normal(x) — 1 if x is a normal IEEE 754 value (biased
+     * exponent in [1, max-1]), else 0.  Inside SymIR's finite-only
+     * domain the false set is {±0, subnormals}.
+     */
+    class IsNormalIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        // Classify at the operand's declared precision — an f32 subnormal
+        // stored as a double would otherwise be classified as normal at
+        // f64 precision (f64's normal range is much wider).
+        uint32_t N = fpBitsOf(intr.params[0].type);
+        double v = args[0].floatVal;
+        if (N == 32) {
+          float f = static_cast<float>(v);
+          return makeInt(1, std::isnormal(f) ? 1 : 0);
+        }
+        return makeInt(1, std::isnormal(v) ? 1 : 0);
+      }
+    };
+
+    /**
+     * @brief @is_subnormal(x) — 1 if x is a subnormal IEEE 754 value
+     * (biased exponent 0 and mantissa != 0), else 0.  ±0 are NOT
+     * subnormal.
+     */
+    class IsSubnormalIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        // Operate at the operand's declared precision: an f32 subnormal
+        // stored as a double would otherwise be classified as normal at
+        // f64 precision.
+        uint32_t N = fpBitsOf(intr.params[0].type);
+        double v = args[0].floatVal;
+        if (N == 32) {
+          float f = static_cast<float>(v);
+          return makeInt(1, (std::fpclassify(f) == FP_SUBNORMAL) ? 1 : 0);
+        }
+        return makeInt(1, (std::fpclassify(v) == FP_SUBNORMAL) ? 1 : 0);
+      }
+    };
+
+    /**
      * @brief @to_bits(x: fN) → iN: raw IEEE 754 bit pattern reinterpreted
      * as a signed integer of equal width. f32 → i32, f64 → i64.
      */
@@ -948,6 +994,9 @@ namespace symir {
         registry_[IntrinsicKind::Signbit] = std::make_unique<SignbitIntrinsic>();
         registry_[IntrinsicKind::ToBits] = std::make_unique<ToBitsIntrinsic>();
         registry_[IntrinsicKind::FromBits] = std::make_unique<FromBitsIntrinsic>();
+        // §12.6 D.2 — classification predicates.
+        registry_[IntrinsicKind::IsNormal] = std::make_unique<IsNormalIntrinsic>();
+        registry_[IntrinsicKind::IsSubnormal] = std::make_unique<IsSubnormalIntrinsic>();
       }
 
       std::unordered_map<IntrinsicKind, std::unique_ptr<InterpreterIntrinsic>> registry_;

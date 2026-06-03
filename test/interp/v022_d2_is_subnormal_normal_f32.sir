@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.2 @is_subnormal at f32 — a regular finite
+// value is NOT subnormal.
+intrinsic @is_subnormal(%x: f32) : i1;
+fun @main() : i32 {
+  let mut %r: i1 = 0;
+^entry:
+  %r = call @is_subnormal(2.0);
+  require %r == 0, "is_subnormal(2.0) == 0";
+  ret 0;
+}

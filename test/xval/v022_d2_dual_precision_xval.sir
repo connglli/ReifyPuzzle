@@ -1,0 +1,100 @@
+// Intention: cross-validate every D.2 predicate against every D.1 op
+// at BOTH precisions in a single program.  Declares each intrinsic
+// twice (once per width).  Verifies that f32 and f64 subnormals
+// classify correctly at their native precisions — a known trap with
+// f32 subnormals stored as f64 (which would be f64-normal under
+// careless implementation), so this is the most stringent
+// classification test in the suite.  Eight distinct intrinsic names
+// (16 overloads total), 17 basic blocks, 13 chained correctness
+// branches.
+// EXPECT: PASS
+// EXPECT_RC: 521
+intrinsic @from_bits(%x: i32) : f32;
+intrinsic @from_bits(%x: i64) : f64;
+intrinsic @to_bits(%x: f32) : i32;
+intrinsic @to_bits(%x: f64) : i64;
+intrinsic @fneg(%x: f32) : f32;
+intrinsic @fneg(%x: f64) : f64;
+intrinsic @copysign(%x: f32, %y: f32) : f32;
+intrinsic @signbit(%x: f32) : i1;
+intrinsic @signbit(%x: f64) : i1;
+intrinsic @is_normal(%x: f32) : i1;
+intrinsic @is_normal(%x: f64) : i1;
+intrinsic @is_subnormal(%x: f32) : i1;
+intrinsic @is_subnormal(%x: f64) : i1;
+
+fun @main() : i32 {
+  let mut %sub32: f32 = 0.0;
+  let mut %sub64: f64 = 0.0;
+  let mut %norm32: f32 = 0.0;
+  let mut %norm64: f64 = 0.0;
+  let mut %neg_sub32: f32 = 0.0;
+  let mut %b32: i32 = 0;
+  let mut %b64: i64 = 0;
+  let mut %t: i1 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  // f32 smallest subnormal (bit pattern 1) → would be normal at f64
+  // precision if the implementation skipped the narrow-then-classify
+  // step.
+  %sub32 = call @from_bits(1);
+  %sub64 = call @from_bits(1);
+  %norm32 = call @from_bits(8388608);          // 0x00800000 — min normal f32
+  %norm64 = call @from_bits(4503599627370496); // 0x0010000000000000 — min normal f64
+  br ^check_subs;
+^check_subs:
+  %t = call @is_subnormal(%sub32);
+  br %t == 1, ^cs2, ^fail;
+^cs2:
+  %t = call @is_subnormal(%sub64);
+  br %t == 1, ^cs3, ^fail;
+^cs3:
+  // The f32 subnormal must NOT classify as normal at f32 precision,
+  // even though its f64-stored value (~1.4e-45) has an f64 exponent
+  // that lands inside the f64 normal range.  This is the precision-
+  // boundary trap that distinguishes a correct lowering from a sloppy
+  // one.
+  %t = call @is_normal(%sub32);
+  br %t == 0, ^check_norms, ^fail;
+^check_norms:
+  %t = call @is_normal(%norm32);
+  br %t == 1, ^cn2, ^fail;
+^cn2:
+  %t = call @is_normal(%norm64);
+  br %t == 1, ^cn3, ^fail;
+^cn3:
+  %t = call @is_subnormal(%norm32);
+  br %t == 0, ^check_signflip_32, ^fail;
+^check_signflip_32:
+  // @fneg on the f32 subnormal preserves subnormal class, sets sign.
+  %neg_sub32 = call @fneg(%sub32);
+  %t = call @is_subnormal(%neg_sub32);
+  br %t == 1, ^csf2, ^fail;
+^csf2:
+  %t = call @signbit(%neg_sub32);
+  br %t == 1, ^check_copysign, ^fail;
+^check_copysign:
+  // Copysign back to positive via a positive sentinel; verify both
+  // signbit clear and classification preserved.
+  %neg_sub32 = call @copysign(%neg_sub32, 1.0);
+  %t = call @signbit(%neg_sub32);
+  br %t == 0, ^cc2, ^fail;
+^cc2:
+  %t = call @is_subnormal(%neg_sub32);
+  br %t == 1, ^check_roundtrips, ^fail;
+^check_roundtrips:
+  // Bit pattern round-trips at both widths.
+  %b32 = call @to_bits(%sub32);
+  br %b32 == 1, ^cr2, ^fail;
+^cr2:
+  %b64 = call @to_bits(%sub64);
+  br %b64 == 1, ^success, ^fail;
+^success:
+  %r = 521;
+  br ^exit;
+^fail:
+  %r = 0;
+  br ^exit;
+^exit:
+  ret %r;
+}

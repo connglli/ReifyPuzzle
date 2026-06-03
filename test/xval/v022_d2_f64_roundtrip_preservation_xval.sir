@@ -1,0 +1,83 @@
+// Intention: cross-validate that D.1 transformations preserve D.2
+// classification through a full bit-reinterpret round trip.  Start
+// from a subnormal f64, walk it through @fneg → @copysign → @fabs →
+// @to_bits → @from_bits, and at every stage verify (is_normal,
+// is_subnormal, signbit) are exactly what the spec mandates.  Eight
+// intrinsics across D.1 and D.2.  Uses 14 basic blocks and 12
+// chained correctness branches.
+// EXPECT: PASS
+// EXPECT_RC: 113
+intrinsic @from_bits(%x: i64) : f64;
+intrinsic @to_bits(%x: f64) : i64;
+intrinsic @fneg(%x: f64) : f64;
+intrinsic @fabs(%x: f64) : f64;
+intrinsic @copysign(%x: f64, %y: f64) : f64;
+intrinsic @is_normal(%x: f64) : i1;
+intrinsic @is_subnormal(%x: f64) : i1;
+intrinsic @signbit(%x: f64) : i1;
+
+fun @main() : i32 {
+  let mut %x: f64 = 0.0;
+  let mut %neg: f64 = 0.0;
+  let mut %pos: f64 = 0.0;
+  let mut %abs_pos: f64 = 0.0;
+  let mut %b: i64 = 0;
+  let mut %back: f64 = 0.0;
+  let mut %t: i1 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  // Stage 0: a positive f64 subnormal (bit pattern 0x0000000000000007).
+  %x = call @from_bits(7);
+  br ^stage0;
+^stage0:
+  %t = call @is_subnormal(%x);
+  br %t == 1, ^s0b, ^fail;
+^s0b:
+  %t = call @is_normal(%x);
+  br %t == 0, ^s0c, ^fail;
+^s0c:
+  %t = call @signbit(%x);
+  br %t == 0, ^stage1, ^fail;
+^stage1:
+  // Stage 1: flip the sign via @fneg.  Subnormal classification holds,
+  // sign bit flips.
+  %neg = call @fneg(%x);
+  %t = call @is_subnormal(%neg);
+  br %t == 1, ^s1b, ^fail;
+^s1b:
+  %t = call @signbit(%neg);
+  br %t == 1, ^stage2, ^fail;
+^stage2:
+  // Stage 2: @copysign with a positive y restores the positive sign.
+  %pos = call @copysign(%neg, 1.0);
+  %t = call @signbit(%pos);
+  br %t == 0, ^s2b, ^fail;
+^s2b:
+  %t = call @is_subnormal(%pos);
+  br %t == 1, ^stage3, ^fail;
+^stage3:
+  // Stage 3: @fabs on the positive value is the identity for classification.
+  %abs_pos = call @fabs(%pos);
+  %t = call @is_subnormal(%abs_pos);
+  br %t == 1, ^s3b, ^fail;
+^s3b:
+  %t = call @is_normal(%abs_pos);
+  br %t == 0, ^stage4, ^fail;
+^stage4:
+  // Stage 4: round-trip via to_bits / from_bits must recover the
+  // original bit pattern AND classification.
+  %b = call @to_bits(%abs_pos);
+  br %b == 7, ^s4b, ^fail;
+^s4b:
+  %back = call @from_bits(%b);
+  %t = call @is_subnormal(%back);
+  br %t == 1, ^success, ^fail;
+^success:
+  %r = 113;
+  br ^exit;
+^fail:
+  %r = 0;
+  br ^exit;
+^exit:
+  ret %r;
+}

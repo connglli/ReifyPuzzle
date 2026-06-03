@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.2 @is_normal at f32 — bit pattern 0x00800000
+// (i32 8388608) is the smallest f32 normal; @is_normal returns 1.
+// The adjacent pattern 0x007FFFFF (8388607) is the largest subnormal
+// and returns 0 — pins the normal/subnormal boundary.
+intrinsic @is_normal(%x: f32) : i1;
+intrinsic @from_bits(%x: i32) : f32;
+fun @main() : i32 {
+  let mut %min_norm: f32 = 0.0;
+  let mut %max_sub: f32 = 0.0;
+  let mut %a: i1 = 0;
+  let mut %b: i1 = 0;
+^entry:
+  %min_norm = call @from_bits(8388608);     // 0x00800000
+  %max_sub = call @from_bits(8388607);      // 0x007FFFFF
+  %a = call @is_normal(%min_norm);
+  %b = call @is_normal(%max_sub);
+  require %a == 1, "smallest normal is_normal == 1";
+  require %b == 0, "largest subnormal is_normal == 0";
+  ret 0;
+}

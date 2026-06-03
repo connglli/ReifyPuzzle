@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.2 @is_subnormal at f32 — +0.0 and -0.0 are
+// NOT subnormal (mantissa == 0).  This is the key distinction from
+// other IEEE classification systems that lump zero with subnormals.
+intrinsic @is_subnormal(%x: f32) : i1;
+intrinsic @fneg(%x: f32) : f32;
+fun @main() : i32 {
+  let %pz: f32 = 0.0;
+  let mut %nz: f32 = 0.0;
+  let mut %a: i1 = 0;
+  let mut %b: i1 = 0;
+^entry:
+  %nz = call @fneg(%pz);
+  %a = call @is_subnormal(%pz);
+  %b = call @is_subnormal(%nz);
+  require %a == 0, "is_subnormal(+0.0) == 0";
+  require %b == 0, "is_subnormal(-0.0) == 0";
+  ret 0;
+}

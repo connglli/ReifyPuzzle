@@ -1745,6 +1745,167 @@ namespace symir {
       }
     };
 
+    // ── §12.6 D.2 classification predicates ───────────────────────────
+
+    /**
+     * @brief @is_normal — WASM MVP has no native fN.is_normal.  Compose
+     * by extracting the biased exponent from the reinterpreted bits and
+     * testing it lies strictly inside [1, max-1].
+     */
+    class IsNormalWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void declareLocals(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        uint32_t bits = paramFpBits(intr, 0);
+        indent(backend);
+        out(backend) << "(local $exp " << (bits == 32 ? "i32" : "i64") << ")\n";
+      }
+
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        uint32_t bits = paramFpBits(intr, 0);
+        if (bits == 32) {
+          // exp = (reinterpret_f32(a0) >> 23) & 0xFF
+          indent(backend);
+          out(backend) << "local.get $a0\n";
+          indent(backend);
+          out(backend) << "i32.reinterpret_f32\n";
+          indent(backend);
+          out(backend) << "i32.const 23\n";
+          indent(backend);
+          out(backend) << "i32.shr_u\n";
+          indent(backend);
+          out(backend) << "i32.const 255\n";
+          indent(backend);
+          out(backend) << "i32.and\n";
+          indent(backend);
+          out(backend) << "local.set $exp\n";
+          // result = (exp != 0) & (exp != 255)
+          indent(backend);
+          out(backend) << "local.get $exp\n";
+          indent(backend);
+          out(backend) << "i32.const 0\n";
+          indent(backend);
+          out(backend) << "i32.ne\n";
+          indent(backend);
+          out(backend) << "local.get $exp\n";
+          indent(backend);
+          out(backend) << "i32.const 255\n";
+          indent(backend);
+          out(backend) << "i32.ne\n";
+          indent(backend);
+          out(backend) << "i32.and\n";
+        } else {
+          // f64: 11-bit exponent at bits 52-62; max = 0x7FF.
+          indent(backend);
+          out(backend) << "local.get $a0\n";
+          indent(backend);
+          out(backend) << "i64.reinterpret_f64\n";
+          indent(backend);
+          out(backend) << "i64.const 52\n";
+          indent(backend);
+          out(backend) << "i64.shr_u\n";
+          indent(backend);
+          out(backend) << "i64.const 2047\n";
+          indent(backend);
+          out(backend) << "i64.and\n";
+          indent(backend);
+          out(backend) << "local.set $exp\n";
+          indent(backend);
+          out(backend) << "local.get $exp\n";
+          indent(backend);
+          out(backend) << "i64.const 0\n";
+          indent(backend);
+          out(backend) << "i64.ne\n"; // i32 result
+          indent(backend);
+          out(backend) << "local.get $exp\n";
+          indent(backend);
+          out(backend) << "i64.const 2047\n";
+          indent(backend);
+          out(backend) << "i64.ne\n";
+          indent(backend);
+          out(backend) << "i32.and\n";
+        }
+      }
+    };
+
+    /**
+     * @brief @is_subnormal — biased exponent 0 AND mantissa != 0.
+     */
+    class IsSubnormalWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void declareLocals(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        uint32_t bits = paramFpBits(intr, 0);
+        std::string ity = (bits == 32) ? "i32" : "i64";
+        indent(backend);
+        out(backend) << "(local $bp " << ity << ")\n";
+      }
+
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        uint32_t bits = paramFpBits(intr, 0);
+        if (bits == 32) {
+          // bp = reinterpret_f32(a0)
+          indent(backend);
+          out(backend) << "local.get $a0\n";
+          indent(backend);
+          out(backend) << "i32.reinterpret_f32\n";
+          indent(backend);
+          out(backend) << "local.set $bp\n";
+          // exp_zero = (bp & 0x7F800000) == 0
+          indent(backend);
+          out(backend) << "local.get $bp\n";
+          indent(backend);
+          out(backend) << "i32.const 2139095040\n"; // 0x7F800000
+          indent(backend);
+          out(backend) << "i32.and\n";
+          indent(backend);
+          out(backend) << "i32.eqz\n";
+          // mantissa_nonzero = (bp & 0x007FFFFF) != 0
+          indent(backend);
+          out(backend) << "local.get $bp\n";
+          indent(backend);
+          out(backend) << "i32.const 8388607\n"; // 0x007FFFFF
+          indent(backend);
+          out(backend) << "i32.and\n";
+          indent(backend);
+          out(backend) << "i32.const 0\n";
+          indent(backend);
+          out(backend) << "i32.ne\n";
+          // and them
+          indent(backend);
+          out(backend) << "i32.and\n";
+        } else {
+          // f64: 11-bit exp at 52..62 (0x7FF0000000000000); mantissa mask 0x000FFFFFFFFFFFFF.
+          indent(backend);
+          out(backend) << "local.get $a0\n";
+          indent(backend);
+          out(backend) << "i64.reinterpret_f64\n";
+          indent(backend);
+          out(backend) << "local.set $bp\n";
+          // exp_zero = (bp & 0x7FF0000000000000) == 0
+          indent(backend);
+          out(backend) << "local.get $bp\n";
+          indent(backend);
+          out(backend) << "i64.const 9218868437227405312\n"; // 0x7FF0...
+          indent(backend);
+          out(backend) << "i64.and\n";
+          indent(backend);
+          out(backend) << "i64.eqz\n"; // i32 result
+          // mantissa_nonzero = (bp & 0x000FFFFFFFFFFFFF) != 0
+          indent(backend);
+          out(backend) << "local.get $bp\n";
+          indent(backend);
+          out(backend) << "i64.const 4503599627370495\n"; // 0x000FFFFFFFFFFFFF
+          indent(backend);
+          out(backend) << "i64.and\n";
+          indent(backend);
+          out(backend) << "i64.const 0\n";
+          indent(backend);
+          out(backend) << "i64.ne\n"; // i32 result
+          indent(backend);
+          out(backend) << "i32.and\n";
+        }
+      }
+    };
+
     class ToBitsWasmIntrinsic final : public WasmFpIntrinsic {
     public:
       void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
@@ -1817,6 +1978,8 @@ namespace symir {
         r[IntrinsicKind::Signbit] = std::make_unique<SignbitWasmIntrinsic>();
         r[IntrinsicKind::ToBits] = std::make_unique<ToBitsWasmIntrinsic>();
         r[IntrinsicKind::FromBits] = std::make_unique<FromBitsWasmIntrinsic>();
+        r[IntrinsicKind::IsNormal] = std::make_unique<IsNormalWasmIntrinsic>();
+        r[IntrinsicKind::IsSubnormal] = std::make_unique<IsSubnormalWasmIntrinsic>();
         return r;
       }();
       return registry;

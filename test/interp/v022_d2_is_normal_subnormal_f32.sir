@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.2 @is_normal at f32 — a subnormal value is NOT
+// normal (biased exponent == 0).
+intrinsic @is_normal(%x: f32) : i1;
+intrinsic @from_bits(%x: i32) : f32;
+fun @main() : i32 {
+  let mut %sub: f32 = 0.0;
+  let mut %r: i1 = 0;
+^entry:
+  %sub = call @from_bits(1);         // smallest +subnormal f32
+  %r = call @is_normal(%sub);
+  require %r == 0, "is_normal(min subnormal) == 0";
+  ret 0;
+}

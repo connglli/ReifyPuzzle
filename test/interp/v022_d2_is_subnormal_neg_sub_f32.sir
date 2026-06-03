@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.2 @is_subnormal at f32 — sign bit is ignored;
+// negative subnormals also classify as subnormal.
+intrinsic @is_subnormal(%x: f32) : i1;
+intrinsic @from_bits(%x: i32) : f32;
+intrinsic @fneg(%x: f32) : f32;
+fun @main() : i32 {
+  let mut %pos_sub: f32 = 0.0;
+  let mut %neg_sub: f32 = 0.0;
+  let mut %r: i1 = 0;
+^entry:
+  %pos_sub = call @from_bits(1);
+  %neg_sub = call @fneg(%pos_sub);
+  %r = call @is_subnormal(%neg_sub);
+  require %r == 1, "negative subnormal is still subnormal";
+  ret 0;
+}

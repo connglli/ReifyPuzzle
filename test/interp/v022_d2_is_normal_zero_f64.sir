@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.2 @is_normal at f64 — zero is NOT normal.
+intrinsic @is_normal(%x: f64) : i1;
+fun @main() : i32 {
+  let mut %r: i1 = 0;
+^entry:
+  %r = call @is_normal(0.0);
+  require %r == 0, "is_normal(0.0) == 0";
+  ret 0;
+}

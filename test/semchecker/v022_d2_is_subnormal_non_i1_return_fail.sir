@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.6 — @is_subnormal returns i1 (predicate); a wider
+// integer return must be rejected.
+intrinsic @is_subnormal(%x: f64) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

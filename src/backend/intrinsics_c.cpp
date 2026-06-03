@@ -745,6 +745,28 @@ namespace symir {
       }
     };
 
+    // ── §12.6 D.2 classification predicates ───────────────────────────
+
+    class IsNormalCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &) const override {
+        out(backend) << "  return (int8_t)(__builtin_isnormal(a0) ? 1 : 0);\n";
+      }
+    };
+
+    class IsSubnormalCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &) const override {
+        // x is subnormal iff (x is finite) && (!isnormal(x)) && (x != 0).
+        // Defensive against any future caller that bypasses the §2.9
+        // finiteness check.
+        out(backend) << "  int _norm = __builtin_isnormal(a0);\n";
+        out(backend) << "  int _zero = (a0 == 0.0);\n";
+        out(backend) << "  int _fin = __builtin_isfinite(a0);\n";
+        out(backend) << "  return (int8_t)((_fin && !_norm && !_zero) ? 1 : 0);\n";
+      }
+    };
+
     class ToBitsCIntrinsic final : public CFpIntrinsic {
     public:
       void emit(CBackend &backend, const IntrinsicDecl &intr) const override {
@@ -789,6 +811,8 @@ namespace symir {
         r[IntrinsicKind::Signbit] = std::make_unique<SignbitCIntrinsic>();
         r[IntrinsicKind::ToBits] = std::make_unique<ToBitsCIntrinsic>();
         r[IntrinsicKind::FromBits] = std::make_unique<FromBitsCIntrinsic>();
+        r[IntrinsicKind::IsNormal] = std::make_unique<IsNormalCIntrinsic>();
+        r[IntrinsicKind::IsSubnormal] = std::make_unique<IsSubnormalCIntrinsic>();
         return r;
       }();
       return registry;

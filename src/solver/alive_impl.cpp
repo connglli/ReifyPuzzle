@@ -332,9 +332,11 @@ namespace symir::solver {
       case smt::Kind::FP_ABS:
       case smt::Kind::FP_NEG:
       case smt::Kind::FP_IS_NEG:
+      case smt::Kind::FP_IS_NORMAL:
+      case smt::Kind::FP_IS_SUBNORMAL:
       case smt::Kind::FP_TO_FP_FROM_BV:
         throw std::runtime_error(
-            "Alive2 backend does not support this FP primitive (batch D.1 — "
+            "Alive2 backend does not support this FP primitive (batch D.1/D.2 — "
             "use SOLVER=bitwuzla)"
         );
 

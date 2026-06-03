@@ -21,6 +21,8 @@ namespace symir {
    *   DivEuclid, RemEuclid.
    * v0.2.2 extra D.1 — floating-point sign / bit ops (§12.6):
    *   Fabs, Fneg, Copysign, Signbit, ToBits, FromBits.
+   * v0.2.2 extra D.2 — floating-point classification predicates (§12.6):
+   *   IsNormal, IsSubnormal.
    *
    * Note: there is no @umin / @umax — SymIR has no unsigned integer types
    * and the toolchain does not implicitly reinterpret iN bits as uN.
@@ -69,6 +71,9 @@ namespace symir {
     Signbit,
     ToBits,
     FromBits,
+    // v0.2.2 extra batch D.2 — floating-point classification predicates (§12.6)
+    IsNormal,
+    IsSubnormal,
   };
 
   /**
@@ -151,6 +156,11 @@ namespace symir {
       return IntrinsicKind::ToBits;
     if (name == "@from_bits")
       return IntrinsicKind::FromBits;
+    // v0.2.2 extra batch D.2 — floating-point classification predicates (§12.6)
+    if (name == "@is_normal")
+      return IntrinsicKind::IsNormal;
+    if (name == "@is_subnormal")
+      return IntrinsicKind::IsSubnormal;
     return std::nullopt;
   }
 

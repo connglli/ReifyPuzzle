@@ -151,6 +151,10 @@ namespace symir::solver {
         return bitwuzla::Kind::FP_IS_NAN;
       case smt::Kind::FP_IS_NEG:
         return bitwuzla::Kind::FP_IS_NEG;
+      case smt::Kind::FP_IS_NORMAL:
+        return bitwuzla::Kind::FP_IS_NORMAL;
+      case smt::Kind::FP_IS_SUBNORMAL:
+        return bitwuzla::Kind::FP_IS_SUBNORMAL;
       case smt::Kind::FP_ABS:
         return bitwuzla::Kind::FP_ABS;
       case smt::Kind::FP_NEG:

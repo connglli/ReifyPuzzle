@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.2 @is_normal at f32 — a regular finite value
+// returns 1.
+intrinsic @is_normal(%x: f32) : i1;
+fun @main() : i32 {
+  let mut %r: i1 = 0;
+^entry:
+  %r = call @is_normal(3.5);
+  require %r == 1, "is_normal(3.5) == 1";
+  ret 0;
+}

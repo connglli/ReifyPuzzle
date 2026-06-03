@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.6 — @is_normal is a predicate intrinsic over fN; an
+// integer parameter must be rejected.
+intrinsic @is_normal(%x: i32) : i1;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

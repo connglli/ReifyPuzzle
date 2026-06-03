@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.2 @is_subnormal at f64 — bit pattern
+// 0x000FFFFFFFFFFFFF (i64 4503599627370495) is the largest f64
+// subnormal; @is_subnormal returns 1.  The adjacent pattern
+// 0x0010000000000000 (4503599627370496) is the smallest normal and
+// returns 0 — pins the subnormal/normal boundary.
+intrinsic @is_subnormal(%x: f64) : i1;
+intrinsic @from_bits(%x: i64) : f64;
+fun @main() : i32 {
+  let mut %max_sub: f64 = 0.0;
+  let mut %min_norm: f64 = 0.0;
+  let mut %a: i1 = 0;
+  let mut %b: i1 = 0;
+^entry:
+  %max_sub = call @from_bits(4503599627370495);    // largest subnormal
+  %min_norm = call @from_bits(4503599627370496);   // smallest normal
+  %a = call @is_subnormal(%max_sub);
+  %b = call @is_subnormal(%min_norm);
+  require %a == 1, "largest subnormal is_subnormal == 1";
+  require %b == 0, "smallest normal is_subnormal == 0";
+  ret 0;
+}

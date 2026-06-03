@@ -789,8 +789,8 @@ directly (no widening-and-mask).
 - D.1 — *sign / bit ops* **(shipped — §12.6 below)**: `@fabs`, `@fneg`,
   `@copysign`, `@signbit`, `@to_bits`, `@from_bits`.  Shipping this
   sub-batch opens the §12 type-restriction sentence to `fN`.
-- D.2 — *classification predicates* (planned): `@is_normal`,
-  `@is_subnormal`.
+- D.2 — *classification predicates* **(shipped — §12.6 below)**:
+  `@is_normal`, `@is_subnormal`.
 - D.3 — *min / max* (planned): `@fmin`, `@fmax`.
 - D.4 — *correctly-rounded math* (planned): `@sqrt`, `@floor`, `@ceil`,
   `@trunc`.
@@ -899,6 +899,50 @@ the §2.9 finite-only domain.
 trap.
 **WASM**: `fN.reinterpret_iN` then explicit `|r| < +inf` check (NaN
 makes the comparison false), trap via `unreachable`.
+
+### §12.6 D.2 per-intrinsic spec
+
+Both are unary predicates over `fN`, returning `i1`.  Under SymIR's
+finite-only domain (§2.9) the input is always finite, so the
+classification reduces to three categories: *normal*, *subnormal*, or
+*zero* (±0).
+
+#### `@is_normal`
+
+```text
+intrinsic @is_normal(%x: fN) : i1;
+```
+
+Returns 1 iff `%x` is a normal IEEE 754 value (biased exponent in
+`[1, max-1]`).  Returns 0 for ±0, subnormals, and (out-of-domain but
+defensively false) ±∞ and NaN.
+
+**SMT encoding**: `ite(fp.isNormal(x), bv1#1, bv1#0)`.
+**Interpreter**: `std::isnormal(x)`; for f32 inputs stored as
+`double`, narrow to `float` first so the f32-precision exponent range
+is what gets classified.
+**C**: `__builtin_isnormal(a0)`; the generic-macro dispatch picks the
+right precision from the helper's parameter type.
+**WASM**: no native op.  Compose by extracting the biased exponent
+from `iN.reinterpret_fN(x)` and testing `(exp != 0) && (exp != max)`.
+
+#### `@is_subnormal`
+
+```text
+intrinsic @is_subnormal(%x: fN) : i1;
+```
+
+Returns 1 iff `%x` is a subnormal IEEE 754 value (biased exponent
+== 0 and mantissa != 0).  ±0 are NOT subnormal; for them the predicate
+returns 0.
+
+**SMT encoding**: `ite(fp.isSubnormal(x), bv1#1, bv1#0)`.
+**Interpreter**: `std::fpclassify(x) == FP_SUBNORMAL`; same f32
+narrowing as `@is_normal`.
+**C**: compose from `__builtin_isnormal` and `!= 0.0`:
+`__builtin_isfinite(a0) && !__builtin_isnormal(a0) && a0 != 0.0`.
+**WASM**: no native op.  Compose by reinterpreting and testing
+`(exp_bits == 0) && (mantissa != 0)`.
 
 ### P1 — solver-easy, WASM-tricky (planned)
 
