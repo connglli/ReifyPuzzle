@@ -1,0 +1,20 @@
+// Intention: cross-validate @fabs and @fneg at f64 — chain
+// fabs(fneg(x)) and to_bits the result so the integer return is
+// stable across backends.
+// EXPECT: PASS
+// EXPECT_RC: 4614500768194494464
+intrinsic @fabs(%x: f64) : f64;
+intrinsic @fneg(%x: f64) : f64;
+intrinsic @to_bits(%x: f64) : i64;
+
+fun @main() : i64 {
+  let %x: f64 = -3.25;
+  let mut %a: f64 = 0.0;
+  let mut %b: f64 = 0.0;
+  let mut %r: i64 = 0;
+^entry:
+  %a = call @fneg(%x);          // 3.25
+  %b = call @fabs(%a);          // 3.25
+  %r = call @to_bits(%b);       // bits of 3.25 as f64
+  ret %r;
+}

@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+// [v0.2.2] §12.6 — solver synthesizes a value for %?x such that
+// @signbit(%?x) == 1, i.e., %?x must be negative or -0.0.
+intrinsic @signbit(%x: f64) : i1;
+fun @main() : f64 {
+  sym %?x : value f64;
+  let mut %sb: i1 = 0;
+^entry:
+  %sb = call @signbit(%?x);
+  require %sb == 1, "@signbit(?x) must be 1";
+  br ^exit;
+^exit:
+  ret %?x;
+}

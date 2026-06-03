@@ -16,7 +16,9 @@
 
 #include "interp/interpreter.hpp"
 
+#include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -114,6 +116,40 @@ namespace symir {
       } else {
         r.intVal = sextToInt64(v, N);
       }
+      return r;
+    }
+
+    // ── v0.2.2 extra batch D.1 — floating-point helpers ─────────────────
+
+    /**
+     * @brief Width (32 or 64) of an FP parameter or return type.
+     */
+    inline uint32_t fpBitsOf(const TypePtr &t) {
+      auto fp = std::get_if<FloatType>(&t->v);
+      return (fp && fp->kind == FloatType::Kind::F32) ? 32 : 64;
+    }
+
+    /**
+     * @brief Read the i-th argument as a double; for f32 parameters, the
+     * value held in `floatVal` is already at f32 precision (see the
+     * argument-binding path in interpreter.cpp).
+     */
+    inline double argFloat(
+        const IntrinsicDecl & /*intr*/, const std::vector<Interpreter::RuntimeValue> &args, size_t i
+    ) {
+      return args[i].floatVal;
+    }
+
+    /**
+     * @brief Construct a float-kind RuntimeValue. For N == 32 the value is
+     * narrowed to f32 precision so subsequent reads agree with the C
+     * backend's `float`-typed storage.
+     */
+    inline Interpreter::RuntimeValue makeFloat(uint32_t N, double v) {
+      Interpreter::RuntimeValue r;
+      r.kind = Interpreter::RuntimeValue::Kind::Float;
+      r.bits = N;
+      r.floatVal = (N == 32) ? static_cast<double>(static_cast<float>(v)) : v;
       return r;
     }
 
@@ -739,6 +775,121 @@ namespace symir {
       }
     };
 
+    // ── §12.6 Floating-point sign / bit ops (v0.2.2 extra batch D.1) ────
+
+    /**
+     * @brief @fabs(x) = |x|. Clears the IEEE 754 sign bit; never UB on the
+     * SymIR finite-only domain.
+     */
+    class FabsIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = fpBitsOf(intr.retType);
+        double x = argFloat(intr, args, 0);
+        return makeFloat(N, std::fabs(x));
+      }
+    };
+
+    /**
+     * @brief @fneg(x) = -x. Flips the sign bit; preserves signed zero
+     * (@fneg(+0.0) == -0.0).
+     */
+    class FnegIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = fpBitsOf(intr.retType);
+        double x = argFloat(intr, args, 0);
+        return makeFloat(N, -x);
+      }
+    };
+
+    /**
+     * @brief @copysign(x, y) returns x with the sign of y.
+     */
+    class CopysignIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = fpBitsOf(intr.retType);
+        double x = argFloat(intr, args, 0), y = argFloat(intr, args, 1);
+        return makeFloat(N, std::copysign(x, y));
+      }
+    };
+
+    /**
+     * @brief @signbit(x) returns 1 if x has its sign bit set (negative
+     * finite or -0.0), else 0. i1 return.
+     */
+    class SignbitIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl & /*intr*/, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        double x = args[0].floatVal;
+        return makeInt(1, std::signbit(x) ? 1 : 0);
+      }
+    };
+
+    /**
+     * @brief @to_bits(x: fN) → iN: raw IEEE 754 bit pattern reinterpreted
+     * as a signed integer of equal width. f32 → i32, f64 → i64.
+     */
+    class ToBitsIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
+        if (N == 32) {
+          float f = static_cast<float>(args[0].floatVal);
+          uint32_t u;
+          std::memcpy(&u, &f, 4);
+          return makeInt(32, static_cast<int64_t>(static_cast<int32_t>(u)));
+        }
+        double d = args[0].floatVal;
+        uint64_t u;
+        std::memcpy(&u, &d, 8);
+        return makeInt(64, static_cast<int64_t>(u));
+      }
+    };
+
+    /**
+     * @brief @from_bits(x: iN) → fN: raw IEEE 754 bit pattern reinterpreted
+     * as a float of equal width. UB if the resulting value is non-finite
+     * (matches the §2.9 finite-only domain).
+     */
+    class FromBitsIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = fpBitsOf(intr.retType);
+        if (N == 32) {
+          uint32_t u = static_cast<uint32_t>(args[0].intVal & 0xFFFFFFFFu);
+          float f;
+          std::memcpy(&f, &u, 4);
+          if (!std::isfinite(f))
+            throw UndefinedBehaviorError(
+                "UB: @from_bits result is non-finite (spec §2.9 finite-only domain)"
+            );
+          return makeFloat(32, static_cast<double>(f));
+        }
+        uint64_t u = static_cast<uint64_t>(args[0].intVal);
+        double d;
+        std::memcpy(&d, &u, 8);
+        if (!std::isfinite(d))
+          throw UndefinedBehaviorError(
+              "UB: @from_bits result is non-finite (spec §2.9 finite-only domain)"
+          );
+        return makeFloat(64, d);
+      }
+    };
+
     // ── Registry ────────────────────────────────────────────────────────────
 
     /**
@@ -790,6 +941,13 @@ namespace symir {
         registry_[IntrinsicKind::SaturatingNeg] = std::make_unique<SaturatingNegIntrinsic>();
         registry_[IntrinsicKind::DivEuclid] = std::make_unique<DivEuclidIntrinsic>();
         registry_[IntrinsicKind::RemEuclid] = std::make_unique<RemEuclidIntrinsic>();
+        // §12.6 — FP sign / bit ops (v0.2.2 extra batch D.1).
+        registry_[IntrinsicKind::Fabs] = std::make_unique<FabsIntrinsic>();
+        registry_[IntrinsicKind::Fneg] = std::make_unique<FnegIntrinsic>();
+        registry_[IntrinsicKind::Copysign] = std::make_unique<CopysignIntrinsic>();
+        registry_[IntrinsicKind::Signbit] = std::make_unique<SignbitIntrinsic>();
+        registry_[IntrinsicKind::ToBits] = std::make_unique<ToBitsIntrinsic>();
+        registry_[IntrinsicKind::FromBits] = std::make_unique<FromBitsIntrinsic>();
       }
 
       std::unordered_map<IntrinsicKind, std::unique_ptr<InterpreterIntrinsic>> registry_;
@@ -800,11 +958,6 @@ namespace symir {
   Interpreter::RuntimeValue Interpreter::callIntrinsic(
       const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args, SourceSpan /*callSpan*/
   ) {
-    if (!TypeUtils::getIntBitWidth(intr.retType))
-      throw std::runtime_error(
-          "Intrinsic " + intr.name.name + " has non-integer return type (unsupported in v0.2.2)"
-      );
-
     auto kind = getIntrinsicKind(intr.name.name);
     if (kind) {
       if (auto impl = IntrinsicRegistry::get().lookup(*kind)) {

@@ -1,0 +1,22 @@
+// Intention: cross-validate at the smallest positive f64 subnormal.
+// Bit pattern 0x0000000000000001 (i64 1) decodes to the minimum
+// non-zero f64 (~5e-324).  Chain @from_bits → @copysign → @to_bits
+// to verify the subnormal survives a sign-imposing op without
+// flushing or losing precision.  Result is the bit pattern of the
+// negative subnormal (i64 INT64_MIN + 1 == -9223372036854775807).
+// EXPECT: PASS
+// EXPECT_RC: -9223372036854775807
+intrinsic @from_bits(%x: i64) : f64;
+intrinsic @copysign(%x: f64, %y: f64) : f64;
+intrinsic @to_bits(%x: f64) : i64;
+
+fun @main() : i64 {
+  let mut %tiny: f64 = 0.0;
+  let mut %neg_tiny: f64 = 0.0;
+  let mut %r: i64 = 0;
+^entry:
+  %tiny = call @from_bits(1);          // smallest +subnormal f64
+  %neg_tiny = call @copysign(%tiny, -1.0);
+  %r = call @to_bits(%neg_tiny);
+  ret %r;
+}

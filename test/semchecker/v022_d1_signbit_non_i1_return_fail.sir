@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.6 — @signbit is a predicate intrinsic: its return type
+// must be i1, not a wider integer.
+intrinsic @signbit(%x: f32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

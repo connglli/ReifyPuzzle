@@ -95,6 +95,7 @@ namespace symir {
     void emitIntrinsicHelper(const IntrinsicDecl &intr);
     void emitExtDecl(const ExtDecl &d);
     std::string intrinsicHelperName(const std::string &intrName, std::uint32_t bits) const;
+    std::string intrinsicHelperName(const IntrinsicDecl &intr) const;
 
     // --- Type query helpers ---
     // Resolve the static type of an lvalue / atom / expression. Used to

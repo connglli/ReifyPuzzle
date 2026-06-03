@@ -1,0 +1,10 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.6 — @to_bits requires the integer return type's width
+// to equal the FP parameter's width (f32 ↔ i32, f64 ↔ i64).  Mixing
+// f32 with i64 must be rejected.
+intrinsic @to_bits(%x: f32) : i64;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

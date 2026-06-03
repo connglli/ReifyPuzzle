@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @fneg at f32 — fneg(+0.0) flips sign bit to -0.0,
+// distinguishable via @signbit (numerically still equals 0.0).
+intrinsic @fneg(%x: f32) : f32;
+intrinsic @signbit(%x: f32) : i1;
+fun @main() : i32 {
+  let %pz: f32 = 0.0;
+  let mut %nz: f32 = 0.0;
+  let mut %sb: i1 = 0;
+^entry:
+  %nz = call @fneg(%pz);
+  require %nz == %pz, "fneg(+0.0) compares equal to +0.0";
+  %sb = call @signbit(%nz);
+  require %sb == 1, "fneg(+0.0) has sign bit set";
+  ret 0;
+}

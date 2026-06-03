@@ -149,6 +149,12 @@ namespace symir::solver {
         return bitwuzla::Kind::FP_IS_INF;
       case smt::Kind::FP_IS_NAN:
         return bitwuzla::Kind::FP_IS_NAN;
+      case smt::Kind::FP_IS_NEG:
+        return bitwuzla::Kind::FP_IS_NEG;
+      case smt::Kind::FP_ABS:
+        return bitwuzla::Kind::FP_ABS;
+      case smt::Kind::FP_NEG:
+        return bitwuzla::Kind::FP_NEG;
       case smt::Kind::FP_TO_SBV:
         return bitwuzla::Kind::FP_TO_SBV;
       case smt::Kind::FP_TO_UBV:
@@ -159,6 +165,8 @@ namespace symir::solver {
         return bitwuzla::Kind::FP_TO_FP_FROM_SBV;
       case smt::Kind::FP_TO_FP_FROM_UBV:
         return bitwuzla::Kind::FP_TO_FP_FROM_UBV;
+      case smt::Kind::FP_TO_FP_FROM_BV:
+        return bitwuzla::Kind::FP_TO_FP_FROM_BV;
       case smt::Kind::BV_SIGN_EXTEND:
         return bitwuzla::Kind::BV_SIGN_EXTEND;
       case smt::Kind::BV_ZERO_EXTEND:

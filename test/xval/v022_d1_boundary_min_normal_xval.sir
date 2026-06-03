@@ -1,0 +1,34 @@
+// Intention: cross-validate at the f32 normal/subnormal boundary.
+// Bit pattern 0x00800000 (i32 8388608) is the smallest positive f32
+// *normal* (~1.175e-38).  Decrement to 0x007FFFFF (i32 8388607) — the
+// largest subnormal — then chain @from_bits → @fabs → @fneg →
+// @signbit so all four observe the boundary; @fabs must preserve the
+// subnormal, @fneg must flip the sign, @signbit must read it back.
+// EXPECT: PASS
+// EXPECT_RC: 1
+intrinsic @from_bits(%x: i32) : f32;
+intrinsic @fabs(%x: f32) : f32;
+intrinsic @fneg(%x: f32) : f32;
+intrinsic @signbit(%x: f32) : i1;
+
+fun @main() : i32 {
+  let mut %x: f32 = 0.0;
+  let mut %a: f32 = 0.0;
+  let mut %n: f32 = 0.0;
+  let mut %sb: i1 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %x = call @from_bits(8388607);       // largest f32 subnormal
+  %a = call @fabs(%x);                  // identity (positive)
+  %n = call @fneg(%a);                  // negative subnormal
+  %sb = call @signbit(%n);              // expect 1
+  br %sb == 1, ^ok, ^bad;
+^ok:
+  %r = 1;
+  br ^exit;
+^bad:
+  %r = 0;
+  br ^exit;
+^exit:
+  ret %r;
+}

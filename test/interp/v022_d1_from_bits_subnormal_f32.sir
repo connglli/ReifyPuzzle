@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @from_bits at f32 — subnormal bit pattern (0x00000001)
+// decodes to the smallest positive f32 subnormal (~1.4e-45).
+intrinsic @from_bits(%x: i32) : f32;
+intrinsic @to_bits(%x: f32) : i32;
+fun @main() : i32 {
+  let mut %r: f32 = 0.0;
+  let mut %back: i32 = 0;
+^entry:
+  %r = call @from_bits(1);
+  %back = call @to_bits(%r);
+  require %back == 1, "subnormal round-trips through from_bits/to_bits";
+  ret 0;
+}

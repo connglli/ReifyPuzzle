@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+// [v0.2.2] §12.6 — solver-side @to_bits / @from_bits round-trip.
+// Given a fixed bit pattern (0x3F800000 = 1.0f), the solver must
+// recover %?x = 1.0 via the @from_bits encoding.
+intrinsic @from_bits(%x: i32) : f32;
+fun @main() : f32 {
+  sym %?bits : value i32;
+  let mut %r: f32 = 0.0;
+^entry:
+  require %?bits == 1065353216, "?bits == 0x3F800000";
+  %r = call @from_bits(%?bits);
+  require %r == 1.0, "from_bits(?bits) must equal 1.0";
+  br ^exit;
+^exit:
+  ret %r;
+}

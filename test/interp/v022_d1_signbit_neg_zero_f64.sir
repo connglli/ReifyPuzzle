@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @signbit at f64 — -0.0 has sign bit set, distinguishing
+// it from +0.0 (which compares equal numerically).
+intrinsic @signbit(%x: f64) : i1;
+intrinsic @fneg(%x: f64) : f64;
+fun @main() : i32 {
+  let %pz: f64 = 0.0;
+  let mut %nz: f64 = 0.0;
+  let mut %r: i1 = 0;
+^entry:
+  %nz = call @fneg(%pz);
+  %r = call @signbit(%nz);
+  require %r == 1, "signbit(-0.0) == 1";
+  ret 0;
+}

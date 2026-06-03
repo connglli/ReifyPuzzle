@@ -1,0 +1,30 @@
+// Intention: cross-validate @to_bits / @from_bits round-trip plus
+// @fabs to confirm magnitude preservation through the round-trip.
+// EXPECT: PASS
+// EXPECT_RC: 1
+intrinsic @to_bits(%x: f32) : i32;
+intrinsic @from_bits(%x: i32) : f32;
+intrinsic @fabs(%x: f32) : f32;
+
+fun @main() : i32 {
+  let %x: f32 = -2.75;
+  let mut %bits: i32 = 0;
+  let mut %back: f32 = 0.0;
+  let mut %abs_back: f32 = 0.0;
+  let mut %ok: i32 = 0;
+^entry:
+  %bits = call @to_bits(%x);
+  %back = call @from_bits(%bits);          // expect -2.75
+  %abs_back = call @fabs(%back);           // expect 2.75
+  br %back == %x, ^check_abs, ^fail;
+^check_abs:
+  br %abs_back == 2.75, ^pass, ^fail;
+^pass:
+  %ok = 1;
+  br ^exit;
+^fail:
+  %ok = 0;
+  br ^exit;
+^exit:
+  ret %ok;
+}

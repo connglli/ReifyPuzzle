@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @fneg at f32 — positive becomes negative.
+intrinsic @fneg(%x: f32) : f32;
+fun @main() : i32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = call @fneg(3.0);
+  require %r == -3.0, "fneg of positive";
+  ret 0;
+}

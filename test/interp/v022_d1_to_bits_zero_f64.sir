@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @to_bits at f64 — +0.0 and -0.0 are distinguishable.
+intrinsic @to_bits(%x: f64) : i64;
+intrinsic @fneg(%x: f64) : f64;
+fun @main() : i64 {
+  let %pz: f64 = 0.0;
+  let mut %nz: f64 = 0.0;
+  let mut %bp: i64 = 0;
+  let mut %bn: i64 = 0;
+^entry:
+  %nz = call @fneg(%pz);
+  %bp = call @to_bits(%pz);
+  %bn = call @to_bits(%nz);
+  require %bp == 0, "to_bits(+0.0) == 0";
+  require %bn == -9223372036854775808, "to_bits(-0.0) == 0x8000000000000000 (signed INT64_MIN)";
+  ret %bp;
+}

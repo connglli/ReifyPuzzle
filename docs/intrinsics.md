@@ -781,16 +781,124 @@ The tuple-returning members (`@checked_*`, `@overflowing_*`) and the
 cross-width `@widening_mul` (`iN×iN → i2N`) are slated for a follow-up
 batch that introduces the multi-value return ABI.
 
-**v0.2.2 extra batch D - Floating-point basic IEEE family** (planned —
-gated on the §12 type-restriction sentence; held shut by §13 until this
-batch lands). All entries map to QF_FP ops and direct WASM `fN.*`
-opcodes:
-`@fabs`, `@fneg`, `@copysign`, `@fmin`, `@fmax`, `@sqrt`, `@fma`,
-`@floor`, `@ceil`, `@trunc`, `@rint` (ties-to-even),
-`@signbit`, `@is_normal`, `@is_subnormal`,
-`@to_bits`, `@from_bits`,
-`@ldexp`, `@scalbn`, `@ilogb`, `@logb`,
-`@fract`, `@recip`, `@to_degrees`, `@to_radians`.
+**v0.2.2 extra batch D - Floating-point basic IEEE family**.  Ships
+incrementally as D.1–D.6 sub-batches.  All entries map to QF_FP ops
+and direct WASM `fN.*` opcodes; lowering uses the native FP precision
+directly (no widening-and-mask).
+
+- D.1 — *sign / bit ops* **(shipped — §12.6 below)**: `@fabs`, `@fneg`,
+  `@copysign`, `@signbit`, `@to_bits`, `@from_bits`.  Shipping this
+  sub-batch opens the §12 type-restriction sentence to `fN`.
+- D.2 — *classification predicates* (planned): `@is_normal`,
+  `@is_subnormal`.
+- D.3 — *min / max* (planned): `@fmin`, `@fmax`.
+- D.4 — *correctly-rounded math* (planned): `@sqrt`, `@floor`, `@ceil`,
+  `@trunc`.
+- D.5 — *exponent manipulation* (planned): `@ldexp`, `@scalbn`,
+  `@ilogb`, `@logb`.
+- D.6 — *compositions* (planned): `@fract`, `@recip`.
+
+The originally-listed `@fma`, `@rint` (ties-to-even), `@to_degrees`,
+and `@to_radians` are deferred from batch D to keep the initial set
+trivially bit-exact across backends; see [`float.md`](./float.md) §13
+for the care points that would have to be addressed before they ship.
+
+### §12.6 D.1 per-intrinsic spec
+
+#### `@fabs`
+
+```text
+intrinsic @fabs(%x: fN) : fN;
+```
+
+Returns the magnitude of `%x` (clears the IEEE 754 sign bit).  Never
+UB on the SymIR finite-only domain.
+
+**SMT encoding**: `fp.abs(x)`.
+**Interpreter**: `std::fabs(x)`.
+**C**: `__builtin_fabsf` / `__builtin_fabs`.
+**WASM**: `f32.abs` / `f64.abs`.
+
+#### `@fneg`
+
+```text
+intrinsic @fneg(%x: fN) : fN;
+```
+
+Flips the IEEE 754 sign bit.  `@fneg(+0.0) == -0.0` and vice-versa.
+Distinct from the surface `-x` (which is the arithmetic `0 - x`).
+
+**SMT encoding**: `fp.neg(x)`.
+**Interpreter**: `-x`.
+**C**: unary `-`.
+**WASM**: `f32.neg` / `f64.neg`.
+
+#### `@copysign`
+
+```text
+intrinsic @copysign(%x: fN, %y: fN) : fN;
+```
+
+Returns `%x` with the sign of `%y`.  Both operands must be the same FP
+width.
+
+**SMT encoding**: `ite(fp.isNegative(x) = fp.isNegative(y), x, fp.neg(x))`.
+**Interpreter**: `std::copysign(x, y)`.
+**C**: `__builtin_copysignf` / `__builtin_copysign`.
+**WASM**: `f32.copysign` / `f64.copysign`.
+
+#### `@signbit`
+
+```text
+intrinsic @signbit(%x: fN) : i1;
+```
+
+Returns `1` if `%x` has its IEEE 754 sign bit set (negative finite or
+`-0.0`), else `0`.
+
+**SMT encoding**: `ite(fp.isNegative(x), bv1#1, bv1#0)`.
+**Interpreter**: `std::signbit(x) ? 1 : 0`.
+**C**: `__builtin_signbit(a) ? 1 : 0`.
+**WASM**: reinterpret as BV and test the high bit (`iN.reinterpret_fN`
+then `iN.lt_s` against zero).
+
+#### `@to_bits`
+
+```text
+intrinsic @to_bits(%x: f32) : i32;
+intrinsic @to_bits(%x: f64) : i64;
+```
+
+Returns the raw IEEE 754 bit pattern of `%x` reinterpreted as a signed
+integer of equal width.  Width-matched: f32 ↔ i32, f64 ↔ i64.
+
+**SMT encoding**: introduce a fresh BV `b` of width `N`, conjoin
+`fp.eq(x, ((_ to_fp eb sb) b))` to `PC`, return `b`.  The encoding
+relies on SymIR's finite-only domain (§2.9) for the bit pattern of `x`
+to be uniquely determined.
+**Interpreter**: `memcpy` reinterpret.
+**C**: `__builtin_memcpy(&r, &a, sizeof(r))`.
+**WASM**: `i32.reinterpret_f32` / `i64.reinterpret_f64`.
+
+#### `@from_bits`
+
+```text
+intrinsic @from_bits(%x: i32) : f32;
+intrinsic @from_bits(%x: i64) : f64;
+```
+
+Returns the floating-point value whose IEEE 754 bit pattern equals
+`%x`.  Width-matched.  **UB if the resulting value is not finite**
+(i.e., if the bit pattern decodes to `±∞` or NaN) — consistent with
+the §2.9 finite-only domain.
+
+**SMT encoding**: `r = ((_ to_fp eb sb) x)`, with UB-preconditions
+`not(fp.isInfinite(r))` and `not(fp.isNaN(r))` conjoined to `PC`.
+**Interpreter**: `memcpy` reinterpret, then `std::isfinite` check.
+**C**: `__builtin_memcpy(&r, &a, sizeof(r))` then `__builtin_isfinite`
+trap.
+**WASM**: `fN.reinterpret_iN` then explicit `|r| < +inf` check (NaN
+makes the comparison false), trap via `unreachable`.
 
 ### P1 — solver-easy, WASM-tricky (planned)
 

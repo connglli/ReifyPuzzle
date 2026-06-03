@@ -236,6 +236,115 @@ namespace symir {
       }
     };
 
+    // ── v0.2.2 extra D.1 helpers ────────────────────────────────────────
+    // Recognise a floating-point type and return its width in bits (32 or 64).
+    auto fpBits = [](const TypePtr &t) -> std::optional<std::uint32_t> {
+      if (!t)
+        return std::nullopt;
+      if (auto fp = std::get_if<FloatType>(&t->v)) {
+        return fp->kind == FloatType::Kind::F32 ? 32u : 64u;
+      }
+      return std::nullopt;
+    };
+    auto paramFp = [&](size_t i) -> std::optional<std::uint32_t> {
+      if (i >= d.params.size())
+        return std::nullopt;
+      return fpBits(d.params[i].type);
+    };
+    auto retFp = fpBits(d.retType);
+    // All parameters and the return are the same FP type. Used by @fabs,
+    // @fneg, @copysign.
+    auto expectAllSameFp = [&]() {
+      if (!retFp) {
+        diags.error(
+            "Intrinsic " + d.name.name + ": return type must be a floating-point type", d.span
+        );
+        return;
+      }
+      for (size_t i = 0; i < d.params.size(); ++i) {
+        auto pb = paramFp(i);
+        if (!pb) {
+          diags.error(
+              "Intrinsic " + d.name.name + ": parameter " + std::to_string(i) +
+                  " must be a floating-point type",
+              d.params[i].span
+          );
+        } else if (*pb != *retFp) {
+          diags.error(
+              "Intrinsic " + d.name.name + ": parameter " + std::to_string(i) + " width (f" +
+                  std::to_string(*pb) + ") must equal return width (f" + std::to_string(*retFp) +
+                  ")",
+              d.params[i].span
+          );
+        }
+      }
+    };
+    // Single FP parameter, i1 return. Used by @signbit.
+    auto expectFpToPredicate = [&]() {
+      if (!paramFp(0)) {
+        diags.error(
+            "Intrinsic " + d.name.name + ": parameter 0 must be a floating-point type",
+            d.params.empty() ? d.span : d.params[0].span
+        );
+      }
+      expectI1Return();
+    };
+    // Single FP parameter, integer return whose width equals the FP width
+    // (f32→i32, f64→i64). Used by @to_bits.
+    auto expectFpToBitsWidthMatch = [&]() {
+      auto pb = paramFp(0);
+      if (!pb) {
+        diags.error(
+            "Intrinsic " + d.name.name + ": parameter 0 must be a floating-point type",
+            d.params.empty() ? d.span : d.params[0].span
+        );
+        return;
+      }
+      if (!retBits) {
+        diags.error("Intrinsic " + d.name.name + ": return type must be an integer type", d.span);
+        return;
+      }
+      if (*retBits != *pb) {
+        diags.error(
+            "Intrinsic " + d.name.name + ": return width (i" + std::to_string(*retBits) +
+                ") must equal parameter width (f" + std::to_string(*pb) + ")",
+            d.span
+        );
+      }
+    };
+    // Single integer parameter, FP return whose width equals the integer
+    // width (i32→f32, i64→f64). Used by @from_bits.
+    auto expectFromBitsWidthMatch = [&]() {
+      auto pb = paramBits(0);
+      if (!pb) {
+        diags.error(
+            "Intrinsic " + d.name.name + ": parameter 0 must be an integer type",
+            d.params.empty() ? d.span : d.params[0].span
+        );
+        return;
+      }
+      if (!retFp) {
+        diags.error(
+            "Intrinsic " + d.name.name + ": return type must be a floating-point type", d.span
+        );
+        return;
+      }
+      if (*retFp != *pb) {
+        diags.error(
+            "Intrinsic " + d.name.name + ": return width (f" + std::to_string(*retFp) +
+                ") must equal parameter width (i" + std::to_string(*pb) + ")",
+            d.span
+        );
+      }
+      if (*pb != 32 && *pb != 64) {
+        diags.error(
+            "Intrinsic " + d.name.name + ": parameter width i" + std::to_string(*pb) +
+                " has no matching FP type — must be i32 or i64",
+            d.params[0].span
+        );
+      }
+    };
+
     switch (*kind) {
       case IntrinsicKind::Abs:
       case IntrinsicKind::Signum:
@@ -301,6 +410,28 @@ namespace symir {
       case IntrinsicKind::RemEuclid:
         expectArity(2);
         expectAllSameInt();
+        break;
+      // [v0.2.2 extra batch D.1] FP sign / bit ops (§12.6).
+      case IntrinsicKind::Fabs:
+      case IntrinsicKind::Fneg:
+        expectArity(1);
+        expectAllSameFp();
+        break;
+      case IntrinsicKind::Copysign:
+        expectArity(2);
+        expectAllSameFp();
+        break;
+      case IntrinsicKind::Signbit:
+        expectArity(1);
+        expectFpToPredicate();
+        break;
+      case IntrinsicKind::ToBits:
+        expectArity(1);
+        expectFpToBitsWidthMatch();
+        break;
+      case IntrinsicKind::FromBits:
+        expectArity(1);
+        expectFromBitsWidthMatch();
         break;
     }
   }

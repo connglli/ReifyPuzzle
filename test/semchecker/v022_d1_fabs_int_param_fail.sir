@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.6 — @fabs requires a floating-point parameter; an
+// integer parameter must be rejected.
+intrinsic @fabs(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

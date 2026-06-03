@@ -1,0 +1,38 @@
+// Intention: cross-validate that signed zero behaves identically
+// across backends.  fneg(+0.0) is -0.0 (compares equal to +0.0 but
+// signbit set); copysign(-0.0, +1.0) clears the sign bit again.
+// Three intrinsics: @fneg, @signbit, @copysign.  We branch on each
+// i1 instead of widening with `as i32`, since that cast diverges
+// between interp and C (pre-existing).
+// EXPECT: PASS
+// EXPECT_RC: 3
+intrinsic @fneg(%x: f64) : f64;
+intrinsic @signbit(%x: f64) : i1;
+intrinsic @copysign(%x: f64, %y: f64) : f64;
+
+fun @main() : i32 {
+  let %pz: f64 = 0.0;
+  let mut %nz: f64 = 0.0;
+  let mut %back_pos: f64 = 0.0;
+  let mut %sb_nz: i1 = 0;
+  let mut %sb_back: i1 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %nz = call @fneg(%pz);                  // -0.0
+  %sb_nz = call @signbit(%nz);            // expect 1
+  %back_pos = call @copysign(%nz, 1.0);   // +0.0 (takes sign of +1.0)
+  %sb_back = call @signbit(%back_pos);    // expect 0
+  br %sb_nz == 1, ^sign_was_neg, ^bad;
+^sign_was_neg:
+  br %sb_back == 0, ^sign_cleared, ^bad;
+^sign_cleared:
+  br %nz == %pz, ^all_pass, ^bad;         // -0.0 == +0.0 numerically
+^all_pass:
+  %r = 3;
+  br ^exit;
+^bad:
+  %r = 0;
+  br ^exit;
+^exit:
+  ret %r;
+}

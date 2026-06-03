@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @copysign at f32 — both signs positive: identity.
+intrinsic @copysign(%x: f32, %y: f32) : f32;
+fun @main() : i32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = call @copysign(4.5, 1.0);
+  require %r == 4.5, "copysign(+x, +y) == +x";
+  ret 0;
+}

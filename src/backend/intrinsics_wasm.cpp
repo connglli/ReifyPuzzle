@@ -1637,6 +1637,192 @@ namespace symir {
 
   } // namespace
 
+  // ── §12.6 Floating-point sign / bit ops (v0.2.2 extra batch D.1) ────
+
+  /**
+   * @brief Abstract base for FP-touching WASM intrinsic emitters. Unlike
+   * WasmIntrinsic (integer, takes precomputed N/W/ity), WasmFpIntrinsic
+   * receives only the IntrinsicDecl; per-arg WAT types derive from
+   * intr.params[i].type via watTypeOf().
+   */
+  class WasmFpIntrinsic {
+  public:
+    virtual ~WasmFpIntrinsic() = default;
+    virtual void emit(WasmBackend &backend, const IntrinsicDecl &intr) const = 0;
+
+    virtual void declareLocals(WasmBackend &, const IntrinsicDecl &) const {}
+
+  protected:
+    static std::ostream &out(WasmBackend &backend) { return WasmIntrinsicRegistry::out(backend); }
+
+    static void indent(WasmBackend &backend) { WasmIntrinsicRegistry::indent(backend); }
+
+    static void incrIndent(WasmBackend &backend) { WasmIntrinsicRegistry::incrIndent(backend); }
+
+    static void decrIndent(WasmBackend &backend) { WasmIntrinsicRegistry::decrIndent(backend); }
+
+    // Read the FP width (32/64) of intr.retType.
+    static uint32_t retFpBits(const IntrinsicDecl &intr) {
+      return std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32 ? 32 : 64;
+    }
+
+    static uint32_t paramFpBits(const IntrinsicDecl &intr, size_t i) {
+      return std::get<FloatType>(intr.params[i].type->v).kind == FloatType::Kind::F32 ? 32 : 64;
+    }
+
+    static std::string retFpTy(const IntrinsicDecl &intr) {
+      return retFpBits(intr) == 32 ? "f32" : "f64";
+    }
+
+    static std::string paramFpTy(const IntrinsicDecl &intr, size_t i) {
+      return paramFpBits(intr, i) == 32 ? "f32" : "f64";
+    }
+  };
+
+  namespace {
+
+    class FabsWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        std::string ty = retFpTy(intr);
+        indent(backend);
+        out(backend) << "local.get $a0\n";
+        indent(backend);
+        out(backend) << ty << ".abs\n";
+      }
+    };
+
+    class FnegWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        std::string ty = retFpTy(intr);
+        indent(backend);
+        out(backend) << "local.get $a0\n";
+        indent(backend);
+        out(backend) << ty << ".neg\n";
+      }
+    };
+
+    class CopysignWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        std::string ty = retFpTy(intr);
+        indent(backend);
+        out(backend) << "local.get $a0\n";
+        indent(backend);
+        out(backend) << "local.get $a1\n";
+        indent(backend);
+        out(backend) << ty << ".copysign\n";
+      }
+    };
+
+    class SignbitWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        // No native WASM signbit. Reinterpret the FP value as BV and test
+        // the high bit. f32: i32.lt_s of reinterpret_f32 vs 0; f64: shift
+        // the high half of reinterpret_f64 by 31 to land bit 63 in bit 0.
+        uint32_t bits = paramFpBits(intr, 0);
+        if (bits == 32) {
+          indent(backend);
+          out(backend) << "local.get $a0\n";
+          indent(backend);
+          out(backend) << "i32.reinterpret_f32\n";
+          indent(backend);
+          out(backend) << "i32.const 0\n";
+          indent(backend);
+          out(backend) << "i32.lt_s\n"; // result is i32 0 or 1
+        } else {
+          indent(backend);
+          out(backend) << "local.get $a0\n";
+          indent(backend);
+          out(backend) << "i64.reinterpret_f64\n";
+          indent(backend);
+          out(backend) << "i64.const 0\n";
+          indent(backend);
+          out(backend) << "i64.lt_s\n"; // result is already i32 0/1 (WASM rule)
+        }
+      }
+    };
+
+    class ToBitsWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        uint32_t bits = paramFpBits(intr, 0);
+        indent(backend);
+        out(backend) << "local.get $a0\n";
+        indent(backend);
+        out(backend) << (bits == 32 ? "i32.reinterpret_f32\n" : "i64.reinterpret_f64\n");
+      }
+    };
+
+    class FromBitsWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void declareLocals(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        // Scratch local to hold the reinterpreted FP value for the finiteness
+        // check. Width follows the return type.
+        std::string ty = retFpTy(intr);
+        indent(backend);
+        out(backend) << "(local $r " << ty << ")\n";
+      }
+
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        std::string ty = retFpTy(intr);
+        // Step 1: reinterpret int bits as FP, save to scratch local.
+        indent(backend);
+        out(backend) << "local.get $a0\n";
+        indent(backend);
+        out(backend) << (retFpBits(intr) == 32 ? "f32.reinterpret_i32\n" : "f64.reinterpret_i64\n");
+        indent(backend);
+        out(backend) << "local.set $r\n";
+        // Step 2: finiteness check — UB if result is ±∞ or NaN.
+        // (|r| < +inf) is true iff r is finite. Compute it as
+        // (r.abs < +inf): equivalent and avoids an explicit NaN check
+        // because NaN comparisons are always false.
+        indent(backend);
+        out(backend) << "local.get $r\n";
+        indent(backend);
+        out(backend) << ty << ".abs\n";
+        indent(backend);
+        out(backend) << ty << ".const inf\n";
+        indent(backend);
+        out(backend) << ty << ".lt\n";
+        indent(backend);
+        out(backend) << "i32.eqz\n";
+        indent(backend);
+        out(backend) << "if\n";
+        incrIndent(backend);
+        indent(backend);
+        out(backend) << "unreachable\n";
+        decrIndent(backend);
+        indent(backend);
+        out(backend) << "end\n";
+        // Step 3: return the FP value.
+        indent(backend);
+        out(backend) << "local.get $r\n";
+      }
+    };
+
+  } // namespace
+
+  struct WasmFpIntrinsicRegistry {
+    using GenFn = std::unique_ptr<WasmFpIntrinsic>;
+
+    static const std::unordered_map<IntrinsicKind, GenFn> &getRegistry() {
+      static const std::unordered_map<IntrinsicKind, GenFn> registry = []() {
+        std::unordered_map<IntrinsicKind, GenFn> r;
+        r[IntrinsicKind::Fabs] = std::make_unique<FabsWasmIntrinsic>();
+        r[IntrinsicKind::Fneg] = std::make_unique<FnegWasmIntrinsic>();
+        r[IntrinsicKind::Copysign] = std::make_unique<CopysignWasmIntrinsic>();
+        r[IntrinsicKind::Signbit] = std::make_unique<SignbitWasmIntrinsic>();
+        r[IntrinsicKind::ToBits] = std::make_unique<ToBitsWasmIntrinsic>();
+        r[IntrinsicKind::FromBits] = std::make_unique<FromBitsWasmIntrinsic>();
+        return r;
+      }();
+      return registry;
+    }
+  };
+
   const std::unordered_map<IntrinsicKind, WasmIntrinsicRegistry::WasmIntrinsicGenFn> &
   WasmIntrinsicRegistry::getRegistry() {
     static const std::unordered_map<IntrinsicKind, WasmIntrinsicGenFn> registry = []() {
@@ -1683,7 +1869,76 @@ namespace symir {
     return "$_symir_" + base + "_i" + std::to_string(bits);
   }
 
+  // FP-aware overload (v0.2.2 extra D.1): mirrors the C-backend rule.
+  std::string WasmBackend::intrinsicHelperName(const IntrinsicDecl &intr) const {
+    std::string base = intr.name.name;
+    if (!base.empty() && base[0] == '@')
+      base.erase(0, 1);
+    bool paramFp = !intr.params.empty() && intr.params[0].type &&
+                   std::holds_alternative<FloatType>(intr.params[0].type->v);
+    bool retFp = intr.retType && std::holds_alternative<FloatType>(intr.retType->v);
+    if (paramFp || retFp) {
+      auto t = !intr.params.empty() ? intr.params[0].type : intr.retType;
+      if (auto fp = std::get_if<FloatType>(&t->v))
+        return "$_symir_" + base + "_f" + (fp->kind == FloatType::Kind::F32 ? "32" : "64");
+      if (auto it = std::get_if<IntType>(&t->v)) {
+        uint32_t b = it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
+        return "$_symir_" + base + "_i" + std::to_string(b);
+      }
+    }
+    auto rb = TypeUtils::getIntBitWidth(intr.retType);
+    return "$_symir_" + base + "_i" + std::to_string(rb.value_or(32));
+  }
+
+  // Return the WAT scalar type-name for a SymIR type:
+  //   IntType i1..i32 → "i32", i64 → "i64"; FloatType f32 → "f32", f64 → "f64".
+  static std::string watTypeOf(const TypePtr &t) {
+    if (auto fp = std::get_if<FloatType>(&t->v))
+      return fp->kind == FloatType::Kind::F32 ? "f32" : "f64";
+    if (auto it = std::get_if<IntType>(&t->v)) {
+      uint32_t b = it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
+      return (b <= 32) ? "i32" : "i64";
+    }
+    return "i32";
+  }
+
   void WasmBackend::emitIntrinsicHelper(const IntrinsicDecl &intr) {
+    // FP-touching path (v0.2.2 extra D.1).
+    bool anyFp = (intr.retType && std::holds_alternative<FloatType>(intr.retType->v));
+    for (const auto &p: intr.params)
+      anyFp = anyFp || (p.type && std::holds_alternative<FloatType>(p.type->v));
+
+    if (anyFp) {
+      std::string outTy = watTypeOf(intr.retType);
+      std::string name = intrinsicHelperName(intr);
+      indent();
+      out_ << "(func " << name;
+      for (size_t i = 0; i < intr.params.size(); ++i)
+        out_ << " (param $a" << i << " " << watTypeOf(intr.params[i].type) << ")";
+      out_ << " (result " << outTy << ")\n";
+      indent_level_++;
+      auto kind = getIntrinsicKind(intr.name.name);
+      if (kind) {
+        const auto &fpRegistry = WasmFpIntrinsicRegistry::getRegistry();
+        auto it = fpRegistry.find(*kind);
+        if (it != fpRegistry.end()) {
+          it->second->declareLocals(*this, intr);
+          it->second->emit(*this, intr);
+          indent_level_--;
+          indent();
+          out_ << ")\n";
+          return;
+        }
+      }
+      indent();
+      out_ << "unreachable\n";
+      indent_level_--;
+      indent();
+      out_ << ")\n";
+      return;
+    }
+
+    // Legacy integer-only path.
     auto rb = getIntWidth(intr.retType);
     if (rb == 0)
       return;

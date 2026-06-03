@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+// [v0.2.2] §12.6 — solver synthesizes a value for %?x such that
+// @fabs(%?x) == 2.5.  Two solutions exist (±2.5); the solver picks
+// one and the require fixes it.
+intrinsic @fabs(%x: f64) : f64;
+fun @main() : f64 {
+  sym %?x : value f64;
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @fabs(%?x);
+  require %r == 2.5, "@fabs(?x) must equal 2.5";
+  br ^exit;
+^exit:
+  ret %?x;
+}

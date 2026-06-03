@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @fabs at f32 — +0.0 stays +0.0.
+intrinsic @fabs(%x: f32) : f32;
+intrinsic @signbit(%x: f32) : i1;
+fun @main() : i32 {
+  let %pz: f32 = 0.0;
+  let mut %r: f32 = 0.0;
+  let mut %sb: i1 = 0;
+^entry:
+  %r = call @fabs(%pz);
+  %sb = call @signbit(%r);
+  require %r == %pz, "fabs(+0.0) == +0.0 numerically";
+  require %sb == 0, "fabs(+0.0) preserves +0.0 sign bit";
+  ret 0;
+}

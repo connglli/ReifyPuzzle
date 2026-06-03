@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @signbit at f64 — negative value returns 1.
+intrinsic @signbit(%x: f64) : i1;
+fun @main() : i32 {
+  let mut %r: i1 = 0;
+^entry:
+  %r = call @signbit(-1.5);
+  require %r == 1, "signbit(-x) == 1";
+  ret 0;
+}

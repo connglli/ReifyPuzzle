@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// [v0.2.2] §12.6 — solver must respect the @from_bits non-finite UB
+// precondition.  Domain has two values: 0x7F800000 forces a +∞ result
+// (UB), 0x3F800000 decodes to a finite 1.0f.  Only ?bits ==
+// 1065353216 is feasible; the solver must reject the inf pattern via
+// the UB constraint conjoined to PC.
+intrinsic @from_bits(%x: i32) : f32;
+
+fun @main() : i32 {
+  sym %?bits : value i32 in {2139095040, 1065353216};
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = call @from_bits(%?bits);
+  require %r == 1.0, "from_bits(?bits) must equal 1.0";
+  br ^exit;
+^exit:
+  ret 0;
+}

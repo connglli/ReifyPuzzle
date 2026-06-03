@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @fneg at f32 — subnormal values flip sign without flush.
+intrinsic @fneg(%x: f32) : f32;
+fun @main() : i32 {
+  let %tiny: f32 = 1.4e-39;
+  let %neg_tiny: f32 = -1.4e-39;
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = call @fneg(%tiny);
+  require %r == %neg_tiny, "fneg preserves subnormal magnitude";
+  ret 0;
+}

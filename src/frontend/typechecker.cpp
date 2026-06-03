@@ -122,17 +122,24 @@ namespace symir {
       validateTypeWF(i.retType, diags);
       for (const auto &p: i.params)
         validateTypeWF(p.type, diags);
-      // [v0.2.2 §12] Standard intrinsics are defined over `iN` only.
-      // Reject declarations whose parameter or return type is not an
-      // integer — without this check `intrinsic @clz(%x: f32) : f32;`
-      // would be accepted and surface only at link time as a missing
-      // `_symir_clz_f32` symbol.
-      auto isInt = [](const TypePtr &t) { return t && std::holds_alternative<IntType>(t->v); };
-      if (!isInt(i.retType))
-        diags.error("`intrinsic " + i.name.name + "` return type must be `iN` (§12)", i.span);
+      // [v0.2.2 §12 / D.1] Intrinsics are defined over scalar `iN` or
+      // `fN` only. Reject declarations whose parameter or return type is
+      // neither — per-intrinsic correctness (which combinations of iN/fN
+      // are valid for a given @name) is then enforced by the semantic
+      // checker.
+      auto isIntOrFp = [](const TypePtr &t) {
+        return t &&
+               (std::holds_alternative<IntType>(t->v) || std::holds_alternative<FloatType>(t->v));
+      };
+      if (!isIntOrFp(i.retType))
+        diags.error(
+            "`intrinsic " + i.name.name + "` return type must be `iN` or `fN` (§12)", i.span
+        );
       for (const auto &p: i.params)
-        if (!isInt(p.type))
-          diags.error("`intrinsic " + i.name.name + "` parameter type must be `iN` (§12)", i.span);
+        if (!isIntOrFp(p.type))
+          diags.error(
+              "`intrinsic " + i.name.name + "` parameter type must be `iN` or `fN` (§12)", i.span
+          );
       auto it = callees_.find(i.name.name);
       bool hasNonIntrinsic = false;
       bool hasSameSig = false;

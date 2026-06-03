@@ -645,8 +645,7 @@ namespace symir {
             }
             indent();
             if (intr) {
-              auto rb = getIntWidth(intr->retType);
-              out_ << "call " << intrinsicHelperName(arg.callee.name, rb) << "\n";
+              out_ << "call " << intrinsicHelperName(*intr) << "\n";
             } else {
               out_ << "call " << mangleName(arg.callee.name) << "\n";
             }

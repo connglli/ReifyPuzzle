@@ -1,0 +1,10 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.6 — @copysign requires both parameters and the return
+// type to share a single fN width.  Mixing f32 and f64 must be
+// rejected.
+intrinsic @copysign(%x: f32, %y: f64) : f32;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

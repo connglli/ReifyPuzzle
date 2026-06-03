@@ -14,6 +14,7 @@
 
 #include "solver/solver.hpp"
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -777,6 +778,174 @@ namespace symir {
       }
     };
 
+    // ── §12.6 Floating-point sign / bit ops (v0.2.2 extra batch D.1) ────
+
+    /**
+     * @brief FP-intrinsic base class. Receives the IntrinsicDecl directly
+     * so each impl can derive its return sort and per-arg sorts.
+     */
+    class SolverFpIntrinsic {
+    public:
+      virtual ~SolverFpIntrinsic() = default;
+      virtual SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &intr, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &pc
+      ) const = 0;
+
+    protected:
+      static std::pair<uint32_t, uint32_t> fpDims(const TypePtr &t) {
+        return std::get<FloatType>(t->v).kind == FloatType::Kind::F32
+                   ? std::pair<uint32_t, uint32_t>{8, 24}
+                   : std::pair<uint32_t, uint32_t>{11, 53};
+      }
+
+      static smt::Sort fpSortOf(const TypePtr &t, smt::ISolver &solver) {
+        auto [e, s] = fpDims(t);
+        return solver.make_fp_sort(e, s);
+      }
+
+      static uint32_t paramBvWidth(const IntrinsicDecl &intr, size_t i) {
+        return std::get<FloatType>(intr.params[i].type->v).kind == FloatType::Kind::F32 ? 32 : 64;
+      }
+
+      // Source of unique names for fresh BV constants used by @to_bits.
+      static std::atomic<uint64_t> &freshCounter() {
+        static std::atomic<uint64_t> c{0};
+        return c;
+      }
+    };
+
+    class FabsSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        auto r = solver.make_term(smt::Kind::FP_ABS, {argVals[0].term});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    class FnegSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        auto r = solver.make_term(smt::Kind::FP_NEG, {argVals[0].term});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    class CopysignSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        // copysign(x, y) = if signbit(x) == signbit(y) then x else fp.neg(x).
+        // Encoded as: ITE(EQUAL(isNeg(x), isNeg(y)), x, fp.neg(x)).
+        auto sx = solver.make_term(smt::Kind::FP_IS_NEG, {argVals[0].term});
+        auto sy = solver.make_term(smt::Kind::FP_IS_NEG, {argVals[1].term});
+        auto sameSign = solver.make_term(smt::Kind::EQUAL, {sx, sy});
+        auto negX = solver.make_term(smt::Kind::FP_NEG, {argVals[0].term});
+        auto r = solver.make_term(smt::Kind::ITE, {sameSign, argVals[0].term, negX});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    class SignbitSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        auto bv1 = solver.make_bv_sort(1);
+        auto one = solver.make_bv_value_int64(bv1, 1);
+        auto zero = solver.make_bv_value_int64(bv1, 0);
+        auto isNeg = solver.make_term(smt::Kind::FP_IS_NEG, {argVals[0].term});
+        auto r = solver.make_term(smt::Kind::ITE, {isNeg, one, zero});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    class ToBitsSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &intr, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &pc
+      ) const override {
+        // Introduce a fresh BV `b` such that x == ((_ to_fp eb sb) b), then
+        // return `b`. Works because the SymIR finite-only domain guarantees
+        // every valid FP value has a unique IEEE bit pattern.
+        uint32_t width = paramBvWidth(intr, 0);
+        auto [eb, sb] = fpDims(intr.params[0].type);
+        auto bvSort = solver.make_bv_sort(width);
+        std::string fresh = "@to_bits$" + std::to_string(freshCounter().fetch_add(1));
+        auto b = solver.make_const(bvSort, fresh);
+        auto reconstructed = solver.make_term(smt::Kind::FP_TO_FP_FROM_BV, {b}, {eb, sb});
+        auto eq = solver.make_term(smt::Kind::FP_EQUAL, {argVals[0].term, reconstructed});
+        pc.push_back(eq);
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, b, solver.make_true()
+        );
+      }
+    };
+
+    class FromBitsSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &intr, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &pc
+      ) const override {
+        auto [eb, sb] = fpDims(intr.retType);
+        auto r = solver.make_term(smt::Kind::FP_TO_FP_FROM_BV, {argVals[0].term}, {eb, sb});
+        // UB if non-finite (§2.9): conjoin (not isInf) and (not isNaN).
+        auto notInf =
+            solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::FP_IS_INF, {r})});
+        auto notNaN =
+            solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::FP_IS_NAN, {r})});
+        pc.push_back(notInf);
+        pc.push_back(notNaN);
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    class SolverFpIntrinsicRegistry {
+    public:
+      static const SolverFpIntrinsicRegistry &get() {
+        static SolverFpIntrinsicRegistry instance;
+        return instance;
+      }
+
+      const SolverFpIntrinsic *lookup(IntrinsicKind kind) const {
+        auto it = registry_.find(kind);
+        return it != registry_.end() ? it->second.get() : nullptr;
+      }
+
+    private:
+      SolverFpIntrinsicRegistry() {
+        registry_[IntrinsicKind::Fabs] = std::make_unique<FabsSolverIntrinsic>();
+        registry_[IntrinsicKind::Fneg] = std::make_unique<FnegSolverIntrinsic>();
+        registry_[IntrinsicKind::Copysign] = std::make_unique<CopysignSolverIntrinsic>();
+        registry_[IntrinsicKind::Signbit] = std::make_unique<SignbitSolverIntrinsic>();
+        registry_[IntrinsicKind::ToBits] = std::make_unique<ToBitsSolverIntrinsic>();
+        registry_[IntrinsicKind::FromBits] = std::make_unique<FromBitsSolverIntrinsic>();
+      }
+
+      std::unordered_map<IntrinsicKind, std::unique_ptr<SolverFpIntrinsic>> registry_;
+    };
+
     // ── Registry ────────────────────────────────────────────────────────────
 
     class IntrinsicRegistry {
@@ -836,17 +1005,29 @@ namespace symir {
       const IntrinsicDecl &intr, std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
       std::vector<smt::Term> &pc
   ) {
+    auto kind = getIntrinsicKind(intr.name.name);
+    if (!kind)
+      throw std::runtime_error("Solver: unknown intrinsic " + intr.name.name);
+
+    // FP-touching dispatch first (v0.2.2 extra D.1): the integer path's
+    // bvN = bv_sort(retBits) only fits integer-return intrinsics; FP-return
+    // and FP-param intrinsics route through their own registry.
+    bool anyFp = (intr.retType && std::holds_alternative<FloatType>(intr.retType->v));
+    for (const auto &p: intr.params)
+      anyFp = anyFp || (p.type && std::holds_alternative<FloatType>(p.type->v));
+
+    if (anyFp) {
+      if (auto fpImpl = SolverFpIntrinsicRegistry::get().lookup(*kind))
+        return fpImpl->solve(intr, argVals, solver, pc);
+      throw std::runtime_error("Solver: unknown FP intrinsic " + intr.name.name);
+    }
+
     uint32_t N = 32;
     if (auto pb = TypeUtils::getIntBitWidth(intr.retType))
       N = *pb;
     auto bvN = solver.make_bv_sort(N);
-
-    auto kind = getIntrinsicKind(intr.name.name);
-    if (kind) {
-      if (auto impl = IntrinsicRegistry::get().lookup(*kind)) {
-        return impl->solve(intr, N, argVals, bvN, solver, pc);
-      }
-    }
+    if (auto impl = IntrinsicRegistry::get().lookup(*kind))
+      return impl->solve(intr, N, argVals, bvN, solver, pc);
 
     throw std::runtime_error("Solver: unknown intrinsic " + intr.name.name);
   }

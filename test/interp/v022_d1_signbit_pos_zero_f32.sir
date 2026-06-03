@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @signbit at f32 — +0.0 has sign bit clear.
+intrinsic @signbit(%x: f32) : i1;
+fun @main() : i32 {
+  let %pz: f32 = 0.0;
+  let mut %r: i1 = 0;
+^entry:
+  %r = call @signbit(%pz);
+  require %r == 0, "signbit(+0.0) == 0";
+  ret 0;
+}

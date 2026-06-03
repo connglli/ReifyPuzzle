@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @fabs at f64 — negative input flips sign.
+intrinsic @fabs(%x: f64) : f64;
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @fabs(-2.5);
+  require %r == 2.5, "fabs of negative";
+  ret 0;
+}

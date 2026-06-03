@@ -1,0 +1,30 @@
+// Intention: cross-validate the largest finite f64 through a chain
+// of D.1 ops.  Bit pattern 0x7FEFFFFFFFFFFFFF (i64
+// 9218868437227405311) is the max finite f64; the next bit pattern
+// up is +∞ (UB).  Chain @from_bits → @fneg → @copysign → @fabs →
+// @to_bits.  The expected output is the bit pattern of +max_finite
+// because: @from_bits gives +max, @fneg gives -max, @copysign(-max,
+// +1.0) gives +max, @fabs(+max) gives +max, @to_bits gives the
+// original i64.
+// EXPECT: PASS
+// EXPECT_RC: 9218868437227405311
+intrinsic @from_bits(%x: i64) : f64;
+intrinsic @fneg(%x: f64) : f64;
+intrinsic @copysign(%x: f64, %y: f64) : f64;
+intrinsic @fabs(%x: f64) : f64;
+intrinsic @to_bits(%x: f64) : i64;
+
+fun @main() : i64 {
+  let mut %x: f64 = 0.0;
+  let mut %n: f64 = 0.0;
+  let mut %s: f64 = 0.0;
+  let mut %a: f64 = 0.0;
+  let mut %r: i64 = 0;
+^entry:
+  %x = call @from_bits(9218868437227405311);   // +max_finite_f64
+  %n = call @fneg(%x);                          // -max
+  %s = call @copysign(%n, 1.0);                 // +max (sign of +1.0)
+  %a = call @fabs(%s);                          // +max
+  %r = call @to_bits(%a);                       // bit pattern of +max
+  ret %r;
+}

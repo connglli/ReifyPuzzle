@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @signbit at f32 — positive value returns 0.
+intrinsic @signbit(%x: f32) : i1;
+fun @main() : i32 {
+  let mut %r: i1 = 0;
+^entry:
+  %r = call @signbit(3.0);
+  require %r == 0, "signbit(+x) == 0";
+  ret 0;
+}

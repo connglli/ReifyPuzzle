@@ -1,0 +1,21 @@
+// Intention: cross-validate at the f32 finite boundary.  Bit pattern
+// 0x7F7FFFFF (i32 2139095039) is the largest finite f32 — one
+// representation below +∞ (0x7F800000).  Chain @from_bits → @fabs →
+// @to_bits so all three intrinsics observe the boundary value; @fabs
+// at this extreme must not produce ±∞ (would be UB).
+// EXPECT: PASS
+// EXPECT_RC: 2139095039
+intrinsic @from_bits(%x: i32) : f32;
+intrinsic @to_bits(%x: f32) : i32;
+intrinsic @fabs(%x: f32) : f32;
+
+fun @main() : i32 {
+  let mut %x: f32 = 0.0;
+  let mut %a: f32 = 0.0;
+  let mut %r: i32 = 0;
+^entry:
+  %x = call @from_bits(2139095039);   // largest finite f32
+  %a = call @fabs(%x);                 // identity on positive, finite
+  %r = call @to_bits(%a);              // must round-trip
+  ret %r;
+}

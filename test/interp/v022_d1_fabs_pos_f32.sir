@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @fabs at f32 — positive input is identity.
+intrinsic @fabs(%x: f32) : f32;
+fun @main() : i32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = call @fabs(3.25);
+  require %r == 3.25, "fabs of positive";
+  ret 0;
+}

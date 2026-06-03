@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @copysign at f64 — sign comes from -0.0 (sign bit set).
+intrinsic @copysign(%x: f64, %y: f64) : f64;
+intrinsic @fneg(%x: f64) : f64;
+intrinsic @signbit(%x: f64) : i1;
+fun @main() : i32 {
+  let %pz: f64 = 0.0;
+  let mut %nz: f64 = 0.0;
+  let mut %r: f64 = 0.0;
+  let mut %sb: i1 = 0;
+^entry:
+  %nz = call @fneg(%pz);
+  %r = call @copysign(7.0, %nz);
+  require %r == -7.0, "copysign(7, -0.0) == -7";
+  %sb = call @signbit(%r);
+  require %sb == 1, "result has sign bit set";
+  ret 0;
+}

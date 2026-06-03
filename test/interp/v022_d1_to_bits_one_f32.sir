@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @to_bits at f32 — 1.0f bit pattern is 0x3F800000 = 1065353216.
+intrinsic @to_bits(%x: f32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @to_bits(1.0);
+  require %r == 1065353216, "to_bits(1.0f) == 0x3F800000";
+  ret 0;
+}

@@ -1,0 +1,10 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.6 — @from_bits takes an integer parameter (bit pattern)
+// and returns the corresponding FP value.  Declaring it with an FP
+// parameter type is the wrong direction and must be rejected.
+intrinsic @from_bits(%x: f32) : f32;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

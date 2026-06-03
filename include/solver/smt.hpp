@@ -87,6 +87,11 @@ namespace symir::smt {
     // FP predicates (unary, return Bool)
     FP_IS_INF,
     FP_IS_NAN,
+    FP_IS_NEG, // sign bit = 1 (covers -finite and -0.0); used by @signbit
+
+    // FP unary (return FP)
+    FP_ABS, // |x|; used by @fabs
+    FP_NEG, // -x (flip sign bit, no rounding); used by @fneg
 
     // Conversions
     FP_TO_SBV,
@@ -94,6 +99,7 @@ namespace symir::smt {
     FP_TO_FP_FROM_FP,
     FP_TO_FP_FROM_SBV,
     FP_TO_FP_FROM_UBV,
+    FP_TO_FP_FROM_BV, // raw bit reinterpretation (no rounding); used by @from_bits
     BV_SIGN_EXTEND,
     BV_ZERO_EXTEND,
     BV_EXTRACT,

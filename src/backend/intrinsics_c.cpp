@@ -693,7 +693,107 @@ namespace symir {
       }
     };
 
+    // ── §12.6 Floating-point sign / bit ops (v0.2.2 extra batch D.1) ────
+
+    /**
+     * @brief Abstract base for FP-touching intrinsic emitters. Unlike
+     * CIntrinsic (integer, takes precomputed N/W/sty/uty), CFpIntrinsic
+     * receives only the IntrinsicDecl: per-arg C types are derived from
+     * intr.params[i].type via cTypeOf().
+     */
+    class CFpIntrinsic {
+    public:
+      virtual ~CFpIntrinsic() = default;
+      virtual void emit(CBackend &backend, const IntrinsicDecl &intr) const = 0;
+
+    protected:
+      static std::ostream &out(CBackend &backend) { return CIntrinsicRegistry::out(backend); }
+    };
+
+    class FabsCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &intr) const override {
+        bool isF32 = std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32;
+        out(backend) << "  return " << (isF32 ? "__builtin_fabsf" : "__builtin_fabs") << "(a0);\n";
+      }
+    };
+
+    class FnegCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &) const override {
+        // Plain unary negation flips the sign bit without rounding; this is
+        // the SymIR @fneg contract (no fmul -1.0).
+        out(backend) << "  return -a0;\n";
+      }
+    };
+
+    class CopysignCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &intr) const override {
+        bool isF32 = std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32;
+        out(backend) << "  return " << (isF32 ? "__builtin_copysignf" : "__builtin_copysign")
+                     << "(a0, a1);\n";
+      }
+    };
+
+    class SignbitCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &) const override {
+        // __builtin_signbit returns nonzero (typically 1) when the sign bit
+        // is set; normalise to 0/1 for the i1 return.
+        out(backend) << "  return (int8_t)(__builtin_signbit(a0) ? 1 : 0);\n";
+      }
+    };
+
+    class ToBitsCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &intr) const override {
+        bool isF32 = std::get<FloatType>(intr.params[0].type->v).kind == FloatType::Kind::F32;
+        if (isF32) {
+          out(backend) << "  int32_t r; __builtin_memcpy(&r, &a0, 4); return r;\n";
+        } else {
+          out(backend) << "  int64_t r; __builtin_memcpy(&r, &a0, 8); return r;\n";
+        }
+      }
+    };
+
+    class FromBitsCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &intr) const override {
+        bool isF32 = std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32;
+        if (isF32) {
+          out(backend) << "  float r; __builtin_memcpy(&r, &a0, 4);\n";
+          out(backend) << "  if (!__builtin_isfinite(r)) __builtin_trap();\n";
+          out(backend) << "  return r;\n";
+        } else {
+          out(backend) << "  double r; __builtin_memcpy(&r, &a0, 8);\n";
+          out(backend) << "  if (!__builtin_isfinite(r)) __builtin_trap();\n";
+          out(backend) << "  return r;\n";
+        }
+      }
+    };
+
   } // namespace
+
+  // FP registry: separate from CIntrinsicRegistry because the emit
+  // signature differs (no N/W/sty/uty).
+  struct CFpIntrinsicRegistry {
+    using CFpIntrinsicGenFn = std::unique_ptr<CFpIntrinsic>;
+
+    static const std::unordered_map<IntrinsicKind, CFpIntrinsicGenFn> &getRegistry() {
+      static const std::unordered_map<IntrinsicKind, CFpIntrinsicGenFn> registry = []() {
+        std::unordered_map<IntrinsicKind, CFpIntrinsicGenFn> r;
+        r[IntrinsicKind::Fabs] = std::make_unique<FabsCIntrinsic>();
+        r[IntrinsicKind::Fneg] = std::make_unique<FnegCIntrinsic>();
+        r[IntrinsicKind::Copysign] = std::make_unique<CopysignCIntrinsic>();
+        r[IntrinsicKind::Signbit] = std::make_unique<SignbitCIntrinsic>();
+        r[IntrinsicKind::ToBits] = std::make_unique<ToBitsCIntrinsic>();
+        r[IntrinsicKind::FromBits] = std::make_unique<FromBitsCIntrinsic>();
+        return r;
+      }();
+      return registry;
+    }
+  };
 
   const std::unordered_map<IntrinsicKind, CIntrinsicRegistry::CIntrinsicGenFn> &
   CIntrinsicRegistry::getRegistry() {
@@ -742,11 +842,84 @@ namespace symir {
     return "_symir_" + base + "_i" + std::to_string(bits);
   }
 
+  // FP-aware overload (v0.2.2 extra D.1): mangle FP-touching intrinsics by
+  // their first operand's type so e.g. @fabs(f32) and @fabs(f64) get
+  // distinct helper names, and so @to_bits(f32)→i32 doesn't collide with
+  // @from_bits(i32)→f32 (both would map to *_i32 under the legacy rule).
+  std::string CBackend::intrinsicHelperName(const IntrinsicDecl &intr) const {
+    std::string base = intr.name.name;
+    if (!base.empty() && base[0] == '@')
+      base.erase(0, 1);
+    bool paramFp = !intr.params.empty() && intr.params[0].type &&
+                   std::holds_alternative<FloatType>(intr.params[0].type->v);
+    bool retFp = intr.retType && std::holds_alternative<FloatType>(intr.retType->v);
+    if (paramFp || retFp) {
+      auto t = !intr.params.empty() ? intr.params[0].type : intr.retType;
+      if (auto fp = std::get_if<FloatType>(&t->v))
+        return "_symir_" + base + "_f" + (fp->kind == FloatType::Kind::F32 ? "32" : "64");
+      if (auto it = std::get_if<IntType>(&t->v)) {
+        uint32_t b = it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
+        return "_symir_" + base + "_i" + std::to_string(b);
+      }
+    }
+    auto rb = TypeUtils::getIntBitWidth(intr.retType);
+    return "_symir_" + base + "_i" + std::to_string(rb.value_or(32));
+  }
+
   // ── emission ─────────────────────────────────────────────────────────────
+
+  // Return the C type-name corresponding to a SymIR scalar type:
+  // - IntType iN → "int<W>_t" where W is the smallest machine width fitting N
+  // - FloatType f32/f64 → "float"/"double"
+  // Used by the helper-signature emitter for batches that mix int and FP.
+  static std::string cTypeOf(const TypePtr &t) {
+    if (auto fp = std::get_if<FloatType>(&t->v))
+      return fp->kind == FloatType::Kind::F32 ? "float" : "double";
+    if (auto it = std::get_if<IntType>(&t->v)) {
+      uint32_t b = it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
+      uint32_t W = (b <= 8) ? 8 : (b <= 16) ? 16 : (b <= 32) ? 32 : 64;
+      return "int" + std::to_string(W) + "_t";
+    }
+    return "void";
+  }
+
   void CBackend::emitIntrinsicHelper(const IntrinsicDecl &intr) {
+    // Detect FP-touching intrinsics: dispatched to the FP registry instead
+    // of the legacy integer-only one. Helper-signature param types follow
+    // the declared SymIR types directly (no widening for FP).
+    bool anyFp = (intr.retType && std::holds_alternative<FloatType>(intr.retType->v));
+    for (const auto &p: intr.params)
+      anyFp = anyFp || (p.type && std::holds_alternative<FloatType>(p.type->v));
+
+    if (anyFp) {
+      std::string outTy = cTypeOf(intr.retType);
+      std::string name = intrinsicHelperName(intr);
+      out_ << "static inline " << outTy << " " << name << "(";
+      for (size_t i = 0; i < intr.params.size(); ++i) {
+        if (i)
+          out_ << ", ";
+        out_ << cTypeOf(intr.params[i].type) << " a" << i;
+      }
+      out_ << ") {\n";
+      auto kind = getIntrinsicKind(intr.name.name);
+      if (kind) {
+        const auto &fpRegistry = CFpIntrinsicRegistry::getRegistry();
+        auto it = fpRegistry.find(*kind);
+        if (it != fpRegistry.end()) {
+          it->second->emit(*this, intr);
+          out_ << "}\n\n";
+          return;
+        }
+      }
+      out_ << "  __builtin_trap(); /* unknown FP intrinsic */\n";
+      out_ << "}\n\n";
+      return;
+    }
+
+    // Legacy integer-only path (batches A/B/C and §12.1-12.2).
     auto rb = TypeUtils::getIntBitWidth(intr.retType);
     if (!rb)
-      return; // non-integer intrinsics aren't supported in v0.2.2
+      return;
     uint32_t N = *rb;
     uint32_t W = (N <= 8) ? 8 : (N <= 16) ? 16 : (N <= 32) ? 32 : 64;
     std::string sty = "int" + std::to_string(W) + "_t";
@@ -758,8 +931,6 @@ namespace symir {
     for (size_t i = 0; i < intr.params.size(); ++i) {
       if (i)
         out_ << ", ";
-      // Per-param widening so predicate intrinsics (i1 return, iN input)
-      // get the right argument type in the helper signature.
       uint32_t pN = 32;
       if (auto pb = TypeUtils::getIntBitWidth(intr.params[i].type))
         pN = *pb;

@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @fabs at f64 — -0.0 maps to +0.0 (sign bit cleared).
+intrinsic @fabs(%x: f64) : f64;
+intrinsic @signbit(%x: f64) : i1;
+intrinsic @fneg(%x: f64) : f64;
+fun @main() : i32 {
+  let %pz: f64 = 0.0;
+  let mut %nz: f64 = 0.0;
+  let mut %r: f64 = 0.0;
+  let mut %sb: i1 = 0;
+^entry:
+  %nz = call @fneg(%pz);
+  %r = call @fabs(%nz);
+  %sb = call @signbit(%r);
+  require %sb == 0, "fabs(-0.0) clears sign bit";
+  ret 0;
+}

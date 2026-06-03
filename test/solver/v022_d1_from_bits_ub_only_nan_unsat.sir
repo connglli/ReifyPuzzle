@@ -1,0 +1,18 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// [v0.2.2] §12.6 — when the domain contains only non-finite bit
+// patterns (a quiet NaN here, 0x7FF8000000000000 as a signed i64),
+// the @from_bits UB precondition makes every value infeasible.  The
+// solver must report UNSAT.
+intrinsic @from_bits(%x: i64) : f64;
+
+fun @main() : i32 {
+  sym %?bits : value i64 in {9221120237041090560};
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @from_bits(%?bits);
+  br ^exit;
+^exit:
+  ret 0;
+}

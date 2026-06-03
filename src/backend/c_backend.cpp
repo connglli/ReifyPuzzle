@@ -1314,8 +1314,7 @@ namespace symir {
               }
             }
             if (intr) {
-              auto rb = TypeUtils::getIntBitWidth(intr->retType);
-              out_ << intrinsicHelperName(arg.callee.name, rb.value_or(32));
+              out_ << intrinsicHelperName(*intr);
             } else {
               out_ << mangleName(arg.callee.name);
             }

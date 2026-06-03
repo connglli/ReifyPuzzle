@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @copysign at f32 — zero magnitude takes sign of y.
+// copysign(+0.0, -1.0) == -0.0 (numerically equal to +0.0 but signbit set).
+intrinsic @copysign(%x: f32, %y: f32) : f32;
+intrinsic @signbit(%x: f32) : i1;
+fun @main() : i32 {
+  let %pz: f32 = 0.0;
+  let mut %r: f32 = 0.0;
+  let mut %sb: i1 = 0;
+^entry:
+  %r = call @copysign(%pz, -1.0);
+  require %r == %pz, "result is numerically zero";
+  %sb = call @signbit(%r);
+  require %sb == 1, "copysign(+0.0, -1.0) has sign bit set";
+  ret 0;
+}

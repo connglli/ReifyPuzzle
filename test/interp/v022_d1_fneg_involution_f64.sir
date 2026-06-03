@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @fneg at f64 — applying fneg twice is the identity.
+intrinsic @fneg(%x: f64) : f64;
+fun @main() : i32 {
+  let %x: f64 = 1.25;
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @fneg(%x);
+  %r = call @fneg(%r);
+  require %r == %x, "fneg(fneg(x)) == x";
+  ret 0;
+}

@@ -833,7 +833,7 @@ Each intrinsic is declared once for `iN` (any `N ≥ 1`), not per concrete width
 
 ## 12. Standard intrinsics **[New in v0.2.2]**
 
-Intrinsics are built into the SymIR toolchain. They require no body, no contract, and no `-I` resolution. In this section, `iN` denotes **any concrete integer type** (`i1`, `i8`, `i16`, `i32`, `i64`, or any other `i<Nat>`). The intrinsic is declared once per concrete width the program uses (e.g., `intrinsic @abs(%x: i32) : i32;`), and the toolchain applies the same generic encoding regardless of `N`. Lowering follows the widening-and-mask strategy described in §11.5.
+Intrinsics are built into the SymIR toolchain. They require no body, no contract, and no `-I` resolution. In this section, `iN` denotes **any concrete integer type** (`i1`, `i8`, `i16`, `i32`, `i64`, or any other `i<Nat>`). Throughout §12.6 and onward, `fN` denotes **any concrete floating-point type** (`f32` or `f64`). The intrinsic is declared once per concrete width the program uses (e.g., `intrinsic @abs(%x: i32) : i32;` or `intrinsic @fabs(%x: f32) : f32;`), and the toolchain applies the same generic encoding regardless of `N`. Integer lowering follows the widening-and-mask strategy described in §11.5; floating-point lowering uses the native target precision directly (no widening, RNE-everywhere per §2.9).
 
 ### 12.1 Arithmetic intrinsics
 
@@ -896,10 +896,10 @@ Counts the number of 1 bits.
 ### 12.3 Extensibility
 
 Additional intrinsics may be added in future versions. Each new intrinsic must specify:
-- Its declared signature (over `iN`)
+- Its declared signature (over `iN` or `fN`)
 - Its SMT encoding (how the solver reasons about it)
 - Its interpreter behavior (how `symiri` executes it)
-- Its lowering pattern for each target (C, WASM), following the widening-and-mask strategy in §11.5
+- Its lowering pattern for each target (C, WASM), following the widening-and-mask strategy in §11.5 (for `iN`) or the native-precision strategy (for `fN`)
 
 An intrinsic is accepted only if all four are defined. "Delegate to the target" is not acceptable — SymIR owns the semantics.
 
@@ -920,8 +920,14 @@ v0.2.2 line, each adding one solver-friendly group:
   members of this family (`@checked_*`, `@overflowing_*`) and the
   cross-width `@widening_mul` remain planned, gated on the multi-value
   return ABI.
-- Batch D — §12 *floating-point basic IEEE family*: planned, gated on
-  the FP-intrinsic gate.
+- Batch D — §12 *floating-point basic IEEE family*: sign / bit ops
+  sub-batch shipped (§12.6): `@fabs`, `@fneg`, `@copysign`, `@signbit`,
+  `@to_bits`, `@from_bits`.  Shipping this sub-batch opens the
+  type-restriction sentence at the top of §12 to `fN`; remaining
+  members (predicates, fmin/fmax, sqrt and the integral-rounding
+  family, ldexp/ilogb/logb, fract/recip) are planned as follow-up
+  sub-batches.  See [`docs/intrinsics.md`](./intrinsics.md) §12.6 for
+  the per-intrinsic signatures, SMT encodings, and UB conditions.
 
 
 ## 13. Non-goals for v0.2.2 (planned for later)
@@ -938,7 +944,7 @@ v0.2.2 line, each adding one solver-friendly group:
 - **`old()` in contracts**. Post-state only. Pre-state references require caller-side temporaries. Adding `old()` introduces a two-state logic into the SMT encoding, which is not yet justified.
 - **Contracts on `fun` bodies**. A `fun` never has a contract — the body is the ground truth. Modular verification (prove the body satisfies a contract, then callers use the contract instead of inlining) is deferred to a future version.
 - **Mutable pointee annotations (`mut ptr T`)**. All pointer parameters are modifiable — the callee may write through any pointer. Per-parameter mutability annotations with static enforcement (i.e., `store` through a non-`mut` parameter is a compile-time error) is deferred. The uniform "all modifiable" model is simpler and sufficient for v0.2.2 synthesis patterns.
-- **Additional intrinsics — P0 tier, planned for v0.2.2 follow-up batches.** Integer extras (`@abs_diff`, `@signum`, `@umin`, `@umax`, `@clamp`, `@midpoint`), bit-manipulation (`@parity`, `@bswap`, `@bitreverse`, `@rotl`, `@rotr`, `@is_pow2`, `@ilog2`), the integer overflow-aware family (`@wrapping_*`, `@checked_*`, `@saturating_*`, `@overflowing_*`, `@widening_mul`, `@div_euclid`, `@rem_euclid`), and the floating-point basic IEEE family (`@fabs`, `@copysign`, `@fmin`, `@fmax`, `@sqrt`, `@fma`, `@floor`/`@ceil`/`@trunc`/`@rint`, `@signbit`, `@is_normal`, `@is_subnormal`, `@to_bits`/`@from_bits`, `@ldexp`/`@scalbn`/`@ilogb`/`@logb`, `@fract`, `@recip`, `@to_degrees`/`@to_radians`) are all solver-easy and broadly target-easy. They are slated for four follow-up batches in the v0.2.2 line. Batch 4 opens the FP intrinsic gate — until it lands, the §12 statement that all current intrinsics are typed over `iN` remains in effect. See [`docs/intrinsics.md`](./intrinsics.md) for the per-batch scope.
+- **Additional intrinsics — P0 tier, planned for v0.2.2 follow-up batches.** Integer extras (`@abs_diff`, `@signum`, `@umin`, `@umax`, `@clamp`, `@midpoint`), bit-manipulation (`@parity`, `@bswap`, `@bitreverse`, `@rotl`, `@rotr`, `@is_pow2`, `@ilog2`), the integer overflow-aware family (`@wrapping_*`, `@checked_*`, `@saturating_*`, `@overflowing_*`, `@widening_mul`, `@div_euclid`, `@rem_euclid`), and the floating-point basic IEEE family (`@fabs`, `@copysign`, `@fmin`, `@fmax`, `@sqrt`, `@floor`/`@ceil`/`@trunc`, `@signbit`, `@is_normal`, `@is_subnormal`, `@to_bits`/`@from_bits`, `@ldexp`/`@scalbn`/`@ilogb`/`@logb`, `@fract`, `@recip`) are all solver-easy and broadly target-easy. They are slated for follow-up batches in the v0.2.2 line. The D.1 sub-batch (sign / bit ops: `@fabs`, `@fneg`, `@copysign`, `@signbit`, `@to_bits`, `@from_bits`) has shipped and opens the §12 type-restriction sentence to `fN`. Remaining D sub-batches are planned. See [`docs/intrinsics.md`](./intrinsics.md) for the per-batch scope.
 - **Intrinsics in tiers P1–P4 — deferred to later versions.** Composed-WASM lowerings (P1: `@ffs`, `@next_pow2`, `@fmod`, `@remainder`, `@fdim`, `@modf`, `@frexp`, `@nextafter`, `@fpclassify`, `@total_cmp`, …); bounded SMT encodings behind a feature flag (P2: `@isqrt`, `@pow` with symbolic exponent, `@ilog10`, `@hypot`); libm-backed transcendentals where the solver prunes the path (P3: `@exp`/`@log`/`@pow`/`@sin`/`@cos`/`@tan`/`@erf`/`@tgamma`/… and friends); and stateful/impure or non-finite-producing intrinsics rejected at the frontend (P4: `@rand`, `@time`, `@nan`, `@inf`, I/O). See [`docs/intrinsics.md`](./intrinsics.md) for the full classification, the rejection layers, and the consistency rule between the interpreter and host libm.
 - **Heap allocation and memory intrinsics** (`@memcpy`, `@memset`). Currently classified P4 in [`docs/intrinsics.md`](./intrinsics.md): their SMT encoding requires byte-level array reasoning with potentially symbolic sizes. Eligible for re-promotion when the solver gains byte-addressable memory. Track the alloc-free path, insert some free-after-use/double-free/... patterns in inaccessible paths; maybe there're benefits.
 - **Contract memory havoc — extended provenance forms.** The solver now havocs the storage backing each pointer parameter at contract-form `decl` call sites (§9.6.2 step 4) so post-state pointee constraints are sound. The current implementation resolves two argument-expression forms — direct `addr %x` and a plain ptr local `%p` with a known provenance — by replacing the source local's symbolic value with a fresh constant. Aggregate provenance (havocing every cell of a `[N] T` or every field of an `@S`), pointer arguments derived from `ptrindex`/`ptrfield`/pointer arithmetic, and transitive nested-pointer cells are not yet havoc'd; callers passing those forms today should constrain the post-state via additional contract clauses or caller-side asserts until the next refinement lands.

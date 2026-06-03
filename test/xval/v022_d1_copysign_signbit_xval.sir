@@ -1,0 +1,30 @@
+// Intention: cross-validate @copysign + @signbit + @fabs.  Confirms
+// copysign(|x|, -y) produces a sign-bit-set value equal in magnitude
+// to the original.  We branch on @signbit instead of widening with
+// `as i32` because the interp/C `i1 as i32` cast diverges
+// (pre-existing).
+// EXPECT: PASS
+// EXPECT_RC: 7
+intrinsic @copysign(%x: f64, %y: f64) : f64;
+intrinsic @signbit(%x: f64) : i1;
+intrinsic @fabs(%x: f64) : f64;
+
+fun @main() : i32 {
+  let mut %a: f64 = 0.0;
+  let mut %b: f64 = 0.0;
+  let mut %sb: i1 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %a = call @fabs(-5.0);                  // 5.0
+  %b = call @copysign(%a, -2.0);          // -5.0
+  %sb = call @signbit(%b);                // expect 1
+  br %sb == 1, ^was_neg, ^was_pos;
+^was_neg:
+  %r = 7;
+  br ^exit;
+^was_pos:
+  %r = 11;
+  br ^exit;
+^exit:
+  ret %r;
+}

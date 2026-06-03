@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @copysign at f64 — positive x, negative y → negative |x|.
+intrinsic @copysign(%x: f64, %y: f64) : f64;
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @copysign(5.0, -2.0);
+  require %r == -5.0, "copysign(+x, -y) == -|x|";
+  ret 0;
+}

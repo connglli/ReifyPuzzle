@@ -1,0 +1,30 @@
+// Intention: cross-validate a specific bit pattern (1.0f →
+// 0x3F800000) across interp and C, then perturb via @fneg and check
+// @signbit to exercise three intrinsics.  The xor-trick at the end
+// returns a deterministic value the framework compares byte-equally.
+// EXPECT: PASS
+// EXPECT_RC: 1065353216
+intrinsic @to_bits(%x: f32) : i32;
+intrinsic @fneg(%x: f32) : f32;
+intrinsic @signbit(%x: f32) : i1;
+
+fun @main() : i32 {
+  let mut %bits: i32 = 0;
+  let mut %neg: f32 = 0.0;
+  let mut %sb: i1 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %bits = call @to_bits(1.0);
+  %neg = call @fneg(1.0);            // -1.0
+  %sb = call @signbit(%neg);         // expect 1
+  // Branch on signbit; return bits-of-1.0 only on the expected path.
+  br %sb == 1, ^ok, ^bad;
+^ok:
+  %r = %bits;
+  br ^exit;
+^bad:
+  %r = 0;
+  br ^exit;
+^exit:
+  ret %r;
+}

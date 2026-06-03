@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @from_bits at f32 — 0x3F800000 → 1.0.
+intrinsic @from_bits(%x: i32) : f32;
+fun @main() : i32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = call @from_bits(1065353216);
+  require %r == 1.0, "from_bits(0x3F800000) == 1.0f";
+  ret 0;
+}

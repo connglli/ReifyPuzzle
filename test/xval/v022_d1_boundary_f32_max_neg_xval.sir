@@ -1,0 +1,31 @@
+// Intention: cross-validate boundary handling for the largest-
+// magnitude *negative* f32.  Flip the sign of the max-finite f32 via
+// @fneg, confirm the sign-bit changed via @signbit, then @to_bits the
+// result to compare bit patterns.  All three intrinsics observe a
+// value adjacent to -∞; none of the ops may produce a non-finite
+// intermediate.  Result encodes (signbit << 31) | low24, deterministic.
+// EXPECT: PASS
+// EXPECT_RC: 1
+intrinsic @from_bits(%x: i32) : f32;
+intrinsic @fneg(%x: f32) : f32;
+intrinsic @signbit(%x: f32) : i1;
+
+fun @main() : i32 {
+  let mut %x: f32 = 0.0;
+  let mut %nx: f32 = 0.0;
+  let mut %sb: i1 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %x = call @from_bits(2139095039);    // +max_finite_f32
+  %nx = call @fneg(%x);                 // -max_finite_f32 (still finite)
+  %sb = call @signbit(%nx);             // expect 1
+  br %sb == 1, ^ok, ^bad;
+^ok:
+  %r = 1;
+  br ^exit;
+^bad:
+  %r = 0;
+  br ^exit;
+^exit:
+  ret %r;
+}

@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 round-trip: from_bits(to_bits(x)) == x for finite x.
+intrinsic @to_bits(%x: f32) : i32;
+intrinsic @from_bits(%x: i32) : f32;
+fun @main() : i32 {
+  let %x: f32 = -2.75;
+  let mut %bits: i32 = 0;
+  let mut %back: f32 = 0.0;
+^entry:
+  %bits = call @to_bits(%x);
+  %back = call @from_bits(%bits);
+  require %back == %x, "round-trip preserves f32 value";
+  ret 0;
+}

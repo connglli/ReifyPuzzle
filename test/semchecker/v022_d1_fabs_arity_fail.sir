@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.6 — @fabs is unary; declaring it with two parameters
+// must be rejected.
+intrinsic @fabs(%x: f64, %y: f64) : f64;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

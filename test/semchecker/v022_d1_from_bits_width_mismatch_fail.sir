@@ -1,0 +1,10 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.6 — @from_bits requires the FP return type's width to
+// equal the integer parameter's width (i32 ↔ f32, i64 ↔ f64).  Mixing
+// i32 with f64 must be rejected.
+intrinsic @from_bits(%x: i32) : f64;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

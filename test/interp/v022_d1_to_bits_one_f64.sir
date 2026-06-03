@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @to_bits at f64 — 1.0 bit pattern is 0x3FF0000000000000.
+intrinsic @to_bits(%x: f64) : i64;
+fun @main() : i64 {
+  let mut %r: i64 = 0;
+^entry:
+  %r = call @to_bits(1.0);
+  require %r == 4607182418800017408, "to_bits(1.0) == 0x3FF0000000000000";
+  ret %r;
+}

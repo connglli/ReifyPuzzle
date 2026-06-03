@@ -326,6 +326,18 @@ namespace symir::solver {
         injectRM(eargs);
         return wrap(eargs[1].uint2fp(unwrap(make_fp_sort(indices[0], indices[1])), eargs[0]));
 
+      // v0.2.2 extra batch D.1 — FP primitives used by @fabs, @fneg,
+      // @signbit, @from_bits. The Alive2 backend doesn't expose these yet;
+      // throw a clear error rather than mis-route.
+      case smt::Kind::FP_ABS:
+      case smt::Kind::FP_NEG:
+      case smt::Kind::FP_IS_NEG:
+      case smt::Kind::FP_TO_FP_FROM_BV:
+        throw std::runtime_error(
+            "Alive2 backend does not support this FP primitive (batch D.1 — "
+            "use SOLVER=bitwuzla)"
+        );
+
       case smt::Kind::BV_SIGN_EXTEND:
         // args: val. indices: {amount}
         return wrap(eargs[0].sext(indices[0]));

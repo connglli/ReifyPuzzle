@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 @from_bits at f64 — bit pattern of -2.0.
+intrinsic @from_bits(%x: i64) : f64;
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+^entry:
+  // 0xC000000000000000 as signed i64 = -4611686018427387904.
+  %r = call @from_bits(-4611686018427387904);
+  require %r == -2.0, "from_bits(0xC000...) == -2.0";
+  ret 0;
+}

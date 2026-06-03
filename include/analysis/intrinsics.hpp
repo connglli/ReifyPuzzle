@@ -19,6 +19,8 @@ namespace symir {
    *   WrappingShl, WrappingShr,
    *   SaturatingAdd, SaturatingSub, SaturatingMul, SaturatingNeg,
    *   DivEuclid, RemEuclid.
+   * v0.2.2 extra D.1 — floating-point sign / bit ops (§12.6):
+   *   Fabs, Fneg, Copysign, Signbit, ToBits, FromBits.
    *
    * Note: there is no @umin / @umax — SymIR has no unsigned integer types
    * and the toolchain does not implicitly reinterpret iN bits as uN.
@@ -60,6 +62,13 @@ namespace symir {
     SaturatingNeg,
     DivEuclid,
     RemEuclid,
+    // v0.2.2 extra batch D.1 — floating-point sign / bit ops (§12.6)
+    Fabs,
+    Fneg,
+    Copysign,
+    Signbit,
+    ToBits,
+    FromBits,
   };
 
   /**
@@ -129,6 +138,19 @@ namespace symir {
       return IntrinsicKind::DivEuclid;
     if (name == "@rem_euclid")
       return IntrinsicKind::RemEuclid;
+    // v0.2.2 extra batch D.1 — floating-point sign / bit ops (§12.6)
+    if (name == "@fabs")
+      return IntrinsicKind::Fabs;
+    if (name == "@fneg")
+      return IntrinsicKind::Fneg;
+    if (name == "@copysign")
+      return IntrinsicKind::Copysign;
+    if (name == "@signbit")
+      return IntrinsicKind::Signbit;
+    if (name == "@to_bits")
+      return IntrinsicKind::ToBits;
+    if (name == "@from_bits")
+      return IntrinsicKind::FromBits;
     return std::nullopt;
   }
 
