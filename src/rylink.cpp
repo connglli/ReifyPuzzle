@@ -275,23 +275,47 @@ static bool runAnalysisPasses(Program &prog, bool verbose) {
 // is still required by CBackend::emitSplit).
 static bool emitCInProcess(
     Program &prog, const fs::path &outDir, const std::string &primaryStem, bool keepRequire,
-    const std::string &vecLowering, bool emitMain, bool verbose
+    const std::string &vecLowering, bool emitMain, bool splitBySource, bool verbose
 ) {
   if (!runAnalysisPasses(prog, verbose))
     return false;
-  // Suppress stdout chatter inside the backend; CBackend writes to its
-  // own streams and any extra logging we add via `verbose` belongs to
-  // rylink, not the backend. The emit itself prints nothing.
-  std::ofstream sink;
-  CBackend cb(sink);
-  cb.setNoRequire(!keepRequire);
-  cb.setNoMainMangle(emitMain);
   // `vecLowering` is the resolved strategy name (caller already
   // expanded `random` against the per-program rng).  An empty string
   // falls back to vecext to preserve rylink's historical default.
-  cb.setVecLowering(makeVecLowering(vecLowering.empty() ? "vecext" : vecLowering));
+  auto vl = makeVecLowering(vecLowering.empty() ? "vecext" : vecLowering);
+  if (splitBySource) {
+    // Suppress stdout chatter inside the backend; CBackend writes to
+    // its own streams and any extra logging we add via `verbose`
+    // belongs to rylink, not the backend. The emit itself prints
+    // nothing.
+    std::ofstream sink;
+    CBackend cb(sink);
+    cb.setNoRequire(!keepRequire);
+    cb.setNoMainMangle(emitMain);
+    cb.setVecLowering(std::move(vl));
+    try {
+      cb.emitSplit(prog, outDir.string(), primaryStem);
+    } catch (const std::exception &e) {
+      if (verbose)
+        std::cerr << "rylink: CBackend failed: " << e.what() << "\n";
+      return false;
+    }
+    return true;
+  }
+  // Single-file emission: write everything into `<outDir>/<primaryStem>.c`.
+  fs::path outFile = outDir / (primaryStem + ".c");
+  std::ofstream ofs(outFile);
+  if (!ofs) {
+    if (verbose)
+      std::cerr << "rylink: cannot open " << outFile << "\n";
+    return false;
+  }
+  CBackend cb(ofs);
+  cb.setNoRequire(!keepRequire);
+  cb.setNoMainMangle(emitMain);
+  cb.setVecLowering(std::move(vl));
   try {
-    cb.emitSplit(prog, outDir.string(), primaryStem);
+    cb.emit(prog);
   } catch (const std::exception &e) {
     if (verbose)
       std::cerr << "rylink: CBackend failed: " << e.what() << "\n";
@@ -383,6 +407,12 @@ struct PerProgConfig {
   fs::path symiriPath;
   bool verbose = false;
   bool emitMain = false;
+  // [v0.2.2] When false, emit one `<progDir>/program.c` instead of the
+  // default per-`FunDecl::sourceStem` split + `common.h`. Useful for
+  // consumers that prefer a single translation unit (e.g. quick
+  // single-file compile loops, or shipping the generated C as one
+  // self-contained snippet).
+  bool splitBySource = true;
 };
 
 static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgConfig &cfg) {
@@ -464,15 +494,39 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     }
   }
 
-  // Create the output dir and emit program.sir.
-  fs::path progDir = cfg.outRoot / (std::string(rylink::hp::kProgPrefix) + "_" + cfg.genId + "_" +
-                                    std::to_string(cfg.progIdx));
-  fs::create_directories(progDir);
-  fs::path programSir = progDir / rylink::hp::kEntrySirName;
+  // [v0.2.2] Decide output layout. The default `--split-by-source`
+  // mode lands every artefact inside `<outRoot>/<progBase>/` so the
+  // multi-`.c` + `common.h` fanout stays self-contained per program.
+  // `--no-split-by-source` flattens to `<outRoot>/<progBase>.{sir,c,wasm}`,
+  // mirroring rysmith's per-function `func_<id>_<idx>.{sir,c,json}`
+  // layout — useful when the bundle is meant to be consumed as a
+  // single self-contained translation unit.
+  std::string progBase =
+      std::string(rylink::hp::kProgPrefix) + "_" + cfg.genId + "_" + std::to_string(cfg.progIdx);
+  fs::path emitDir;           // directory we pass to the backend helpers
+  std::string emitStem;       // basename (no extension) used by the helpers
+  fs::path programSir;        // where the .sir lands
+  std::string compiledReport; // path echoed on the `compiled:` log line
+  std::string failTag;        // label used in backend-FAIL diagnostics
+  fs::create_directories(cfg.outRoot);
+  if (cfg.splitBySource) {
+    fs::path progDir = cfg.outRoot / progBase;
+    fs::create_directories(progDir);
+    emitDir = progDir;
+    emitStem = "program";
+    programSir = progDir / rylink::hp::kEntrySirName;
+    compiledReport = progDir.string();
+    failTag = failTag;
+  } else {
+    emitDir = cfg.outRoot;
+    emitStem = progBase;
+    programSir = cfg.outRoot / (progBase + ".sir");
+    compiledReport = (cfg.outRoot / (progBase + "." + cfg.target)).string();
+    failTag = progBase;
+  }
 
   writeBundledSir(programSir, bundle, cg, nodes, entryRz);
   // Always echo the bundled .sir path so the user can find it in the
-  // common case (target=sir). Matches rysmith's per-artifact
   // common case (target=sir). Matches rysmith's per-artifact
   // `concrete: <path>` line.
   std::cout << "  bundled: " << programSir << "\n";
@@ -483,10 +537,10 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
   // — going through symirc-as-subprocess would round-trip the bundle
   // through text and collapse every sourceStem to "".
   if (cfg.target == "c") {
-    // primaryStem = "program": the bundled entry program's "virtual"
-    // .sir file. No fn has empty sourceStem (every merge sets one),
-    // so the resulting "program.c" stays empty of bodies and the
-    // per-source .c files carry the funs.
+    // Split mode: `emitStem = "program"` keys an (empty) primary
+    // translation unit; the per-source .c files carry the bodies and
+    // share a `common.h`. Flat mode: `emitStem = progBase` writes a
+    // single self-contained `<progBase>.c`.
     //
     // Resolve `--vec-lowering` once per program against the per-prog
     // rng so each emitted bundle stamps a single strategy — matching
@@ -497,21 +551,19 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     if (cfg.verbose && !vecLow.empty())
       std::cout << "  vec-lowering: " << vecLow << "\n";
     if (!emitCInProcess(
-            bundle, progDir, "program", cfg.keepRequire, vecLow, cfg.emitMain, cfg.verbose
+            bundle, emitDir, emitStem, cfg.keepRequire, vecLow, cfg.emitMain, cfg.splitBySource,
+            cfg.verbose
         )) {
       if (cfg.verbose)
-        std::cerr << "  backend FAIL (" << progDir.filename().string() << ")\n";
+        std::cerr << "  backend FAIL (" << failTag << ")\n";
       return false;
     }
-    // Mirror rysmith's `compiled: <path>` per-emission line. We report
-    // the per-program directory because --split-by-source produces
-    // multiple .c files there.
-    std::cout << "  compiled: " << progDir << "\n";
+    std::cout << "  compiled: " << compiledReport << "\n";
   } else if (cfg.target == "wasm") {
-    fs::path wasmOut = progDir / "program.wasm";
+    fs::path wasmOut = emitDir / (emitStem + ".wasm");
     if (!emitWasmInProcess(bundle, wasmOut, cfg.keepRequire, cfg.emitMain, cfg.verbose)) {
       if (cfg.verbose)
-        std::cerr << "  backend FAIL (" << progDir.filename().string() << ")\n";
+        std::cerr << "  backend FAIL (" << failTag << ")\n";
       return false;
     }
     std::cout << "  compiled: " << wasmOut << "\n";
@@ -526,10 +578,9 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     auto got = runSymiri(cfg.symiriPath, programSir, nodes[cg.entry()].funcName, args);
     bool ok = got && (*got == entryRz.retValue);
     if (ok) {
-      std::cout << "  validated: OK (" << progDir.filename().string() << ")\n";
+      std::cout << "  validated: OK (" << failTag << ")\n";
     } else {
-      std::cerr << "  validated: FAIL (" << progDir.filename().string()
-                << ") expected=" << entryRz.retValue
+      std::cerr << "  validated: FAIL (" << failTag << ") expected=" << entryRz.retValue
                 << " got=" << (got ? *got : std::string("<no Result>")) << "\n";
       return false;
     }
@@ -566,6 +617,12 @@ int main(int argc, char **argv) {
     ("keep-require", "Keep `require` checks in C/WASM output",
         cxxopts::value<bool>()->default_value("false"))
     ("emit-main", "Generate a main wrapper in the output program",
+        cxxopts::value<bool>()->default_value("false"))
+    ("no-split-by-source", "Emit each program flat as "
+                           "<outRoot>/prog_<id>_<i>.{sir,c,wasm} (one .c per "
+                           "program, no common.h) instead of the default "
+                           "<outRoot>/prog_<id>_<i>/ subdirectory with one "
+                           ".c per FunDecl::sourceStem",
         cxxopts::value<bool>()->default_value("false"))
     // Validate
     ("validate", "Run symiri on each emitted program and check semantics",
@@ -607,6 +664,7 @@ int main(int argc, char **argv) {
   pc.keepRequire = res["keep-require"].as<bool>();
   pc.validate = res["validate"].as<bool>();
   pc.emitMain = res["emit-main"].as<bool>();
+  pc.splitBySource = !res["no-split-by-source"].as<bool>();
   pc.verbose = res["v"].as<bool>();
 
   if (pc.target != "sir" && pc.target != "c" && pc.target != "wasm") {
