@@ -1537,10 +1537,20 @@ namespace symir {
                     laneRes.floatVal = checkFPResult(cL.floatVal * rL.floatVal, laneRes.bits);
                   else if (arg.op == AtomOpKind::Div)
                     laneRes.floatVal = checkFPResult(cL.floatVal / rL.floatVal, laneRes.bits);
-                  else if (arg.op == AtomOpKind::Mod)
+                  else if (arg.op == AtomOpKind::Mod) {
+                    // Per §7.6 rule 21, the §2.9 intermediate-overflow rule
+                    // (see scalar `%` branch below) applies per lane.
+                    double q = cL.floatVal / rL.floatVal;
+                    if (laneRes.bits == 32)
+                      q = static_cast<double>(static_cast<float>(q));
+                    if (std::isinf(q) || std::isnan(q))
+                      throw UndefinedBehaviorError(
+                          "UB: Floating-point intermediate quotient in vector "
+                          "lane % is non-finite (spec §2.9)"
+                      );
                     laneRes.floatVal =
                         checkFPResult(std::fmod(cL.floatVal, rL.floatVal), laneRes.bits);
-                  else
+                  } else
                     throw std::runtime_error("Unsupported op for float vector lane");
                 } else {
                   throw std::runtime_error("Unsupported vector lane kind in OpAtom");
@@ -1632,9 +1642,22 @@ namespace symir {
                 res.floatVal = checkFPResult(c.floatVal * r.floatVal, res.bits);
               else if (arg.op == AtomOpKind::Div)
                 res.floatVal = checkFPResult(c.floatVal / r.floatVal, res.bits);
-              else if (arg.op == AtomOpKind::Mod)
+              else if (arg.op == AtomOpKind::Mod) {
+                // Spec §2.9 encodes `%` as
+                //   fp.sub(x, fp.mul(fp.roundToIntegral[RTZ](fp.div[RNE](x, y)), y))
+                // The inner fp.div is subject to §7.4 rule 6: if x/y at the
+                // operand precision overflows or is NaN, the path is UB even
+                // when libm fmod would return a finite remainder.
+                double q = c.floatVal / r.floatVal;
+                if (res.bits == 32)
+                  q = static_cast<double>(static_cast<float>(q));
+                if (std::isinf(q) || std::isnan(q))
+                  throw UndefinedBehaviorError(
+                      "UB: Floating-point intermediate quotient in % is "
+                      "non-finite (spec §2.9)"
+                  );
                 res.floatVal = checkFPResult(std::fmod(c.floatVal, r.floatVal), res.bits);
-              else
+              } else
                 throw std::runtime_error("Unsupported op for floats");
               return res;
             }

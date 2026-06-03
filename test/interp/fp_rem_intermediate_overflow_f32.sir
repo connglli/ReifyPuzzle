@@ -1,0 +1,15 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: WASM
+// Reason: WASM backend emits the §2.9 formula `x - trunc(x/y) * y` directly
+// and does not yet trap on the intermediate ±∞ — tracked as a follow-up.
+// Same spec §2.9 intermediate-overflow rule as the f64 case, applied
+// to f32: x/y in single precision is ≈ 1e60 which overflows f32
+// (max ≈ 3.4e38). The path is UB.
+fun @main() : f32 {
+  let %x: f32 = 1.0e30;
+  let %y: f32 = 1.0e-30;
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = %x % %y;
+  ret %r;
+}

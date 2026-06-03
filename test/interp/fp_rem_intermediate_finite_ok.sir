@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// Sanity guard for spec §2.9: the intermediate-overflow rule only
+// fires when x/y is non-finite. A case where x/y is large but still
+// f64-finite must remain well-defined.
+fun @main() : f64 {
+  let %x: f64 = 1.0e100;
+  let %y: f64 = 1.0e-100;
+  let mut %r: f64 = 0.0;
+^entry:
+  // x/y = 1e200, f64-finite (max ≈ 1.8e308). No UB.
+  %r = %x % %y;
+  ret %r;
+}

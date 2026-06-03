@@ -871,17 +871,24 @@ namespace symir {
                         }
                       }
                     }
-                    // [v0.2.1] Logical right shift (LShr) is the only OpAtom
-                    // that can't be expressed inline on a vec-ext type — the
-                    // signed-to-unsigned reinterpret is illegal on GCC vector
-                    // types. Force lane-unroll for that op regardless of
-                    // strategy.
-                    bool isVecLShr = false;
+                    // [v0.2.1] LShr can't be expressed inline on a vec-ext
+                    // type — the signed-to-unsigned reinterpret is illegal on
+                    // GCC vector types. Float `%` likewise has no inline form
+                    // (GCC vector types don't define `%` for floats, and the
+                    // semantics require a per-lane fmod call with the §2.9
+                    // intermediate-overflow UB check). Force lane-unroll for
+                    // either op regardless of strategy.
+                    bool forceLaneUnroll = false;
                     if (arg.rhs.rest.empty()) {
-                      if (auto op = std::get_if<OpAtom>(&arg.rhs.first.v))
-                        isVecLShr = (op->op == AtomOpKind::LShr);
+                      if (auto op = std::get_if<OpAtom>(&arg.rhs.first.v)) {
+                        if (op->op == AtomOpKind::LShr)
+                          forceLaneUnroll = true;
+                        else if (op->op == AtomOpKind::Mod && vt.elem &&
+                                 std::holds_alternative<FloatType>(vt.elem->v))
+                          forceLaneUnroll = true;
+                      }
                     }
-                    if (vecLowering_->needsLaneUnroll() || isVecLShr) {
+                    if (vecLowering_->needsLaneUnroll() || forceLaneUnroll) {
                       emitVecAssign(arg.lhs, arg.rhs, vt);
                       return;
                     }
@@ -1110,11 +1117,21 @@ namespace symir {
                   isF32 = (*k == FloatType::Kind::F32);
               }
               if (isFloat) {
-                out_ << (isF32 ? "fmodf(" : "fmod(");
+                // Spec §2.9 encodes `%` as
+                //   fp.sub(x, fp.mul(fp.roundToIntegral[RTZ](fp.div[RNE](x, y)), y))
+                // The inner fp.div is subject to §7.4 rule 6: if x/y at the
+                // operand precision overflows or is NaN, the path is UB even
+                // when libm fmod would return a finite remainder. Emit the
+                // intermediate-finiteness check inside a statement expression
+                // so the operand emissions are not duplicated.
+                const char *ty = isF32 ? "float" : "double";
+                const char *fn = isF32 ? "fmodf" : "fmod";
+                out_ << "({ " << ty << " _mx = ";
                 emitCoef(arg.coef);
-                out_ << ", ";
+                out_ << ", _my = ";
                 emitLValue(arg.rval);
-                out_ << ")";
+                out_ << "; if (!__builtin_isfinite(_mx / _my)) __builtin_trap(); " << fn
+                     << "(_mx, _my); })";
               } else {
                 emitCoef(arg.coef);
                 out_ << " % ";
@@ -1610,12 +1627,16 @@ namespace symir {
                 op = ">>";
                 break;
             }
-            // Float % needs fmod / fmodf.
+            // Float % needs fmod / fmodf, with the §2.9 intermediate-overflow
+            // UB check on x/y (see scalar `%` emission for the rationale).
             bool isFloat = vt.elem && std::holds_alternative<FloatType>(vt.elem->v);
             if (arg.op == AtomOpKind::Mod && isFloat) {
-              const char *fn =
-                  (std::get<FloatType>(vt.elem->v).kind == FloatType::Kind::F32) ? "fmodf" : "fmod";
-              return std::string(fn) + "((" + coefLane + "), (" + rvalLane + "))";
+              bool isF32Lane = std::get<FloatType>(vt.elem->v).kind == FloatType::Kind::F32;
+              const char *ty = isF32Lane ? "float" : "double";
+              const char *fn = isF32Lane ? "fmodf" : "fmod";
+              return std::string("({ ") + ty + " _mx = (" + coefLane + "), _my = (" + rvalLane +
+                     "); if (!__builtin_isfinite(_mx / _my)) __builtin_trap(); " + fn +
+                     "(_mx, _my); })";
             }
             if (arg.op == AtomOpKind::LShr) {
               // Logical (unsigned) right-shift: cast lane to unsigned at

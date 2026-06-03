@@ -1,0 +1,16 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: WASM
+// Reason: WASM backend emits the §2.9 formula `x - trunc(x/y) * y` directly
+// and does not yet trap on the intermediate ±∞ — tracked as a follow-up.
+// Same §2.9 intermediate-overflow rule, but with a negative dividend.
+// x/y = -1e600 underflows the negative end of f64, still non-finite,
+// still UB. Guards against a sign-only check that would let -∞ slip
+// through.
+fun @main() : f64 {
+  let %x: f64 = -1.0e300;
+  let %y: f64 = 1.0e-300;
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = %x % %y;
+  ret %r;
+}
