@@ -18,6 +18,7 @@ Usage:
 
 import argparse
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -446,17 +447,30 @@ def _save_leaf_bug(bugs_dir, bucket, sir_name, src_dir, batch_num):
       shutil.copy2(src, os.path.join(dst_dir, prefix + stem + suffix))
 
 
-def _save_rylink_bug(bugs_dir, bucket, prog_dir, batch_num):
-  """Copy a failing rylink program (program.sir + program.c) into
-  bugs/<bucket>/ with a unique prefix derived from the prog dir."""
+def _save_rylink_bug(bugs_dir, bucket, prog_dir, batch_num, flat=False):
+  """Copy a failing rylink program into bugs/<bucket>/.
+
+  When ``flat`` is True, ``prog_dir`` is actually the stem path
+  (e.g. ``.../rylink/prog_abc_0``) and the artefacts live at
+  ``<stem>.sir``, ``<stem>.c`` — mirroring rysmith's flat layout.
+  Otherwise the default split-by-source layout is assumed:
+  ``<prog_dir>/program.{sir,c}``."""
   dst_dir = os.path.join(bugs_dir, bucket)
   os.makedirs(dst_dir, exist_ok=True)
-  prog_name = os.path.basename(prog_dir.rstrip("/"))
-  prefix = f"b{batch_num}_{prog_name}_"
-  for suffix in (".sir", ".c"):
-    src = os.path.join(prog_dir, "program" + suffix)
-    if os.path.exists(src):
-      shutil.copy2(src, os.path.join(dst_dir, prefix + "program" + suffix))
+  if flat:
+    prog_name = os.path.basename(prog_dir)
+    prefix = f"b{batch_num}_{prog_name}_"
+    for suffix in (".sir", ".c"):
+      src = prog_dir + suffix
+      if os.path.exists(src):
+        shutil.copy2(src, os.path.join(dst_dir, prefix + prog_name + suffix))
+  else:
+    prog_name = os.path.basename(prog_dir.rstrip("/"))
+    prefix = f"b{batch_num}_{prog_name}_"
+    for suffix in (".sir", ".c"):
+      src = os.path.join(prog_dir, "program" + suffix)
+      if os.path.exists(src):
+        shutil.copy2(src, os.path.join(dst_dir, prefix + "program" + suffix))
 
 
 # ───────────────────────────────────────────────────────────────────────
@@ -619,6 +633,10 @@ def run(
 
     # ── (3) rylink generation ────────────────────────────────────────
     ry_progs = []
+    # Randomly decide whether to flatten the rylink output for this
+    # batch. Seeded from `batch_seed` so runs are reproducible.
+    batch_rng = random.Random(batch_seed)
+    ry_flat = batch_rng.choice([True, False])
     if not stopped_early:
       ry_dir = os.path.join(out_dir, "rylink")
       # Mirror the rysmith batch size: one rylink program per rysmith
@@ -638,6 +656,8 @@ def run(
         "-o",
         ry_dir,
       ]
+      if ry_flat:
+        ry_cmd.append("--no-split-by-source")
       if verbose:
         print(bold(f"batch #{batch_idx + 1} rylink generation ({done}/{n} programs):"))
         print(f"  running: {' '.join(ry_cmd)}")
@@ -652,18 +672,28 @@ def run(
       except subprocess.TimeoutExpired:
         ry = None
       if os.path.isdir(ry_dir):
-        ry_progs = sorted(
-          os.path.join(ry_dir, d)
-          for d in os.listdir(ry_dir)
-          if d.startswith("prog_") and os.path.isdir(os.path.join(ry_dir, d))
-        )
+        if ry_flat:
+          # Flat layout: `<ry_dir>/prog_<id>_<idx>.sir` — collect the
+          # stem paths (without extension), mirroring rysmith's layout.
+          ry_progs = sorted(
+            os.path.join(ry_dir, f[:-4])
+            for f in os.listdir(ry_dir)
+            if f.startswith("prog_") and f.endswith(".sir")
+          )
+        else:
+          ry_progs = sorted(
+            os.path.join(ry_dir, d)
+            for d in os.listdir(ry_dir)
+            if d.startswith("prog_") and os.path.isdir(os.path.join(ry_dir, d))
+          )
       rylink_generated_total += len(ry_progs)
       ry_failed = batch_n - len(ry_progs)
       if ry is None:
         ry_failed = batch_n
       rylink_gen_failed_total += max(0, ry_failed)
       if verbose:
-        print(f"  {green('succeeded')}:     {len(ry_progs)}")
+        flat_tag = " (flat)" if ry_flat else ""
+        print(f"  {green('succeeded')}:     {len(ry_progs)}{flat_tag}")
         print(f"  {yellow('failed')}:        {max(0, ry_failed)}")
         print(f"  generated:     {len(ry_progs)}")
 
@@ -674,16 +704,25 @@ def run(
         print(f"  running: symiri vs clang+exe (jobs={jobs})")
 
       rylink_tasks = []
-      for i, prog_dir in enumerate(ry_progs):
-        prog_name = os.path.basename(prog_dir.rstrip("/"))
-        sir_path = os.path.join(prog_dir, "program.sir")
-        # rylink --split-by-source emits one .c per FunDecl::sourceStem
-        # plus an (empty) program.c. Hand them all to clang together so
-        # cross-stem `call @callee(...)` references resolve at link
-        # time. Sorted only for determinism in failure messages.
-        c_paths = sorted(
-          os.path.join(prog_dir, f) for f in os.listdir(prog_dir) if f.endswith(".c")
-        )
+      for i, prog_entry in enumerate(ry_progs):
+        if ry_flat:
+          # `prog_entry` is a stem path, e.g. `<ry_dir>/prog_abc_0`.
+          prog_name = os.path.basename(prog_entry)
+          sir_path = prog_entry + ".sir"
+          c_path = prog_entry + ".c"
+          c_paths = [c_path] if os.path.exists(c_path) else []
+        else:
+          prog_name = os.path.basename(prog_entry.rstrip("/"))
+          sir_path = os.path.join(prog_entry, "program.sir")
+          # rylink --split-by-source emits one .c per FunDecl::sourceStem
+          # plus an (empty) program.c. Hand them all to clang together so
+          # cross-stem `call @callee(...)` references resolve at link
+          # time. Sorted only for determinism in failure messages.
+          c_paths = sorted(
+            os.path.join(prog_entry, f)
+            for f in os.listdir(prog_entry)
+            if f.endswith(".c")
+          )
         rylink_tasks.append(
           {
             "idx": i,
@@ -697,7 +736,8 @@ def run(
             "verbose": verbose,
             # Held on the side for `_save_rylink_bug` after the pool
             # surfaces the result — the worker itself doesn't need it.
-            "_prog_dir": prog_dir,
+            "_prog_dir": prog_entry,
+            "_flat": ry_flat,
           }
         )
 
@@ -709,7 +749,13 @@ def run(
           skipped += 1
         else:
           _LISTS[bucket].append(msg)
-          _save_rylink_bug(bugs_dir, bucket, task["_prog_dir"], batch_idx + 1)
+          _save_rylink_bug(
+            bugs_dir,
+            bucket,
+            task["_prog_dir"],
+            batch_idx + 1,
+            flat=task.get("_flat", False),
+          )
           if fail_early:
             print(
               f"  [batch {batch_idx + 1}, rylink {task['label']}] "
