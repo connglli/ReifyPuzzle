@@ -762,8 +762,10 @@ Difficulty legend: ★ trivial · ◐ easy · ◑ medium · ◯ hard but feasibl
 P0 is split into three groups by domain. The integer extras and
 bit-manipulation groups are **shipped** (§12.3 and §12.4 above). The
 integer overflow-aware family and the floating-point basic IEEE family
-are **planned** for later v0.2.2 work — the FP family also needs the
-FP intrinsic gate in spec §12 to open before it can land.
+are **planned** for later v0.2.2 work — the FP family additionally
+needs the §12 type-restriction sentence ("`iN` denotes any concrete
+integer type") to be relaxed before it can land, and that change is
+held back by the §13 non-goal bullet listed below.
 
 **v0.2.2 extra batch A - Integer extras** (shipped — §12.3): `@abs_diff`, `@signum`, `@clamp`,
 `@midpoint`.
@@ -779,8 +781,9 @@ The tuple-returning members (`@checked_*`, `@overflowing_*`) and the
 cross-width `@widening_mul` (`iN×iN → i2N`) are slated for a follow-up
 batch that introduces the multi-value return ABI.
 
-**v0.2.2 extra batch D - Floating-point basic IEEE family** (planned — gate currently closed
-by spec §13). All entries map to QF_FP ops and direct WASM `fN.*`
+**v0.2.2 extra batch D - Floating-point basic IEEE family** (planned —
+gated on the §12 type-restriction sentence; held shut by §13 until this
+batch lands). All entries map to QF_FP ops and direct WASM `fN.*`
 opcodes:
 `@fabs`, `@fneg`, `@copysign`, `@fmin`, `@fmax`, `@sqrt`, `@fma`,
 `@floor`, `@ceil`, `@trunc`, `@rint` (ties-to-even),
