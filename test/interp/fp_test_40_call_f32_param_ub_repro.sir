@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// Intention: Regression test for reify-diff failure prog_9473a0_403.
+// The f32 parameter must carry bits=32 so the multiplication
+// 5.0 * pa0 rounds at f32 precision, yielding -2147483648.0
+// (exactly INT_MIN_32). The `as i32` cast succeeds.
+// Before the fix, bits=64 caused f64 intermediate precision
+// → -2147483904.0 (< INT_MIN_32) → spurious UB trap.
+fun @func(%pa0: f32) : i32 {
+  let mut %v1: f32 = 0.0;
+  let mut %v2: i32 = 609452158;
+^entry:
+  %v1 = %v2 as f32 + 5.0 * %pa0;
+  ret %v1 as i32;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @func(-551387200.0);
+  ret %r + 2147483647 + 1;
+}

@@ -1,0 +1,32 @@
+// EXPECT: PASS
+// Intention: f32 parameter in a nested call must carry bits=32 so that
+// atom-level multiplication rounds at f32 precision, not f64.
+//
+// 609452158 as f32 = 609452160.0 (f32 rounds the odd integer).
+// 5.0 * (-551387200.0) in f32 = -2756935936.0 (correct).
+// 5.0 * (-551387200.0) in f64 = -2756936000.0 (different — 64 ULP gap).
+// Sum in f32: 609452160 + (-2756935936) = -2147483776 → f32 = -2147483648.
+// Sum with f64 mul: 609452160 + (-2756936000) = -2147483840 → f32 = -2147483904.
+//
+// -2147483648 is exactly INT_MIN_32 — the `as i32` cast succeeds.
+// -2147483904 < INT_MIN_32 — the cast is UB.
+// If the callee's %pa0 is bits=64 instead of 32, the wrong path triggers.
+fun @callee(%pa0: f32) : i32 {
+  let mut %v1: f32 = 0.0;
+  let mut %v2: i32 = 609452158;
+^entry:
+  // This expression is: %v2 as f32 + 5.0 * %pa0
+  // It must round the 5.0*%pa0 product at f32 before the addition.
+  %v1 = %v2 as f32 + 5.0 * %pa0;
+  // v1 should be -2147483648.0 (INT_MIN), not -2147483904.0
+  require %v1 == -2147483648.0, "f32 mul must round at f32 precision";
+  ret %v1 as i32;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @callee(-551387200.0);
+  // callee returns INT_MIN_32 = -2147483648 as i32
+  require %r == -2147483648, "call result must match f32-precision computation";
+  ret 0;
+}

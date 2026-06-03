@@ -861,9 +861,15 @@ namespace symir {
 
     for (size_t i = 0; i < f.params.size(); ++i) {
       RuntimeValue v = args[i];
-      v.bits = TypeUtils::getIntBitWidth(f.params[i].type).value_or(v.bits ? v.bits : 64);
+      v.bits = TypeUtils::getScalarBitWidth(f.params[i].type).value_or(v.bits ? v.bits : 64);
       if (v.kind == RuntimeValue::Kind::Int)
         v.intVal = canonicalize(v.intVal, v.bits);
+      // SPEC §6.4: f32 parameter values must be rounded to f32 precision at the
+      // call boundary, just as init values are (see evalInit). Without this, a
+      // literal like 16777217.0 keeps its f64 image while bits=32, so callee
+      // arithmetic diverges from the lowered C/WASM.
+      if (v.kind == RuntimeValue::Kind::Float && v.bits == 32)
+        v.floatVal = static_cast<double>(static_cast<float>(v.floatVal));
       store[f.params[i].name.name] = v;
     }
 
@@ -986,9 +992,13 @@ namespace symir {
     for (size_t i = 0; i < f.params.size(); ++i) {
       pushType(f.params[i].name.name, f.params[i].type);
       RuntimeValue v = args[i];
-      v.bits = TypeUtils::getIntBitWidth(f.params[i].type).value_or(v.bits ? v.bits : 64);
+      v.bits = TypeUtils::getScalarBitWidth(f.params[i].type).value_or(v.bits ? v.bits : 64);
       if (v.kind == RuntimeValue::Kind::Int)
         v.intVal = canonicalize(v.intVal, v.bits);
+      // SPEC §6.4: f32 parameter values must be rounded to f32 precision at the
+      // call boundary, mirroring the init-value rounding in evalInit.
+      if (v.kind == RuntimeValue::Kind::Float && v.bits == 32)
+        v.floatVal = static_cast<double>(static_cast<float>(v.floatVal));
       store[f.params[i].name.name] = v;
     }
 

@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// Intention: f32 parameter addition precision in nested call.
+// 16777217.0 in f32 = 16777216.0.  Adding 1.0 in f32 → 16777216.0 (no change,
+// since 16777216+1 = 16777217 which rounds back to 16777216).
+// In f64: 16777217.0 + 1.0 = 16777218.0, then f32 → 16777218.0 (exact in f32).
+// Detects if the Expr-level addition inherits wrong bits from the parameter.
+fun @add1(%x: f32) : i32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = %x + 1.0;
+  // f32: 16777216.0 + 1.0 = 16777216.0 (RNE rounds back)
+  // f64: 16777217.0 + 1.0 = 16777218.0 → f32 = 16777218.0
+  require %r == 16777216.0, "f32 add must use f32 precision for param";
+  ret %r as i32;
+}
+fun @main() : i32 {
+  let mut %v: i32 = 0;
+^entry:
+  %v = call @add1(16777217.0);
+  require %v == 16777216, "result must match f32-precision addition";
+  ret 0;
+}

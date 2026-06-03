@@ -1,0 +1,24 @@
+// EXPECT: PASS
+// Intention: f32 param in two-deep call chain preserves precision.
+// Verifies that the fix works through multiple levels of nesting.
+fun @inner(%x: f32) : i32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = 3.0 * %x;
+  // f32: 3.0f * 16777216.0f = 50331648.0
+  // f64: 3.0 * 16777217.0 = 50331651.0 → f32 = 50331652.0
+  ret %r as i32;
+}
+fun @outer(%y: f32) : i32 {
+  let mut %v: i32 = 0;
+^entry:
+  %v = call @inner(%y);
+  ret %v;
+}
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @outer(16777217.0);
+  require %r == 50331648, "two-deep call must preserve f32 param precision";
+  ret 0;
+}

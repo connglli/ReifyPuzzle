@@ -1,0 +1,23 @@
+// EXPECT: PASS
+// Intention: Simpler test — f32 parameter mul precision in nested call.
+// 5.0 * 16777217.0 in f32: 16777217 isn't exact in f32, rounds to 16777216.
+//   → 5.0f * 16777216.0f = 83886080.0 (exact in f32)
+// 5.0 * 16777217.0 in f64: 16777217 IS exact in f64.
+//   → 5.0 * 16777217.0 = 83886085.0, then f32 → 83886088.0
+// If the callee's parameter keeps bits=64, the f64 path fires → wrong answer.
+fun @mul5(%x: f32) : i32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = 5.0 * %x;
+  // In correct f32: 5.0f * 16777216.0f = 83886080.0
+  // In buggy f64:   5.0  * 16777217.0  = 83886085.0 → f32 = 83886088.0
+  require %r == 83886080.0, "f32 mul must use f32 precision for param";
+  ret %r as i32;
+}
+fun @main() : i32 {
+  let mut %v: i32 = 0;
+^entry:
+  %v = call @mul5(16777217.0);
+  require %v == 83886080, "result must match f32-precision multiplication";
+  ret 0;
+}
