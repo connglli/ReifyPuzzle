@@ -211,8 +211,22 @@ test-solver: $(TARGET_SOLVER) $(TARGET_INTERP)
 	$(PY) -m test.lib.run_example_tests examples ./$(TARGET_SOLVER) ./$(TARGET_INTERP)
 
 # Reify: rysmith + rylink differential generation pipeline.
+# Forward `make -jN` to the test runner's own `-j` flag so the
+# per-program cross-validation phase (steps 2 and 4 of every batch)
+# inherits the user's requested parallelism.  Generation and batching
+# stay sequential inside the script regardless.
+#
+# MAKEFLAGS is empty at parse-time (GNU make only populates it when a
+# recipe shell is spawned) so the extraction must run inside the
+# recipe.  Inside the recipe: `make -j8` produces something like
+# `-j8 --jobserver-auth=3,4`; bare `make -j` is `-j …`; plain `make`
+# is empty.  Grep for `-j<digits>`, default to 1 if absent — bare
+# `make -j` is mapped to 1 too, since "unlimited" without a concrete
+# value is a footgun for a script that fans out subprocess workers.
 test-reify: $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_INTERP) $(TARGET_COMPILER)
-	$(PY) -m test.lib.run_reify_diff_tests --rysmith ./$(TARGET_RYSMITH) --symiri ./$(TARGET_INTERP) --symirc ./$(TARGET_COMPILER) --rylink ./$(TARGET_RYLINK) --n 100 --seed 1234
+	@JOBS=$$(echo "$(MAKEFLAGS)" | grep -oE -- '-j[0-9]+' | head -1 | sed 's/-j//'); \
+	JOBS=$${JOBS:-1}; \
+	$(PY) -m test.lib.run_reify_diff_tests --rysmith ./$(TARGET_RYSMITH) --symiri ./$(TARGET_INTERP) --symirc ./$(TARGET_COMPILER) --rylink ./$(TARGET_RYLINK) -n 100 --seed 1234 -j $$JOBS
 
 # Aggregator. Recursive $(MAKE) calls keep per-component logs separated and
 # let CI selectively re-run a single group on retry.

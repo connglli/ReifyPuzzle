@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 from test.lib.style import bold, green, red, yellow
 
@@ -306,6 +307,87 @@ def _classify(label, sir_path, c_paths, parsed, symiri, clang, main_c, exe, verb
 
 
 # ───────────────────────────────────────────────────────────────────────
+# Parallel cross-validation
+#
+# `-j` only parallelises the per-program classify step (symiri vs
+# clang+exe).  Generation and batching stay sequential — the user is
+# explicit that those phases are fast and ordered, and parallelising
+# rysmith/rylink would tangle the on-disk artefact layout the rest of
+# this script reads back.
+# ───────────────────────────────────────────────────────────────────────
+
+
+def _classify_with_scratch(
+  idx, label, sir_path, c_paths, parsed, symiri, clang, out_dir, verbose
+):
+  """Per-task wrapper around `_classify`.  Each worker writes its own
+  `_main_<idx>.c` and compiles to its own `_test_<idx>` so parallel
+  jobs don't trample one another's scratch files.  Returns the same
+  `(bucket, msg)` tuple `_classify` returns."""
+  main_c = os.path.join(out_dir, f"_main_{idx}.c")
+  exe = os.path.join(out_dir, f"_test_{idx}")
+  return _classify(
+    label, sir_path, c_paths, parsed, symiri, clang, main_c, exe, verbose
+  )
+
+
+_CLASSIFY_KEYS = (
+  "idx",
+  "label",
+  "sir_path",
+  "c_paths",
+  "parsed",
+  "symiri",
+  "clang",
+  "out_dir",
+  "verbose",
+)
+
+
+def _classify_pool(tasks, jobs, fail_early):
+  """Run `_classify_with_scratch` over `tasks` (a list of dicts).
+  Only the keys in `_CLASSIFY_KEYS` are splatted into the worker;
+  callers can stash extra side-data on the task dict (e.g. a
+  `_prog_dir` for bug-saving) and read it back when the result
+  surfaces.  Yields `(task, bucket, msg)` triples in submission order
+  so the caller's bug-saving + reporting stays deterministic.
+
+  When `jobs == 1`, runs in-line (cheaper than spinning a pool and
+  preserves the exact subprocess sequencing of the pre-refactor code).
+  When `jobs > 1`, dispatches via `ThreadPoolExecutor` — symiri /
+  clang / the exe run as their own processes so GIL contention is
+  negligible.
+
+  `fail_early` short-circuits result iteration on the first failure
+  bucket and cancels any pending futures; already-running tasks keep
+  running (Python's ThreadPoolExecutor doesn't interrupt) but their
+  results are discarded."""
+
+  def kwargs(task):
+    return {k: task[k] for k in _CLASSIFY_KEYS}
+
+  if jobs <= 1 or len(tasks) <= 1:
+    for task in tasks:
+      bucket, msg = _classify_with_scratch(**kwargs(task))
+      yield task, bucket, msg
+      if fail_early and bucket not in ("passed", "skipped"):
+        return
+    return
+
+  with ThreadPoolExecutor(max_workers=jobs) as ex:
+    futures = [
+      (task, ex.submit(_classify_with_scratch, **kwargs(task))) for task in tasks
+    ]
+    for task, fut in futures:
+      bucket, msg = fut.result()
+      yield task, bucket, msg
+      if fail_early and bucket not in ("passed", "skipped"):
+        for _, pending in futures:
+          pending.cancel()
+        return
+
+
+# ───────────────────────────────────────────────────────────────────────
 # Per-batch artefact management
 # ───────────────────────────────────────────────────────────────────────
 
@@ -380,6 +462,7 @@ def run(
   clang,
   verbose,
   fail_early=False,
+  jobs=1,
 ):
   os.makedirs(out_dir, exist_ok=True)
   # Wipe stale artefacts from a previous run, including a prior bugs/ tree.
@@ -400,8 +483,9 @@ def run(
   skipped = 0
   _LISTS = {"mismatch": mismatch, "ubsan": ubsan, "cfail": cfail, "sirfail": sirfail}
 
-  main_c = os.path.join(out_dir, "_main.c")
-  exe = os.path.join(out_dir, "_test")
+  # Scratch `_main_<idx>.c` / `_test_<idx>` paths are constructed
+  # inside `_classify_with_scratch` so parallel workers don't collide.
+  # The single-shared `_main.c` / `_test` files are no longer used.
 
   # Aggregate counters surfaced in the verbose end-of-run report.
   leaf_generated_total = 0
@@ -454,15 +538,27 @@ def run(
     # ── (2) rysmith test ────────────────────────────────────────────────
     if verbose:
       print(bold(f"batch #{batch_idx + 1} rysmith test ({done}/{n} programs):"))
-      print("  running: symiri vs clang+exe")
+      print(f"  running: symiri vs clang+exe (jobs={jobs})")
 
-    for sir_name in sirs:
+    leaf_tasks = []
+    for i, sir_name in enumerate(sirs):
       sir_path = os.path.join(out_dir, sir_name)
       c_path = sir_path[:-4] + ".c"
-      parsed = _parse_program(sir_path)
-      bucket, msg = _classify(
-        sir_name, sir_path, [c_path], parsed, symiri, clang, main_c, exe, verbose
+      leaf_tasks.append(
+        {
+          "idx": i,
+          "label": sir_name,
+          "sir_path": sir_path,
+          "c_paths": [c_path],
+          "parsed": _parse_program(sir_path),
+          "symiri": symiri,
+          "clang": clang,
+          "out_dir": out_dir,
+          "verbose": verbose,
+        }
       )
+
+    for task, bucket, msg in _classify_pool(leaf_tasks, jobs, fail_early):
       processed_total += 1
       if bucket == "passed":
         passed += 1
@@ -470,10 +566,10 @@ def run(
         skipped += 1
       else:
         _LISTS[bucket].append(msg)
-        _save_leaf_bug(bugs_dir, bucket, sir_name, out_dir, batch_idx + 1)
+        _save_leaf_bug(bugs_dir, bucket, task["label"], out_dir, batch_idx + 1)
         if fail_early:
           print(
-            f"  [batch {batch_idx + 1}, rysmith {sir_name}] "
+            f"  [batch {batch_idx + 1}, rysmith {task['label']}] "
             f"{red('first failure')} ({bucket}): {msg}",
             flush=True,
           )
@@ -548,8 +644,10 @@ def run(
     if not stopped_early:
       if verbose:
         print(bold(f"batch #{batch_idx + 1} rylink test ({done}/{n} programs):"))
-        print("  running: symiri vs clang+exe")
-      for prog_dir in ry_progs:
+        print(f"  running: symiri vs clang+exe (jobs={jobs})")
+
+      rylink_tasks = []
+      for i, prog_dir in enumerate(ry_progs):
         prog_name = os.path.basename(prog_dir.rstrip("/"))
         sir_path = os.path.join(prog_dir, "program.sir")
         # rylink --split-by-source emits one .c per FunDecl::sourceStem
@@ -559,10 +657,24 @@ def run(
         c_paths = sorted(
           os.path.join(prog_dir, f) for f in os.listdir(prog_dir) if f.endswith(".c")
         )
-        parsed = _parse_program(sir_path)
-        bucket, msg = _classify(
-          prog_name, sir_path, c_paths, parsed, symiri, clang, main_c, exe, verbose
+        rylink_tasks.append(
+          {
+            "idx": i,
+            "label": prog_name,
+            "sir_path": sir_path,
+            "c_paths": c_paths,
+            "parsed": _parse_program(sir_path),
+            "symiri": symiri,
+            "clang": clang,
+            "out_dir": out_dir,
+            "verbose": verbose,
+            # Held on the side for `_save_rylink_bug` after the pool
+            # surfaces the result — the worker itself doesn't need it.
+            "_prog_dir": prog_dir,
+          }
         )
+
+      for task, bucket, msg in _classify_pool(rylink_tasks, jobs, fail_early):
         processed_total += 1
         if bucket == "passed":
           passed += 1
@@ -570,10 +682,10 @@ def run(
           skipped += 1
         else:
           _LISTS[bucket].append(msg)
-          _save_rylink_bug(bugs_dir, bucket, prog_dir, batch_idx + 1)
+          _save_rylink_bug(bugs_dir, bucket, task["_prog_dir"], batch_idx + 1)
           if fail_early:
             print(
-              f"  [batch {batch_idx + 1}, rylink {prog_name}] "
+              f"  [batch {batch_idx + 1}, rylink {task['label']}] "
               f"{red('first failure')} ({bucket}): {msg}",
               flush=True,
             )
@@ -634,7 +746,11 @@ def main():
   ap.add_argument("--symirc", default="./symirc")
   ap.add_argument("--clang", default="clang")
   ap.add_argument(
-    "--n", type=int, default=100, help="Total number of programs to generate and test"
+    "-n",
+    "--num",
+    type=int,
+    default=100,
+    help="Total number of programs to generate and test",
   )
   ap.add_argument(
     "--seed",
@@ -649,7 +765,21 @@ def main():
     action="store_true",
     help="Stop at the first mismatch/ubsan/cfail/sirfail instead of finishing the batch",
   )
+  ap.add_argument(
+    "-j",
+    "--jobs",
+    type=int,
+    default=1,
+    help=(
+      "Parallelism for the symiri-vs-C cross-validation step within a "
+      "batch.  Batches and generation stay sequential.  Default 1 "
+      "(in-line, identical to the historical behaviour)."
+    ),
+  )
   args = ap.parse_args()
+  if args.jobs < 1:
+    print(red("error: -j/--jobs must be >= 1"), file=sys.stderr)
+    sys.exit(2)
 
   for tool, path in (
     ("rysmith", args.rysmith),
@@ -671,12 +801,13 @@ def main():
     args.rylink,
     args.symiri,
     args.symirc,
-    args.n,
+    args.num,
     args.seed,
     args.out,
     args.clang,
     args.verbose,
     fail_early=args.fail_early,
+    jobs=args.jobs,
   )
   sys.exit(0 if ok else 1)
 
