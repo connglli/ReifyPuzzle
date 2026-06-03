@@ -1,0 +1,42 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// [v0.2.2] Regression: pointer arithmetic on `ptr [N] T` advances by
+// element distance (one element = `[N] T`), not by 1 byte.  With the
+// pre-fix flat lowering (`ptr [N] T → T *`), `%p + 1` would walk 1
+// byte instead of N bytes — a silent semantic bug that would only
+// surface as wrong reads from the wrong row.  With the typedef-based
+// lowering (`ptr [3] i8 → _sym_arr_3_i8 *`), `%p + 1` walks 3 bytes,
+// matching SymIR's spec.
+
+fun @main() : i32 {
+  let mut %a:  [4] [3] i8 = 0;
+  let mut %pa: ptr [4] [3] i8 = null;
+  let mut %p0: ptr [3] i8 = null;
+  let mut %p2: ptr [3] i8 = null;
+  let mut %ps: ptr i8     = null;
+  let mut %v:  i8         = 0;
+^entry:
+  // Stamp each row's [0] cell with the row index so a 1-byte walk
+  // from row 0 would land on row 0's middle/last cell (all zero),
+  // while a 3-byte walk (one full row) lands on row 1's first cell.
+  %a[0][0] = 10;
+  %a[1][0] = 20;
+  %a[2][0] = 30;
+
+  // %pa : ptr [4] [3] i8 ; ptrindex it to get %p0 : ptr [3] i8.
+  %pa = addr %a;
+  %p0 = ptrindex %pa, 0;
+  // Walk two rows forward.  Each row is `[3] i8` = 3 bytes.
+  %p2 = %p0 + 2;
+  %ps = ptrindex %p2, 0;
+  %v = load %ps;
+  require %v == 30, "ptr [3] i8 + 2 walks to row 2 (stride = 3 bytes)";
+
+  // Walk one row forward.
+  %p2 = %p0 + 1;
+  %ps = ptrindex %p2, 0;
+  %v = load %ps;
+  require %v == 20, "ptr [3] i8 + 1 walks to row 1";
+
+  ret 0;
+}

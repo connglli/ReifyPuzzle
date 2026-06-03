@@ -110,6 +110,55 @@ namespace symir {
     return stripSigil(funcName) + "__" + stripSigil(symName);
   }
 
+  // [v0.2.2] Encode an integer / float / struct leaf type as a C-identifier
+  // suffix used by `arrayPtrTypedefName`.  Walks the leaf only — the array
+  // shape is encoded separately by the caller.
+  static std::string typedefLeafTag(const TypePtr &t) {
+    if (!t)
+      return "void";
+    return std::visit(
+        [](auto &&arg) -> std::string {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, IntType>) {
+            uint32_t b = (arg.kind == IntType::Kind::I32)   ? 32
+                         : (arg.kind == IntType::Kind::I64) ? 64
+                                                            : (uint32_t) arg.bits.value_or(32);
+            return "i" + std::to_string(b);
+          } else if constexpr (std::is_same_v<T, FloatType>) {
+            return (arg.kind == FloatType::Kind::F32) ? "f32" : "f64";
+          } else if constexpr (std::is_same_v<T, StructType>) {
+            return "S_" + arg.name.name.substr(arg.name.name.empty() ? 0 : 1);
+          }
+          return "x";
+        },
+        t->v
+    );
+  }
+
+  // [v0.2.2] Generate a stable, C-identifier-safe typedef name for an
+  // `ArrayType` used as a SymIR pointer pointee.  The shape is encoded
+  // outer-to-inner with `x` between dimensions, and the leaf is one of
+  // `iN`, `fN`, `S_<name>`.  Examples:
+  //   [3] i8         → _sym_arr_3_i8
+  //   [3] [3] i8     → _sym_arr_3x3_i8
+  //   [2] [2] [2] f64→ _sym_arr_2x2x2_f64
+  //   [4] @S         → _sym_arr_4_S_S
+  static std::string arrayPtrTypedefName(const TypePtr &arrTy) {
+    std::string s = "_sym_arr_";
+    TypePtr cur = arrTy;
+    bool first = true;
+    while (cur && std::holds_alternative<ArrayType>(cur->v)) {
+      const auto &at = std::get<ArrayType>(cur->v);
+      if (!first)
+        s += "x";
+      s += std::to_string(at.size);
+      first = false;
+      cur = at.elem;
+    }
+    s += "_" + typedefLeafTag(cur);
+    return s;
+  }
+
   void CBackend::emitType(const TypePtr &type) {
     if (!type) {
       out_ << "void";
@@ -142,8 +191,17 @@ namespace symir {
             // Arrays are emitted as C arrays in context, but here we emit the base type
             emitType(arg.elem);
           } else if constexpr (std::is_same_v<T, PtrType>) {
-            emitType(arg.pointee);
-            out_ << " *";
+            // [v0.2.2] When the pointee is an array (1D or nested), use
+            // the typedef generated for that shape — `Elem (*)[N]…[M]`
+            // is the proper C type and matches `&array` naturally,
+            // unlike the flat `Elem *` collapse this branch used to do.
+            // The typedef pre-emission lives in `emit()`'s preamble.
+            if (arg.pointee && std::holds_alternative<ArrayType>(arg.pointee->v)) {
+              out_ << arrayPtrTypedefName(arg.pointee) << " *";
+            } else {
+              emitType(arg.pointee);
+              out_ << " *";
+            }
           } else if constexpr (std::is_same_v<T, VecType>) {
             // [v0.2.1] Vector type — delegated to the lowering strategy.
             // VecLowering produces a C type-string (a typedef name for
@@ -153,6 +211,63 @@ namespace symir {
         },
         type->v
     );
+  }
+
+  // [v0.2.2] Walk a type collecting every ArrayType that appears as the
+  // direct pointee of a PtrType.  Used to drive the array-pointer typedef
+  // preamble — every `ptr [N] T` declaration needs a matching
+  // `typedef T <name>[N]` so the assignment from `&array` type-checks.
+  static void collectPtrArrayShapesInType(const TypePtr &t, std::vector<TypePtr> &out) {
+    if (!t)
+      return;
+    std::visit(
+        [&](auto &&arg) {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, PtrType>) {
+            if (arg.pointee && std::holds_alternative<ArrayType>(arg.pointee->v))
+              out.push_back(arg.pointee);
+            // Recurse: a `ptr ptr [N] T` nests, and we still want the
+            // inner `[N] T` typedef collected.
+            collectPtrArrayShapesInType(arg.pointee, out);
+          } else if constexpr (std::is_same_v<T, ArrayType>) {
+            collectPtrArrayShapesInType(arg.elem, out);
+          } else if constexpr (std::is_same_v<T, VecType>) {
+            collectPtrArrayShapesInType(arg.elem, out);
+          }
+        },
+        t->v
+    );
+  }
+
+  static std::vector<TypePtr> collectPtrArrayShapes(const Program &prog) {
+    std::vector<TypePtr> raw;
+    for (const auto &s: prog.structs)
+      for (const auto &f: s.fields)
+        collectPtrArrayShapesInType(f.type, raw);
+    for (const auto &f: prog.funs) {
+      collectPtrArrayShapesInType(f.retType, raw);
+      for (const auto &p: f.params)
+        collectPtrArrayShapesInType(p.type, raw);
+      for (const auto &s: f.syms)
+        collectPtrArrayShapesInType(s.type, raw);
+      for (const auto &l: f.lets)
+        collectPtrArrayShapesInType(l.type, raw);
+    }
+    for (const auto &d: prog.extDecls) {
+      collectPtrArrayShapesInType(d.retType, raw);
+      for (const auto &p: d.params)
+        collectPtrArrayShapesInType(p.type, raw);
+    }
+    // De-dup by the generated typedef name (it's a stable key on the
+    // outer-to-inner shape + leaf tag).
+    std::unordered_map<std::string, TypePtr> uniq;
+    std::vector<TypePtr> out;
+    for (const auto &t: raw) {
+      auto key = arrayPtrTypedefName(t);
+      if (uniq.emplace(key, t).second)
+        out.push_back(t);
+    }
+    return out;
   }
 
   // [v0.2.1] Walk the program collecting every (N, T) vector shape used so
@@ -369,11 +484,85 @@ namespace symir {
         vecLowering_->emitPreamble(out_, vecShapes);
       }
 
-      // 1. Forward decls for structs
+      // 1. Forward decls for structs.
       for (const auto &s: prog.structs) {
         out_ << "struct " << mangleName(s.name.name) << ";\n";
       }
       out_ << "\n";
+
+      // [v0.2.2] 1a. Pointer-to-array typedefs.  Emit scalar / float
+      // leaves first so they're available inside struct field
+      // declarations.  Struct-leaf typedefs are emitted in §1c below
+      // after the struct definitions are complete (a typedef of
+      // `struct S _n[N]` needs `sizeof(struct S)`).
+      auto arrayShapes = collectPtrArrayShapes(prog);
+      auto leafIsStruct = [](const TypePtr &arrTy) {
+        TypePtr cur = arrTy;
+        while (cur && std::holds_alternative<ArrayType>(cur->v))
+          cur = std::get<ArrayType>(cur->v).elem;
+        return cur && std::holds_alternative<StructType>(cur->v);
+      };
+      auto emitArrayTypedef = [&](const TypePtr &arrTy) {
+        TypePtr cur = arrTy;
+        std::vector<uint64_t> dims;
+        while (cur && std::holds_alternative<ArrayType>(cur->v)) {
+          dims.push_back(std::get<ArrayType>(cur->v).size);
+          cur = std::get<ArrayType>(cur->v).elem;
+        }
+        out_ << "typedef ";
+        emitType(cur);
+        out_ << " " << arrayPtrTypedefName(arrTy);
+        for (auto d: dims)
+          out_ << "[" << d << "]";
+        out_ << ";\n";
+      };
+      bool emittedScalarTypedef = false;
+      for (const auto &arrTy: arrayShapes) {
+        if (leafIsStruct(arrTy))
+          continue;
+        emitArrayTypedef(arrTy);
+        emittedScalarTypedef = true;
+      }
+      if (emittedScalarTypedef)
+        out_ << "\n";
+
+      // 2. Struct definitions.  Hoisted ahead of intrinsic helpers and
+      // function forward decls so the pointer-to-struct-array typedefs
+      // (§1c) and any cross-reference that needs the full layout can
+      // resolve correctly.
+      for (const auto &s: prog.structs) {
+        out_ << "struct " << mangleName(s.name.name) << " {\n";
+        indent_level_++;
+        for (const auto &f: s.fields) {
+          indent();
+          // Handle array fields
+          TypePtr cur = f.type;
+          std::vector<uint64_t> dims;
+          while (auto at = std::get_if<ArrayType>(&cur->v)) {
+            dims.push_back(at->size);
+            cur = at->elem;
+          }
+          emitType(cur);
+          out_ << " " << f.name;
+          for (auto d: dims)
+            out_ << "[" << d << "]";
+          out_ << ";\n";
+        }
+        indent_level_--;
+        out_ << "};\n\n";
+      }
+
+      // [v0.2.2] 1c. Pointer-to-array typedefs whose leaf is a struct.
+      // Emit after struct definitions so `sizeof(struct S)` is known.
+      bool emittedStructTypedef = false;
+      for (const auto &arrTy: arrayShapes) {
+        if (!leafIsStruct(arrTy))
+          continue;
+        emitArrayTypedef(arrTy);
+        emittedStructTypedef = true;
+      }
+      if (emittedStructTypedef)
+        out_ << "\n";
 
       // 1b. [v0.2.2] Emit intrinsic helpers and extern decls for link-form
       //     `decl`s. Contract-form `decl`s lower with extern + a structured
@@ -411,29 +600,6 @@ namespace symir {
       }
       if (!prog.funs.empty())
         out_ << "\n";
-
-      // 2. Struct definitions
-      for (const auto &s: prog.structs) {
-        out_ << "struct " << mangleName(s.name.name) << " {\n";
-        indent_level_++;
-        for (const auto &f: s.fields) {
-          indent();
-          // Handle array fields
-          TypePtr cur = f.type;
-          std::vector<uint64_t> dims;
-          while (auto at = std::get_if<ArrayType>(&cur->v)) {
-            dims.push_back(at->size);
-            cur = at->elem;
-          }
-          emitType(cur);
-          out_ << " " << f.name;
-          for (auto d: dims)
-            out_ << "[" << d << "]";
-          out_ << ";\n";
-        }
-        indent_level_--;
-        out_ << "};\n\n";
-      }
     } // !suppressPreamble_
 
     auto getWidth = [](const TypePtr &t) -> std::uint32_t {
@@ -1018,6 +1184,11 @@ namespace symir {
               out_ << "~";
             emitLValue(arg.rval);
           } else if constexpr (std::is_same_v<T, AddrAtom>) {
+            // [v0.2.2] With ptr-to-array typedefs in place, `&lv` has
+            // the right C type for every aggregate / scalar lv:
+            // `int8_t (*)[3][3]` for a 2D array maps to the typedef
+            // `_sym_arr_3x3_i8 *`, `struct S *` for a struct, plain
+            // `T *` for a scalar.  No special casts needed.
             out_ << "&";
             emitLValue(arg.lv);
           } else if constexpr (std::is_same_v<T, LoadAtom>) {
@@ -1038,8 +1209,14 @@ namespace symir {
             // rule 18 (undef nav — relies on UBSan), rule 16 (index bounds).
             // We emit:  ({ if (!p) __builtin_trap();
             //              if ((uint64_t)i > N) __builtin_trap();
-            //              p + i; })
+            //              (*p) + i; })
             // The N comes from the source pointer's array pointee.
+            //
+            // [v0.2.2] The source pointer's C type is now `Elem (*)[N]…`
+            // (typedef'd, see `arrayPtrTypedefName`).  Dereferencing
+            // once gives the array, which decays to a pointer-to-
+            // inner-element on `+ i`; the stride matches SymIR's
+            // ptrindex semantics naturally.
             uint64_t arrSize = 0;
             auto rvTy = getLValueType(arg.rval);
             if (rvTy) {
@@ -1056,9 +1233,7 @@ namespace symir {
             out_ << "); if (!_pi) __builtin_trap();";
             if (arrSize > 0)
               out_ << " if (_ii < 0 || (uint64_t)_ii > " << arrSize << "ULL) __builtin_trap();";
-            // The pointer p has C type "T *" (pointee array decayed), so
-            // (p + i) is the element-pointer of type T *.
-            out_ << " _pi + _ii; })";
+            out_ << " (*_pi) + _ii; })";
           } else if constexpr (std::is_same_v<T, PtrFieldAtom>) {
             // [v0.2.1] ptrfield p, f → field pointer. Rule 17 (null nav)
             // and rule 19 (one-past-end nav). The one-past-end check uses

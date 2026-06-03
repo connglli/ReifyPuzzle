@@ -1,0 +1,65 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// [v0.2.2] Regression: `addr` of an aggregate lv produces a SymIR
+// `ptr [N] T` (or nested-array) pointer.  The C backend used to lower
+// `ptr [N] T` to the flat element type (`T *` — emitType for ArrayType
+// dropped the dimensions), but C's `&array` has type `T (*)[N]…`, so
+// the assignment failed `-Wincompatible-pointer-types` (clang
+// warning, gcc error with -Werror).  Caught by rysmith's
+// func_fa5b0a_28a — an aggregate pointer that's declared, assigned
+// via `addr`, then never used for typed access.
+//
+// Fix: emit per-shape `typedef Elem name[N]…[M]` and lower
+// `ptr [N] T` as `<typedef> *`.  Then `&array` matches the typedef
+// pointer naturally without any cast, `ptrindex` walks by the right
+// stride via `(*p) + i`, and pointer arithmetic on the typedef
+// pointer steps by `sizeof(typedef)` per element.
+//
+// These tests exercise the full chain: declare → addr → ptrindex →
+// load, plus pointer arithmetic, across 1D, 2D, and 3D arrays.
+
+fun @main() : i32 {
+  let mut %a1d:    [5] i8     = 0;
+  let mut %a2d:    [3] [3] i8 = 0;
+  let mut %a3d:    [2] [2] [2] i8 = 0;
+  let mut %ap1d:   ptr [5] i8       = null;
+  let mut %ap2d:   ptr [3] [3] i8   = null;
+  let mut %ap3d:   ptr [2] [2] [2] i8 = null;
+  let mut %row:    ptr [3] i8       = null;
+  let mut %slab:   ptr [2] [2] i8   = null;
+  let mut %row3:   ptr [2] i8       = null;
+  let mut %scalar: i32              = 7;
+  let mut %ps:     ptr i32          = null;
+  let mut %psi8:   ptr i8           = null;
+  let mut %v:      i8               = 0;
+^entry:
+  // ── 1D path ────────────────────────────────────────────────────────
+  %a1d[3] = 42;
+  %ap1d = addr %a1d;
+  %psi8 = ptrindex %ap1d, 3;
+  %v = load %psi8;
+  require %v == 42, "1D: addr + ptrindex,3 + load reads a1d[3]";
+
+  // ── 2D path: chain ptrindex twice ──────────────────────────────────
+  %a2d[1][2] = 7;
+  %ap2d = addr %a2d;
+  %row  = ptrindex %ap2d, 1;
+  %psi8 = ptrindex %row, 2;
+  %v = load %psi8;
+  require %v == 7, "2D: addr + ptrindex,1 + ptrindex,2 + load";
+
+  // ── 3D path: chain ptrindex three times ────────────────────────────
+  %a3d[1][0][1] = 99;
+  %ap3d = addr %a3d;
+  %slab = ptrindex %ap3d, 1;
+  %row3 = ptrindex %slab, 0;
+  %psi8 = ptrindex %row3, 1;
+  %v = load %psi8;
+  require %v == 99, "3D: addr + 3x ptrindex + load";
+
+  // ── Scalar path must not regress ───────────────────────────────────
+  %ps = addr %scalar;
+  require %scalar == 7, "scalar addr still works";
+
+  ret 0;
+}

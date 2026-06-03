@@ -1,0 +1,36 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// [v0.2.2] Regression: pointer-to-array of struct.  The C backend
+// emits two typedef groups — scalar/float-leaf shapes before struct
+// definitions (so struct fields can reference them) and struct-leaf
+// shapes after struct definitions (so `sizeof(struct S)` is known).
+// This test exercises the latter group end-to-end: declare a struct
+// array, take its address as `ptr [N] @S`, navigate to a single
+// struct via `ptrindex`, then read its field via `ptrfield`.
+
+struct @Pt {
+  x: i32;
+  y: i32;
+}
+
+fun @main() : i32 {
+  let mut %pts: [3] @Pt           = 0;
+  let mut %pp:  ptr [3] @Pt       = null;
+  let mut %p1:  ptr @Pt           = null;
+  let mut %py:  ptr i32           = null;
+  let mut %v:   i32               = 0;
+^entry:
+  %pts[1].y = 555;
+  %pp = addr %pts;
+  %p1 = ptrindex %pp, 1;
+  %py = ptrfield %p1, y;
+  %v  = load %py;
+  require %v == 555, "ptr [3] @Pt → ptrindex,1 → ptrfield y → load";
+
+  // Reverse direction: write through the chain.
+  %py = ptrfield %p1, x;
+  store %py, 9999;
+  require %pts[1].x == 9999, "store through ptr chain visible in array";
+
+  ret 0;
+}
