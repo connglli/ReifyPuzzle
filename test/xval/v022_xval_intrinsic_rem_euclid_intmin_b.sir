@@ -1,0 +1,46 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// [v0.2.2] Regression: @rem_euclid's "if (r < 0) r += |b|" computed |b|
+// as `(a1 > 0) ? a1 : -a1`.  When `a1 == INT_MIN_N`, `-a1` overflows
+// signed iN even though the final result `r + |b|` fits.  UBSan caught
+// this on a rysmith-generated function (b3_func_d6e67e_52b) where the
+// dividend was `-8347645` and the divisor was `INT_MIN_32`.  The fix
+// computes the addition in `uty` (unsigned) so the modular arithmetic
+// dodges the signed-negation overflow.
+
+intrinsic @rem_euclid(%a: i32, %b: i32) : i32;
+intrinsic @rem_euclid(%a: i64, %b: i64) : i64;
+
+fun @main() : i32 {
+  let mut %r32: i32 = 0;
+  let mut %r64: i64 = 0;
+  let mut %imin32: i32 = -2147483647;
+  let mut %imin64: i64 = -9223372036854775807;
+^entry:
+  %imin32 = %imin32 - 1; // INT_MIN_32
+  %imin64 = %imin64 - 1; // INT_MIN_64
+
+  // The canonical witness from the rysmith reproducer.  -8347645 %
+  // INT_MIN_32 = -8347645 (since |a| < |b|).  Euclidean rem adds
+  // |INT_MIN_32| = INT_MAX_32 + 1, then narrows: result is
+  // 2147483648 + (-8347645) wrapped into int32 = 2139136003.
+  %r32 = call @rem_euclid(-8347645, %imin32);
+  require %r32 == 2139136003, "rem_euclid 32: -8347645 mod INT_MIN_32";
+
+  // r = -1 case lights up the maximum result: r + |b| = INT_MAX_32.
+  %r32 = call @rem_euclid(-1, %imin32);
+  require %r32 == 2147483647, "rem_euclid 32: -1 mod INT_MIN_32 -> INT_MAX_32";
+
+  // r == 0 case: result is 0, no adjustment.
+  %r32 = call @rem_euclid(%imin32, %imin32);
+  require %r32 == 0, "rem_euclid 32: INT_MIN_32 mod INT_MIN_32 -> 0";
+
+  // i64 mirror.
+  %r64 = call @rem_euclid(-8347645 as i64, %imin64);
+  require %r64 == 9223372036846428163 as i64, "rem_euclid 64: -8347645 mod INT_MIN_64";
+
+  %r64 = call @rem_euclid(-1 as i64, %imin64);
+  require %r64 == 9223372036854775807 as i64, "rem_euclid 64: -1 mod INT_MIN_64 -> INT_MAX_64";
+
+  ret 0;
+}

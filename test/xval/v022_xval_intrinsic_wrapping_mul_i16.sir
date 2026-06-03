@@ -1,0 +1,29 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// [v0.2.2] Regression: @wrapping_mul at i16 promotes its `uint16_t`
+// operands to signed `int` (C usual arithmetic conversions), and
+// `65534 * 65535 ≈ 4.3e9` then overshoots `INT_MAX_32`.  UBSan flags
+// the multiplication as signed-int overflow even though the modular
+// result of `(uint16_t * uint16_t) mod 2^16` is well defined.  The C
+// helper now widens to `uint64_t` before the multiply so the
+// arithmetic stays unsigned and well-defined.
+intrinsic @wrapping_mul(%a: i16, %b: i16) : i16;
+
+fun @main() : i32 {
+  let mut %r: i16 = 0;
+^entry:
+  // -2 = 0xFFFE, -1 = 0xFFFF; unsigned product is 0xFFFE * 0xFFFF =
+  // 0xFFFD0002, narrowed to i16 = 0x0002 = 2.  The bug was the
+  // signed-int overflow during integer promotion before the narrow.
+  %r = call @wrapping_mul(-2 as i16, -1 as i16);
+  require %r == 2, "wrap_mul i16 (-2)*(-1) -> 2";
+
+  // INT_MAX_16 * 2 unsigned = 0x7FFF * 2 = 0xFFFE; narrowed to i16 is
+  // bit pattern 0xFFFE = -2 signed.  Promoted-int product is 65534
+  // which fits in int32 — this case alone wouldn't trigger UBSan;
+  // the case above is the canonical witness.
+  %r = call @wrapping_mul(32767 as i16, 2 as i16);
+  require %r == -2, "wrap_mul i16 INT_MAX*2 wraps to -2";
+
+  ret 0;
+}

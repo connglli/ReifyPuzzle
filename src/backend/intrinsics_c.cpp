@@ -95,6 +95,23 @@ namespace symir {
         return "(" + uty + ")(" + expr + ")";
       return "((" + uty + ")(" + expr + ") & ((" + uty + ")1 << " + std::to_string(N) + ") - 1)";
     }
+
+    /**
+     * @brief Emit `INT_MIN_N` as a C expression that cannot be parsed as
+     * unary-minus on an out-of-range literal.  Writing `-9223372036854775808LL`
+     * directly trips the long-long maximum: the lexer treats
+     * `9223372036854775808` as `unsigned long long`, and the unary `-` on an
+     * unsigned value silently produces `+9223372036854775808`, breaking
+     * downstream comparisons and casts.  For `N == 64` we therefore emit
+     * the canonical `(-INT64_MAX - 1)` form (and rely on <stdint.h> for
+     * `INT64_MAX`); narrower widths fit cleanly in `long long`.
+     */
+    static std::string intMinNExpr(uint32_t N) {
+      if (N == 64)
+        return "(-9223372036854775807LL - 1)";
+      int64_t lo = -(INT64_C(1) << (N - 1));
+      return std::to_string(lo) + "LL";
+    }
   };
 
   /**
@@ -120,8 +137,7 @@ namespace symir {
           CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
           const std::string &uty
       ) const override {
-        int64_t int_min_N = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
-        out(backend) << "  if (a0 == (" << sty << ")" << int_min_N << "LL) __builtin_trap();\n";
+        out(backend) << "  if (a0 == (" << sty << ")" << intMinNExpr(N) << ") __builtin_trap();\n";
         if (W <= 32)
           out(backend) << "  " << sty << " r = (" << sty << ")abs((int)a0);\n";
         else
@@ -459,6 +475,13 @@ namespace symir {
 
     /**
      * @brief @wrapping_mul — (a * b) mod 2^N.
+     *
+     * Computed in uint64 so the multiplication can never trip signed-int
+     * overflow during integer promotion: for `uint16_t * uint16_t`, the
+     * usual promotion converts both operands to `int`, and `65534 *
+     * 65535 ≈ 4.3e9` then overshoots `INT_MAX_32`.  Widening to uint64
+     * first makes the arithmetic unsigned and well-defined modularly;
+     * narrowing back to `uty` wraps as required.
      */
     class WrappingMulIntrinsic final : public CIntrinsic {
     public:
@@ -468,7 +491,7 @@ namespace symir {
       ) const override {
         out(backend) << "  " << uty << " ua = " << makeMaskU(N, W, uty, "a0") << ";\n";
         out(backend) << "  " << uty << " ub = " << makeMaskU(N, W, uty, "a1") << ";\n";
-        out(backend) << "  " << uty << " r = (" << uty << ")(ua * ub);\n";
+        out(backend) << "  " << uty << " r = (" << uty << ")((uint64_t)ua * (uint64_t)ub);\n";
         out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")r") << ";\n";
       }
     };
@@ -537,16 +560,16 @@ namespace symir {
           const std::string &uty
       ) const override {
         int64_t hi = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
-        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        std::string loE = intMinNExpr(N);
         if (N <= 32) {
           out(backend) << "  int64_t s = (int64_t)a0 + (int64_t)a1;\n";
           out(backend) << "  if (s > " << hi << "LL) s = " << hi << "LL;\n";
-          out(backend) << "  if (s < " << lo << "LL) s = " << lo << "LL;\n";
+          out(backend) << "  if (s < " << loE << ") s = " << loE << ";\n";
           out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")s") << ";\n";
         } else {
           out(backend) << "  __int128 s = (__int128)a0 + (__int128)a1;\n";
           out(backend) << "  if (s > (__int128)" << hi << "LL) s = (__int128)" << hi << "LL;\n";
-          out(backend) << "  if (s < (__int128)" << lo << "LL) s = (__int128)" << lo << "LL;\n";
+          out(backend) << "  if (s < (__int128)(" << loE << ")) s = (__int128)(" << loE << ");\n";
           out(backend) << "  return (" << sty << ")s;\n";
         }
       }
@@ -562,16 +585,16 @@ namespace symir {
           const std::string &uty
       ) const override {
         int64_t hi = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
-        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        std::string loE = intMinNExpr(N);
         if (N <= 32) {
           out(backend) << "  int64_t s = (int64_t)a0 - (int64_t)a1;\n";
           out(backend) << "  if (s > " << hi << "LL) s = " << hi << "LL;\n";
-          out(backend) << "  if (s < " << lo << "LL) s = " << lo << "LL;\n";
+          out(backend) << "  if (s < " << loE << ") s = " << loE << ";\n";
           out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")s") << ";\n";
         } else {
           out(backend) << "  __int128 s = (__int128)a0 - (__int128)a1;\n";
           out(backend) << "  if (s > (__int128)" << hi << "LL) s = (__int128)" << hi << "LL;\n";
-          out(backend) << "  if (s < (__int128)" << lo << "LL) s = (__int128)" << lo << "LL;\n";
+          out(backend) << "  if (s < (__int128)(" << loE << ")) s = (__int128)(" << loE << ");\n";
           out(backend) << "  return (" << sty << ")s;\n";
         }
       }
@@ -587,16 +610,16 @@ namespace symir {
           const std::string &uty
       ) const override {
         int64_t hi = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
-        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        std::string loE = intMinNExpr(N);
         if (N <= 32) {
           out(backend) << "  int64_t s = (int64_t)a0 * (int64_t)a1;\n";
           out(backend) << "  if (s > " << hi << "LL) s = " << hi << "LL;\n";
-          out(backend) << "  if (s < " << lo << "LL) s = " << lo << "LL;\n";
+          out(backend) << "  if (s < " << loE << ") s = " << loE << ";\n";
           out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")s") << ";\n";
         } else {
           out(backend) << "  __int128 s = (__int128)a0 * (__int128)a1;\n";
           out(backend) << "  if (s > (__int128)" << hi << "LL) s = (__int128)" << hi << "LL;\n";
-          out(backend) << "  if (s < (__int128)" << lo << "LL) s = (__int128)" << lo << "LL;\n";
+          out(backend) << "  if (s < (__int128)(" << loE << ")) s = (__int128)(" << loE << ");\n";
           out(backend) << "  return (" << sty << ")s;\n";
         }
       }
@@ -613,9 +636,9 @@ namespace symir {
           const std::string &uty
       ) const override {
         int64_t hi = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
-        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        std::string loE = intMinNExpr(N);
         out(backend) << "  " << sty << " r;\n";
-        out(backend) << "  if (a0 == (" << sty << ")" << lo << "LL) r = (" << sty << ")" << hi
+        out(backend) << "  if (a0 == (" << sty << ")" << loE << ") r = (" << sty << ")" << hi
                      << "LL;\n";
         out(backend) << "  else r = (" << sty << ")(-(int64_t)a0);\n";
         out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
@@ -633,9 +656,9 @@ namespace symir {
           CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
           const std::string &uty
       ) const override {
-        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        std::string loE = intMinNExpr(N);
         out(backend) << "  if (a1 == 0) __builtin_trap();\n";
-        out(backend) << "  if (a0 == (" << sty << ")" << lo << "LL && a1 == (" << sty
+        out(backend) << "  if (a0 == (" << sty << ")" << loE << " && a1 == (" << sty
                      << ")-1) __builtin_trap();\n";
         out(backend) << "  " << sty << " q = a0 / a1;\n";
         out(backend) << "  " << sty << " r = a0 - q * a1;\n";
@@ -653,12 +676,19 @@ namespace symir {
           CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
           const std::string &uty
       ) const override {
-        int64_t lo = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
+        std::string loE = intMinNExpr(N);
         out(backend) << "  if (a1 == 0) __builtin_trap();\n";
-        out(backend) << "  if (a0 == (" << sty << ")" << lo << "LL && a1 == (" << sty
+        out(backend) << "  if (a0 == (" << sty << ")" << loE << " && a1 == (" << sty
                      << ")-1) __builtin_trap();\n";
         out(backend) << "  " << sty << " r = a0 % a1;\n";
-        out(backend) << "  if (r < 0) r += (a1 > 0) ? a1 : -a1;\n";
+        // |a1| does not fit in iN signed when a1 == INT_MIN_N (the
+        // negation overflows int32 / int64), even though the final
+        // result `r + |a1|` is back in iN range.  Compute the addition
+        // in unsigned (uty) arithmetic — modular subtraction takes
+        // care of the |.| sign analysis, and casting the unsigned sum
+        // back to sty wraps to the correct bit pattern.
+        out(backend) << "  if (r < 0) r = (" << sty << ")((" << uty << ")r + ((a1 > 0) ? (" << uty
+                     << ")a1 : (" << uty << ")(0 - (" << uty << ")a1)));\n";
         out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
       }
     };

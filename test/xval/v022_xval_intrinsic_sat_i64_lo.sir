@@ -1,0 +1,69 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// [v0.2.2] Regression: emitting `INT_MIN_64` as the C literal
+// `-9223372036854775808LL` is unsafe — the C lexer parses
+// `9223372036854775808` as `unsigned long long` (it overshoots the
+// `long long` max), so the unary `-` silently yields
+// `+9223372036854775808`, and any subsequent compare or narrowing
+// produces wrong results.  All four @saturating_* helpers at i64 plus
+// @abs / @div_euclid / @rem_euclid emitted that bad literal; the new
+// `intMinNExpr` C-side helper uses `(-9223372036854775807LL - 1)`
+// instead.  Exercise every i64 lower-bound path so the regression
+// sticks.
+//
+// SymIR's parser can't read `-9223372036854775808` as a single integer
+// literal either (same lexer pitfall), so the test builds INT_MIN_64
+// at runtime via `%imin = -INT_MAX - 1`.
+
+intrinsic @saturating_add(%a: i64, %b: i64) : i64;
+intrinsic @saturating_sub(%a: i64, %b: i64) : i64;
+intrinsic @saturating_mul(%a: i64, %b: i64) : i64;
+intrinsic @saturating_neg(%x: i64) : i64;
+intrinsic @abs(%x: i64) : i64;
+intrinsic @div_euclid(%a: i64, %b: i64) : i64;
+intrinsic @rem_euclid(%a: i64, %b: i64) : i64;
+
+fun @main() : i32 {
+  let mut %r64:  i64 = 0;
+  let mut %imin: i64 = -9223372036854775807; // = -INT_MAX_64
+  let mut %imax: i64 = 9223372036854775807;  // = INT_MAX_64
+^entry:
+  %imin = %imin - 1; // now exactly INT_MIN_64
+
+  // Negative pair that does NOT overflow — the buggy lo literal made
+  // the clamp fire spuriously here and the result narrowed back to
+  // INT_MIN_64.
+  %r64 = call @saturating_add(-4294967293 as i64, 0 as i64);
+  require %r64 == -4294967293, "sat_add i64 no-overflow stays put";
+
+  // Boundary cases — saturate to the i64 lower bound correctly.
+  %r64 = call @saturating_add(%imin, -1 as i64);
+  require %r64 == %imin, "sat_add i64 saturates to INT_MIN";
+
+  %r64 = call @saturating_sub(%imin, 1 as i64);
+  require %r64 == %imin, "sat_sub i64 saturates to INT_MIN";
+
+  %r64 = call @saturating_mul(%imin, 2 as i64);
+  require %r64 == %imin, "sat_mul i64 INT_MIN*2 -> INT_MIN";
+
+  // saturating_neg(INT_MIN_64) must jump to INT_MAX_64 — same buggy
+  // comparison.
+  %r64 = call @saturating_neg(%imin);
+  require %r64 == %imax, "sat_neg i64 INT_MIN -> INT_MAX";
+
+  // @abs(INT_MIN_64) is UB (rule 25), so don't trigger it; instead
+  // confirm the trap-guard's literal is correct by passing -INT_MAX_64
+  // (which is representable).
+  %r64 = call @abs(-9223372036854775807 as i64);
+  require %r64 == 9223372036854775807, "abs i64 -(INT_MAX) -> INT_MAX";
+
+  // Euclidean div/rem with dividend = INT_MIN_64 and divisor = 2 (so
+  // the trap doesn't fire — only INT_MIN / -1 is UB).
+  %r64 = call @div_euclid(%imin, 2 as i64);
+  require %r64 == -4611686018427387904, "div_euclid INT_MIN,2";
+
+  %r64 = call @rem_euclid(%imin, 2 as i64);
+  require %r64 == 0, "rem_euclid INT_MIN,2";
+
+  ret 0;
+}
