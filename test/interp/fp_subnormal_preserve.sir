@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// Regression guard for spec §2.9: subnormals are first-class, never
+// flushed to zero. If a future change accidentally enables MXCSR
+// FTZ/DAZ in symiri, this test fails because the subnormal value
+// would be flushed to 0.0 and the require would fail.
+fun @main() : f32 {
+  // 1.4e-39 is below the smallest f32 normal (≈1.175e-38) but above the
+  // smallest f32 subnormal (≈1.4e-45). It is representable as an f32
+  // subnormal.
+  let %tiny: f32 = 1.4e-39;
+  let %two: f32 = 2.0;
+  let %zero: f32 = 0.0;
+  let mut %r: f32 = 0.0;
+^entry:
+  // tiny * two stays subnormal — under FTZ both inputs and result
+  // would collapse to 0.0.
+  %r = %tiny * %two;
+  require %r != %zero, "subnormal product must not be flushed to 0";
+  ret %zero;
+}

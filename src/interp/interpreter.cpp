@@ -5,6 +5,10 @@
 #include <functional>
 #include <iostream>
 #include <stdexcept>
+#if defined(__SSE__) || defined(__x86_64__) || defined(_M_X64)
+#include <pmmintrin.h>
+#include <xmmintrin.h>
+#endif
 #include "analysis/cfg.hpp"
 #include "analysis/type_utils.hpp"
 #include "error.hpp"
@@ -585,6 +589,15 @@ namespace symir {
   ) {
     // Ensure IEEE 754 RNE rounding mode regardless of process FP environment.
     std::fesetround(FE_TONEAREST);
+    // Spec §2.9 guarantees subnormals are first-class (no flush-to-zero).
+    // Defensively clear MXCSR FTZ and DAZ in case a parent process or an
+    // upstream library toggled them on before invoking symiri — those bits
+    // survive across some entry paths and would silently flush f32 subnormals
+    // in the interpreter's arithmetic.
+#if defined(__SSE__) || defined(__x86_64__) || defined(_M_X64)
+    _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_OFF);
+    _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_OFF);
+#endif
     dumpExec_ = dumpExec;
     const FunDecl *entry = nullptr;
     for (const auto &f: prog_.funs) {
