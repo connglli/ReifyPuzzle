@@ -265,6 +265,33 @@ def _classify(label, sir_path, c_paths, parsed, symiri, clang, main_c, exe, verb
 
   if not _write_main_c(main_c, entry, ret_type, ptypes, pvals):
     return ("skipped", None)
+  # [v0.2.2] Strict syntax pre-flight. The main clang call below uses
+  # `-w` to silence warnings (so the synthesised main.c stays quiet),
+  # which also defeats `-Werror=…`. A type-mismatched typedef in the
+  # backend-emitted C — e.g. the array-pointer-typedef collision that
+  # used to collapse distinct `ptr T` leaves onto a single
+  # `_sym_arr_N_x` name — would otherwise be invisible here, hidden
+  # behind a clean rc=0 from the warning suppression. Run a
+  # `-fsyntax-only` gate over the backend's .c files (excluding the
+  # synthesised main.c, which carries no SymIR-generated typedefs) so
+  # any such bug surfaces as a loud `cfail` instead of a silent pass.
+  syn = subprocess.run(
+    [
+      clang,
+      "-fsyntax-only",
+      *c_paths,
+      "-Wincompatible-pointer-types",
+      "-Werror=incompatible-pointer-types",
+    ],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    timeout=20,
+  )
+  if syn.returncode != 0:
+    if verbose:
+      print(syn.stderr)
+    return ("cfail", f"{label}: clang syntax check failed")
   cc = subprocess.run(
     [
       clang,

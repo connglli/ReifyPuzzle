@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --target c
+// Regression: two distinct `ptr T` leaves with the same outer array
+// shape used to collide on the typedef `_sym_arr_2_x`, leaving only
+// one definition in the generated C and turning the second `addr` into
+// `-Wincompatible-pointer-types`.
+fun @main(): i32 {
+  let mut %a16: [2] ptr i16 = {undef, undef};
+  let mut %a32: [2] ptr i32 = {undef, undef};
+  let mut %p16: ptr [2] ptr i16 = undef;
+  let mut %p32: ptr [2] ptr i32 = undef;
+^entry:
+  %p16 = addr %a16;
+  %p32 = addr %a32;
+  ret 0;
+}

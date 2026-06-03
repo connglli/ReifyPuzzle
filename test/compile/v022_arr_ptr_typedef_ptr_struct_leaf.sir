@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --target c
+// Edge case: array-pointer leaves that mix `ptr @S` with `ptr iN`.
+// The leaf encoding must distinguish `p_S_S` from `p_i32` rather than
+// collapsing both onto the catch-all `x` tag.
+struct @S {
+  f0: i32;
+}
+fun @main(): i32 {
+  let mut %as: [2] ptr @S  = {undef, undef};
+  let mut %ai: [2] ptr i32 = {undef, undef};
+  let mut %ps: ptr [2] ptr @S  = undef;
+  let mut %pi: ptr [2] ptr i32 = undef;
+^entry:
+  %ps = addr %as;
+  %pi = addr %ai;
+  ret 0;
+}

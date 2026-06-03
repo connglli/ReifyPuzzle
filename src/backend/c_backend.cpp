@@ -113,9 +113,14 @@ namespace symir {
     return stripSigil(funcName) + "__" + stripSigil(symName);
   }
 
-  // [v0.2.2] Encode an integer / float / struct leaf type as a C-identifier
-  // suffix used by `arrayPtrTypedefName`.  Walks the leaf only — the array
-  // shape is encoded separately by the caller.
+  // [v0.2.2] Encode a leaf type as a C-identifier suffix used by
+  // `arrayPtrTypedefName`.  Walks the leaf only — the array shape is
+  // encoded separately by the caller.  Pointer and vector leaves are
+  // encoded recursively (`p_<inner>`, `v<N>_<inner>`) so that distinct
+  // pointee / lane types do not collide on a shared catch-all name
+  // (the historical `"x"` collapse silently merged e.g. `[N] ptr i16`
+  // and `[N] ptr i32` into a single typedef, breaking rylink-merged
+  // multi-function bundles).
   static std::string typedefLeafTag(const TypePtr &t) {
     if (!t)
       return "void";
@@ -131,6 +136,10 @@ namespace symir {
             return (arg.kind == FloatType::Kind::F32) ? "f32" : "f64";
           } else if constexpr (std::is_same_v<T, StructType>) {
             return "S_" + arg.name.name.substr(arg.name.name.empty() ? 0 : 1);
+          } else if constexpr (std::is_same_v<T, PtrType>) {
+            return "p_" + typedefLeafTag(arg.pointee);
+          } else if constexpr (std::is_same_v<T, VecType>) {
+            return "v" + std::to_string(arg.size) + "_" + typedefLeafTag(arg.elem);
           }
           return "x";
         },

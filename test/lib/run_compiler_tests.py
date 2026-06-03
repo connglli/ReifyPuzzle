@@ -307,6 +307,27 @@ def run_symirc_test(symirc_path, target="c"):
         "-g",
         "-lm",
       ]
+      # [v0.2.2] Strict syntax pre-flight. The main gcc call below uses
+      # `-w` to silence all warnings (so test-harness boilerplate stays
+      # clean), but that also defeats `-Werror=…`. A type-mismatched
+      # typedef in the generated C — e.g. the array-pointer-typedef
+      # collision that used to collapse distinct `ptr T` leaves onto a
+      # single `_sym_arr_N_x` name — is a backend bug, not user-visible
+      # noise, so run a `-fsyntax-only` gate that fails loudly instead
+      # of letting rc=0 hide it.
+      syntax_cmd = [
+        "gcc",
+        "-fsyntax-only",
+        gen_out,
+        "-Wincompatible-pointer-types",
+        "-Werror=incompatible-pointer-types",
+      ]
+      res_syntax, err_syntax = run_command(syntax_cmd, timeout=10)
+      if err_syntax == "TIMEOUT":
+        return TestResult.TIMEOUT, "GCC syntax-check timeout"
+      if res_syntax.returncode != 0:
+        return TestResult.FAIL, f"GCC syntax error:\n{res_syntax.stderr}"
+
       res_gcc, err_gcc = run_command(gcc_cmd, timeout=10)
       if err_gcc == "TIMEOUT":
         return TestResult.TIMEOUT, "GCC timeout"
