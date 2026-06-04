@@ -1,8 +1,4 @@
 // EXPECT: PASS
-// SKIP: WASM
-// Reason: WASM backend mis-emits i32.const for i64-range integer
-// literals in `require` comparisons (e.g., -4490088828504113152) —
-// pre-existing bug independent of this interp fix.
 // Companion to fp_struct_store_f64_after_i16_array.sir.  Struct
 // `{i32; f64}` has minFieldSize = 4 (sizeof(i32)).  The same buggy
 // path narrowed the f64 store to f32, dropping precision.

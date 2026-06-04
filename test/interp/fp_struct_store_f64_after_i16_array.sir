@@ -1,8 +1,4 @@
 // EXPECT: PASS
-// SKIP: WASM
-// Reason: WASM backend mis-emits i32.const for i64-range integer
-// literals in `require` comparisons (e.g., -4490088828504113152) —
-// pre-existing bug independent of this interp fix.
 // Regression for an interpreter f64 store bug.  When the provenance
 // object is a whole struct, its elemSize is set to minFieldSize
 // across the struct's fields.  For `{[2] i16; f64}` that's 4, which

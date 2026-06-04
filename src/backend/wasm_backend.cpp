@@ -954,6 +954,52 @@ namespace symir {
                 return true;
             }
           }
+        } else if (std::holds_alternative<CallAtom>(a.v)) {
+          // The width of a call sub-expression is its callee's return
+          // type width.  Without this case, a `require call @to_bits(%v)
+          // == <i64-lit>` widened the wrong side: the LHS becomes i64
+          // (from to_bits), but the comparison-wide check stayed at
+          // 32 because no other atom asserted 64, so the literal got
+          // emitted as `i32.const <i64-value>` and produced invalid WAT.
+          if (!prog_)
+            return false;
+          auto const &ca = std::get<CallAtom>(a.v);
+          TypePtr retTy;
+          if (ca.resolvedIntrinsic)
+            retTy = ca.resolvedIntrinsic->retType;
+          if (!retTy) {
+            for (const auto &f: prog_->funs)
+              if (f.name.name == ca.callee.name) {
+                retTy = f.retType;
+                break;
+              }
+          }
+          if (!retTy) {
+            for (const auto &d: prog_->extDecls)
+              if (d.name.name == ca.callee.name) {
+                retTy = d.retType;
+                break;
+              }
+          }
+          if (!retTy) {
+            // Fallback to first intrinsic decl matching by name.
+            for (const auto &i: prog_->intrinsics)
+              if (i.name.name == ca.callee.name) {
+                retTy = i.retType;
+                break;
+              }
+          }
+          if (retTy) {
+            if (auto ft = std::get_if<FloatType>(&retTy->v)) {
+              isFloat = true;
+              if (ft->kind == FloatType::Kind::F64)
+                return true;
+            } else if (auto it = std::get_if<IntType>(&retTy->v)) {
+              uint32_t bits = it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
+              if (bits > 32)
+                return true;
+            }
+          }
         }
         return false;
       };
