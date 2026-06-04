@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// Regression guard for the WASM intermediate-overflow trap: normal
+// fmod where x/y is well within the f64 dynamic range must still
+// succeed without spuriously trapping.  3.5 % 2.0 = 1.5; the
+// intermediate 3.5/2.0 = 1.75 is comfortably finite.
+fun @main() : f64 {
+  let %a: f64 = 3.5;
+  let %b: f64 = 2.0;
+  let %expected: f64 = 1.5;
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = %a % %b;
+  require %r == %expected, "3.5 fmod 2.0 == 1.5, no spurious WASM trap";
+  ret %r;
+}

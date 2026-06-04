@@ -1,7 +1,4 @@
 // EXPECT: FAIL:UndefinedBehavior
-// SKIP: WASM
-// Reason: WASM backend emits the §2.9 formula `x - trunc(x/y) * y` directly
-// and does not yet trap on the intermediate ±∞ — tracked as a follow-up.
 // Vector lane variant of fp_rem_intermediate_overflow_f64: lane 0 hits
 // the §2.9 intermediate-overflow rule; lane 1 would be well-defined
 // on its own, but per §7.6 rule 21 any single lane's UB makes the

@@ -329,6 +329,36 @@ namespace symir {
                 emitY();                                  // y
                 indent();
                 out_ << prefix << "div\n"; // x/y
+                // [v0.2.2] Spec §2.9 intermediate-overflow trap: the inner
+                // fp.div of the `%` encoding is subject to §7.4 rule 6.  If
+                // x/y is ±∞ or NaN at the operand precision, the path is
+                // UB.  Save the quotient into a scratch local and trap via
+                // `unreachable` when it isn't finite (NaN comparisons fold
+                // to false, so `|q| < +inf` is the simplest finiteness
+                // test that catches both inf and NaN).
+                {
+                  std::string qLocal = (targetWidth <= 32) ? "$__fmod_q_f32" : "$__fmod_q_f64";
+                  indent();
+                  out_ << "local.tee " << qLocal << "\n"; // stack: [x, q]
+                  indent();
+                  out_ << prefix << "abs\n";
+                  indent();
+                  out_ << prefix << "const inf\n";
+                  indent();
+                  out_ << prefix << "lt\n"; // |q| < +inf ?  1 if finite, 0 otherwise
+                  indent();
+                  out_ << "i32.eqz\n"; // not-finite ?
+                  indent();
+                  out_ << "if\n";
+                  indent_level_++;
+                  indent();
+                  out_ << "unreachable\n";
+                  indent_level_--;
+                  indent();
+                  out_ << "end\n";
+                  indent();
+                  out_ << "local.get " << qLocal << "\n"; // restore q to stack
+                }
                 indent();
                 out_ << prefix << "trunc\n"; // trunc(x/y)
                 emitY();                     // y
@@ -1831,6 +1861,15 @@ namespace symir {
       out_ << "(local $__ptr_temp i32)\n"; // scratch register for null-checked ptr ops
       indent();
       out_ << "(local $__idx_temp i32)\n"; // scratch register for index bounds checks
+      indent();
+      // [v0.2.2] Scratch FP scalars used by the inline fmod expansion to
+      // hold the intermediate quotient `x/y` while we trap on non-finite
+      // results (spec §2.9 + §7.4 rule 6).  Always emitted alongside the
+      // other __* scratch slots so every function has them — the WASM
+      // tooling tolerates unused locals.
+      out_ << "(local $__fmod_q_f32 f32)\n";
+      indent();
+      out_ << "(local $__fmod_q_f64 f64)\n";
       for (const auto &l: f.lets) {
         if (!locals_[l.name.name].isAggregate) {
           indent();
@@ -2558,6 +2597,31 @@ namespace symir {
                 emitY();
                 indent();
                 out_ << prefix << "div\n";
+                // [v0.2.2] Same §2.9 intermediate-overflow trap as the
+                // scalar fmod path — applied per lane (rule 21).
+                {
+                  std::string qLocal = (targetWidth <= 32) ? "$__fmod_q_f32" : "$__fmod_q_f64";
+                  indent();
+                  out_ << "local.tee " << qLocal << "\n";
+                  indent();
+                  out_ << prefix << "abs\n";
+                  indent();
+                  out_ << prefix << "const inf\n";
+                  indent();
+                  out_ << prefix << "lt\n";
+                  indent();
+                  out_ << "i32.eqz\n";
+                  indent();
+                  out_ << "if\n";
+                  indent_level_++;
+                  indent();
+                  out_ << "unreachable\n";
+                  indent_level_--;
+                  indent();
+                  out_ << "end\n";
+                  indent();
+                  out_ << "local.get " << qLocal << "\n";
+                }
                 indent();
                 out_ << prefix << "trunc\n";
                 emitY();

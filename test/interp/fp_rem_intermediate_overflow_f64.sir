@@ -1,7 +1,4 @@
 // EXPECT: FAIL:UndefinedBehavior
-// SKIP: WASM
-// Reason: WASM backend emits the §2.9 formula `x - trunc(x/y) * y` directly
-// and does not yet trap on the intermediate ±∞ — tracked as a follow-up.
 // Spec §2.9 encodes `%` as
 //   fp.sub(x, fp.mul(fp.roundToIntegral[RTZ](fp.div[RNE](x, y)), y))
 // where the inner fp.div is subject to §7.4 rule 6 (FP overflow → UB).
