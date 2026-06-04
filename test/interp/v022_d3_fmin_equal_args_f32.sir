@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.3 — @fmin of equal arguments returns the value.
+intrinsic @fmin(%x: f32, %y: f32) : f32;
+fun @main() : i32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = call @fmin(3.0, 3.0);
+  require %r == 3.0, "fmin of equal args returns that value";
+  ret 0;
+}

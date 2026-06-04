@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.3 — @fmax returns the larger of two finite fN.
+intrinsic @fmax(%x: f64, %y: f64) : f64;
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @fmax(1.5, 2.5);
+  require %r == 2.5, "fmax picks the larger arg";
+  ret 0;
+}

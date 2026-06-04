@@ -1,0 +1,52 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// Cross-validate the classic fmax(lo, fmin(hi, x)) clamp pattern at
+// f64 — fmin + fmax + fabs + signbit composed into a single chain.
+// Tests three clamp cases (below, inside, above) and asserts the
+// expected sign / magnitude relations.
+intrinsic @fmin(%x: f64, %y: f64) : f64;
+intrinsic @fmax(%x: f64, %y: f64) : f64;
+intrinsic @fabs(%x: f64) : f64;
+intrinsic @signbit(%x: f64) : i1;
+
+fun @main() : i32 {
+  let mut %a: f64 = 0.0;
+  let mut %b: f64 = 0.0;
+  let mut %c: f64 = 0.0;
+  let mut %t: f64 = 0.0;
+  let mut %s: i1  = 0;
+^entry:
+  // clamp(-10.0, [-1.0, 1.0]) → -1.0
+  %t = call @fmin(1.0, -10.0);  // -10
+  %a = call @fmax(-1.0, %t);    // -1.0
+  // clamp(0.25, [-1.0, 1.0]) → 0.25
+  %t = call @fmin(1.0, 0.25);   // 0.25
+  %b = call @fmax(-1.0, %t);    // 0.25
+  // clamp(+10.0, [-1.0, 1.0]) → +1.0
+  %t = call @fmin(1.0, 10.0);   // 1.0
+  %c = call @fmax(-1.0, %t);    // 1.0
+  // a == -1.0 ⇒ |a| == 1 and signbit(a) == -1 (true)
+  %t = call @fabs(%a);
+  %s = call @signbit(%a);
+  br %t == 1.0, ^k1, ^bad;
+^k1:
+  br %s == -1, ^k2, ^bad;
+^k2:
+  // b == 0.25 in (-1, 1) ⇒ |b| == 0.25 and signbit(b) == 0
+  %t = call @fabs(%b);
+  %s = call @signbit(%b);
+  br %t == 0.25, ^k3, ^bad;
+^k3:
+  br %s == 0, ^k4, ^bad;
+^k4:
+  // c == 1.0 ⇒ |c| == 1 and signbit(c) == 0
+  %t = call @fabs(%c);
+  %s = call @signbit(%c);
+  br %t == 1.0, ^k5, ^bad;
+^k5:
+  br %s == 0, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

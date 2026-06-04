@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// Cross-validate @fmin + @fabs + @copysign at f64.  Chain:
+//   pos_mag = fabs(x)              (≥ 0)
+//   neg_mag = copysign(pos_mag, -1) (≤ 0)
+//   r       = fmin(pos_mag, neg_mag) (= neg_mag)
+// All three backends must agree byte-exact on the chained result.
+intrinsic @fmin(%x: f64, %y: f64) : f64;
+intrinsic @fabs(%x: f64) : f64;
+intrinsic @copysign(%x: f64, %y: f64) : f64;
+
+fun @main() : i32 {
+  let mut %a:   f64 = 0.0;
+  let mut %neg: f64 = 0.0;
+  let mut %r:   f64 = 0.0;
+^entry:
+  %a   = call @fabs(-3.75);              // 3.75
+  %neg = call @copysign(%a, -1.0);       // -3.75
+  %r   = call @fmin(%a, %neg);           // -3.75 (smaller)
+  br %r == -3.75, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

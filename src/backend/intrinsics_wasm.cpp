@@ -1730,6 +1730,40 @@ namespace symir {
       }
     };
 
+    // ── §12.6 D.3 min / max ───────────────────────────────────────────
+    //
+    // WASM has native `fN.min` / `fN.max` opcodes that follow IEEE
+    // 754-2008 minNum/maxNum (prefer -0 for min, +0 for max on signed-
+    // zero pairs).  That matches the interpreter and the explicit
+    // tie-break emitted by the C backend, so this is just a one-opcode
+    // wrapper.
+
+    class FminWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        std::string ty = retFpTy(intr);
+        indent(backend);
+        out(backend) << "local.get $a0\n";
+        indent(backend);
+        out(backend) << "local.get $a1\n";
+        indent(backend);
+        out(backend) << ty << ".min\n";
+      }
+    };
+
+    class FmaxWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        std::string ty = retFpTy(intr);
+        indent(backend);
+        out(backend) << "local.get $a0\n";
+        indent(backend);
+        out(backend) << "local.get $a1\n";
+        indent(backend);
+        out(backend) << ty << ".max\n";
+      }
+    };
+
     class SignbitWasmIntrinsic final : public WasmFpIntrinsic {
     public:
       void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
@@ -2000,6 +2034,8 @@ namespace symir {
         r[IntrinsicKind::FromBits] = std::make_unique<FromBitsWasmIntrinsic>();
         r[IntrinsicKind::IsNormal] = std::make_unique<IsNormalWasmIntrinsic>();
         r[IntrinsicKind::IsSubnormal] = std::make_unique<IsSubnormalWasmIntrinsic>();
+        r[IntrinsicKind::Fmin] = std::make_unique<FminWasmIntrinsic>();
+        r[IntrinsicKind::Fmax] = std::make_unique<FmaxWasmIntrinsic>();
         return r;
       }();
       return registry;

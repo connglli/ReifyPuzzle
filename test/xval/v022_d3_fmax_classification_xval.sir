@@ -1,0 +1,31 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// Cross-validate @fmax + @is_normal + @is_subnormal at f64.  fmax
+// picks the larger between a subnormal and a normal; the result must
+// classify as the *normal* value across interp / C / WASM.
+intrinsic @fmax(%x: f64, %y: f64) : f64;
+intrinsic @is_normal(%x: f64) : i1;
+intrinsic @is_subnormal(%x: f64) : i1;
+intrinsic @from_bits(%x: i64) : f64;
+
+fun @main() : i32 {
+  let mut %sub:    f64 = 0.0;
+  let mut %normal: f64 = 0.0;
+  let mut %r:      f64 = 0.0;
+  let mut %n:      i1  = 0;
+  let mut %s:      i1  = 0;
+^entry:
+  // The smallest positive f64 subnormal has bit pattern 0x0000000000000001.
+  %sub    = call @from_bits(1);
+  %normal = 1.5;
+  %r      = call @fmax(%sub, %normal);   // normal > subnormal → 1.5
+  %n      = call @is_normal(%r);         // expect -1 (true)
+  %s      = call @is_subnormal(%r);      // expect 0  (false)
+  br %n == -1, ^k1, ^bad;
+^k1:
+  br %s == 0, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

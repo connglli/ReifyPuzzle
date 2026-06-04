@@ -1,0 +1,37 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+//
+// Regression guard: an FP literal passed as a *direct* call argument
+// (e.g. `@fmin(%?x, 2.0)` rather than the named-let form
+// `let %lit: f64 = 2.0;  @fmin(%?x, %lit);`) must bind at the
+// parameter's declared sort (f64 here), not at the f32 default used
+// when `evalExpr` is called without an expected sort.
+//
+// Before the fix in src/solver/solver.cpp (the intrinsic-arg loop
+// passing `intr->params[k].type`'s sort into `evalExpr`), this case
+// crashed inside Bitwuzla with
+//   "terms with mismatching sort at indices 0 and 1"
+// because the literal `2.0` got an `fp.sort 8 24` (f32) while the
+// f64 sym entered the encoding at `fp.sort 11 53`.  The bug was
+// invisible to D.1 / D.2 because no intrinsic prior to D.3
+// (`@fmin`, `@fmax`) compared two FP terms with `fp.lt` / `fp.gt`,
+// so a sort mismatch never reached the solver.
+//
+// Keep this test stripped to the smallest input that exposes the
+// bug; any solver-side rework that loses the propagation should
+// re-introduce the Bitwuzla exception here even if the broader
+// D.3 capability tests still pass on a different code path.
+intrinsic @fmin(%x: f64, %y: f64) : f64;
+
+fun @main() : f64 {
+  sym %?x : value f64;
+  let mut %r : f64 = 0.0;
+^entry:
+  // Direct FP literal `2.0` alongside the f64 sym — the case that
+  // previously crashed inside the @fmin SMT encoding.
+  %r = call @fmin(%?x, 2.0);
+  require %r == %?x, "fmin(?x, 2.0) == ?x iff ?x <= 2.0";
+  br ^exit;
+^exit:
+  ret %?x;
+}

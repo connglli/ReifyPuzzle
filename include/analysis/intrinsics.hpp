@@ -74,6 +74,9 @@ namespace symir {
     // v0.2.2 extra batch D.2 — floating-point classification predicates (§12.6)
     IsNormal,
     IsSubnormal,
+    // v0.2.2 extra batch D.3 — floating-point min / max (§12.6)
+    Fmin,
+    Fmax,
   };
 
   /**
@@ -161,6 +164,11 @@ namespace symir {
       return IntrinsicKind::IsNormal;
     if (name == "@is_subnormal")
       return IntrinsicKind::IsSubnormal;
+    // v0.2.2 extra batch D.3 — floating-point min / max (§12.6)
+    if (name == "@fmin")
+      return IntrinsicKind::Fmin;
+    if (name == "@fmax")
+      return IntrinsicKind::Fmax;
     return std::nullopt;
   }
 

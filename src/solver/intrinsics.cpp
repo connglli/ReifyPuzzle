@@ -860,6 +860,53 @@ namespace symir {
       }
     };
 
+    // ── §12.6 D.3 min / max ───────────────────────────────────────────
+    //
+    // SMT-LIB's `fp.min` / `fp.max` are implementation-defined on the
+    // signed-zero operand pair, so we encode the explicit IEEE 754-2008
+    // tie-break that matches the C and WASM backends and the
+    // interpreter: prefer -0 for fmin, +0 for fmax.
+
+    class FminSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        auto x = argVals[0].term, y = argVals[1].term;
+        auto xLt = solver.make_term(smt::Kind::FP_LT, {x, y});
+        auto yLt = solver.make_term(smt::Kind::FP_LT, {y, x});
+        auto xNeg = solver.make_term(smt::Kind::FP_IS_NEG, {x});
+        // tie: pick -0 when equal — FP_IS_NEG is true for x = -0.
+        auto tie = solver.make_term(smt::Kind::ITE, {xNeg, x, y});
+        auto inner = solver.make_term(smt::Kind::ITE, {yLt, y, tie});
+        auto r = solver.make_term(smt::Kind::ITE, {xLt, x, inner});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    class FmaxSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        auto x = argVals[0].term, y = argVals[1].term;
+        auto xGt = solver.make_term(smt::Kind::FP_GT, {x, y});
+        auto yGt = solver.make_term(smt::Kind::FP_GT, {y, x});
+        auto xNeg = solver.make_term(smt::Kind::FP_IS_NEG, {x});
+        // tie: pick +0 when equal — when x = -0, the other operand y is +0.
+        auto tie = solver.make_term(smt::Kind::ITE, {xNeg, y, x});
+        auto inner = solver.make_term(smt::Kind::ITE, {yGt, y, tie});
+        auto r = solver.make_term(smt::Kind::ITE, {xGt, x, inner});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
     class SignbitSolverIntrinsic final : public SolverFpIntrinsic {
     public:
       SymbolicExecutor::SymbolicValue solve(
@@ -977,6 +1024,8 @@ namespace symir {
         registry_[IntrinsicKind::Signbit] = std::make_unique<SignbitSolverIntrinsic>();
         registry_[IntrinsicKind::ToBits] = std::make_unique<ToBitsSolverIntrinsic>();
         registry_[IntrinsicKind::IsNormal] = std::make_unique<IsNormalSolverIntrinsic>();
+        registry_[IntrinsicKind::Fmin] = std::make_unique<FminSolverIntrinsic>();
+        registry_[IntrinsicKind::Fmax] = std::make_unique<FmaxSolverIntrinsic>();
         registry_[IntrinsicKind::IsSubnormal] = std::make_unique<IsSubnormalSolverIntrinsic>();
         registry_[IntrinsicKind::FromBits] = std::make_unique<FromBitsSolverIntrinsic>();
       }

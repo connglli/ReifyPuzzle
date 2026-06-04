@@ -806,7 +806,7 @@ directly (no widening-and-mask).
   sub-batch opens the §12 type-restriction sentence to `fN`.
 - D.2 — *classification predicates* **(shipped — §12.6 below)**:
   `@is_normal`, `@is_subnormal`.
-- D.3 — *min / max* (planned): `@fmin`, `@fmax`.
+- D.3 — *min / max* **(shipped — §12.6 below)**: `@fmin`, `@fmax`.
 - D.4 — *correctly-rounded math* (planned): `@sqrt`, `@floor`, `@ceil`,
   `@trunc`.
 - D.5 — *exponent manipulation* (planned): `@ldexp`, `@scalbn`,
@@ -965,6 +965,55 @@ sign-extended to the `int8_t` i1 cell.
 **WASM**: no native op.  Compose by reinterpreting and testing
 `(exp_bits == 0) && (mantissa != 0)`, then sextend bit 0 so the result
 is `0` / `-1`.
+
+### §12.6 D.3 per-intrinsic spec
+
+`@fmin` / `@fmax` are binary FP intrinsics declared at any `fN` width:
+
+```text
+intrinsic @fmin(%x: fN, %y: fN) : fN;
+intrinsic @fmax(%x: fN, %y: fN) : fN;
+```
+
+They follow IEEE 754-2008 `minNum` / `maxNum`: under SymIR's
+finite-only domain (§2.9) the result is the smaller / larger operand,
+and on the signed-zero pair the result is `-0` for `fmin` and `+0`
+for `fmax`.  No UB on the SymIR domain.
+
+The signed-zero tie-break is *implementation-defined* in C's `fmin` /
+`fmax` and in SMT-LIB's `fp.min` / `fp.max`, so every backend except
+WASM emits an explicit tie to stay bit-exact with WASM's `fN.min` /
+`fN.max` (which already follow IEEE 754-2008).
+
+#### `@fmin`
+
+Returns the smaller of `%x` and `%y`; for the signed-zero pair returns
+`-0`.
+
+**SMT encoding**:
+```
+ite(fp.lt(x, y), x,
+ite(fp.lt(y, x), y,
+ite(fp.isNeg(x), x, y)))   ; tie: pick -0 (fp.isNeg is true for -0)
+```
+**Interpreter**: `x < y ? x : y < x ? y : (signbit(x) ? x : y)`.
+**C**: `(a0 < a1) ? a0 : (a1 < a0) ? a1 : __builtin_signbit(a0) ? a0 : a1`.
+**WASM**: native `f32.min` / `f64.min`.
+
+#### `@fmax`
+
+Returns the larger of `%x` and `%y`; for the signed-zero pair returns
+`+0`.
+
+**SMT encoding**:
+```
+ite(fp.gt(x, y), x,
+ite(fp.gt(y, x), y,
+ite(fp.isNeg(x), y, x)))   ; tie: pick +0 (use the other operand if x is -0)
+```
+**Interpreter**: `x > y ? x : y > x ? y : (signbit(x) ? y : x)`.
+**C**: `(a0 > a1) ? a0 : (a1 > a0) ? a1 : __builtin_signbit(a0) ? a1 : a0`.
+**WASM**: native `f32.max` / `f64.max`.
 
 ### P1 — solver-easy, WASM-tricky (planned)
 

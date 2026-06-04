@@ -745,6 +745,31 @@ namespace symir {
       }
     };
 
+    // ── §12.6 D.3 min / max ───────────────────────────────────────────
+    //
+    // C's `fmin` / `fmax` are *implementation-defined* on signed-zero
+    // operand pairs, so we emit the tie-break explicitly to stay
+    // bit-exact with WASM's `fN.min` / `fN.max` (IEEE 754-2008
+    // minNum/maxNum: prefer -0 over +0 for fmin, +0 over -0 for fmax).
+
+    class FminCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &) const override {
+        out(backend) << "  return (a0 < a1) ? a0\n";
+        out(backend) << "       : (a1 < a0) ? a1\n";
+        out(backend) << "       : __builtin_signbit(a0) ? a0 : a1;\n";
+      }
+    };
+
+    class FmaxCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &) const override {
+        out(backend) << "  return (a0 > a1) ? a0\n";
+        out(backend) << "       : (a1 > a0) ? a1\n";
+        out(backend) << "       : __builtin_signbit(a0) ? a1 : a0;\n";
+      }
+    };
+
     // ── §12.6 D.2 classification predicates ───────────────────────────
 
     class IsNormalCIntrinsic final : public CFpIntrinsic {
@@ -813,6 +838,8 @@ namespace symir {
         r[IntrinsicKind::FromBits] = std::make_unique<FromBitsCIntrinsic>();
         r[IntrinsicKind::IsNormal] = std::make_unique<IsNormalCIntrinsic>();
         r[IntrinsicKind::IsSubnormal] = std::make_unique<IsSubnormalCIntrinsic>();
+        r[IntrinsicKind::Fmin] = std::make_unique<FminCIntrinsic>();
+        r[IntrinsicKind::Fmax] = std::make_unique<FmaxCIntrinsic>();
         return r;
       }();
       return registry;

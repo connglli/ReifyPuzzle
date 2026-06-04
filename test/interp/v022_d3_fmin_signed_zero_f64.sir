@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.3 — @fmin of (-0.0, +0.0) returns -0.0
+// (IEEE 754-2008 minNum: prefer the negative-signed zero).  Verified
+// via @signbit which returns -1 (i1 true) iff the sign bit is set.
+intrinsic @fmin(%x: f64, %y: f64) : f64;
+intrinsic @signbit(%x: f64) : i1;
+intrinsic @fneg(%x: f64) : f64;
+fun @main() : i32 {
+  let mut %nz: f64 = 0.0;
+  let mut %r:  f64 = 0.0;
+  let mut %sb: i1  = 0;
+^entry:
+  %nz = call @fneg(0.0);                // -0.0
+  %r  = call @fmin(%nz, 0.0);           // expect -0.0
+  %sb = call @signbit(%r);              // expect -1 (true)
+  require %sb == -1, "fmin(-0,+0) is -0";
+  ret 0;
+}

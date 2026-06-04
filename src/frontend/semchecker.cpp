@@ -425,6 +425,10 @@ namespace symir {
         expectAllSameFp();
         break;
       case IntrinsicKind::Copysign:
+      // [v0.2.2 extra batch D.3] @fmin / @fmax — same shape as @copysign
+      // (two fN parameters of matching width, fN return of the same width).
+      case IntrinsicKind::Fmin:
+      case IntrinsicKind::Fmax:
         expectArity(2);
         expectAllSameFp();
         break;

@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.3 — @fmax of (-0.0, +0.0) returns +0.0
+// (IEEE 754-2008 maxNum: prefer the positive-signed zero).
+intrinsic @fmax(%x: f32, %y: f32) : f32;
+intrinsic @signbit(%x: f32) : i1;
+intrinsic @fneg(%x: f32) : f32;
+fun @main() : i32 {
+  let mut %nz: f32 = 0.0;
+  let mut %r:  f32 = 0.0;
+  let mut %sb: i1  = 0;
+^entry:
+  %nz = call @fneg(0.0);                // -0.0
+  %r  = call @fmax(%nz, 0.0);           // expect +0.0
+  %sb = call @signbit(%r);              // expect 0 (false)
+  require %sb == 0, "fmax(-0,+0) is +0";
+  ret 0;
+}

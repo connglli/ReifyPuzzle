@@ -1,0 +1,58 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// Cross-validate @fmin / @fmax / @signbit at f32 and f64 across
+// interp, C, and WASM.  Hits the three signed-zero corners that
+// distinguish IEEE 754-2008 minNum/maxNum from a naive (x<y?x:y)
+// comparison-based picker.  All three backends must agree byte-exact
+// on the result.
+intrinsic @fmin(%x: f32, %y: f32) : f32;
+intrinsic @fmax(%x: f32, %y: f32) : f32;
+intrinsic @fmin(%x: f64, %y: f64) : f64;
+intrinsic @fmax(%x: f64, %y: f64) : f64;
+intrinsic @signbit(%x: f32) : i1;
+intrinsic @signbit(%x: f64) : i1;
+intrinsic @fneg(%x: f32) : f32;
+intrinsic @fneg(%x: f64) : f64;
+
+fun @main() : i32 {
+  let mut %nz32: f32 = 0.0;
+  let mut %nz64: f64 = 0.0;
+  let mut %a32:  f32 = 0.0;
+  let mut %b32:  f32 = 0.0;
+  let mut %a64:  f64 = 0.0;
+  let mut %b64:  f64 = 0.0;
+  let mut %sa:   i1  = 0;
+  let mut %sb:   i1  = 0;
+  let mut %sc:   i1  = 0;
+  let mut %sd:   i1  = 0;
+^entry:
+  %nz32 = call @fneg(0.0);
+  %nz64 = call @fneg(0.0);
+  // fmin(-0, +0) → -0 (signbit -1);  fmax(-0, +0) → +0 (signbit 0).
+  %a32 = call @fmin(%nz32, 0.0);
+  %b32 = call @fmax(%nz32, 0.0);
+  %a64 = call @fmin(%nz64, 0.0);
+  %b64 = call @fmax(%nz64, 0.0);
+  %sa = call @signbit(%a32);
+  %sb = call @signbit(%b32);
+  %sc = call @signbit(%a64);
+  %sd = call @signbit(%b64);
+  br %sa == -1, ^k1, ^bad;
+^k1:
+  br %sb == 0,  ^k2, ^bad;
+^k2:
+  br %sc == -1, ^k3, ^bad;
+^k3:
+  br %sd == 0,  ^pass, ^bad;
+^pass:
+  // Throw in an ordinary fmin/fmax to exercise the non-zero path.
+  %a32 = call @fmin(-3.5, 7.25);   // -3.5
+  %b32 = call @fmax(-3.5, 7.25);   //  7.25
+  br %a32 == -3.5, ^k4, ^bad;
+^k4:
+  br %b32 == 7.25, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

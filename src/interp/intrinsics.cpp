@@ -821,6 +821,52 @@ namespace symir {
     };
 
     /**
+     * @brief @fmin / @fmax — IEEE 754-2008 minNum/maxNum semantics, aligned
+     * with WASM `fN.min` / `fN.max` (the §12.6 D.3 reference target).  Under
+     * SymIR's finite-only domain the inputs are always finite, so the only
+     * subtle case is signed zero: fmin returns -0 if either operand is -0,
+     * fmax returns +0 if either operand is +0.  glibc's `std::fmin` /
+     * `std::fmax` are *implementation-defined* on signed-zero pairs (and in
+     * practice return the first argument), so we tie-break explicitly to
+     * stay bit-exact with WASM.
+     */
+    class FminIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = fpBitsOf(intr.retType);
+        double x = argFloat(intr, args, 0), y = argFloat(intr, args, 1);
+        double r;
+        if (x < y)
+          r = x;
+        else if (y < x)
+          r = y;
+        else
+          r = std::signbit(x) ? x : y; // (x == y) — prefer -0 over +0
+        return makeFloat(N, r);
+      }
+    };
+
+    class FmaxIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = fpBitsOf(intr.retType);
+        double x = argFloat(intr, args, 0), y = argFloat(intr, args, 1);
+        double r;
+        if (x > y)
+          r = x;
+        else if (y > x)
+          r = y;
+        else
+          r = std::signbit(x) ? y : x; // (x == y) — prefer +0 over -0
+        return makeFloat(N, r);
+      }
+    };
+
+    /**
      * @brief @signbit(x) returns 1 if x has its sign bit set (negative
      * finite or -0.0), else 0. i1 return.
      */
@@ -996,6 +1042,9 @@ namespace symir {
         // §12.6 D.2 — classification predicates.
         registry_[IntrinsicKind::IsNormal] = std::make_unique<IsNormalIntrinsic>();
         registry_[IntrinsicKind::IsSubnormal] = std::make_unique<IsSubnormalIntrinsic>();
+        // §12.6 D.3 — min / max.
+        registry_[IntrinsicKind::Fmin] = std::make_unique<FminIntrinsic>();
+        registry_[IntrinsicKind::Fmax] = std::make_unique<FmaxIntrinsic>();
       }
 
       std::unordered_map<IntrinsicKind, std::unique_ptr<InterpreterIntrinsic>> registry_;

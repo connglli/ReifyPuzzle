@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.3 — @fmin returns the smaller of two finite fN.
+intrinsic @fmin(%x: f32, %y: f32) : f32;
+fun @main() : i32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = call @fmin(1.5, 2.5);
+  require %r == 1.5, "fmin picks the smaller arg";
+  ret 0;
+}

@@ -1,0 +1,32 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// Cross-validate @fmin + @fmax + @to_bits at f32.  Extract bit
+// patterns of the min and max outputs and arithmetically combine —
+// the @to_bits encoding diverges between backends only if @fmin /
+// @fmax differ on the f32 result, so this is a tight bit-exact
+// agreement test on the rectangle [-7.0, -3.5, 3.5, 7.0].
+intrinsic @fmin(%x: f32, %y: f32) : f32;
+intrinsic @fmax(%x: f32, %y: f32) : f32;
+intrinsic @to_bits(%x: f32) : i32;
+
+fun @main() : i32 {
+  let mut %lo: f32 = 0.0;
+  let mut %hi: f32 = 0.0;
+  let mut %bL: i32 = 0;
+  let mut %bH: i32 = 0;
+  let mut %x:  i32 = 0;
+^entry:
+  %lo = call @fmin(-7.0, 3.5);             // -7.0
+  %hi = call @fmax(-3.5, 7.0);             //  7.0
+  %bL = call @to_bits(%lo);                // bit pattern of -7.0 (f32)
+  %bH = call @to_bits(%hi);                // bit pattern of  7.0 (f32)
+  // -7.0 f32 = 0xC0E00000; 7.0 f32 = 0x40E00000.  XOR = 0x80000000
+  // (= -2147483648 as signed i32).  Verifies the only differing bit is
+  // the sign — confirming both backends produce identical magnitudes.
+  %x = %bL ^ %bH;
+  br %x == -0x80000000, ^ok, ^bad;
+^ok:
+  ret 0;
+^bad:
+  ret 1;
+}

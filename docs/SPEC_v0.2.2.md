@@ -925,14 +925,14 @@ v0.2.2 line, each adding one solver-friendly group:
   cross-width `@widening_mul` remain planned, gated on the multi-value
   return ABI.
 - Batch D — §12 *floating-point basic IEEE family*: sign / bit ops
-  (D.1) and classification predicates (D.2) shipped (§12.6):
-  `@fabs`, `@fneg`, `@copysign`, `@signbit`, `@to_bits`, `@from_bits`,
-  `@is_normal`, `@is_subnormal`.  Shipping D.1 opens the
-  type-restriction sentence at the top of §12 to `fN`; remaining
-  members (fmin/fmax, sqrt and the integral-rounding family,
-  ldexp/ilogb/logb, fract/recip) are planned as follow-up
-  sub-batches.  See [`docs/intrinsics.md`](./intrinsics.md) §12.6 for
-  the per-intrinsic signatures, SMT encodings, and UB conditions.
+  (D.1), classification predicates (D.2), and min / max (D.3) shipped
+  (§12.6): `@fabs`, `@fneg`, `@copysign`, `@signbit`, `@to_bits`,
+  `@from_bits`, `@is_normal`, `@is_subnormal`, `@fmin`, `@fmax`.
+  Shipping D.1 opens the type-restriction sentence at the top of §12
+  to `fN`; remaining members (sqrt and the integral-rounding family,
+  ldexp/ilogb/logb, fract/recip) are planned as follow-up sub-batches.
+  See [`docs/intrinsics.md`](./intrinsics.md) §12.6 for the
+  per-intrinsic signatures, SMT encodings, and UB conditions.
 
 
 ## 13. Non-goals for v0.2.2 (planned for later)
@@ -949,7 +949,7 @@ v0.2.2 line, each adding one solver-friendly group:
 - **`old()` in contracts**. Post-state only. Pre-state references require caller-side temporaries. Adding `old()` introduces a two-state logic into the SMT encoding, which is not yet justified.
 - **Contracts on `fun` bodies**. A `fun` never has a contract — the body is the ground truth. Modular verification (prove the body satisfies a contract, then callers use the contract instead of inlining) is deferred to a future version.
 - **Mutable pointee annotations (`mut ptr T`)**. All pointer parameters are modifiable — the callee may write through any pointer. Per-parameter mutability annotations with static enforcement (i.e., `store` through a non-`mut` parameter is a compile-time error) is deferred. The uniform "all modifiable" model is simpler and sufficient for v0.2.2 synthesis patterns.
-- **Additional intrinsics — P0 tier, planned for v0.2.2 follow-up batches.** Integer extras (`@abs_diff`, `@signum`, `@umin`, `@umax`, `@clamp`, `@midpoint`), bit-manipulation (`@parity`, `@bswap`, `@bitreverse`, `@rotl`, `@rotr`, `@is_pow2`, `@ilog2`), the integer overflow-aware family (`@wrapping_*`, `@checked_*`, `@saturating_*`, `@overflowing_*`, `@widening_mul`, `@div_euclid`, `@rem_euclid`), and the floating-point basic IEEE family (`@fabs`, `@copysign`, `@fmin`, `@fmax`, `@sqrt`, `@floor`/`@ceil`/`@trunc`, `@signbit`, `@is_normal`, `@is_subnormal`, `@to_bits`/`@from_bits`, `@ldexp`/`@scalbn`/`@ilogb`/`@logb`, `@fract`, `@recip`) are all solver-easy and broadly target-easy. They are slated for follow-up batches in the v0.2.2 line. The D.1 sub-batch (sign / bit ops: `@fabs`, `@fneg`, `@copysign`, `@signbit`, `@to_bits`, `@from_bits`) and D.2 (classification predicates: `@is_normal`, `@is_subnormal`) have shipped; D.1 opens the §12 type-restriction sentence to `fN`. Remaining D sub-batches are planned. See [`docs/intrinsics.md`](./intrinsics.md) for the per-batch scope.
+- **Additional intrinsics — P0 tier, planned for v0.2.2 follow-up batches.** Integer extras (`@abs_diff`, `@signum`, `@umin`, `@umax`, `@clamp`, `@midpoint`), bit-manipulation (`@parity`, `@bswap`, `@bitreverse`, `@rotl`, `@rotr`, `@is_pow2`, `@ilog2`), the integer overflow-aware family (`@wrapping_*`, `@checked_*`, `@saturating_*`, `@overflowing_*`, `@widening_mul`, `@div_euclid`, `@rem_euclid`), and the floating-point basic IEEE family (`@fabs`, `@copysign`, `@fmin`, `@fmax`, `@sqrt`, `@floor`/`@ceil`/`@trunc`, `@signbit`, `@is_normal`, `@is_subnormal`, `@to_bits`/`@from_bits`, `@ldexp`/`@scalbn`/`@ilogb`/`@logb`, `@fract`, `@recip`) are all solver-easy and broadly target-easy. They are slated for follow-up batches in the v0.2.2 line. The D.1 sub-batch (sign / bit ops: `@fabs`, `@fneg`, `@copysign`, `@signbit`, `@to_bits`, `@from_bits`), D.2 (classification predicates: `@is_normal`, `@is_subnormal`), and D.3 (min / max: `@fmin`, `@fmax`) have shipped; D.1 opens the §12 type-restriction sentence to `fN`. Remaining D sub-batches are planned. See [`docs/intrinsics.md`](./intrinsics.md) for the per-batch scope.
 - **Intrinsics in tiers P1–P4 — deferred to later versions.** Composed-WASM lowerings (P1: `@ffs`, `@next_pow2`, `@fmod`, `@remainder`, `@fdim`, `@modf`, `@frexp`, `@nextafter`, `@fpclassify`, `@total_cmp`, …); bounded SMT encodings behind a feature flag (P2: `@isqrt`, `@pow` with symbolic exponent, `@ilog10`, `@hypot`); libm-backed transcendentals where the solver prunes the path (P3: `@exp`/`@log`/`@pow`/`@sin`/`@cos`/`@tan`/`@erf`/`@tgamma`/… and friends); and stateful/impure or non-finite-producing intrinsics rejected at the frontend (P4: `@rand`, `@time`, `@nan`, `@inf`, I/O). See [`docs/intrinsics.md`](./intrinsics.md) for the full classification, the rejection layers, and the consistency rule between the interpreter and host libm.
 - **Heap allocation and memory intrinsics** (`@memcpy`, `@memset`). Currently classified P4 in [`docs/intrinsics.md`](./intrinsics.md): their SMT encoding requires byte-level array reasoning with potentially symbolic sizes. Eligible for re-promotion when the solver gains byte-addressable memory. Track the alloc-free path, insert some free-after-use/double-free/... patterns in inaccessible paths; maybe there're benefits.
 - **Contract memory havoc — extended provenance forms.** The solver now havocs the storage backing each pointer parameter at contract-form `decl` call sites (§9.6.2 step 4) so post-state pointee constraints are sound. The current implementation resolves two argument-expression forms — direct `addr %x` and a plain ptr local `%p` with a known provenance — by replacing the source local's symbolic value with a fresh constant. Aggregate provenance (havocing every cell of a `[N] T` or every field of an `@S`), pointer arguments derived from `ptrindex`/`ptrfield`/pointer arithmetic, and transitive nested-pointer cells are not yet havoc'd; callers passing those forms today should constrain the post-state via additional contract clauses or caller-side asserts until the next refinement lands.
