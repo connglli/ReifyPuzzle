@@ -1,4 +1,4 @@
-# SymLang (SymIR): A CFG-Based Symbolic Language / Intermediate Representation
+# SymLang (SymIR)
 
 > [!WARNING]
 > The project is under active development. APIs and IR details are still evolving, but semantic decisions in `docs/SPEC_v0.2.1.md` are authoritative for the current release (v0.2.1).
