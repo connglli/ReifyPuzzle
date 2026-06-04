@@ -4,6 +4,6 @@ intrinsic @abs(%x: i32) : i32;
 fun @main() : i32 {
   let mut %v: i32 = 0;
 ^entry:
-  %v = call @abs(0 - 2147483648);
+  %v = call @abs(-2147483648);
   ret %v;
 }

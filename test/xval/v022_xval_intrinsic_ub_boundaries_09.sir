@@ -61,7 +61,7 @@ fun @main() : i32 {
   br %r1 > 0, ^exit, ^exit;
 ^exit:
   %rot1 = call @rotl(1, 31); // Boundary: shift amount N-1 = 31 (UB when >= 32 or < 0)
-  %rot1 = 0x80000000 ^ %rot1;
+  %rot1 = -0x80000000 ^ %rot1;
   %rot2 = call @rotr(1, 31); // Boundary: shift amount N-1 = 31 (UB when >= 32 or < 0)
   %il = call @ilog2(1); // Boundary: minimum positive value 1 (UB when <= 0)
   %res = %c1 + %cl;

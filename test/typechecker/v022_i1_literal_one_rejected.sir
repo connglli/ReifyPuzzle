@@ -1,0 +1,13 @@
+// EXPECT: FAIL:StaticError
+// SPEC §6.12 + §6.4 (after this fix): i1 is signed; the
+// representable values are 0 and -1.  Literal `1` is out of i1's
+// signed range `[-1, 0]` and the typechecker now rejects it.
+// Users must write `== -1` or `!= 0` for true.
+intrinsic @signbit(%x: f64) : i1;
+fun @main() : i32 {
+  let mut %sb: i1 = 0;
+^entry:
+  %sb = call @signbit(-3.0);
+  require %sb == 1, "rejected: 1 not in i1 signed range";
+  ret 0;
+}

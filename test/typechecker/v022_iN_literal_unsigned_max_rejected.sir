@@ -1,0 +1,11 @@
+// EXPECT: FAIL:StaticError
+// SPEC §6.12 + §6.4 (after this fix): integer literals must fit the
+// target type's signed range.  `255` is in i8's *unsigned* max but
+// out of the signed range `[-128, 127]` — the typechecker now
+// rejects it rather than accept-and-bit-truncate.
+fun @main() : i32 {
+  let mut %v: i8 = -1;
+^entry:
+  require %v == 255, "rejected: 255 out of i8 signed range";
+  ret 0;
+}

@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// SPEC §6.12 + §6.4 (after this fix): `let mut %x: i8 = 200` was
+// previously accepted via bit-truncating narrowing.  Now rejected:
+// 200 is outside i8's signed range [-128, 127].
+fun @main() : i32 {
+  let mut %x: i8 = 200;
+^entry:
+  ret 0;
+}

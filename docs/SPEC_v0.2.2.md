@@ -423,6 +423,8 @@ A contract block `{ pre... post... }` on a `decl` is well-formed iff:
 ### 6.12 Literal typing and inference
 Literals are inferred from context. Integer default: `i32`. Float default: `f32`. `null` has no default; context must be available.
 
+**Strict range-check [v0.2.2].** Once a literal is inferred at type `iN`, the typechecker rejects any value outside the *signed* range `[-2^(N-1), 2^(N-1)-1]` as a static error — there is no silent narrowing to fit. The check is uniform across decimal, hex, octal, and binary forms: `0x80` is the value 128 (per §3.1), not a "bit pattern" reinterpretation, so it is out of `i8` range and must be written as `-0x80` (= -128) if the author intended the signed-i8 minimum. For `i1`, this means the only representable literals are `0` and `-1`; `1` in `i1` context is rejected.
+
 
 ## 7. Strict UB rules (v0.2.2)
 
@@ -706,14 +708,14 @@ intrinsic @abs(%x: i32) : i32;
 decl @validate(%data: ptr i32, %len: i32) : i1 {
   pre %len > 0, "non-empty buffer";
   pre %data != null, "non-null buffer";
-  post ret == 0 || ret == 1, "boolean result";
+  post ret == 0 || ret == -1, "boolean result";
 };
 
 fun @validated_abs(%data: ptr i32, %len: i32) : i32 {
   let mut %ok: i1 = 0;
   let mut %val: i32 = 0;
   let mut %result: i32 = 0;
-  let %one: i1 = 1;
+  let %one: i1 = -1;
   let %zero: i32 = 0;
 ^entry:
   %ok = call @validate(%data, %len);

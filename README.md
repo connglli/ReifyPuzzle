@@ -178,7 +178,7 @@ fun @mix(%acc: i32, %byte_pop_sum: i32, %rc: i32, %round_idx: i32) : i32 {
 
 fun @main() : i32 {
   sym %?byte2 : value i8 in [32, 126];  // symbolic plaintext byte
-  let %rconsts: <4> i32 = {0x9E3779B9, 0x85EBCA6B, 0xC2B2AE35, 0x27D4EB2F};
+  let %rconsts: <4> i32 = {-0x61C88647, -0x7A143595, -0x3D4D51CB, 0x27D4EB2F};
   let mut %st:  @CipherState = 0;
   let mut %pst: ptr @CipherState = null;
   let mut %p_s0:   ptr i8  = null; let mut %p_s1:   ptr i8  = null;

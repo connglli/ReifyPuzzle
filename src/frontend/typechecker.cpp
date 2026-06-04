@@ -1552,8 +1552,18 @@ namespace symir {
   void TypeChecker::checkLiteralRange(int64_t val, uint32_t bits, SourceSpan sp, DiagBag &diags) {
     if (bits >= 64)
       return;
+    // [v0.2.2] Spec §6.12 + §6.4: all iN are signed two's-complement
+    // integers (including i1).  Literals must fit the *signed* range
+    // [-2^(N-1), 2^(N-1) - 1] of the target type — no implicit
+    // bit-truncating narrowing.  Previously the upper bound used the
+    // unsigned max (2^N - 1) as a "convenience", which let `i8 == 255`
+    // and `i1 == 1` pass the typecheck and then diverge between the
+    // interpreter (cmp masking on i1, raw 64-bit cmp on i8) and the C
+    // backend (sign-extending cast).  Tightening to the strict signed
+    // max restores uniform iN handling: same rule for every width,
+    // out-of-range literals are static errors.
     int64_t min = -(1LL << (bits - 1));
-    int64_t max = (1LL << bits) - 1; // Allow up to unsigned max for convenience
+    int64_t max = (1LL << (bits - 1)) - 1;
     if (val < min || val > max) {
       diags.error(
           "Literal " + std::to_string(val) + " out of range for i" + std::to_string(bits) + " ([" +

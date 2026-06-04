@@ -58,7 +58,7 @@ fun @main() : i8 {
   %res = %res + %c1;
   br %res > 100, ^exit, ^b2;
 ^b2:
-  %t2 = call @ctz(0x80); // Boundary: extreme INT_MIN
+  %t2 = call @ctz(-128); // Boundary: extreme INT_MIN
   %res = %res + %t2;
   br %res > 100, ^exit, ^b3;
 ^b3:
@@ -68,7 +68,7 @@ fun @main() : i8 {
   br %res > 100, ^exit, ^b4;
 ^b4:
   %rot1 = call @rotl(1, 7); // Boundary: shift amount N-1 = 7 (UB when >= 8 or < 0)
-  %rot1 = 0x80 ^ %rot1;
+  %rot1 = -128 ^ %rot1;
   %rot2 = call @rotr(1, 7); // Boundary: shift amount N-1 = 7 (UB when >= 8 or < 0)
   %il = call @ilog2(1); // Boundary: minimum positive value 1 (UB when <= 0)
   %res = %res + %rot1;

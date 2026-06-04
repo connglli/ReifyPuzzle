@@ -544,7 +544,7 @@ def run(
     _clear_batch_files(out_dir)
 
     # ── (1) rysmith generation ───────────────────────────────────────
-    gen_cmd = [
+    rys_cmd = [
       rysmith,
       "-n",
       str(batch_n),
@@ -560,9 +560,9 @@ def run(
     ]
     if verbose:
       print(bold(f"batch #{batch_idx + 1} rysmith generation ({done}/{n} programs):"))
-      print(f"  running: {' '.join(gen_cmd)}")
+      print(f"  running: {' '.join(rys_cmd)}")
     gen = subprocess.run(
-      gen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+      rys_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
     )
     batch_gen_failed = (gen.stderr or "").strip().count("[FAIL]")
     leaf_gen_failed_total += batch_gen_failed
@@ -643,7 +643,7 @@ def run(
       # function in this batch. The previous version hard-coded
       # BATCH_SIZE (=100) here, so a `--n 5` run still asked rylink
       # for 100 programs and the final count ballooned to ~n + 100.
-      ry_cmd = [
+      ryl_cmd = [
         rylink,
         "-n",
         str(batch_n),
@@ -657,13 +657,13 @@ def run(
         ry_dir,
       ]
       if ry_flat:
-        ry_cmd.append("--no-split-by-source")
+        ryl_cmd.append("--no-split-by-source")
       if verbose:
         print(bold(f"batch #{batch_idx + 1} rylink generation ({done}/{n} programs):"))
-        print(f"  running: {' '.join(ry_cmd)}")
+        print(f"  running: {' '.join(ryl_cmd)}")
       try:
         ry = subprocess.run(
-          ry_cmd,
+          ryl_cmd,
           stdout=subprocess.PIPE,
           stderr=subprocess.PIPE,
           text=True,

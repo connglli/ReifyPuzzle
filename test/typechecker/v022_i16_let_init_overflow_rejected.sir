@@ -1,0 +1,8 @@
+// EXPECT: FAIL:StaticError
+// SPEC §6.12: same rule at i16 — 40000 is in unsigned range but
+// out of signed range [-32768, 32767].
+fun @main() : i32 {
+  let mut %x: i16 = 40000;
+^entry:
+  ret 0;
+}

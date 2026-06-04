@@ -62,12 +62,12 @@ fun @main() : i32 {
 ^b1:
   %c1 = call @clz(1); // Boundary: min non-zero value 1 (UB is 0)
   %c2 = call @clz(-1); // Boundary: negative extreme -1
-  %c3 = call @clz(0x80000000); // Boundary: negative extreme INT_MIN
+  %c3 = call @clz(-0x80000000); // Boundary: negative extreme INT_MIN
   %res = %res + %c1;
   br %res > 0, ^b2, ^exit;
 ^b2:
   %t1 = call @ctz(1); // Boundary: min non-zero value 1 (UB is 0)
-  %t2 = call @ctz(0x80000000); // Boundary: extreme INT_MIN
+  %t2 = call @ctz(-0x80000000); // Boundary: extreme INT_MIN
   %pop = call @popcount(1); // Boundary: popcount(1) on i2 (UB when result > 1)
   %pop32 = %pop as i32;
   %res = %res + %t2;
@@ -81,7 +81,7 @@ fun @main() : i32 {
 ^b4:
   %cl = call @clamp(5, 10, 10); // Boundary: lo == hi (UB when lo > hi)
   %rot1 = call @rotl(1, 31); // Boundary: shift amount N-1 = 31 (UB when >= 32 or < 0)
-  %rot1 = 0x80000000 ^ %rot1;
+  %rot1 = -0x80000000 ^ %rot1;
   %rot2 = call @rotr(1, 31); // Boundary: shift amount N-1 = 31 (UB when >= 32 or < 0)
   %il = call @ilog2(1); // Boundary: minimum positive value 1 (UB when <= 0)
   %res = %res + %cl;

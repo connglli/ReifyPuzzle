@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC §6.12 + §6.4 (after this fix): -1 IS in i1's signed range
+// [-1, 0], so `require %sb == -1` is accepted and is the canonical
+// way to test for i1 = true.  Positive guard for the in-range path.
+intrinsic @signbit(%x: f64) : i1;
+fun @main() : i32 {
+  let mut %sb: i1 = 0;
+^entry:
+  %sb = call @signbit(-3.0);
+  require %sb == -1, "i1 == -1 is the in-range form for true";
+  ret 0;
+}

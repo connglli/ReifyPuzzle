@@ -1,9 +1,11 @@
-// EXPECT: FAIL:RequireViolation
+// EXPECT: FAIL:StaticError
 // SOLVER_ARGS: --main @main --path '^entry'
 //
 // Rationale: Testing symbolic domain clamping.
 // sym i8 in [0, 200] should be effectively in [0, 127].
-// require %?x == 200 should be UNSAT.
+// Under v0.2.2 strict literal range-check (SPEC §6.12), the literal
+// `200` is rejected statically — a stronger form of the same property:
+// the value 200 is unreachable in i8's signed range [-128, 127].
 
 fun @main() : i32 {
   sym %?x: value i8 in [0, 200];

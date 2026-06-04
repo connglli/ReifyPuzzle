@@ -129,7 +129,11 @@ fun @main() : i32 {
 
   // Round constants — a <4> i32 SIMD register.  One constant per round;
   // the driver loop pulls them out lane-by-lane.
-  let %rconsts: <4> i32 = {0x9E3779B9, 0x85EBCA6B, 0xC2B2AE35, 0x27D4EB2F};
+  // [v0.2.2] SPEC §3.1: hex literals are signed (`"-"? "0x" HEX+`).  The
+  // first three Knuth-style constants exceed INT_MAX_32, so write them as
+  // negative literals; the bit patterns are the two's-complement images
+  // of the original 0x9E3779B9 / 0x85EBCA6B / 0xC2B2AE35.
+  let %rconsts: <4> i32 = {-0x61C88647, -0x7A143595, -0x3D4D51CB, 0x27D4EB2F};
 
   // Run state and a typed pointer to it.
   let mut %st:  @CipherState = 0;

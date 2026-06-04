@@ -64,14 +64,14 @@ fun @main() : i16 {
   br %res == 0, ^b3, ^b3;
 ^b3:
   %t1 = call @ctz(1); // Boundary: min non-zero value 1 (UB is 0)
-  %t2 = call @ctz(0x8000); // Boundary: extreme INT_MIN
+  %t2 = call @ctz(-32768); // Boundary: extreme INT_MIN
   %res = %res + %t2;
   br %res > 0, ^b4, ^b4;
 ^b4:
   %d1 = call @abs_diff(32767, 0); // Boundary: max difference INT_MAX_16
   %cl = call @clamp(5, 10, 10); // Boundary: lo == hi (UB when lo > hi)
   %rot1 = call @rotl(1, 15); // Boundary: shift amount N-1 = 15 (UB when >= 16 or < 0)
-  %rot1 = 0x8000 ^ %rot1;
+  %rot1 = -32768 ^ %rot1;
   %rot2 = call @rotr(1, 15); // Boundary: shift amount N-1 = 15 (UB when >= 16 or < 0)
   %il = call @ilog2(1); // Boundary: minimum positive value 1 (UB when <= 0)
   %res = %res + %cl;

@@ -149,8 +149,9 @@ fun @main() : i32 {
   // Symbolic plaintext byte.  Expected solution: 0x5A (90 dec).
   sym %?byte2 : value i8 in [32, 126];
 
-  // Round constants as a <4> i32 vector.
-  let %rconsts: <4> i32 = {0x9E3779B9, 0x85EBCA6B, 0xC2B2AE35, 0x27D4EB2F};
+  // Round constants as a <4> i32 vector.  See minicipher_v022.sir:132 for
+  // the SPEC §3.1 note on signed-hex-literal rewriting.
+  let %rconsts: <4> i32 = {-0x61C88647, -0x7A143595, -0x3D4D51CB, 0x27D4EB2F};
 
   let mut %st:  @CipherState = 0;
   let mut %pst: ptr @CipherState = null;
