@@ -2441,10 +2441,19 @@ namespace symir {
             // targets are stubbed for Phases 6/7/8.
             // Evaluate arguments left-to-right first (§2.12 strict commit)
             // so we can match intrinsic overloads by argument type.
+            // [v0.2.2 D.3] When the typechecker pinned a resolved intrinsic
+            // overload, propagate each parameter's sort to evalExpr so FP
+            // literals (`@fmin(%?x, 2.0)`) bind at the param's precision
+            // rather than the f32 default.  Without this, a literal arg
+            // typed at f32 collides with an f64 sym at FP_LT/FP_GT inside
+            // the @fmin / @fmax encodings.
             std::vector<SymbolicValue> argVals;
             argVals.reserve(arg.args.size());
-            for (const auto &ap: arg.args) {
-              argVals.push_back(evalExpr(*ap, solver, store, pc));
+            for (size_t k = 0; k < arg.args.size(); ++k) {
+              std::optional<smt::Sort> expected;
+              if (arg.resolvedIntrinsic && k < arg.resolvedIntrinsic->params.size())
+                expected = getSort(arg.resolvedIntrinsic->params[k].type, solver);
+              argVals.push_back(evalExpr(*arg.args[k], solver, store, pc, expected));
             }
             // [v0.2.2] Honour the overload pinned by the type checker
             // when available. The width-comparison fallback below is
