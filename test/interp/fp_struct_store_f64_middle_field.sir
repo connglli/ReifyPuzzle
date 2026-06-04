@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// SKIP: WASM
+// Reason: WASM backend mis-emits i32.const for i64-range integer
+// literals in `require` comparisons (e.g., -4490088828504113152) —
+// pre-existing bug independent of this interp fix.
+// Struct `{f64; i32; f64}` has minFieldSize = 4 (the i32 field).
+// Before the heap-store fix, this would narrow *every* f64 store to
+// f32 precision because the whole-struct provenance's elemSize was
+// 4 — regardless of which field was the destination.  Verify by
+// storing -268435455.53125 to the FIRST f64 field `a`.
+intrinsic @to_bits(%x: f64) : i64;
+
+struct @S { a: f64; x: i32; b: f64; }
+
+fun @main() : i64 {
+  let mut %t0: @S = {1.0, 0, 1.0};
+  let mut %ap0: ptr @S = undef;
+  let mut %pa: ptr f64 = undef;
+^entry:
+  %ap0 = addr %t0;
+  %pa = ptrfield %ap0, a;
+  store %pa, -268435455.53125;
+  require call @to_bits(%t0.a) == -4490088828504113152, "f64 store to leading field stays exact";
+  ret 0;
+}

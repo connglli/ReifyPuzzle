@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// Positive regression guard for the f64-store fix.  After the fix
+// uses the *cell-level* elemSize instead of the whole-struct
+// minFieldSize, stores to genuine f32 fields must still narrow.
+// Store 0.1 (an f64 literal not exactly representable in f32) and
+// verify the f32 field receives the f32-rounded bit pattern
+// 0x3DCCCCCD = 1036831949.
+intrinsic @to_bits(%x: f32) : i32;
+
+struct @S { x: i32; f1: f32; }
+
+fun @main() : i32 {
+  let mut %t0: @S = {0, 0.0};
+  let mut %ap0: ptr @S = undef;
+  let mut %p1: ptr f32 = undef;
+^entry:
+  %ap0 = addr %t0;
+  %p1 = ptrfield %ap0, f1;
+  store %p1, 0.1;
+  require call @to_bits(%t0.f1) == 1036831949, "f32 store narrows 0.1 to 0x3DCCCCCD";
+  ret 0;
+}

@@ -1,0 +1,26 @@
+// EXPECT: PASS
+// SKIP: WASM
+// Reason: WASM backend mis-emits i32.const for i64-range integer
+// literals in `require` comparisons (e.g., -4490088828504113152) —
+// pre-existing bug independent of this interp fix.
+// Same bug surface verified through `load` instead of direct field
+// access — round-trips an exact-but-fractional f64 through the heap.
+// Struct `{i32; f64}` has minFieldSize = 4; the buggy path narrowed
+// the f64 store, and `load %p1` would then see the narrowed value.
+intrinsic @to_bits(%x: f64) : i64;
+
+struct @S { x: i32; f1: f64; }
+
+fun @main() : i64 {
+  let mut %t0: @S = {0, 1.0};
+  let mut %ap0: ptr @S = undef;
+  let mut %p1: ptr f64 = undef;
+  let mut %v: f64 = 0.0;
+^entry:
+  %ap0 = addr %t0;
+  %p1 = ptrfield %ap0, f1;
+  store %p1, -268435455.53125;
+  %v = load %p1;
+  require call @to_bits(%v) == -4490088828504113152, "load returns the exact f64 just stored";
+  ret 0;
+}

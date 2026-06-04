@@ -1225,14 +1225,20 @@ namespace symir {
                       throw UndefinedBehaviorError("UB: Typed-access mismatch (rule 15b) on store");
                   }
                 }
-                // SPEC §6.4: enforce destination precision. The pointee object
-                // has an elemSize that reflects the pointee type; for f32 this
-                // is 4, for f64 it is 8. Round float values to f32 if the
-                // pointee is f32-sized so the stored bits match what C/WASM
-                // would compute. (Int canonicalization is already handled in
-                // AssignInstr's setLValue and is left to the store-side mirror
-                // for now since the heap holds full int64 bits.)
-                if (val.kind == RuntimeValue::Kind::Float && obj->elemSize == 4) {
+                // SPEC §6.4: enforce destination precision. The cell-level
+                // ObjectInfo's elemSize reflects the pointee type at this
+                // exact address (4 for f32, 8 for f64).  Do NOT use the
+                // outer provenance object's elemSize: when the provenance
+                // is a whole struct, its elemSize is the minFieldSize
+                // across all fields (line 497), which can be 4 even when
+                // the cell being written is an f64 field — that would
+                // silently narrow the store to f32 precision and corrupt
+                // the bit pattern.  Falls back to the provenance object
+                // when no cell-level ObjectInfo is registered.
+                std::uint64_t storeElemSize = obj->elemSize;
+                if (const ObjectInfo *precCell = findObject(ptrVal.ptrVal))
+                  storeElemSize = precCell->elemSize;
+                if (val.kind == RuntimeValue::Kind::Float && storeElemSize == 4) {
                   val.bits = 32;
                   val.floatVal = static_cast<double>(static_cast<float>(val.floatVal));
                 }

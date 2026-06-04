@@ -1,0 +1,28 @@
+// EXPECT: PASS
+// SKIP: WASM
+// Reason: WASM backend mis-emits i32.const for i64-range integer
+// literals in `require` comparisons (e.g., -4490088828504113152) —
+// pre-existing bug independent of this interp fix.
+// Regression for an interpreter f64 store bug.  When the provenance
+// object is a whole struct, its elemSize is set to minFieldSize
+// across the struct's fields.  For `{[2] i16; f64}` that's 4, which
+// caused the store path to incorrectly narrow the f64 value to f32
+// precision — corrupting the bit pattern of `-268435455.53125` to
+// `-268435456.0`.  The correct behavior is to use the cell-level
+// ObjectInfo's elemSize (8 for f64), not the struct-level minFieldSize.
+intrinsic @to_bits(%x: f64) : i64;
+
+struct @S { f0: [2] i16; f1: f64; }
+
+fun @main() : i64 {
+  let mut %t0: @S = {{1, 1}, 1.0};
+  let mut %ap0: ptr @S = undef;
+  let mut %p1: ptr f64 = undef;
+^entry:
+  %ap0 = addr %t0;
+  %p1 = ptrfield %ap0, f1;
+  store %p1, -268435455.53125;
+  // -268435455.53125 as i64 bit pattern = 0xC1AFFFFFFE200000 (signed -4490088828504113152).
+  require call @to_bits(%t0.f1) == -4490088828504113152, "f64 store preserves fractional bits";
+  ret 0;
+}

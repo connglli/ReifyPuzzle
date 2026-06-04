@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SKIP: WASM
+// Reason: WASM backend mis-emits i32.const for i64-range integer
+// literals in `require` comparisons (e.g., -4490088828504113152) —
+// pre-existing bug independent of this interp fix.
+// Edge case for the heap-store fix: `addr` of a bare f64 scalar (no
+// struct wrapper).  The provenance object IS the scalar with
+// elemSize = 8, so no narrowing should ever fire — both pre- and
+// post-fix.  This guards against an over-zealous future refactor of
+// the elemSize lookup that would over-narrow even this trivial case.
+intrinsic @to_bits(%x: f64) : i64;
+
+fun @main() : i64 {
+  let mut %v: f64 = 0.0;
+  let mut %p: ptr f64 = undef;
+^entry:
+  %p = addr %v;
+  store %p, -268435455.53125;
+  require call @to_bits(%v) == -4490088828504113152, "addr-on-scalar f64 store stays exact";
+  ret 0;
+}
