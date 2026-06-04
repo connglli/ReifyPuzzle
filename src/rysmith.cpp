@@ -35,6 +35,7 @@
 #include "reify/common.hpp"
 #include "reify/func_desc.hpp"
 #include "reify/func_gen.hpp"
+#include "reify/hyperparameters.hpp"
 #include "reify/id_gen.hpp"
 #include "reify/path_sampler.hpp"
 #include "reify/var_catalogue.hpp"
@@ -244,7 +245,8 @@ static GenerateResult generateLeaf(
 
       // Optionally dump symbolic program
       if (keepSymbolic) {
-        auto symPath = outDir / (funcName + "_sym" + std::to_string(initIdx) + ".sir");
+        auto symPath =
+            outDir / (funcName + reify::rysmith::hp::kSymInfix + std::to_string(initIdx) + ".sir");
         std::ofstream ofs(symPath);
         writePathHeader(ofs);
         SIRPrinter printer(ofs);
@@ -617,7 +619,8 @@ int main(int argc, char **argv) {
   int nOk = 0, nFail = 0;
 
   for (int i = 0; i < nFuncs; i++) {
-    std::string funcName = "func_" + genId + "_" + std::to_string(i);
+    std::string funcName =
+        std::string(reify::rysmith::hp::kFuncPrefix) + "_" + genId + "_" + std::to_string(i);
     uint32_t funcSeed = rng();
     std::cout << "[" << (i + 1) << "/" << nFuncs << "] generating " << funcName
               << " (seed=" << funcSeed << ")\n";
@@ -736,6 +739,53 @@ int main(int argc, char **argv) {
     } else {
       nOk++;
     }
+  }
+
+  // [v0.2.2] Single end-of-run orphan sweep.  When a per-function wall-clock
+  // timeout fires, the detached worker may have already written some
+  // concrete .sir files into outDir before we abandoned it.  The compile-
+  // to-target step then skips that function, leaving the .sir on disk
+  // with no matching .c/.wat.  Downstream consumers (reify-diff) see a
+  // .sir without its companion and mis-classify it as a `cfail` symirc
+  // bug instead of the rysmith timeout it really is.  A single pass after
+  // the main loop is O(N) and handles every timed-out function uniformly
+  // — much cheaper than scanning the whole directory inside each
+  // [TIMEOUT] branch.  A residual race where the detached thread writes
+  // a new file *after* this sweep is bounded: when rysmith returns, the
+  // subprocess exits and the OS reaps any surviving worker.
+  //
+  // The `--keep-symbolic` switch emits `<stem><kSymInfix><N>.sir` files
+  // (e.g. `func_ab12cd_42_sym0.sir`) that are pre-solve sources and
+  // intentionally have no .c twin.  Detect them by the kSymInfix +
+  // trailing-digits pattern and exclude from the orphan check.
+  if (target != "sir") {
+    std::string ext = (target == "c") ? ".c" : ".wat";
+    std::string symInfix = reify::rysmith::hp::kSymInfix;
+    std::vector<fs::path> orphanSirs;
+    std::error_code ec;
+    for (auto &entry: fs::directory_iterator(outDir, ec)) {
+      const auto &p = entry.path();
+      if (p.extension() != ".sir")
+        continue;
+      auto stem = p.stem().string();
+      // Skip --keep-symbolic preserve files: stem ends with kSymInfix
+      // followed by one or more digits.
+      auto symPos = stem.rfind(symInfix);
+      if (symPos != std::string::npos && symPos + symInfix.size() < stem.size()) {
+        std::string tail = stem.substr(symPos + symInfix.size());
+        if (!tail.empty() &&
+            std::all_of(tail.begin(), tail.end(), [](unsigned char c) { return std::isdigit(c); }))
+          continue;
+      }
+      auto twin = p.parent_path() / (stem + ext);
+      if (!fs::exists(twin, ec))
+        orphanSirs.push_back(p);
+    }
+    for (const auto &p: orphanSirs)
+      fs::remove(p, ec);
+    if (!orphanSirs.empty())
+      std::cerr << "[CLEANUP] removed " << orphanSirs.size()
+                << " orphan .sir file(s) from timed-out functions\n";
   }
 
   auto elapsed =

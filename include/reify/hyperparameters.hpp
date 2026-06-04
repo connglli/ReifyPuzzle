@@ -183,6 +183,27 @@ namespace symir::reify::rysmith::hp {
   inline constexpr std::size_t kFloatMulCoefPoolSize =
       sizeof(kFloatMulCoefPool) / sizeof(kFloatMulCoefPool[0]);
 
+  // ===========================================================================
+  // Output naming
+  //
+  // Per-function artefacts share a common stem of the form
+  // `<func-prefix>_<gen-id>_<i>` (e.g. `func_ab12cd_42`).  Concrete
+  // .sir files append an optional init-letter (`a`..`z`) and the .sir
+  // extension; the descriptor JSON sidecar is `<stem>.json`; the
+  // compile-to-target output is `<stem><letter>.c` or `.wat`.
+  //
+  // The `--keep-symbolic` switch additionally emits pre-solve sources
+  // named `<stem><sym-infix><N>.sir` (e.g. `func_ab12cd_42_sym0.sir`).
+  // These files are intentionally NOT compiled to .c — downstream
+  // cleanup logic must skip them when sweeping for compile orphans.
+  //
+  // Centralising the strings here means the generator and any external
+  // consumer (test harnesses, cleanup sweeps, rylink bundlers) agree on
+  // the layout without re-deriving it from scattered string literals.
+  // ===========================================================================
+  inline constexpr const char *kFuncPrefix = "func";
+  inline constexpr const char *kSymInfix = "_sym";
+
 } // namespace symir::reify::rysmith::hp
 
 // Central place to manage rylink's *code-level* tunable hyperparameters.
