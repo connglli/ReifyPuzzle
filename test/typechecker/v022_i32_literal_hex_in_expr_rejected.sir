@@ -1,0 +1,12 @@
+// EXPECT: FAIL:StaticError
+// SPEC §6.12 + §6.1: hex literal 0x80000000 (value 2147483648) is inferred as i32
+// in the context of the addition operand, which expects i32.
+// It is out of the signed range [-2147483648, 2147483647] and must be rejected.
+fun @main() : i32 {
+  let mut %x: i32 = 0;
+  let mut %y: i32 = 0;
+^entry:
+  %x = 42;
+  %y = %x + 0x80000000; // 0x80000000 is OOB for signed i32
+  ret %y;
+}

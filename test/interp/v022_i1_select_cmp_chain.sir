@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// SPEC §6.3 + §6.4: select with i1 cmp predicate, then widen result.
+// Tests that cmp produces i1 (-1/0), select picks correctly,
+// and widening of the selected i1 to i32 sign-extends.
+fun @main() : i32 {
+  let %a: i32 = 10;
+  let %b: i32 = 20;
+  let mut %picked: i1 = 0;
+  let mut %wide: i32 = 0;
+  let mut %cond: i1 = 0;
+^entry:
+  // cmp > 10, 20 → false → i1 = 0
+  // cmp < 10, 20 → true  → i1 = -1
+  %cond = cmp < %a, %b;
+  %picked = select %cond, -1, 0;  // cond true → picks -1
+  %wide = %picked as i32;
+  require %wide == -1, "select of true cmp, widened to i32, must be -1";
+
+  // Now test the false path
+  %cond = cmp > %a, %b;
+  %picked = select %cond, -1, 0;  // cond false → picks 0
+  %wide = %picked as i32;
+  require %wide == 0, "select of false cmp, widened to i32, must be 0";
+  ret 0;
+}

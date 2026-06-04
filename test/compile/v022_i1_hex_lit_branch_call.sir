@@ -1,0 +1,45 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER pure compile coverage
+// SKIP: SOLVER pure compile coverage
+// SPEC v0.2.2 §6.12 + §6.4: hex literal -0x1 in i1 context (value -1),
+// cmp with 0x0 (value 0 in i1 context), and branch on i1 conditions.
+// Tests that hex literals are treated as values (not bit patterns),
+// and that the C/WASM backends correctly handle i1-typed branch
+// conditions with the signed convention.
+fun @helper(%x: i32) : i1 {
+  let mut %c: i1 = 0;
+^entry:
+  %c = cmp > %x, 0;
+  ret %c;
+}
+
+
+fun @main() : i32 {
+  let %neg_one: i1 = -0x1;       // value -1, valid for i1
+  let mut %cond: i1 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  // Call helper(5) → cmp > 5, 0 → true → i1 = -1
+  %cond = call @helper(5);
+
+  // Branch on i1 condition
+  br %cond != 0, ^positive, ^nonpositive;
+
+^positive:
+  // Also check that -0x1 literal equals the true result
+  br %cond == %neg_one, ^match, ^mismatch;
+
+^nonpositive:
+  ret 1;
+
+^match:
+  // Call helper(0) → cmp > 0, 0 → false → i1 = 0
+  %cond = call @helper(0);
+  br %cond == 0, ^ok, ^mismatch;
+
+^ok:
+  ret 0;
+
+^mismatch:
+  ret 2;
+}

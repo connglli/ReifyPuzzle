@@ -1,0 +1,53 @@
+// EXPECT: PASS
+// SPEC §5.2 + §6.4: cmp with all six relops on i32, storing result
+// in i1, then widening to i32 to check -1/0.
+// Also tests cmp on i1-typed operands directly (signed comparison:
+// -1 < 0, so true < false in signed arithmetic).
+fun @main() : i32 {
+  let %x: i32 = 5;
+  let %y: i32 = 10;
+  let mut %r: i1 = 0;
+  let mut %w: i32 = 0;
+^entry:
+  // == (false)
+  %r = cmp == %x, %y;
+  %w = %r as i32;
+  require %w == 0, "5 == 10 is false → 0";
+
+  // != (true)
+  %r = cmp != %x, %y;
+  %w = %r as i32;
+  require %w == -1, "5 != 10 is true → -1";
+
+  // < (true)
+  %r = cmp < %x, %y;
+  %w = %r as i32;
+  require %w == -1, "5 < 10 is true → -1";
+
+  // <= (true)
+  %r = cmp <= %x, %y;
+  %w = %r as i32;
+  require %w == -1, "5 <= 10 is true → -1";
+
+  // > (false)
+  %r = cmp > %x, %y;
+  %w = %r as i32;
+  require %w == 0, "5 > 10 is false → 0";
+
+  // >= (false)
+  %r = cmp >= %x, %y;
+  %w = %r as i32;
+  require %w == 0, "5 >= 10 is false → 0";
+
+  // Now test cmp ON i1 operands: i1 is signed, so -1 < 0
+  %r = cmp < -1, 0;  // in i1 context: -1 < 0 → true → -1
+  %w = %r as i32;
+  require %w == -1, "i1: -1 < 0 is true (signed) → -1";
+
+  // i1: -1 > 0 → false
+  %r = cmp > -1, 0;
+  %w = %r as i32;
+  require %w == 0, "i1: -1 > 0 is false (signed) → 0";
+
+  ret 0;
+}

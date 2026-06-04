@@ -1,0 +1,37 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// SPEC §6.4: cross-validate i1 returned from a callee function,
+// widened in the caller, and used for branching.
+// Tests interprocedural i1 flow under the signed convention.
+fun @is_positive(%x: i32) : i1 {
+  let mut %cond: i1 = 0;
+^entry:
+  %cond = cmp > %x, 0;
+  ret %cond;
+}
+
+fun @main() : i32 {
+  let mut %r1: i1 = 0;
+  let mut %r2: i1 = 0;
+  let mut %w1: i32 = 0;
+  let mut %w2: i32 = 0;
+^entry:
+  %r1 = call @is_positive(42);    // true → -1
+  %r2 = call @is_positive(-5);    // false → 0
+
+  %w1 = %r1 as i32;               // -1
+  %w2 = %r2 as i32;               // 0
+
+  // Branch on i1 result
+  br %r1 != 0, ^pos_ok, ^bad;
+
+^pos_ok:
+  br %r2 == 0, ^neg_ok, ^bad;
+
+^neg_ok:
+  // -1 + 0 + 1 = 0
+  ret %w1 + %w2 + 1;
+
+^bad:
+  ret 1;
+}

@@ -1,0 +1,10 @@
+// EXPECT: FAIL:StaticError
+// SPEC §6.12 + §6.2 + §2.11: vector is <4> i16, so element type is i16.
+// Hex literal 0x8000 (value 32768) written to a lane is inferred as i16.
+// It is OOB for signed i16 and must be rejected.
+fun @main() : i32 {
+  let mut %vec: <4> i16 = {0, 0, 0, 0};
+^entry:
+  %vec[0] = 0x8000;
+  ret 0;
+}

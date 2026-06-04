@@ -1,0 +1,56 @@
+// EXPECT: PASS
+// SPEC §6.4: i1 sign-extension to every standard width.
+// Verifies that (i1 = true = -1) sign-extends to -1 at every target
+// width, and (i1 = false = 0) stays 0.  Also tests narrowing from
+// wider types back to i1 (truncation) and cross-width casts.
+fun @main() : i32 {
+  let %t: i1 = -1;
+  let %f: i1 = 0;
+  let mut %r8: i8 = 0;
+  let mut %r16: i16 = 0;
+  let mut %r32: i32 = 0;
+  let mut %r64: i64 = 0;
+  let mut %back: i1 = 0;
+^entry:
+  // Widen true to all widths — must be -1
+  %r8  = %t as i8;
+  require %r8 == -1, "i1 true as i8 == -1";
+  %r16 = %t as i16;
+  require %r16 == -1, "i1 true as i16 == -1";
+  %r32 = %t as i32;
+  require %r32 == -1, "i1 true as i32 == -1";
+  %r64 = %t as i64;
+  require %r64 == -1, "i1 true as i64 == -1";
+
+  // Widen false to all widths — must be 0
+  %r8  = %f as i8;
+  require %r8 == 0, "i1 false as i8 == 0";
+  %r16 = %f as i16;
+  require %r16 == 0, "i1 false as i16 == 0";
+  %r32 = %f as i32;
+  require %r32 == 0, "i1 false as i32 == 0";
+  %r64 = %f as i64;
+  require %r64 == 0, "i1 false as i64 == 0";
+
+  // Narrow -1 (i32) to i1 → -1 (truncate keeps LSB = 1 → signed i1 = -1)
+  %r32 = -1;
+  %back = %r32 as i1;
+  require %back == -1, "i32(-1) as i1 == -1";
+
+  // Narrow 0 (i32) to i1 → 0
+  %r32 = 0;
+  %back = %r32 as i1;
+  require %back == 0, "i32(0) as i1 == 0";
+
+  // Narrow 2 (i32) to i1 → 0 (LSB is 0)
+  %r32 = 2;
+  %back = %r32 as i1;
+  require %back == 0, "i32(2) as i1 == 0 (LSB=0)";
+
+  // Narrow 3 (i32) to i1 → -1 (LSB is 1)
+  %r32 = 3;
+  %back = %r32 as i1;
+  require %back == -1, "i32(3) as i1 == -1 (LSB=1)";
+
+  ret 0;
+}

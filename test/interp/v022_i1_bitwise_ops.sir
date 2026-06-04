@@ -1,0 +1,55 @@
+// EXPECT: PASS
+// SPEC §6.5: bitwise ops on i1 (same-width operands).
+// Under signed i1 convention: 0 = false, -1 = true (all-ones in 1-bit).
+// AND: -1 & -1 = -1,  -1 & 0 = 0,  0 & 0 = 0
+// OR:  -1 | 0 = -1,   0 | 0 = 0
+// XOR: -1 ^ -1 = 0,  -1 ^ 0 = -1
+// NOT: ~0 = -1, ~(-1) = 0
+fun @main() : i32 {
+  let %t: i1 = -1;
+  let %f: i1 = 0;
+  let mut %r: i1 = 0;
+  let mut %w: i32 = 0;
+^entry:
+  // AND true, true → true
+  %r = %t & %t;
+  %w = %r as i32;
+  require %w == -1, "i1: true & true == true (-1)";
+
+  // AND true, false → false
+  %r = %t & %f;
+  %w = %r as i32;
+  require %w == 0, "i1: true & false == false (0)";
+
+  // OR false, false → false
+  %r = %f | %f;
+  %w = %r as i32;
+  require %w == 0, "i1: false | false == false";
+
+  // OR true, false → true
+  %r = %t | %f;
+  %w = %r as i32;
+  require %w == -1, "i1: true | false == true";
+
+  // XOR true, true → false
+  %r = %t ^ %t;
+  %w = %r as i32;
+  require %w == 0, "i1: true ^ true == false";
+
+  // XOR true, false → true
+  %r = %t ^ %f;
+  %w = %r as i32;
+  require %w == -1, "i1: true ^ false == true";
+
+  // NOT false → true
+  %r = ~%f;
+  %w = %r as i32;
+  require %w == -1, "i1: ~false == true (-1)";
+
+  // NOT true → false
+  %r = ~%t;
+  %w = %r as i32;
+  require %w == 0, "i1: ~true == false (0)";
+
+  ret 0;
+}

@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER pure compile coverage
+// SKIP: SOLVER pure compile coverage
+// SPEC v0.2.2 §6.4 + §6.12: i1 select-cmp-widen lowering.
+// Tests that cmp → i1, select on i1, and sign-extension to i32
+// all lower correctly to C / WASM.
+fun @main() : i32 {
+  let %x: i32 = 42;
+  let %y: i32 = 100;
+  let mut %flag: i1 = 0;
+  let mut %w: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %flag = cmp < %x, %y;    // true → i1 = -1
+  %w = %flag as i32;       // sign-extend → -1
+  %r = %w + 1;             // -1 + 1 = 0
+  ret %r;
+}

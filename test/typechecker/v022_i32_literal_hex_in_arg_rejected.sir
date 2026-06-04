@@ -1,0 +1,14 @@
+// EXPECT: FAIL:StaticError
+// SPEC §6.12 + §6.10: hex literal 0x80000000 (value 2147483648) passed to a function
+// parameter of type i32 is inferred as i32. It is OOB for signed i32 and must be rejected.
+fun @helper(%val: i32) : i32 {
+^entry:
+  ret %val;
+}
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @helper(0x80000000);
+  ret %r;
+}

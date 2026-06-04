@@ -1,0 +1,84 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// SPEC §6.4 + §2.11 + §6.3: cross-validate a multi-step pipeline:
+// (1) vector cmp → <4> i1 mask,
+// (2) read individual mask lanes and widen each to i32,
+// (3) use scalar cmp → i1 in a branch,
+// (4) i1 array store/load through pointer,
+// (5) function call returning i1.
+// Exercises every i1 production and consumption path in one program.
+fun @check_positive(%x: i32) : i1 {
+  let mut %cond: i1 = 0;
+^entry:
+  %cond = cmp > %x, 0;
+  ret %cond;
+}
+
+fun @main() : i32 {
+  let mut %vals: <4> i32 = {-3, 7, 0, 15};
+  let mut %zeros: <4> i32 = {0, 0, 0, 0};
+  let mut %mask: <4> i1 = {0, 0, 0, 0};
+  let mut %flags: [4] i1 = {0, 0, 0, 0};
+  let mut %p: ptr [4] i1 = null;
+  let mut %ep: ptr i1 = null;
+  let mut %lane: i1 = 0;
+  let mut %acc: i32 = 0;
+  let mut %call_r: i1 = 0;
+^entry:
+  // (1) Vector cmp: which lanes > 0?
+  // {-3, 7, 0, 15} > {0, 0, 0, 0} → {false, true, false, true}
+  // → {0, -1, 0, -1}
+  %mask = cmp > %vals, %zeros;
+
+  // (2) Read mask lanes, widen, accumulate
+  %lane = %mask[0];
+  %acc = %lane as i32;                 // 0
+
+  %lane = %mask[1];
+  %acc = %acc + %lane as i32;          // 0 + (-1) = -1
+
+  %lane = %mask[2];
+  %acc = %acc + %lane as i32;          // -1 + 0 = -1
+
+  %lane = %mask[3];
+  %acc = %acc + %lane as i32;          // -1 + (-1) = -2
+
+  // (3) Scalar cmp and branch
+  %call_r = cmp > %acc, -10;           // -2 > -10 → true → -1
+  br %call_r != 0, ^ok1, ^bad;
+
+^ok1:
+  // (4) Store i1 values into array through pointer
+  %p = addr %flags;
+  %ep = ptrindex %p, 0;
+  store %ep, -1;
+  %ep = ptrindex %p, 1;
+  store %ep, 0;
+  %ep = ptrindex %p, 2;
+  store %ep, -1;
+  %ep = ptrindex %p, 3;
+  store %ep, 0;
+
+  // Load back and accumulate
+  %ep = ptrindex %p, 0;
+  %lane = load %ep;
+  %acc = %acc + %lane as i32;          // -2 + (-1) = -3
+
+  %ep = ptrindex %p, 1;
+  %lane = load %ep;
+  %acc = %acc + %lane as i32;          // -3 + 0 = -3
+
+  // (5) Function call returning i1
+  %call_r = call @check_positive(100);
+  %acc = %acc + %call_r as i32;        // -3 + (-1) = -4
+
+  %call_r = call @check_positive(-1);
+  %acc = %acc + %call_r as i32;        // -4 + 0 = -4
+
+  // Balance
+  %acc = %acc + 4;
+  ret %acc;
+
+^bad:
+  ret 1;
+}

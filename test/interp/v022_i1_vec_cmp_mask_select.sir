@@ -1,0 +1,47 @@
+// EXPECT: PASS
+// SPEC §2.11 + §6.3 + §6.4: vector cmp produces <N> i1 mask,
+// mask-based select blends lanes, and the mask values are {0, -1}.
+// Tests the interplay between vector cmp, mask select, and i1 widening.
+fun @main() : i32 {
+  let mut %a: <4> i32 = {10, 20, 30, 40};
+  let mut %b: <4> i32 = {15, 15, 15, 15};
+  let mut %mask: <4> i1 = {0, 0, 0, 0};
+  let mut %result: <4> i32 = {0, 0, 0, 0};
+  let mut %lane: i32 = 0;
+  let mut %m_lane: i1 = 0;
+  let mut %m_wide: i32 = 0;
+^entry:
+  // cmp < %a, %b → {true, false, false, false} = {-1, 0, 0, 0}
+  %mask = cmp < %a, %b;
+
+  // Verify mask lane 0 is -1 (true: 10 < 15)
+  %m_lane = %mask[0];
+  %m_wide = %m_lane as i32;
+  require %m_wide == -1, "mask[0]: 10 < 15 → true → -1";
+
+  // Verify mask lane 1 is 0 (false: 20 < 15)
+  %m_lane = %mask[1];
+  %m_wide = %m_lane as i32;
+  require %m_wide == 0, "mask[1]: 20 < 15 → false → 0";
+
+  // mask select: where mask is true pick %a, else pick %b
+  %result = select %mask, %a, %b;
+
+  // lane 0: mask true → pick %a[0] = 10
+  %lane = %result[0];
+  require %lane == 10, "select lane 0: mask true → 10 from %a";
+
+  // lane 1: mask false → pick %b[1] = 15
+  %lane = %result[1];
+  require %lane == 15, "select lane 1: mask false → 15 from %b";
+
+  // lane 2: mask false → pick %b[2] = 15
+  %lane = %result[2];
+  require %lane == 15, "select lane 2: mask false → 15 from %b";
+
+  // lane 3: mask false → pick %b[3] = 15
+  %lane = %result[3];
+  require %lane == 15, "select lane 3: mask false → 15 from %b";
+
+  ret 0;
+}

@@ -1,0 +1,26 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// SPEC §6.4 + §6.12: cross-validate i1 sign-extension to i32.
+// cmp → i1 → as i32 → -1 for true, 0 for false.
+// Verifies interpreter and compiled C agree on the signed convention.
+fun @main() : i32 {
+  let %a: i32 = 10;
+  let %b: i32 = 20;
+  let mut %flag: i1 = 0;
+  let mut %w: i32 = 0;
+  let mut %acc: i32 = 0;
+^entry:
+  // true case: 10 < 20 → i1 = -1, widen to i32 = -1
+  %flag = cmp < %a, %b;
+  %w = %flag as i32;
+  %acc = %w;                   // -1
+
+  // false case: 10 > 20 → i1 = 0, widen to i32 = 0
+  %flag = cmp > %a, %b;
+  %w = %flag as i32;
+  %acc = %acc + %w;            // -1 + 0 = -1
+
+  // balance to 0
+  %acc = %acc + 1;             // 0
+  ret %acc;
+}

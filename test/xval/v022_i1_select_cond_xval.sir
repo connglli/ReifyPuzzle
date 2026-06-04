@@ -1,0 +1,39 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// SPEC §6.4 + §6.3 + §2.7: cross-validate i1 select (cond-form)
+// where the select condition is itself driven by i1 comparisons,
+// and the selected values are i1 which are then widened.
+// Also tests lazy evaluation: UB in the non-selected arm is ignored.
+fun @main() : i32 {
+  let %t: i1 = -1;
+  let %f: i1 = 0;
+  let mut %s: i1 = 0;
+  let mut %acc: i32 = 0;
+  let mut %cond: i1 = 0;
+^entry:
+  // select (5 > 3) → true → picks -1 (true_arm)
+  %s = select 5 > 3, -1, 0;
+  %acc = %s as i32;                    // -1
+
+  // select (3 > 5) → false → picks 0 (false_arm)
+  %s = select 3 > 5, -1, 0;
+  %acc = %acc + %s as i32;            // -1 + 0 = -1
+
+  // select (10 == 10) → true → picks %t (-1)
+  %s = select 10 == 10, %t, %f;
+  %acc = %acc + %s as i32;            // -1 + (-1) = -2
+
+  // select (10 != 10) → false → picks %f (0)
+  %s = select 10 != 10, %t, %f;
+  %acc = %acc + %s as i32;            // -2 + 0 = -2
+
+  // Nested: select condition uses cmp result
+  // cmp == 42, 42 → true → select picks -1
+  %cond = cmp == 42, 42;
+  %s = select %cond, -1, 0;
+  %acc = %acc + %s as i32;            // -2 + (-1) = -3
+
+  // Balance
+  %acc = %acc + 3;
+  ret %acc;
+}

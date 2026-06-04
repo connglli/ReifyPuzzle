@@ -1,0 +1,41 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// SPEC §6.4: cross-validate i1 cast chain across all integer widths.
+// i1(-1) widened to i8/i16/i32/i64 must be -1 everywhere.
+// Then narrow i32(-1) back to i1, widen to i32, verify still -1.
+fun @main() : i32 {
+  let %t: i1 = -1;
+  let mut %v8: i8 = 0;
+  let mut %v16: i16 = 0;
+  let mut %v32: i32 = 0;
+  let mut %v64: i64 = 0;
+  let mut %back: i1 = 0;
+  let mut %acc: i32 = 0;
+^entry:
+  // Widen true(-1) to each width and sum the widened i32
+  %v8 = %t as i8;
+  %v32 = %v8 as i32;
+  %acc = %v32;                     // -1
+
+  %v16 = %t as i16;
+  %v32 = %v16 as i32;
+  %acc = %acc + %v32;              // -2
+
+  %v64 = %t as i64;
+  %v32 = %v64 as i32;
+  %acc = %acc + %v32;              // -3
+
+  // Direct widen
+  %v32 = %t as i32;
+  %acc = %acc + %v32;              // -4
+
+  // Narrow -1 (i32) to i1 → -1, widen back → -1
+  %v32 = -1;
+  %back = %v32 as i1;
+  %v32 = %back as i32;
+  %acc = %acc + %v32;              // -5
+
+  // Balance
+  %acc = %acc + 5;                 // 0
+  ret %acc;
+}

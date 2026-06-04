@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// SPEC §6.12: for i1, the only representable literals are 0 and -1.
+// 0x1 is value 1, which is out of the signed range [-1, 0] for i1 and must be rejected.
+fun @main() : i32 {
+  let mut %flag: i1 = 0;
+^entry:
+  %flag = 0x1;
+  ret 0;
+}

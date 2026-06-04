@@ -1,0 +1,46 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// SPEC §6.4 + §6.12: cross-validate i1 narrowing from wider integer
+// types.  Tests that truncation to i1 keeps only the LSB, and the
+// result is interpreted as signed (LSB=1 → -1, LSB=0 → 0).
+// This is critical for backends that might zero-extend instead of
+// sign-extend after narrowing.
+fun @main() : i32 {
+  let mut %b: i1 = 0;
+  let mut %w: i32 = 0;
+  let mut %acc: i32 = 0;
+^entry:
+  // i32(1) as i1 → LSB=1 → i1=-1 → widen → -1
+  %w = 1;
+  %b = %w as i1;
+  %acc = %b as i32;                    // -1
+
+  // i32(2) as i1 → LSB=0 → i1=0 → widen → 0
+  %w = 2;
+  %b = %w as i1;
+  %acc = %acc + %b as i32;            // -1
+
+  // i32(-1) as i1 → LSB=1 → i1=-1 → widen → -1
+  %w = -1;
+  %b = %w as i1;
+  %acc = %acc + %b as i32;            // -2
+
+  // i32(0) as i1 → LSB=0 → i1=0 → widen → 0
+  %w = 0;
+  %b = %w as i1;
+  %acc = %acc + %b as i32;            // -2
+
+  // i32(127) as i1 → LSB=1 → i1=-1 → widen → -1
+  %w = 127;
+  %b = %w as i1;
+  %acc = %acc + %b as i32;            // -3
+
+  // i32(-128) as i1 → LSB=0 → i1=0 → widen → 0
+  %w = -128;
+  %b = %w as i1;
+  %acc = %acc + %b as i32;            // -3
+
+  // Balance: -3 + 3 = 0
+  %acc = %acc + 3;
+  ret %acc;
+}

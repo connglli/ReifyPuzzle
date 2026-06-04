@@ -1,0 +1,48 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// SPEC §5.2 + §6.4: cross-validate all six cmp relops producing i1.
+// Each cmp result is widened to i32 and accumulated.  Tests that both
+// tools agree on which comparisons yield -1 (true) vs 0 (false).
+fun @main() : i32 {
+  let %five: i32 = 5;
+  let %ten: i32 = 10;
+  let %also_five: i32 = 5;
+  let mut %c: i1 = 0;
+  let mut %acc: i32 = 0;
+^entry:
+  // 5 == 5 → true → -1
+  %c = cmp == %five, %also_five;
+  %acc = %c as i32;                     // -1
+
+  // 5 != 10 → true → -1
+  %c = cmp != %five, %ten;
+  %acc = %acc + %c as i32;             // -2
+
+  // 5 < 10 → true → -1
+  %c = cmp < %five, %ten;
+  %acc = %acc + %c as i32;             // -3
+
+  // 5 <= 5 → true → -1
+  %c = cmp <= %five, %also_five;
+  %acc = %acc + %c as i32;             // -4
+
+  // 5 > 10 → false → 0
+  %c = cmp > %five, %ten;
+  %acc = %acc + %c as i32;             // -4
+
+  // 5 >= 10 → false → 0
+  %c = cmp >= %five, %ten;
+  %acc = %acc + %c as i32;             // -4
+
+  // 10 > 5 → true → -1
+  %c = cmp > %ten, %five;
+  %acc = %acc + %c as i32;             // -5
+
+  // 10 >= 10 → true → -1
+  %c = cmp >= %ten, %ten;
+  %acc = %acc + %c as i32;             // -6
+
+  // Balance: -6 + 6 = 0
+  %acc = %acc + 6;
+  ret %acc;
+}

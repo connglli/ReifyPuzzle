@@ -1,0 +1,10 @@
+// EXPECT: FAIL:StaticError
+// SPEC §6.12 + §6.3: binary literal 0b10000000000000000000000000000000 (value 2147483648)
+// is inferred as i32 in the select arm since the other arm is i32 and target is i32.
+// It is out of signed i32 range and must be rejected.
+fun @main() : i32 {
+  let mut %z: i32 = 0;
+^entry:
+  %z = select 5 > 3, 0b10000000000000000000000000000000, 0;
+  ret %z;
+}

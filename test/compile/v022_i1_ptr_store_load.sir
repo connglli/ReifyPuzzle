@@ -1,0 +1,27 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER pure compile coverage
+// SKIP: SOLVER pure compile coverage
+// SPEC v0.2.2 §6.4 + §2.8: i1 stored/loaded through ptr i1.
+// Verifies that the C / WASM backends correctly handle addr, store,
+// and load of i1 values through pointers, maintaining the {0, -1}
+// convention across memory operations.
+fun @main() : i32 {
+  let mut %flag: i1 = 0;
+  let mut %result: i32 = 0;
+  let mut %p: ptr i1 = null;
+^entry:
+  // Store true (-1) through pointer
+  %flag = -1;
+  %p = addr %flag;
+  store %p, 0;              // overwrite with false
+  %flag = load %p;          // load back: should be 0
+
+  %result = %flag as i32;   // 0
+
+  // Store true (-1) back
+  store %p, -1;
+  %flag = load %p;          // load back: should be -1
+  %result = %result + %flag as i32;  // 0 + (-1) = -1
+
+  ret %result + 1;          // -1 + 1 = 0
+}

@@ -1,0 +1,8 @@
+// EXPECT: FAIL:StaticError
+// SPEC §6.12 + §4.1: return type is i32, so returned binary literal
+// 0b10000000000000000000000000000000 (value 2147483648) is inferred as i32.
+// It is OOB for signed i32 and must be statically rejected.
+fun @main() : i32 {
+^entry:
+  ret 0b10000000000000000000000000000000;
+}

@@ -1,0 +1,43 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// SPEC §6.5 + §6.4: cross-validate bitwise ops on i1.
+// AND, OR, XOR, NOT on i1 operands, then widen to i32 for return.
+// Both tools must agree on the signed {0, -1} results.
+fun @main() : i32 {
+  let %t: i1 = -1;
+  let %f: i1 = 0;
+  let mut %r: i1 = 0;
+  let mut %acc: i32 = 0;
+^entry:
+  // AND true, false → false → 0
+  %r = %t & %f;
+  %acc = %r as i32;                // 0
+
+  // OR true, false → true → -1
+  %r = %t | %f;
+  %acc = %acc + %r as i32;        // 0 + (-1) = -1
+
+  // XOR true, false → true → -1
+  %r = %t ^ %f;
+  %acc = %acc + %r as i32;        // -1 + (-1) = -2
+
+  // NOT false → true → -1
+  %r = ~%f;
+  %acc = %acc + %r as i32;        // -2 + (-1) = -3
+
+  // AND true, true → true → -1
+  %r = %t & %t;
+  %acc = %acc + %r as i32;        // -3 + (-1) = -4
+
+  // NOT true → false → 0
+  %r = ~%t;
+  %acc = %acc + %r as i32;        // -4 + 0 = -4
+
+  // XOR true, true → false → 0
+  %r = %t ^ %t;
+  %acc = %acc + %r as i32;        // -4 + 0 = -4
+
+  // Balance: -4 + 4 = 0
+  %acc = %acc + 4;
+  ret %acc;
+}

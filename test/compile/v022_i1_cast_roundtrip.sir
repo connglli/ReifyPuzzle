@@ -1,0 +1,29 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER pure compile coverage
+// SKIP: SOLVER pure compile coverage
+// SPEC v0.2.2 §6.4: i1 cast chain — widen to i64, then narrow back
+// to i1.  Verifies that the C / WASM backends correctly handle the
+// full round trip: i1 → i8 → i16 → i32 → i64 → i1.
+fun @main() : i32 {
+  let %t: i1 = -1;
+  let mut %v8: i8 = 0;
+  let mut %v16: i16 = 0;
+  let mut %v32: i32 = 0;
+  let mut %v64: i64 = 0;
+  let mut %back: i1 = 0;
+^entry:
+  // Widen: -1 (i1) → -1 (i8) → -1 (i16) → -1 (i32) → -1 (i64)
+  %v8 = %t as i8;
+  %v16 = %v8 as i16;
+  %v32 = %v16 as i32;
+  %v64 = %v32 as i64;
+
+  // Narrow back: -1 (i64) → i1 (LSB=1 → i1=-1)
+  %back = %v64 as i1;
+
+  // Widen back to i32 for return
+  %v32 = %back as i32;
+
+  // -1 + 1 = 0 → return 0
+  ret %v32 + 1;
+}

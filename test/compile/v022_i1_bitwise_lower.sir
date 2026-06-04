@@ -1,0 +1,36 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER pure compile coverage
+// SKIP: SOLVER pure compile coverage
+// SPEC v0.2.2 §6.5 + §6.4: bitwise ops on i1 lowered to C / WASM.
+// Validates that AND, OR, XOR, NOT on i1 produce correct results
+// under the signed {0, -1} convention in both backends.
+fun @main() : i32 {
+  let %t: i1 = -1;
+  let %f: i1 = 0;
+  let mut %r: i1 = 0;
+  let mut %sum: i32 = 0;
+^entry:
+  // AND true, true → -1, widen → -1
+  %r = %t & %t;
+  %sum = %r as i32;                 // -1
+
+  // OR false, false → 0, widen → 0
+  %r = %f | %f;
+  %sum = %sum + %r as i32;         // -1 + 0 = -1
+
+  // XOR true, true → 0, widen → 0
+  %r = %t ^ %t;
+  %sum = %sum + %r as i32;         // -1 + 0 = -1
+
+  // NOT false → true → -1, widen → -1
+  %r = ~%f;
+  %sum = %sum + %r as i32;         // -1 + (-1) = -2
+
+  // XOR true, false → true → -1, widen → -1
+  %r = %t ^ %f;
+  %sum = %sum + %r as i32;         // -2 + (-1) = -3
+
+  // Result: -3 + 3 = 0
+  %sum = %sum + 3;
+  ret %sum;
+}
