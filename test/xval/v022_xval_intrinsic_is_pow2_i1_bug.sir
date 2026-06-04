@@ -1,23 +1,31 @@
 // EXPECT: PASS
 // EXPECT_RC: 0
-// Cross-validate is_pow2 at i1 between interpreter and compiled C/WASM.
+// Cross-validate @is_pow2 at i1 between interpreter and compiled C / WASM
+// under the v0.2.2 *signed* iN convention.
 //
-// Guarded by EXPECT_RC: 0 — if either the interpreter or backend reverts
-// the i1 unsigned convention (argSint / makeSextN), the program takes the
-// ^bad path, returns 1, and EXPECT_RC fails.
+// SPEC v0.2.2 §12.4: @is_pow2(x) returns true iff x is a positive power
+// of 2.
+// SPEC v0.2.2 §6.4 / §6.12: i1 is a signed 1-bit integer; representable
+// values are 0 (false) and -1 (true).  Neither is a positive power of 2,
+// so @is_pow2(x: i1) returns false (0) for every legal input.
 //
-// SPEC v0.2.2 §12.4 is_pow2: returns true iff x is a positive power of 2.
-// SPEC v0.2.2 §10.4: i1 values are 0 (false) and 1 (true).
+// Regression guard: if any backend reverts to the old "i1 is unsigned
+// 0/1" convention, @is_pow2(1) would spuriously return true and one of
+// the branches below would diverge between interp and compiled output.
 intrinsic @is_pow2(%x: i1) : i1;
 fun @main() : i32 {
   let mut %a: i1 = 0;
-  let %one: i1 = 1;
-  let %zero: i32 = 0;
+  let mut %b: i1 = 0;
+  let %true_i1: i1 = -1;
+  let %false_i1: i1 = 0;
 ^entry:
-  %a = call @is_pow2(1);
-  br %a == %one, ^a_ok, ^bad;
+  %a = call @is_pow2(%false_i1);     // 0 is not a power of 2
+  %b = call @is_pow2(%true_i1);      // -1 is not > 0
+  br %a == 0, ^a_ok, ^bad;
 ^a_ok:
-  ret %zero;
+  br %b == 0, ^both_ok, ^bad;
+^both_ok:
+  ret 0;
 ^bad:
   ret 1;
 }

@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SPEC §6.4 (after this fix): i1 is signed {0, -1}.  `as` widening
+// sign-extends, so `i1=true as i32 == -1`.  Pre-fix the interpreter
+// stored i1=true as literal 1 and `as i32` gave 1 — diverging from
+// the C backend which already sign-extends to -1.
+intrinsic @signbit(%x: f64) : i1;
+fun @main() : i32 {
+  let mut %sb: i1 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %sb = call @signbit(-1.0);  // true
+  %r = %sb as i32;
+  require %r == -1, "(i1=true) as i32 == -1";
+  ret 0;
+}

@@ -45,7 +45,7 @@ fun @main() : i32 {
 ^b1:
   %x = 10;
   %p = call @is_pow2(%r);
-  br %p == 1, ^b2, ^b3;
+  br %p == -1, ^b2, ^b3;
 ^b2:
   %x = %x + 20;
   %y = call @ilog2(%y);

@@ -8,7 +8,7 @@ fun @main() : f64 {
   let mut %sb: i1 = 0;
 ^entry:
   %sb = call @signbit(%?x);
-  require %sb == 1, "@signbit(?x) must be 1";
+  require %sb == -1, "@signbit(?x) must be 1";
   br ^exit;
 ^exit:
   ret %?x;

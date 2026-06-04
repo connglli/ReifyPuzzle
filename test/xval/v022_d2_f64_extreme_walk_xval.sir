@@ -31,7 +31,7 @@ fun @main() : i32 {
   br ^check_max;
 ^check_max:
   %t = call @is_normal(%max_fin);
-  br %t == 1, ^cm2, ^fail;
+  br %t == -1, ^cm2, ^fail;
 ^cm2:
   %t = call @is_subnormal(%max_fin);
   br %t == 0, ^cm3, ^fail;
@@ -40,7 +40,7 @@ fun @main() : i32 {
   br %t == 0, ^check_min_norm, ^fail;
 ^check_min_norm:
   %t = call @is_normal(%min_norm);
-  br %t == 1, ^cmn2, ^fail;
+  br %t == -1, ^cmn2, ^fail;
 ^cmn2:
   %t = call @is_subnormal(%min_norm);
   br %t == 0, ^check_min_sub, ^fail;
@@ -49,16 +49,16 @@ fun @main() : i32 {
   br %t == 0, ^cmis2, ^fail;
 ^cmis2:
   %t = call @is_subnormal(%min_sub);
-  br %t == 1, ^check_neg_max, ^fail;
+  br %t == -1, ^check_neg_max, ^fail;
 ^check_neg_max:
   // Flip max_finite via @fneg and verify classification preserved,
   // signbit flipped, then round-trip the bit pattern.
   %neg_max = call @fneg(%max_fin);
   %t = call @is_normal(%neg_max);
-  br %t == 1, ^cnm2, ^fail;
+  br %t == -1, ^cnm2, ^fail;
 ^cnm2:
   %t = call @signbit(%neg_max);
-  br %t == 1, ^cnm3, ^fail;
+  br %t == -1, ^cnm3, ^fail;
 ^cnm3:
   // @copysign restores positive sign.
   %back_pos = call @copysign(%neg_max, 1.0);
@@ -72,10 +72,10 @@ fun @main() : i32 {
   // Flip min_sub and verify classification preserved.
   %neg_max = call @fneg(%min_sub);
   %t = call @is_subnormal(%neg_max);
-  br %t == 1, ^cns2, ^fail;
+  br %t == -1, ^cns2, ^fail;
 ^cns2:
   %t = call @signbit(%neg_max);
-  br %t == 1, ^success, ^fail;
+  br %t == -1, ^success, ^fail;
 ^success:
   %r = 257;
   br ^exit;

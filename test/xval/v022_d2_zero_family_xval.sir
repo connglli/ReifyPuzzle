@@ -38,7 +38,7 @@ fun @main() : i32 {
   br %t == 0, ^cs2, ^fail;
 ^cs2:
   %t = call @signbit(%nz);
-  br %t == 1, ^check_class, ^fail;
+  br %t == -1, ^check_class, ^fail;
 ^check_class:
   // Neither zero is normal or subnormal.
   %t = call @is_normal(%pz);
@@ -60,7 +60,7 @@ fun @main() : i32 {
 ^cp2:
   %back_to_neg = call @copysign(%pz, -1.0);
   %t = call @signbit(%back_to_neg);
-  br %t == 1, ^success, ^fail;
+  br %t == -1, ^success, ^fail;
 ^success:
   %r = 211;
   br ^exit;

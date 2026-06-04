@@ -15,7 +15,7 @@ fun @main() : i32 {
   let mut %t1: i32 = 0;
   let mut %t2: i32 = 0;
   let mut %y: i32 = 0;
-  let %c: i1 = 1;
+  let %c: i1 = -1;
 ^entry:
   %t1 = call @f();
   %t2 = call @g();

@@ -47,7 +47,7 @@ fun @main() : i32 {
   br %x > 10, ^b2, ^b4;
 ^b2:
   %p = call @is_pow2(%r);
-  br %p == 1, ^b3, ^exit;
+  br %p == -1, ^b3, ^exit;
 ^b3:
   %x = %x + 10;
   br %x > 0, ^b4, ^exit;

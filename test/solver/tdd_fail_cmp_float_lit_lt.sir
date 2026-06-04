@@ -5,6 +5,6 @@ fun @main() : i32 {
   let mut %cond: i1 = undef;
 ^entry:
   %cond = cmp < %x, 2.0;
-  require %cond == 1;
+  require %cond == -1;
   ret 0;
 }

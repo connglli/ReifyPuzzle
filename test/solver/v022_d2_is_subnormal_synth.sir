@@ -9,7 +9,7 @@ fun @main() : f64 {
   let mut %s: i1 = 0;
 ^entry:
   %s = call @is_subnormal(%?x);
-  require %s == 1, "@is_subnormal(?x) must be 1";
+  require %s == -1, "@is_subnormal(?x) must be 1";
   br ^exit;
 ^exit:
   ret %?x;

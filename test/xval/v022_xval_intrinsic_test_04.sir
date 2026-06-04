@@ -56,7 +56,7 @@ fun @main() : i32 {
   br %p == 0, ^exit, ^exit;
 ^b4:
   %x = 25;
-  br %p == 1, ^exit, ^exit;
+  br %p == -1, ^exit, ^exit;
 ^exit:
   %x = %x - 7;
   ret %x;

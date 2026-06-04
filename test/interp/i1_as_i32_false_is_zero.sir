@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SPEC §6.4 (after this fix): `i1=false as i32 == 0`.  The false
+// case is unaffected by the convention flip — verifies the fix
+// doesn't break the zero side.
+intrinsic @signbit(%x: f32) : i1;
+fun @main() : i32 {
+  let mut %sb: i1 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %sb = call @signbit(1.0);   // false
+  %r = %sb as i32;
+  require %r == 0, "(i1=false) as i32 == 0";
+  ret 0;
+}

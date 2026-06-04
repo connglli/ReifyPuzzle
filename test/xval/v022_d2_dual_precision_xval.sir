@@ -44,10 +44,10 @@ fun @main() : i32 {
   br ^check_subs;
 ^check_subs:
   %t = call @is_subnormal(%sub32);
-  br %t == 1, ^cs2, ^fail;
+  br %t == -1, ^cs2, ^fail;
 ^cs2:
   %t = call @is_subnormal(%sub64);
-  br %t == 1, ^cs3, ^fail;
+  br %t == -1, ^cs3, ^fail;
 ^cs3:
   // The f32 subnormal must NOT classify as normal at f32 precision,
   // even though its f64-stored value (~1.4e-45) has an f64 exponent
@@ -58,10 +58,10 @@ fun @main() : i32 {
   br %t == 0, ^check_norms, ^fail;
 ^check_norms:
   %t = call @is_normal(%norm32);
-  br %t == 1, ^cn2, ^fail;
+  br %t == -1, ^cn2, ^fail;
 ^cn2:
   %t = call @is_normal(%norm64);
-  br %t == 1, ^cn3, ^fail;
+  br %t == -1, ^cn3, ^fail;
 ^cn3:
   %t = call @is_subnormal(%norm32);
   br %t == 0, ^check_signflip_32, ^fail;
@@ -69,10 +69,10 @@ fun @main() : i32 {
   // @fneg on the f32 subnormal preserves subnormal class, sets sign.
   %neg_sub32 = call @fneg(%sub32);
   %t = call @is_subnormal(%neg_sub32);
-  br %t == 1, ^csf2, ^fail;
+  br %t == -1, ^csf2, ^fail;
 ^csf2:
   %t = call @signbit(%neg_sub32);
-  br %t == 1, ^check_copysign, ^fail;
+  br %t == -1, ^check_copysign, ^fail;
 ^check_copysign:
   // Copysign back to positive via a positive sentinel; verify both
   // signbit clear and classification preserved.
@@ -81,7 +81,7 @@ fun @main() : i32 {
   br %t == 0, ^cc2, ^fail;
 ^cc2:
   %t = call @is_subnormal(%neg_sub32);
-  br %t == 1, ^check_roundtrips, ^fail;
+  br %t == -1, ^check_roundtrips, ^fail;
 ^check_roundtrips:
   // Bit pattern round-trips at both widths.
   %b32 = call @to_bits(%sub32);

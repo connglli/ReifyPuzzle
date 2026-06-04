@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC §6.4 (after this fix): predicate intrinsic returning i1
+// behaves the same — `as` widening sign-extends.
+intrinsic @parity(%x: i32) : i1;
+fun @main() : i32 {
+  let mut %p: i1 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %p = call @parity(7);       // 0b111 → popcount 3 → odd parity → true
+  %r = %p as i32;
+  require %r == -1, "@parity(true) as i32 == -1";
+  ret 0;
+}

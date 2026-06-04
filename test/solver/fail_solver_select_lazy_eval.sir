@@ -11,7 +11,7 @@ fun @main() : i32 {
   let mut %arr: [1] i32 = {42};
   let mut %idx: i32 = 10;
   let mut %safe: i32 = 42;
-  let mut %cond: i1 = 1;
+  let mut %cond: i1 = -1;
   let mut %res: i32 = 0;
 ^entry:
   %res = select %cond, %safe, %arr[%idx];

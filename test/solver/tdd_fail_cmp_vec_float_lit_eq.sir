@@ -6,7 +6,7 @@ fun @main() : i32 {
   let mut %cond: <2> i1 = {undef, undef};
 ^entry:
   %cond = cmp == %x, %y;
-  require %cond[0] == 1;
-  require %cond[1] == 1;
+  require %cond[0] == -1;
+  require %cond[1] == -1;
   ret 0;
 }

@@ -82,9 +82,9 @@ namespace symir {
         throw std::runtime_error("Intrinsic " + intr.name.name + ": non-integer argument");
       auto pb = TypeUtils::getIntBitWidth(intr.params[i].type);
       uint32_t pN = pb ? *pb : args[i].bits;
-      // [v0.2.2] i1 (boolean) uses unsigned convention (0/1), not signed (-1/0).
-      if (pN == 1)
-        return args[i].intVal & 1;
+      // [v0.2.2] All iN — including i1 — are signed two's-complement.
+      // Sign-extend bit 0 of an i1 so true reads back as -1, matching
+      // the storage convention enforced by makeInt and `iN as iM`.
       return sextToInt64(args[i].intVal, pN);
     }
 
@@ -111,11 +111,10 @@ namespace symir {
       Interpreter::RuntimeValue r;
       r.kind = Interpreter::RuntimeValue::Kind::Int;
       r.bits = N;
-      if (N == 1) {
-        r.intVal = v & 1;
-      } else {
-        r.intVal = sextToInt64(v, N);
-      }
+      // [v0.2.2] Spec §6.4: i1 is signed.  Sign-extension of the low
+      // bit is 0 → 0 and 1 → -1, matching `iN as iM` widening
+      // semantics and the C/WASM backends' i1 sign-extend.
+      r.intVal = sextToInt64(v, N);
       return r;
     }
 

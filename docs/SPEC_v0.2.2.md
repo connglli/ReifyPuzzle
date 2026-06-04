@@ -381,6 +381,8 @@ Arithmetic is defined over **scalar integer and floating-point leaves**. Pointer
 ### 6.4 `as` typing
 `rval as T` is well-typed iff both are scalar. Pointer/integer casts are not supported.
 
+**Integer widening: signed sign-extension.** All `iN` types are *signed* N-bit two's-complement integers, including the boolean width `i1`. For `iN as iM` with `N < M`, the result sign-extends bit `N-1`. In particular, `(i1 = true) as iM = -1` for every `M > 1` (the one-bit value `1` sign-extends to all-ones), and `(i1 = false) as iM = 0`. The two representable `i1` values are therefore `{0, -1}` — interpretation as `{0, 1}` is unsupported and would diverge between the interpreter and the backends. `cmp` and predicate intrinsics (`@parity`, `@is_pow2`, `@signbit`, `@is_normal`, `@is_subnormal`) accordingly produce `-1` for true and `0` for false.
+
 ### 6.5 Bitwise and shift typing
 Both operands must be scalar integers of the same bit-width. Pointers not valid.
 

@@ -7,7 +7,7 @@ fun @main() : i32 {
   let mut %p: i1 = 0;
 ^entry:
   %p = call @is_pow2(%?x);
-  require %p == 1, "%?x must be a power of two";
+  require %p == -1, "%?x must be a power of two";
   br ^exit;
 ^exit:
   ret %?x;

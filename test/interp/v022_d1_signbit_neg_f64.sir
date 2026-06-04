@@ -5,6 +5,6 @@ fun @main() : i32 {
   let mut %r: i1 = 0;
 ^entry:
   %r = call @signbit(-1.5);
-  require %r == 1, "signbit(-x) == 1";
+  require %r == -1, "signbit(-x) == 1";
   ret 0;
 }

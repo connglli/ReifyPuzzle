@@ -22,7 +22,7 @@ fun @main() : i32 {
   %sb_nz = call @signbit(%nz);            // expect 1
   %back_pos = call @copysign(%nz, 1.0);   // +0.0 (takes sign of +1.0)
   %sb_back = call @signbit(%back_pos);    // expect 0
-  br %sb_nz == 1, ^sign_was_neg, ^bad;
+  br %sb_nz == -1, ^sign_was_neg, ^bad;
 ^sign_was_neg:
   br %sb_back == 0, ^sign_cleared, ^bad;
 ^sign_cleared:

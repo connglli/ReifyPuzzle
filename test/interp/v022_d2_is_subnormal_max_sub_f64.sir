@@ -16,7 +16,7 @@ fun @main() : i32 {
   %min_norm = call @from_bits(4503599627370496);   // smallest normal
   %a = call @is_subnormal(%max_sub);
   %b = call @is_subnormal(%min_norm);
-  require %a == 1, "largest subnormal is_subnormal == 1";
+  require %a == -1, "largest subnormal is_subnormal == 1";
   require %b == 0, "smallest normal is_subnormal == 0";
   ret 0;
 }

@@ -6,6 +6,6 @@ fun @main() : i32 {
   let mut %r: i1 = 0;
 ^entry:
   %r = call @is_normal(3.5);
-  require %r == 1, "is_normal(3.5) == 1";
+  require %r == -1, "is_normal(3.5) == 1";
   ret 0;
 }

@@ -11,6 +11,6 @@ fun @main() : i32 {
   %nz = call @fneg(%pz);
   require %nz == %pz, "fneg(+0.0) compares equal to +0.0";
   %sb = call @signbit(%nz);
-  require %sb == 1, "fneg(+0.0) has sign bit set";
+  require %sb == -1, "fneg(+0.0) has sign bit set";
   ret 0;
 }

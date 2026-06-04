@@ -5,7 +5,7 @@
 fun @x() : i32 { ^entry: ret 1; }
 
 fun @main() : i32 {
-  let %c: i1 = 1;
+  let %c: i1 = -1;
 ^entry:
-  ret select %c == 1, call @x(), 0;
+  ret select %c == -1, call @x(), 0;
 }

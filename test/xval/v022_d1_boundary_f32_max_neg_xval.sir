@@ -19,7 +19,7 @@ fun @main() : i32 {
   %x = call @from_bits(2139095039);    // +max_finite_f32
   %nx = call @fneg(%x);                 // -max_finite_f32 (still finite)
   %sb = call @signbit(%nx);             // expect 1
-  br %sb == 1, ^ok, ^bad;
+  br %sb == -1, ^ok, ^bad;
 ^ok:
   %r = 1;
   br ^exit;

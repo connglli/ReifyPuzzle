@@ -9,7 +9,7 @@ fun @main() : i32 {
 ^entry:
   %s_neg = call @signbit(%neg_tiny);
   %s_pos = call @signbit(%pos_tiny);
-  require %s_neg == 1, "signbit on negative subnormal";
+  require %s_neg == -1, "signbit on negative subnormal";
   require %s_pos == 0, "signbit on positive subnormal";
   ret 0;
 }

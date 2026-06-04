@@ -10,6 +10,6 @@ fun @main() : i32 {
 ^entry:
   %nz = call @fneg(%pz);
   %r = call @signbit(%nz);
-  require %r == 1, "signbit(-0.0) == 1";
+  require %r == -1, "signbit(-0.0) == 1";
   ret 0;
 }

@@ -8,7 +8,7 @@ fun @f() : i32 {
 
 fun @main(%a: i32) : i32 {
   let mut %y: i32 = 0;
-  let %c: i1 = 1;
+  let %c: i1 = -1;
 ^entry:
   %y = select %c, call @f(), 0;
   ret %y;

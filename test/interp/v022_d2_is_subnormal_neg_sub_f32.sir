@@ -12,6 +12,6 @@ fun @main() : i32 {
   %pos_sub = call @from_bits(1);
   %neg_sub = call @fneg(%pos_sub);
   %r = call @is_subnormal(%neg_sub);
-  require %r == 1, "negative subnormal is still subnormal";
+  require %r == -1, "negative subnormal is still subnormal";
   ret 0;
 }

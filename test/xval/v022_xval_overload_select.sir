@@ -6,7 +6,7 @@ intrinsic @clz(%x: i32) : i32;
 intrinsic @clz(%x: i64) : i64;
 
 fun @main() : i32 {
-  let mut %cond: i1 = 1;
+  let mut %cond: i1 = -1;
   let mut %x32: i32 = 4;
   let mut %y32: i32 = 8;
   let mut %x64: i64 = 4;
@@ -31,7 +31,7 @@ fun @main() : i32 {
   // clz(4) i64 = 61, clz(8) i64 = 60
   %c64_x = call @clz(%x64);
   %c64_y = call @clz(%y64);
-  %cond = 1;
+  %cond = -1;
   %res64 = select %cond, %c64_x, %c64_y;
   require %res64 == 61, "clz(4) i64 == 61";
 

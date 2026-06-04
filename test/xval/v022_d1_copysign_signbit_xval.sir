@@ -18,7 +18,7 @@ fun @main() : i32 {
   %a = call @fabs(-5.0);                  // 5.0
   %b = call @copysign(%a, -2.0);          // -5.0
   %sb = call @signbit(%b);                // expect 1
-  br %sb == 1, ^was_neg, ^was_pos;
+  br %sb == -1, ^was_neg, ^was_pos;
 ^was_neg:
   %r = 7;
   br ^exit;

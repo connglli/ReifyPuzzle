@@ -34,13 +34,13 @@ fun @main() : i32 {
   br ^check_max_fin;
 ^check_max_fin:
   %t = call @is_normal(%max_fin);
-  br %t == 1, ^cmf2, ^fail;
+  br %t == -1, ^cmf2, ^fail;
 ^cmf2:
   %t = call @is_subnormal(%max_fin);
   br %t == 0, ^check_min_norm, ^fail;
 ^check_min_norm:
   %t = call @is_normal(%min_norm);
-  br %t == 1, ^cmn2, ^fail;
+  br %t == -1, ^cmn2, ^fail;
 ^cmn2:
   %t = call @is_subnormal(%min_norm);
   br %t == 0, ^check_max_sub, ^fail;
@@ -49,25 +49,25 @@ fun @main() : i32 {
   br %t == 0, ^cms2, ^fail;
 ^cms2:
   %t = call @is_subnormal(%max_sub);
-  br %t == 1, ^check_min_sub, ^fail;
+  br %t == -1, ^check_min_sub, ^fail;
 ^check_min_sub:
   %t = call @is_normal(%min_sub);
   br %t == 0, ^cmis2, ^fail;
 ^cmis2:
   %t = call @is_subnormal(%min_sub);
-  br %t == 1, ^check_neg, ^fail;
+  br %t == -1, ^check_neg, ^fail;
 ^check_neg:
   // Sign-flipped subnormal: classification preserved, signbit set.
   %t = call @is_subnormal(%neg_max_sub);
-  br %t == 1, ^cn2, ^fail;
+  br %t == -1, ^cn2, ^fail;
 ^cn2:
   %t = call @signbit(%neg_max_sub);
-  br %t == 1, ^check_abs, ^fail;
+  br %t == -1, ^check_abs, ^fail;
 ^check_abs:
   // @fabs of the negative subnormal must recover the positive
   // subnormal — classification still subnormal, sign cleared.
   %t = call @is_subnormal(%abs_neg);
-  br %t == 1, ^ca2, ^fail;
+  br %t == -1, ^ca2, ^fail;
 ^ca2:
   %t = call @signbit(%abs_neg);
   br %t == 0, ^success, ^fail;

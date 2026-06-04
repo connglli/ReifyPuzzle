@@ -13,7 +13,7 @@ fun @g() : i32 {
 
 fun @main() : i32 {
   let mut %y: i32 = 0;
-  let %c: i1 = 1;
+  let %c: i1 = -1;
 ^entry:
   %y = select %c, call @f(), call @g();
   ret %y;

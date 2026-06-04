@@ -13,6 +13,6 @@ fun @main() : i32 {
   %r = call @copysign(7.0, %nz);
   require %r == -7.0, "copysign(7, -0.0) == -7";
   %sb = call @signbit(%r);
-  require %sb == 1, "result has sign bit set";
+  require %sb == -1, "result has sign bit set";
   ret 0;
 }

@@ -52,7 +52,7 @@ fun @main() : i32 {
 ^b3:
   %p = call @parity(%r);
   %i = %i + 1;
-  br %p == 1, ^b2, ^b4;
+  br %p == -1, ^b2, ^b4;
 ^b4:
   %x = %x - 549470330;
   %y = 4;

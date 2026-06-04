@@ -22,7 +22,7 @@ fun @main() : i32 {
   %a = call @fabs(%x);                  // identity (positive)
   %n = call @fneg(%a);                  // negative subnormal
   %sb = call @signbit(%n);              // expect 1
-  br %sb == 1, ^ok, ^bad;
+  br %sb == -1, ^ok, ^bad;
 ^ok:
   %r = 1;
   br ^exit;

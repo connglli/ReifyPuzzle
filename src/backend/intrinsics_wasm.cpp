@@ -449,9 +449,8 @@ namespace symir {
         out(backend) << ity << ".lt_s\n";
         indent(backend);
         out(backend) << ity << ".sub\n";
-        // [v0.2.2] Predicate: N=1 (i1) — stored as literal 0/1, not sign-extended.
-        if (N > 1)
-          sextN(backend, N, W, ity);
+        // [v0.2.2] @parity returns i1 (W=32); sextN(1, 32) yields 0/-1 for true.
+        sextN(backend, N, W, ity);
       }
     };
 
@@ -870,13 +869,14 @@ namespace symir {
         // AND the two i32 predicates → i32 holding 0 or 1
         indent(backend);
         out(backend) << "i32.and\n";
-        // For i1 return, W is always 32, so the i32 0/1 on stack is the
-        // result. Defensive widening if a future change makes W == 64.
+        // [v0.2.2] @is_pow2 returns i1; sign-extend bit 0 → 0/-1.
+        sextN(backend, 1, 32, "i32");
+        // Defensive widening if a future change makes W == 64. Sign-extending
+        // i32 -1 → i64 -1 preserves the v0.2.2 i1 convention.
         if (W == 64) {
           indent(backend);
           out(backend) << "i64.extend_i32_s\n";
         }
-        // No sextN: SymIR i1 is stored as 0 / 1, not sign-extended.
       }
     };
 
@@ -1677,6 +1677,20 @@ namespace symir {
     static std::string paramFpTy(const IntrinsicDecl &intr, size_t i) {
       return paramFpBits(intr, i) == 32 ? "f32" : "f64";
     }
+
+    // [v0.2.2] i1-returning FP predicates produce an i32 0/1 from a WASM
+    // comparison. Convert to the SymIR i1 storage convention (0 / -1) by
+    // sign-extending bit 0.
+    static void sextI1ToI32(WasmBackend &backend) {
+      indent(backend);
+      out(backend) << "i32.const 31\n";
+      indent(backend);
+      out(backend) << "i32.shl\n";
+      indent(backend);
+      out(backend) << "i32.const 31\n";
+      indent(backend);
+      out(backend) << "i32.shr_s\n";
+    }
   };
 
   namespace {
@@ -1742,6 +1756,8 @@ namespace symir {
           indent(backend);
           out(backend) << "i64.lt_s\n"; // result is already i32 0/1 (WASM rule)
         }
+        // [v0.2.2] @signbit returns i1; sign-extend bit 0 → 0/-1.
+        sextI1ToI32(backend);
       }
     };
 
@@ -1824,6 +1840,8 @@ namespace symir {
           indent(backend);
           out(backend) << "i32.and\n";
         }
+        // [v0.2.2] @is_normal returns i1; sign-extend bit 0 → 0/-1.
+        sextI1ToI32(backend);
       }
     };
 
@@ -1903,6 +1921,8 @@ namespace symir {
           indent(backend);
           out(backend) << "i32.and\n";
         }
+        // [v0.2.2] @is_subnormal returns i1; sign-extend bit 0 → 0/-1.
+        sextI1ToI32(backend);
       }
     };
 

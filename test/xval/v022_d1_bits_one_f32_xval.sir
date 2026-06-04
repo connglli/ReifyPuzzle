@@ -18,7 +18,7 @@ fun @main() : i32 {
   %neg = call @fneg(1.0);            // -1.0
   %sb = call @signbit(%neg);         // expect 1
   // Branch on signbit; return bits-of-1.0 only on the expected path.
-  br %sb == 1, ^ok, ^bad;
+  br %sb == -1, ^ok, ^bad;
 ^ok:
   %r = %bits;
   br ^exit;

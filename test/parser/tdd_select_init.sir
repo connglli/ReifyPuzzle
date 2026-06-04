@@ -1,6 +1,6 @@
 // EXPECT: PASS
 fun @main(): i32 {
-  let mut %cond: i1 = 1;
+  let mut %cond: i1 = -1;
   let mut %a: i32 = 10;
   let mut %b: i32 = 20;
   let %x: i32 = select %cond, %a, %b;

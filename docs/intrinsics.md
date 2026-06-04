@@ -46,6 +46,19 @@ are pure predicates. Their widening-and-mask rule treats the return
 type as a fixed `i1` (lowered to `int8_t` in C, `i32` in WASM, `bv(1)`
 in SMT) and is unrelated to the input width `N`.
 
+**`i1` convention (v0.2.2, SPEC §6.4).** All `iN` types — including
+`i1` — are signed two's-complement integers, so the two representable
+`i1` values are `{0, -1}`, not `{0, 1}`. Every predicate intrinsic
+listed below (`@parity`, `@is_pow2`, `@signbit`, `@is_normal`,
+`@is_subnormal`) accordingly produces `-1` for *true* and `0` for
+*false*. The interpreter sign-extends bit 0 in `argSint` / `makeInt`
+so the convention is uniform across argument read-back, result
+construction, and `iN as iM` widening. The C and WASM backends emit
+sign-extension at the producing site (post-`cmp`, post-predicate-body)
+so storage of an `i1` local always matches `{0, -1}`. Earlier drafts
+that documented "stored as `0/1`" reflect the pre-v0.2.2 convention
+and have been rewritten where they survived.
+
 Floating-point intrinsics are **not** supported in v0.2.2 baseline.
 The P0 floating-point basic IEEE family is planned for a future v0.2.2
 follow-up; see *Priority tiers* below.
@@ -382,18 +395,19 @@ rotation primitives `@rotl`/`@rotr` use them directly; `@bswap` and
 intrinsic @parity(%x: iN) : i1;
 ```
 
-Returns `1` if `x` has an odd number of one-bits, else `0`. **The return
-type is `i1`, not `iN`** — `@parity` and `@is_pow2` are the first
-intrinsics whose return type is not parameterised by the input width.
+Returns `-1` (the `i1` true value) if `x` has an odd number of one-bits,
+else `0`. **The return type is `i1`, not `iN`** — `@parity` and
+`@is_pow2` are the first intrinsics whose return type is not
+parameterised by the input width.
 
-No UB. Result range: `{0, 1}`.
+No UB. Result range: `{0, -1}` (see the i1 convention note above).
 
 | Tool | Behaviour |
 |---|---|
-| Interpreter | `__builtin_parityll(maskU(x)) & 1`, stored as a sign-extended `i1`. |
+| Interpreter | `__builtin_parityll(maskU(x)) & 1`, sign-extended to `i1` by `makeInt`. |
 | Solver | XOR all `N` single-bit extracts of `x` together; the resulting `bv(1)` is the `i1` result. |
-| C codegen | Widen, mask, `__builtin_parity[ll](u)`, store as `int8_t` (which is the C representation of `i1` in the widening-and-mask scheme). |
-| WASM codegen | Mask, `iW.popcnt`, `iW.const 1`, `iW.and`. Convert to `i1` representation. |
+| C codegen | Widen, mask, `__builtin_parity[ll](u)`, sign-extend bit 0 so true is stored as `-1` in the `int8_t` cell. |
+| WASM codegen | Mask, `iW.popcnt`, `iW.const 1`, `iW.and`, then sextend bit 0 (`i32.shl 31; i32.shr_s 31`) so the `i32` result is `0` / `-1`. |
 
 ### `@bswap` — byte swap
 
@@ -463,17 +477,18 @@ themselves (`n & (N − 1)` for power-of-two `N`).
 intrinsic @is_pow2(%x: iN) : i1;
 ```
 
-Returns `1` if `x` is a positive power of two (`x > 0` and
-`popcount(x) == 1`), else `0`. Like `@parity`, the return type is `i1`.
+Returns `-1` (the `i1` true value) if `x` is a positive power of two
+(`x > 0` and `popcount(x) == 1`), else `0`. Like `@parity`, the return
+type is `i1`.
 
-No UB. Result range: `{0, 1}`.
+No UB. Result range: `{0, -1}`.
 
 | Tool | Behaviour |
 |---|---|
-| Interpreter | `(x > 0) && ((x & (x − 1)) == 0)`. |
+| Interpreter | `(x > 0) && ((x & (x − 1)) == 0)`, sign-extended to `i1` by `makeInt`. |
 | Solver | `ite(bvslt(0, x) ∧ EQUAL(bvand(x, bvsub(x, 1)), bv(0, N)), bv(1, 1), bv(0, 1))`. |
-| C codegen | Same boolean, widened, written as a single expression with `&&`. |
-| WASM codegen | Compose `iW.gt_s 0` with `iW.sub`, `iW.and`, `iW.eqz`; AND the two via `iW.and`. |
+| C codegen | Same boolean, widened, written with `&&`, sign-extend bit 0 so true is `-1`. |
+| WASM codegen | Compose `iW.gt_s 0` with `iW.sub`, `iW.and`, `iW.eqz`; AND the two via `iW.and`, then sextend bit 0 to yield `0` / `-1`. |
 
 ### `@ilog2` — floor log base 2
 
@@ -659,12 +674,12 @@ fun @demo(%x: i32) : i32 {
 | `@signum` | `(iN) → iN` | — | `{−1, 0, +1}` |
 | `@clamp` | `(iN, iN, iN) → iN` | `lo > hi` (signed) | `[lo, hi]` |
 | `@midpoint` | `(iN, iN) → iN` | — | `[INT_MIN_N, INT_MAX_N]` |
-| `@parity` | `(iN) → i1` | — | `{0, 1}` |
+| `@parity` | `(iN) → i1` | — | `{0, -1}` |
 | `@bswap` | `(iN) → iN`, `N % 8 == 0` | — (declaration rejected if `N` is not a multiple of 8) | full `iN` |
 | `@bitreverse` | `(iN) → iN` | — | full `iN` |
 | `@rotl` | `(iN, iN) → iN` | `n < 0` or `n >= N` | full `iN` |
 | `@rotr` | `(iN, iN) → iN` | `n < 0` or `n >= N` | full `iN` |
-| `@is_pow2` | `(iN) → i1` | — | `{0, 1}` |
+| `@is_pow2` | `(iN) → i1` | — | `{0, -1}` |
 | `@ilog2` | `(iN) → iN` | `x <= 0` (signed) | `[0, N − 2]` |
 | `@wrapping_add` | `(iN, iN) → iN` | — | full `iN` |
 | `@wrapping_sub` | `(iN, iN) → iN` | — | full `iN` |
@@ -853,14 +868,17 @@ width.
 intrinsic @signbit(%x: fN) : i1;
 ```
 
-Returns `1` if `%x` has its IEEE 754 sign bit set (negative finite or
-`-0.0`), else `0`.
+Returns `-1` (the `i1` true value) if `%x` has its IEEE 754 sign bit
+set (negative finite or `-0.0`), else `0`.
 
 **SMT encoding**: `ite(fp.isNegative(x), bv1#1, bv1#0)`.
-**Interpreter**: `std::signbit(x) ? 1 : 0`.
-**C**: `__builtin_signbit(a) ? 1 : 0`.
+**Interpreter**: `std::signbit(x) ? 1 : 0`, sign-extended to `i1` by
+`makeInt`.
+**C**: `__builtin_signbit(a) ? 1 : 0`, sign-extended to the `int8_t`
+i1 cell.
 **WASM**: reinterpret as BV and test the high bit (`iN.reinterpret_fN`
-then `iN.lt_s` against zero).
+then `iN.lt_s` against zero), then sextend bit 0 so the result is
+`0` / `-1`.
 
 #### `@to_bits`
 
@@ -913,18 +931,20 @@ classification reduces to three categories: *normal*, *subnormal*, or
 intrinsic @is_normal(%x: fN) : i1;
 ```
 
-Returns 1 iff `%x` is a normal IEEE 754 value (biased exponent in
-`[1, max-1]`).  Returns 0 for ±0, subnormals, and (out-of-domain but
-defensively false) ±∞ and NaN.
+Returns `-1` (the `i1` true value) iff `%x` is a normal IEEE 754 value
+(biased exponent in `[1, max-1]`).  Returns `0` for ±0, subnormals, and
+(out-of-domain but defensively false) ±∞ and NaN.
 
 **SMT encoding**: `ite(fp.isNormal(x), bv1#1, bv1#0)`.
-**Interpreter**: `std::isnormal(x)`; for f32 inputs stored as
-`double`, narrow to `float` first so the f32-precision exponent range
-is what gets classified.
-**C**: `__builtin_isnormal(a0)`; the generic-macro dispatch picks the
-right precision from the helper's parameter type.
+**Interpreter**: `std::isnormal(x)`, sign-extended to `i1` by `makeInt`;
+for f32 inputs stored as `double`, narrow to `float` first so the
+f32-precision exponent range is what gets classified.
+**C**: `__builtin_isnormal(a0)`, sign-extended to the `int8_t` i1 cell;
+the generic-macro dispatch picks the right precision from the helper's
+parameter type.
 **WASM**: no native op.  Compose by extracting the biased exponent
-from `iN.reinterpret_fN(x)` and testing `(exp != 0) && (exp != max)`.
+from `iN.reinterpret_fN(x)` and testing `(exp != 0) && (exp != max)`,
+then sextend bit 0 so the result is `0` / `-1`.
 
 #### `@is_subnormal`
 
@@ -932,17 +952,19 @@ from `iN.reinterpret_fN(x)` and testing `(exp != 0) && (exp != max)`.
 intrinsic @is_subnormal(%x: fN) : i1;
 ```
 
-Returns 1 iff `%x` is a subnormal IEEE 754 value (biased exponent
-== 0 and mantissa != 0).  ±0 are NOT subnormal; for them the predicate
-returns 0.
+Returns `-1` (the `i1` true value) iff `%x` is a subnormal IEEE 754
+value (biased exponent == 0 and mantissa != 0).  ±0 are NOT subnormal;
+for them the predicate returns `0`.
 
 **SMT encoding**: `ite(fp.isSubnormal(x), bv1#1, bv1#0)`.
-**Interpreter**: `std::fpclassify(x) == FP_SUBNORMAL`; same f32
-narrowing as `@is_normal`.
+**Interpreter**: `std::fpclassify(x) == FP_SUBNORMAL`, sign-extended to
+`i1` by `makeInt`; same f32 narrowing as `@is_normal`.
 **C**: compose from `__builtin_isnormal` and `!= 0.0`:
-`__builtin_isfinite(a0) && !__builtin_isnormal(a0) && a0 != 0.0`.
+`__builtin_isfinite(a0) && !__builtin_isnormal(a0) && a0 != 0.0`,
+sign-extended to the `int8_t` i1 cell.
 **WASM**: no native op.  Compose by reinterpreting and testing
-`(exp_bits == 0) && (mantissa != 0)`.
+`(exp_bits == 0) && (mantissa != 0)`, then sextend bit 0 so the result
+is `0` / `-1`.
 
 ### P1 — solver-easy, WASM-tricky (planned)
 

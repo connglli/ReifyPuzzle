@@ -9,6 +9,6 @@ fun @main() : i32 {
 ^entry:
   %sub = call @from_bits(1);         // smallest +subnormal f64
   %r = call @is_subnormal(%sub);
-  require %r == 1, "is_subnormal(min subnormal) == 1";
+  require %r == -1, "is_subnormal(min subnormal) == 1";
   ret 0;
 }

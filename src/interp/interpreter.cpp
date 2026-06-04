@@ -632,6 +632,24 @@ namespace symir {
         v.kind = RuntimeValue::Kind::Int;
         v.bits = *bits;
         v.intVal = parseIntegerLiteral(paramArgs[i]);
+        // [v0.2.2] CLI positional args ARE literals being bound to the
+        // entry function's parameters; apply the same signed-range
+        // rule the typechecker enforces on in-source literals
+        // (spec §6.12 + §6.4).  Without this an out-of-range CLI value
+        // would silently bit-truncate at runtime, diverging from what
+        // the static checker would reject for the same constant in
+        // source code.
+        if (*bits < 64) {
+          int64_t minV = -(1LL << (*bits - 1));
+          int64_t maxV = (1LL << (*bits - 1)) - 1;
+          if (v.intVal < minV || v.intVal > maxV) {
+            throw std::runtime_error(
+                "CLI arg " + std::to_string(i + 1) + " (" + paramArgs[i] +
+                "): value out of range for parameter type i" + std::to_string(*bits) + " ([" +
+                std::to_string(minV) + ", " + std::to_string(maxV) + "])"
+            );
+          }
+        }
       } else {
         throw std::runtime_error(
             "Entry-fun parameter " + p.name.name +
@@ -676,9 +694,13 @@ namespace symir {
   static std::int64_t canonicalize(std::int64_t val, std::uint32_t bits) {
     if (bits >= 64)
       return val;
-    // [v0.2.2] i1 (boolean) uses unsigned convention (0/1), not signed (-1/0).
+    // [v0.2.2] Spec §6.4: i1 is a signed 1-bit integer.  The two
+    // representable values are 0 (false) and -1 (true) — bit
+    // pattern 1 sign-extended.  `iN as iM` widening sign-extends, so
+    // an i1 true widened to i32 is -1; matches what the C backend
+    // already emits and what the spec mandates.
     if (bits == 1)
-      return val & 1;
+      return (val & 1) ? -1 : 0;
     std::uint64_t mask = (1ULL << bits) - 1;
     std::uint64_t sign_bit = 1ULL << (bits - 1);
     std::uint64_t uval = static_cast<std::uint64_t>(val) & mask;
@@ -1806,7 +1828,8 @@ namespace symir {
                 RuntimeValue lane;
                 lane.kind = RuntimeValue::Kind::Int;
                 lane.bits = 1;
-                lane.intVal = b ? 1 : 0;
+                // Spec §6.4: i1 is signed; true = -1, false = 0.
+                lane.intVal = b ? -1 : 0;
                 res.arrayVal.push_back(std::move(lane));
               }
               return res;
@@ -1814,7 +1837,8 @@ namespace symir {
             RuntimeValue res;
             res.kind = RuntimeValue::Kind::Int;
             res.bits = 1;
-            res.intVal = cmpScalar(lv, rv) ? 1 : 0;
+            // Spec §6.4: i1 is signed; true = -1, false = 0.
+            res.intVal = cmpScalar(lv, rv) ? -1 : 0;
             return res;
           } else if constexpr (std::is_same_v<T, CoefAtom>) {
             return evalCoef(arg.coef, store);
@@ -2644,17 +2668,12 @@ namespace symir {
     }
 
     if (l.kind == RuntimeValue::Kind::Int && r.kind == RuntimeValue::Kind::Int) {
-      // [v0.2.2] For comparisons involving i1 (boolean) values, use the
-      // unsigned (masked) representation so that `true` (canonicalized as
-      // -1 in signed i1) compares equal to literal `-1` or `1`.
-      // Mask BOTH sides when EITHER is i1, because integer literals from
-      // evalCoef always have bits=64 and would otherwise compare raw
-      // int64 values against the masked i1 variable.
+      // [v0.2.2] Spec §6.12 + §6.4: all iN are signed; the typechecker
+      // range-checks integer literals against the target type's signed
+      // range [-2^(N-1), 2^(N-1) - 1], so by the time we reach this
+      // comparison both sides are already canonical signed int64 values
+      // in their declared widths.  No bit-masking shim required.
       int64_t li = l.intVal, ri = r.intVal;
-      if (l.bits == 1 || r.bits == 1) {
-        li = li & 1;
-        ri = ri & 1;
-      }
       switch (c.op) {
         case RelOp::EQ:
           return li == ri;

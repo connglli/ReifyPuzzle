@@ -534,10 +534,8 @@ namespace symir {
               }
             }
             out_ << opStr << "\n";
-            if (targetWidth > 32) {
-              indent();
-              out_ << "i64.extend_i32_s\n";
-            }
+            // [v0.2.2] cmp returns i1; sign-extend bit 0 so true is -1.
+            emitSignExtend(1, (targetWidth > 32 ? 64 : 32));
           } else if constexpr (std::is_same_v<T, PtrIndexAtom>) {
             uint64_t arrSize = 0;
             TypePtr elemType = nullptr;
@@ -911,6 +909,14 @@ namespace symir {
                 out_ << (dstWidth == 32 ? "f32.convert_i64_s\n" : "f64.convert_i64_s\n");
             } else {
               // BV -> BV
+              // [v0.2.2] Spec §6.4: i1 is signed; widening sign-extends
+              // bit 0.  Emit the i1 sign-extension *first* (in i32
+              // space) so a subsequent i64.extend_i32_s, if any, sees
+              // the already-sign-extended low half.  Otherwise the
+              // shift-pair ends up landing on a 64-bit stack top.
+              if (srcWidth == 1) {
+                emitSignExtend(1, 32);
+              }
               if (srcWidth <= 32 && (targetWidth > 32 || dstWidth > 32)) {
                 if (wasmWidth == 64) {
                   out_ << "i64.extend_i32_s\n";
@@ -921,7 +927,7 @@ namespace symir {
                 }
               }
             }
-            if (!dstIsFloat)
+            if (!dstIsFloat && srcWidth != 1)
               emitSignExtend(targetWidth, wasmWidth);
           }
         },
@@ -2879,10 +2885,8 @@ namespace symir {
               }
             }
             out_ << opStr << "\n";
-            if (targetWidth > 32) {
-              indent();
-              out_ << "i64.extend_i32_s\n";
-            }
+            // [v0.2.2] vector lane cmp returns i1; sign-extend bit 0 so true is -1.
+            emitSignExtend(1, (targetWidth > 32 ? 64 : 32));
           }
         },
         atom.v

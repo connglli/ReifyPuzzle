@@ -166,7 +166,7 @@ fun @main() : i32 {
   // producing a reified i1 rather than an inline branch condition.
   %opcode  = %opcodes[%LANE_NUL];
   %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^exit, ^decode_inc_ptr;
+  br %eq_flag == -1, ^exit, ^decode_inc_ptr;
 
 // --- Instruction decode cascade ---
 // Each step reads the matching opcode lane and uses cmp to produce an i1
@@ -174,37 +174,37 @@ fun @main() : i32 {
 ^decode_inc_ptr:
   %opcode  = %opcodes[%LANE_INC_PTR];
   %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_inc_ptr, ^decode_dec_ptr;
+  br %eq_flag == -1, ^do_inc_ptr, ^decode_dec_ptr;
 
 ^decode_dec_ptr:
   %opcode  = %opcodes[%LANE_DEC_PTR];
   %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_dec_ptr, ^decode_inc_val;
+  br %eq_flag == -1, ^do_dec_ptr, ^decode_inc_val;
 
 ^decode_inc_val:
   %opcode  = %opcodes[%LANE_INC_VAL];
   %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_inc_val, ^decode_dec_val;
+  br %eq_flag == -1, ^do_inc_val, ^decode_dec_val;
 
 ^decode_dec_val:
   %opcode  = %opcodes[%LANE_DEC_VAL];
   %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_dec_val, ^decode_output;
+  br %eq_flag == -1, ^do_dec_val, ^decode_output;
 
 ^decode_output:
   %opcode  = %opcodes[%LANE_OUTPUT];
   %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_output, ^decode_loop_start;
+  br %eq_flag == -1, ^do_output, ^decode_loop_start;
 
 ^decode_loop_start:
   %opcode  = %opcodes[%LANE_LOOP_START];
   %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_loop_start, ^decode_loop_end;
+  br %eq_flag == -1, ^do_loop_start, ^decode_loop_end;
 
 ^decode_loop_end:
   %opcode  = %opcodes[%LANE_LOOP_END];
   %eq_flag = cmp == %instr, %opcode;
-  br %eq_flag == 1, ^do_loop_end, ^next_instr; // skip unknown bytes
+  br %eq_flag == -1, ^do_loop_end, ^next_instr; // skip unknown bytes
 
 // --- Command execution ---
 // dp and ip are mutated exclusively through the ptrfield-derived pointers,
@@ -281,12 +281,12 @@ fun @main() : i32 {
   %opcode  = %opcodes[%LANE_LOOP_START];
   %eq_flag = cmp == %byte_tmp, %opcode;
   %d_plus  = %depth + 1;
-  %depth   = select %eq_flag == 1, %d_plus, %depth;
+  %depth   = select %eq_flag == -1, %d_plus, %depth;
 
   %opcode  = %opcodes[%LANE_LOOP_END];
   %eq_flag = cmp == %byte_tmp, %opcode;
   %d_minus = %depth - 1;
-  %depth   = select %eq_flag == 1, %d_minus, %depth;
+  %depth   = select %eq_flag == -1, %d_minus, %depth;
 
   br %depth == 0, ^next_instr, ^scan_fwd_step;
 
@@ -309,12 +309,12 @@ fun @main() : i32 {
   %opcode  = %opcodes[%LANE_LOOP_END];
   %eq_flag = cmp == %byte_tmp, %opcode;
   %d_plus  = %depth + 1;
-  %depth   = select %eq_flag == 1, %d_plus, %depth;
+  %depth   = select %eq_flag == -1, %d_plus, %depth;
 
   %opcode  = %opcodes[%LANE_LOOP_START];
   %eq_flag = cmp == %byte_tmp, %opcode;
   %d_minus = %depth - 1;
-  %depth   = select %eq_flag == 1, %d_minus, %depth;
+  %depth   = select %eq_flag == -1, %d_minus, %depth;
 
   br %depth == 0, ^scan_bwd_done, ^scan_bwd_step;
 

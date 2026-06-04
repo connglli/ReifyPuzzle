@@ -31,7 +31,7 @@ fun @main() : i32 {
   br ^stage0;
 ^stage0:
   %t = call @is_subnormal(%x);
-  br %t == 1, ^s0b, ^fail;
+  br %t == -1, ^s0b, ^fail;
 ^s0b:
   %t = call @is_normal(%x);
   br %t == 0, ^s0c, ^fail;
@@ -43,10 +43,10 @@ fun @main() : i32 {
   // sign bit flips.
   %neg = call @fneg(%x);
   %t = call @is_subnormal(%neg);
-  br %t == 1, ^s1b, ^fail;
+  br %t == -1, ^s1b, ^fail;
 ^s1b:
   %t = call @signbit(%neg);
-  br %t == 1, ^stage2, ^fail;
+  br %t == -1, ^stage2, ^fail;
 ^stage2:
   // Stage 2: @copysign with a positive y restores the positive sign.
   %pos = call @copysign(%neg, 1.0);
@@ -54,12 +54,12 @@ fun @main() : i32 {
   br %t == 0, ^s2b, ^fail;
 ^s2b:
   %t = call @is_subnormal(%pos);
-  br %t == 1, ^stage3, ^fail;
+  br %t == -1, ^stage3, ^fail;
 ^stage3:
   // Stage 3: @fabs on the positive value is the identity for classification.
   %abs_pos = call @fabs(%pos);
   %t = call @is_subnormal(%abs_pos);
-  br %t == 1, ^s3b, ^fail;
+  br %t == -1, ^s3b, ^fail;
 ^s3b:
   %t = call @is_normal(%abs_pos);
   br %t == 0, ^stage4, ^fail;
@@ -71,7 +71,7 @@ fun @main() : i32 {
 ^s4b:
   %back = call @from_bits(%b);
   %t = call @is_subnormal(%back);
-  br %t == 1, ^success, ^fail;
+  br %t == -1, ^success, ^fail;
 ^success:
   %r = 113;
   br ^exit;

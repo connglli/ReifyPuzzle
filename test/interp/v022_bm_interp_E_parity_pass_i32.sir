@@ -7,7 +7,7 @@ fun @main() : i32 {
 ^entry:
   %p = call @parity(7);    // popcount(7) = 3 -> odd -> 1
   %q = call @parity(15);   // popcount(15) = 4 -> even -> 0
-  br %p == 1, ^p_ok, ^bad;
+  br %p == -1, ^p_ok, ^bad;
 ^p_ok:
   br %q == 0, ^q_ok, ^bad;
 ^q_ok:

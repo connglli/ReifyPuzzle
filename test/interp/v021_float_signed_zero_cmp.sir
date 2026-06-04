@@ -12,7 +12,7 @@ fun @main() : i32 {
   %res_lt = cmp < %f1, %f2;
 
   // require they compare equal and not less than
-  require %res_eq == 1;
+  require %res_eq == -1;
   require %res_lt == 0;
   ret 0;
 }

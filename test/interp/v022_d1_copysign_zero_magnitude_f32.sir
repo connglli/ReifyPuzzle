@@ -11,6 +11,6 @@ fun @main() : i32 {
   %r = call @copysign(%pz, -1.0);
   require %r == %pz, "result is numerically zero";
   %sb = call @signbit(%r);
-  require %sb == 1, "copysign(+0.0, -1.0) has sign bit set";
+  require %sb == -1, "copysign(+0.0, -1.0) has sign bit set";
   ret 0;
 }

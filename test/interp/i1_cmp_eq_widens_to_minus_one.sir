@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC §6.4 (after this fix): the result of a `cmp` is i1, and i1
+// widens as a signed type — so a true cmp widened to i64 gives -1.
+fun @main() : i32 {
+  let mut %x: i32 = 42;
+  let mut %t: i1 = 0;
+  let mut %w: i64 = 0;
+^entry:
+  %t = cmp == %x, 42;        // true
+  %w = %t as i64;
+  require %w == -1, "(cmp==true) as i64 == -1";
+  ret 0;
+}

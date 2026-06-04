@@ -9,7 +9,7 @@ fun @main() : i32 {
   %a = call @is_pow2(16);   // true
   %b = call @is_pow2(0);    // false (not positive)
   %c = call @is_pow2(6);    // false (popcount != 1)
-  br %a == 1, ^a_ok, ^bad;
+  br %a == -1, ^a_ok, ^bad;
 ^a_ok:
   br %b == 0, ^b_ok, ^bad;
 ^b_ok:

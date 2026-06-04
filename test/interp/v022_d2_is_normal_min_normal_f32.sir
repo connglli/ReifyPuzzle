@@ -15,7 +15,7 @@ fun @main() : i32 {
   %max_sub = call @from_bits(8388607);      // 0x007FFFFF
   %a = call @is_normal(%min_norm);
   %b = call @is_normal(%max_sub);
-  require %a == 1, "smallest normal is_normal == 1";
+  require %a == -1, "smallest normal is_normal == 1";
   require %b == 0, "largest subnormal is_normal == 0";
   ret 0;
 }

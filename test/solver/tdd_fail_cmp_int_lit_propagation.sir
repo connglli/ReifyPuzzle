@@ -7,6 +7,6 @@ fun @main() : i32 {
 ^entry:
   %lit = 300 as i16;
   %cond = cmp == %x, %lit;
-  require %cond == 1;
+  require %cond == -1;
   ret 0;
 }
