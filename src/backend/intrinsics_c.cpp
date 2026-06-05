@@ -51,6 +51,16 @@ namespace symir {
         const std::string &sty, const std::string &uty
     ) const = 0;
 
+    /**
+     * @brief Linkage / inlining qualifier emitted in front of the helper's
+     * return type. Defaults to `static inline` so the C compiler can fold
+     * trivial intrinsics into their callers. Helpers whose body uses a
+     * function-local static (e.g. @crc32_update's lookup table) override
+     * to `static __attribute__((noinline))` so per-call-site cloning can't
+     * propagate constant table contents into the caller's CCP / SCCP.
+     */
+    virtual std::string linkageQualifier() const { return "static inline"; }
+
   protected:
     static std::ostream &out(CBackend &backend);
 
@@ -820,6 +830,83 @@ namespace symir {
       }
     };
 
+    // ── Checksum primitives ──────────────────────────────────────────────
+    //
+    // Self-contained lowerings for the @crc32_update / @check_chksum
+    // intrinsics declared in include/analysis/intrinsics.hpp. Each helper
+    // is bit-exact with its interpreter counterpart in
+    // src/interp/intrinsics.cpp so symiri and the compiled C agree byte
+    // for byte.
+
+    class Crc32UpdateIntrinsic final : public CIntrinsic {
+    public:
+      // The lookup table is a function-local static initialised lazily on
+      // the first call. Marking the helper noinline keeps the C compiler
+      // from cloning it into every caller and propagating the table
+      // contents back through constant folding — that's the whole point of
+      // R1's "opaque to the optimizer" property.
+      std::string linkageQualifier() const override { return "static __attribute__((noinline))"; }
+
+      void emit(
+          CBackend &backend, const IntrinsicDecl &intr, uint32_t /*N*/, uint32_t /*W*/,
+          const std::string & /*sty*/, const std::string & /*uty*/
+      ) const override {
+        // val width drives both the per-helper byte-count and the C type
+        // of the second argument. semchecker has already enforced that
+        // params[1] is an integer.
+        uint32_t valBits = paramN(intr, 1);
+        uint32_t valW = widen(valBits);
+        uint32_t nBytes = (valBits + 7) / 8;
+        out(backend) << "  static uint32_t tab[256];\n";
+        out(backend) << "  static int inited = 0;\n";
+        out(backend) << "  if (!inited) {\n";
+        out(backend) << "    const uint32_t poly = 0xEDB88320u;\n";
+        out(backend) << "    for (uint32_t i = 0; i < 256u; ++i) {\n";
+        out(backend) << "      uint32_t c = i;\n";
+        out(
+            backend
+        ) << "      for (int j = 0; j < 8; ++j) c = (c & 1u) ? ((c >> 1) ^ poly) : (c >> 1);\n";
+        out(backend) << "      tab[i] = c;\n";
+        out(backend) << "    }\n";
+        out(backend) << "    inited = 1;\n";
+        out(backend) << "  }\n";
+        out(backend) << "  uint32_t s = (uint32_t)a0;\n";
+        out(backend) << "  uint" << valW << "_t v = (uint" << valW << "_t)a1;\n";
+        if (nBytes == 1) {
+          out(backend) << "  s = (s >> 8) ^ tab[(s ^ (uint32_t)(v & 0xFFu)) & 0xFFu];\n";
+        } else {
+          out(backend) << "  for (uint32_t b = 0; b < " << nBytes << "u; ++b) {\n";
+          out(backend) << "    uint8_t byte = (uint8_t)(v & 0xFFu);\n";
+          out(backend) << "    v >>= 8;\n";
+          out(backend) << "    s = (s >> 8) ^ tab[(s ^ (uint32_t)byte) & 0xFFu];\n";
+          out(backend) << "  }\n";
+        }
+        out(backend) << "  return (int32_t)s;\n";
+      }
+    };
+
+    class CheckChksumIntrinsic final : public CIntrinsic {
+    public:
+      // Inlining @check_chksum is fine — the body is small, but it's
+      // anchored by an extern fprintf + abort call so even after inlining
+      // the optimizer can't fold the comparison away. The visible side
+      // effect of those two calls is what makes the whole checksum chain
+      // observable.
+      void emit(
+          CBackend &backend, const IntrinsicDecl & /*intr*/, uint32_t /*N*/, uint32_t /*W*/,
+          const std::string & /*sty*/, const std::string & /*uty*/
+      ) const override {
+        out(backend) << "  if (a0 != a1) {\n";
+        out(
+            backend
+        ) << "    fprintf(stderr, \"@check_chksum mismatch: expected=%d actual=%d\\n\",\n";
+        out(backend) << "            (int)a0, (int)a1);\n";
+        out(backend) << "    abort();\n";
+        out(backend) << "  }\n";
+        out(backend) << "  return a1;\n";
+      }
+    };
+
   } // namespace
 
   // FP registry: separate from CIntrinsicRegistry because the emit
@@ -880,6 +967,9 @@ namespace symir {
       r[IntrinsicKind::SaturatingNeg] = std::make_unique<SaturatingNegIntrinsic>();
       r[IntrinsicKind::DivEuclid] = std::make_unique<DivEuclidIntrinsic>();
       r[IntrinsicKind::RemEuclid] = std::make_unique<RemEuclidIntrinsic>();
+      // Checksum primitives
+      r[IntrinsicKind::Crc32Update] = std::make_unique<Crc32UpdateIntrinsic>();
+      r[IntrinsicKind::CheckChksum] = std::make_unique<CheckChksumIntrinsic>();
       return r;
     }();
     return registry;
@@ -913,7 +1003,16 @@ namespace symir {
         return "_symir_" + base + "_i" + std::to_string(b);
       }
     }
+    // For integer intrinsics whose parameter widths differ from the
+    // return width, mangle by the first differing parameter's width
+    // instead of the return — otherwise the per-arg width overloads of
+    // a single intrinsic would all collapse onto one helper name.
     auto rb = TypeUtils::getIntBitWidth(intr.retType);
+    for (const auto &p: intr.params) {
+      auto pb = TypeUtils::getIntBitWidth(p.type);
+      if (pb && rb && *pb != *rb)
+        return "_symir_" + base + "_i" + std::to_string(*pb);
+    }
     return "_symir_" + base + "_i" + std::to_string(rb.value_or(32));
   }
 
@@ -943,6 +1042,9 @@ namespace symir {
       anyFp = anyFp || (p.type && std::holds_alternative<FloatType>(p.type->v));
 
     if (anyFp) {
+      // FP helpers share the simple `static inline` linkage — none of them
+      // need to defeat caller-side constant folding the way @crc32_update
+      // does, so the qualifier hook isn't threaded through this path.
       std::string outTy = cTypeOf(intr.retType);
       std::string name = intrinsicHelperName(intr);
       out_ << "static inline " << outTy << " " << name << "(";
@@ -976,9 +1078,22 @@ namespace symir {
     std::string sty = "int" + std::to_string(W) + "_t";
     std::string uty = "uint" + std::to_string(W) + "_t";
     std::string outTy = sty;
-    std::string name = intrinsicHelperName(intr.name.name, N);
+    std::string name = intrinsicHelperName(intr);
 
-    out_ << "static inline " << outTy << " " << name << "(";
+    // Look up the impl first so we can read its linkage qualifier before
+    // emitting the helper signature. Falls back to `static inline` for
+    // unregistered kinds (which then immediately trap below).
+    const CIntrinsic *impl = nullptr;
+    auto kind = getIntrinsicKind(intr.name.name);
+    if (kind) {
+      const auto &registry = CIntrinsicRegistry::getRegistry();
+      auto it = registry.find(*kind);
+      if (it != registry.end())
+        impl = it->second.get();
+    }
+    std::string linkage = impl ? impl->linkageQualifier() : "static inline";
+
+    out_ << linkage << " " << outTy << " " << name << "(";
     for (size_t i = 0; i < intr.params.size(); ++i) {
       if (i)
         out_ << ", ";
@@ -990,15 +1105,10 @@ namespace symir {
     }
     out_ << ") {\n";
 
-    auto kind = getIntrinsicKind(intr.name.name);
-    if (kind) {
-      const auto &registry = CIntrinsicRegistry::getRegistry();
-      auto it = registry.find(*kind);
-      if (it != registry.end()) {
-        it->second->emit(*this, intr, N, W, sty, uty);
-        out_ << "}\n\n";
-        return;
-      }
+    if (impl) {
+      impl->emit(*this, intr, N, W, sty, uty);
+      out_ << "}\n\n";
+      return;
     }
 
     out_ << "  __builtin_trap(); /* unknown intrinsic */\n";

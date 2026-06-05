@@ -1,0 +1,8 @@
+// EXPECT: FAIL
+// [v0.2.2] @crc32_update must return i32 — the running CRC state is i32
+// at every supported val width. An i64 return is rejected at sem-check.
+intrinsic @crc32_update(%state: i32, %val: i32) : i64;
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

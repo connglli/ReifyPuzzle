@@ -1,0 +1,68 @@
+// EXPECT: PASS
+// [v0.2.2] @crc32_update: byte-wise table-driven CRC32 update step.
+// Polynomial 0xEDB88320 (reflected), LSB-first byte order, no initial /
+// final XOR. Overloaded by val width; this test exercises i8/i16/i32/i64
+// independently and as a mixed chain. Reference values were computed by a
+// Python reimplementation of the same recurrence, then signed-cast to i32.
+
+intrinsic @crc32_update(%state: i32, %val: i8) : i32;
+intrinsic @crc32_update(%state: i32, %val: i16) : i32;
+intrinsic @crc32_update(%state: i32, %val: i32) : i32;
+intrinsic @crc32_update(%state: i32, %val: i64) : i32;
+
+fun @main() : i32 {
+  let mut %s: i32 = 0;
+  // Held in lets (with explicit type) so the overload picks the intended
+  // val width — bare integer literals would default-pick i8 here.
+  let %v8: i8 = 127;
+  let %v16: i16 = 4660;
+  let %v32: i32 = 305419896;
+  let %v64: i64 = 81985529216486895;
+  let %a: i32 = 1;
+  let %b: i32 = 2;
+  let %c: i32 = 3;
+  let %d: i32 = 4;
+  let %e: i32 = 5;
+^entry:
+  // Single i8 with zero val: update step over a zero byte is identity
+  // because tab[0] == 0.
+  %s = call @crc32_update(0, 0 as i8);
+  require %s == 0, "crc32_update(0, 0:i8) == 0";
+
+  // Single i8: update(0, 0x7F) = -1061524307
+  %s = call @crc32_update(0, %v8);
+  require %s == -1061524307, "crc32_update(0, 0x7F:i8)";
+
+  // Single i16: update(0, 0x1234) = 1217626815
+  %s = call @crc32_update(0, %v16);
+  require %s == 1217626815, "crc32_update(0, 0x1234:i16)";
+
+  // Single i32: update(0, 0x12345678) = -1909892914
+  %s = call @crc32_update(0, %v32);
+  require %s == -1909892914, "crc32_update(0, 0x12345678:i32)";
+
+  // Single i64: update(0, 0x0123456789ABCDEF) = 555302190
+  %s = call @crc32_update(0, %v64);
+  require %s == 555302190, "crc32_update(0, 0x0123456789ABCDEF:i64)";
+
+  // Chain at i32 over let %a..%e (declared above at i32, so the overload
+  // resolves unambiguously): final = 650981917
+  %s = 0;
+  %s = call @crc32_update(%s, %a);
+  %s = call @crc32_update(%s, %b);
+  %s = call @crc32_update(%s, %c);
+  %s = call @crc32_update(%s, %d);
+  %s = call @crc32_update(%s, %e);
+  require %s == 650981917, "crc32_update chain 1..5 i32";
+
+  // Mixed-width chain: i8(0x7F) → i16(0x1234) → i32(0x12345678) →
+  // i64(0x0123456789ABCDEF). Final state = 1150244089
+  %s = 0;
+  %s = call @crc32_update(%s, %v8);
+  %s = call @crc32_update(%s, %v16);
+  %s = call @crc32_update(%s, %v32);
+  %s = call @crc32_update(%s, %v64);
+  require %s == 1150244089, "crc32_update mixed-width chain";
+
+  ret 0;
+}

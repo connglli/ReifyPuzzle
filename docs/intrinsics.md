@@ -693,6 +693,8 @@ fun @demo(%x: i32) : i32 {
 | `@saturating_neg` | `(iN) → iN` | — | `[INT_MIN_N, INT_MAX_N]` |
 | `@div_euclid` | `(iN, iN) → iN` | `b == 0` or `(a == INT_MIN_N ∧ b == -1)` | `[INT_MIN_N, INT_MAX_N]` |
 | `@rem_euclid` | `(iN, iN) → iN` | `b == 0` or `(a == INT_MIN_N ∧ b == -1)` | `[0, \|b\| − 1]` |
+| `@crc32_update` | `(i32, iN) → i32`, `N ∈ {8, 16, 24, 32, 40, 48, 56, 64}` | — | full `i32` |
+| `@check_chksum` | `(i32, i32) → i32` | `expected != actual` (abort in C, UB in symiri) | `= actual` on match |
 
 ---
 
@@ -1014,6 +1016,110 @@ ite(fp.isNeg(x), y, x)))   ; tie: pick +0 (use the other operand if x is -0)
 **Interpreter**: `x > y ? x : y > x ? y : (signbit(x) ? y : x)`.
 **C**: `(a0 > a1) ? a0 : (a1 > a0) ? a1 : __builtin_signbit(a0) ? a1 : a0`.
 **WASM**: native `f32.max` / `f64.max`.
+
+## 12.7 Checksum primitives (v0.2.2 reify R1)
+
+Two intrinsics support the reify pipeline's opaque return-value oracle
+(see [`reify.md`](./reify.md) §R1). They are **excluded from the random
+intrinsic whitelist** (`include/reify/intrinsic_whitelist.hpp`) so
+rysmith / rylink never synthesise them in body code; they are only
+emitted by the post-solve checksum rewriter and by the `@main` wrapper.
+
+The pair is also unique within §12 for being **non-mathematical** —
+they exist to defeat compiler folding of the return value, not to model
+a target operation. The C lowering carries a function-local `static`
+lookup table and a `static __attribute__((noinline))` qualifier so the
+optimizer cannot clone the body or propagate the table contents back
+through CCP / SCCP; both pieces are essential to the
+"compiler-opaque" property the rewriter relies on.
+
+### `@crc32_update` — table-driven CRC32 update step
+
+```text
+intrinsic @crc32_update(%state: i32, %val: iN) : i32;
+```
+
+Folds the iN value `%val` byte-wise into the running CRC32 state
+`%state` using the reflected polynomial `0xEDB88320`, LSB-first byte
+order, **no** initial XOR, **no** final XOR. Overloaded over
+`N ∈ {8, 16, 24, 32, 40, 48, 56, 64}` — any integer width is accepted
+and rounded up to whole bytes via `nBytes = (N + 7) / 8`; widths that
+are not a multiple of 8 zero-pad the high bits of the last byte. Pure
+function: no UB, no side effects, deterministic for any
+`(state, val)` pair.
+
+**Recurrence** (per byte):
+```
+state' = (state >> 8) ^ tab[(state ^ byte) & 0xFF]
+byte_i  = (val >> (8 * i)) & 0xFF
+```
+with the lookup table built once from the polynomial:
+```
+tab[i] = repeat 8 times: c = (c & 1) ? ((c >> 1) ^ 0xEDB88320) : (c >> 1)
+         starting from c = i
+```
+
+**Interpreter** (`src/interp/intrinsics.cpp::Crc32UpdateIntrinsic`):
+function-local `static` table built lazily on first call; the recurrence
+is run directly on a `uint32_t state` and the final value is
+sign-extended to i32 via `makeInt(32, …)`.
+
+**C** (`src/backend/intrinsics_c.cpp::Crc32UpdateIntrinsic`): same
+lazy-init pattern, marked `static __attribute__((noinline))` (via the
+new `CIntrinsic::linkageQualifier()` hook) so the body is not cloned
+into callers. Each `(width)` overload gets its own helper name and its
+own copy of the 1 KB lookup table; for the typical i8 / i16 / i32 / i64
+quartet that's ~4 KB of `.bss` per .c file — the explicit cost of the
+"no shared globals" design choice in R1.
+
+**WASM**: not lowered. R1 targets the C backend; `symirc --target wasm`
+errors out cleanly when the input declares `@crc32_update`.
+
+**Solver**: not encoded. `@crc32_update` is never reached on a
+*symbolic* path — the rewriter applies it post-solve to the
+already-concrete exit block, and the reify pipeline keeps the solver
+on the original sum-based contract. A symbolic call to it on a
+solver-visited path makes the path infeasible (same effect as a UB
+prune).
+
+### `@check_chksum` — equality predicate with abort-on-mismatch
+
+```text
+intrinsic @check_chksum(%expected: i32, %actual: i32) : i32;
+```
+
+Signature is fixed at i32 for every slot — the running CRC state is
+always i32, so accepting other widths would only invite
+implicit-truncation bugs. Returns `%actual` verbatim on equality;
+diverges on mismatch (UB in symiri, `abort()` in C). The fail-side
+side effect is what defeats observation folding in the compiled
+program: the C optimizer cannot fold the call away because
+`fprintf(stderr, …)` and `abort()` are both externally visible.
+
+**Interpreter** (`src/interp/intrinsics.cpp::CheckChksumIntrinsic`):
+throws `UndefinedBehaviorError` on mismatch with the expected /
+actual values in the message; returns `actual` on equality.
+
+**C** (`src/backend/intrinsics_c.cpp::CheckChksumIntrinsic`): emits
+```c
+if (a0 != a1) {
+  fprintf(stderr, "@check_chksum mismatch: expected=%d actual=%d\n",
+          (int)a0, (int)a1);
+  abort();
+}
+return a1;
+```
+The C backend's preamble already `#include`s `<stdio.h>` and
+`<stdlib.h>` unconditionally so the helper compiles on a bare
+`gcc out.c` without further options.
+
+**WASM**: not lowered (matches `@crc32_update`).
+
+**Solver**: not encoded. Only the rylink-generated `@main` wrapper
+calls it, and that wrapper is the **end** of execution; no SMT path
+ever needs to reason about its post-state.
+
+---
 
 ### P1 — solver-easy, WASM-tricky (planned)
 

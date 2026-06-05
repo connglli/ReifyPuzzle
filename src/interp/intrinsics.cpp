@@ -981,6 +981,78 @@ namespace symir {
       }
     };
 
+    // ── Checksum machinery ────────────────────────────────────────────────
+    //
+    // Bit-exact counterpart of the C-side helpers emitted by
+    // src/backend/intrinsics_c.cpp. Both sides implement the same byte-wise
+    // CRC32 update step:
+    //
+    //   state' = (state >> 8) ^ crc32_tab[(state ^ byte) & 0xFF]
+    //
+    // Reflected polynomial 0xEDB88320, no initial / final XOR, val's bytes
+    // processed LSB-first. The lookup table is a function-local static so
+    // the helper is self-contained — no shared globals across helpers.
+
+    inline const uint32_t *crc32Table() {
+      static uint32_t tab[256] = {0};
+      static bool inited = false;
+      if (!inited) {
+        const uint32_t poly = 0xEDB88320u;
+        for (uint32_t i = 0; i < 256; ++i) {
+          uint32_t c = i;
+          for (int j = 0; j < 8; ++j)
+            c = (c & 1u) ? ((c >> 1) ^ poly) : (c >> 1);
+          tab[i] = c;
+        }
+        inited = true;
+      }
+      return tab;
+    }
+
+    class Crc32UpdateIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        // state: i32 (param 0); val: iN (param 1); return: i32.
+        uint32_t state = static_cast<uint32_t>(argUint(intr, args, 0));
+        uint64_t val = argUint(intr, args, 1);
+        auto pb = TypeUtils::getIntBitWidth(intr.params[1].type);
+        uint32_t valBits = pb ? *pb : args[1].bits;
+        // Round up to whole bytes so an iN with N not a multiple of 8 still
+        // hashes the bits in its width (extra bits are zero-padded by the
+        // argUint mask).
+        uint32_t nBytes = (valBits + 7) / 8;
+        const uint32_t *tab = crc32Table();
+        for (uint32_t b = 0; b < nBytes; ++b) {
+          uint8_t byte = static_cast<uint8_t>(val & 0xFFu);
+          val >>= 8;
+          state = (state >> 8) ^ tab[(state ^ byte) & 0xFFu];
+        }
+        return makeInt(32, static_cast<int64_t>(static_cast<int32_t>(state)));
+      }
+    };
+
+    class CheckChksumIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        // expected, actual: i32 → returns actual; raises UB on mismatch so
+        // symiri flags the divergence the same way the C assert() does at
+        // run time.
+        int64_t expected = argSint(intr, args, 0);
+        int64_t actual = argSint(intr, args, 1);
+        if (expected != actual) {
+          throw UndefinedBehaviorError(
+              "@check_chksum: mismatch (expected=" + std::to_string(expected) +
+              ", actual=" + std::to_string(actual) + ")"
+          );
+        }
+        return makeInt(32, actual);
+      }
+    };
+
     // ── Registry ────────────────────────────────────────────────────────────
 
     /**
@@ -1045,6 +1117,9 @@ namespace symir {
         // §12.6 D.3 — min / max.
         registry_[IntrinsicKind::Fmin] = std::make_unique<FminIntrinsic>();
         registry_[IntrinsicKind::Fmax] = std::make_unique<FmaxIntrinsic>();
+        // Checksum primitives.
+        registry_[IntrinsicKind::Crc32Update] = std::make_unique<Crc32UpdateIntrinsic>();
+        registry_[IntrinsicKind::CheckChksum] = std::make_unique<CheckChksumIntrinsic>();
       }
 
       std::unordered_map<IntrinsicKind, std::unique_ptr<InterpreterIntrinsic>> registry_;

@@ -1,0 +1,16 @@
+// EXPECT: FAIL:UndefinedBehavior
+// [v0.2.2] @check_chksum raises UB on mismatch — the C lowering's
+// `fprintf(stderr,…); abort();` is the externally-visible side effect
+// that defeats observation folding; the interpreter mirrors that with a
+// UB throw so symiri flags the divergence the same way the compiled
+// program aborts at runtime.
+
+intrinsic @check_chksum(%expected: i32, %actual: i32) : i32;
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  // 0xCAFEBABE expected, but we hand in something else — UB.
+  %r = call @check_chksum(-889275714, 12345678);
+  ret %r;
+}

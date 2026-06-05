@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// EXPECT_RC: 12345
+// [v0.2.2] Cross-validate @check_chksum's happy path: when expected ==
+// actual the intrinsic returns `actual` verbatim. The C lowering's
+// fprintf+abort fence stays dormant; the interpreter's UB throw stays
+// dormant — both should emit `Result: 12345`.
+
+intrinsic @check_chksum(%expected: i32, %actual: i32) : i32;
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @check_chksum(12345, 12345);
+  ret %r;
+}

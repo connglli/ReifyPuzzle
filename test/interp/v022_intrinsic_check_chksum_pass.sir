@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// [v0.2.2] @check_chksum(expected, actual): equality predicate that
+// returns `actual` on match. The interpreter mirrors the C lowering's
+// `if (a != b) abort()` contract; here we only exercise the happy path.
+
+intrinsic @check_chksum(%expected: i32, %actual: i32) : i32;
+
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  // Match → returns the `actual` argument verbatim.
+  %r = call @check_chksum(42, 42);
+  require %r == 42, "check_chksum(42,42) returns 42";
+
+  // Negative values are routine — the comparison is signed-i32 equality.
+  %r = call @check_chksum(-1, -1);
+  require %r == -1, "check_chksum(-1,-1) returns -1";
+
+  // INT_MIN_32 round-trips as a boundary case that's easy to misread
+  // through a uint32 cast in either implementation.
+  %r = call @check_chksum(-2147483648, -2147483648);
+  require %r == -2147483648, "check_chksum(INT_MIN_32) round-trips";
+
+  ret 0;
+}

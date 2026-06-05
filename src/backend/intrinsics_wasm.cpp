@@ -2122,6 +2122,16 @@ namespace symir {
   }
 
   void WasmBackend::emitIntrinsicHelper(const IntrinsicDecl &intr) {
+    // @crc32_update / @check_chksum have C lowerings that depend on
+    // host-side stdio (`fprintf`, `abort`). The equivalent WASM import
+    // wiring isn't in place yet; refuse to emit and signal explicitly
+    // rather than silently falling through to `unreachable`.
+    if (auto kind = getIntrinsicKind(intr.name.name)) {
+      if (*kind == IntrinsicKind::Crc32Update || *kind == IntrinsicKind::CheckChksum) {
+        throw std::runtime_error("WASM lowering for " + intr.name.name + " is not implemented.");
+      }
+    }
+
     // FP-touching path (v0.2.2 extra D.1).
     bool anyFp = (intr.retType && std::holds_alternative<FloatType>(intr.retType->v));
     for (const auto &p: intr.params)

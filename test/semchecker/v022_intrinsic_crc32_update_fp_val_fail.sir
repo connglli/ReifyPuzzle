@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// [v0.2.2] @crc32_update's val parameter must be an integer type — the
+// helper reads it byte-wise. Declaring it as f32 makes no sense and is
+// rejected at sem-check.
+intrinsic @crc32_update(%state: i32, %val: f32) : i32;
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

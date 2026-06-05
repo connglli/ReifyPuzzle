@@ -448,6 +448,43 @@ namespace symir {
         expectArity(1);
         expectFromBitsWidthMatch();
         break;
+      // Checksum primitives (§12 — see include/analysis/intrinsics.hpp).
+      // Their fixed-width signatures don't fit the generic same-width
+      // shape, so each gets its own check arm.
+      case IntrinsicKind::Crc32Update: {
+        // @crc32_update(state: i32, val: iN) : i32
+        expectArity(2);
+        if (!retBits || *retBits != 32)
+          diags.error("Intrinsic @crc32_update: return type must be i32", d.span);
+        auto p0 = paramBits(0);
+        if (!p0 || *p0 != 32)
+          diags.error(
+              "Intrinsic @crc32_update: parameter 0 (state) must be i32",
+              d.params.empty() ? d.span : d.params[0].span
+          );
+        if (!paramBits(1))
+          diags.error(
+              "Intrinsic @crc32_update: parameter 1 (val) must be an integer type",
+              d.params.size() < 2 ? d.span : d.params[1].span
+          );
+        break;
+      }
+      case IntrinsicKind::CheckChksum: {
+        // @check_chksum(expected: i32, actual: i32) : i32 — returns `actual`
+        // on equality, asserts on mismatch (with an fprintf diagnostic).
+        expectArity(2);
+        if (!retBits || *retBits != 32)
+          diags.error("Intrinsic @check_chksum: return type must be i32", d.span);
+        for (size_t i = 0; i < 2 && i < d.params.size(); ++i) {
+          auto pb = paramBits(i);
+          if (!pb || *pb != 32)
+            diags.error(
+                "Intrinsic @check_chksum: parameter " + std::to_string(i) + " must be i32",
+                d.params[i].span
+            );
+        }
+        break;
+      }
     }
   }
 

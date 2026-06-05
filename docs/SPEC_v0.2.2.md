@@ -933,6 +933,23 @@ v0.2.2 line, each adding one solver-friendly group:
   ldexp/ilogb/logb, fract/recip) are planned as follow-up sub-batches.
   See [`docs/intrinsics.md`](./intrinsics.md) §12.6 for the
   per-intrinsic signatures, SMT encodings, and UB conditions.
+- Batch R — §12 *reify checksum primitives* (§12.7):
+  `@crc32_update(state: i32, val: iN) : i32` (`N ∈ {8, 16, 24, 32, 40,
+  48, 56, 64}`, byte-wise table-driven CRC32 update, reflected
+  `0xEDB88320` polynomial, no initial / final XOR) and
+  `@check_chksum(expected: i32, actual: i32) : i32` (returns `actual`
+  on match, aborts in C / raises UB in symiri on mismatch). These two
+  support the rysmith / rylink R1 opaque return-value oracle and are
+  **excluded** from the random intrinsic whitelist — body code never
+  synthesises them; only the post-solve checksum rewriter and the
+  `@main` wrapper emit them. The C lowering carries function-local
+  `static` tables and a `static __attribute__((noinline))` qualifier
+  (new `CIntrinsic::linkageQualifier()` hook in
+  `src/backend/intrinsics_c.cpp`) so the optimizer cannot fold the
+  body or propagate the table contents into callers. WASM does not
+  lower either intrinsic — `symirc --target wasm` rejects programs
+  containing them. See [`docs/intrinsics.md`](./intrinsics.md) §12.7
+  for the per-intrinsic specs.
 
 
 ## 13. Non-goals for v0.2.2 (planned for later)

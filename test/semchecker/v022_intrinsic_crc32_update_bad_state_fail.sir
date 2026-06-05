@@ -1,0 +1,9 @@
+// EXPECT: FAIL
+// [v0.2.2] @crc32_update's state parameter (param 0) must be i32. An
+// i16 state would silently truncate the running CRC at every step, so
+// the sem-checker rejects the declaration outright.
+intrinsic @crc32_update(%state: i16, %val: i32) : i32;
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

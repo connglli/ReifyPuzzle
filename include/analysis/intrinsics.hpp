@@ -77,6 +77,16 @@ namespace symir {
     // v0.2.2 extra batch D.3 — floating-point min / max (§12.6)
     Fmin,
     Fmax,
+    // Checksum primitives.
+    //   @crc32_update(state: i32, val: iN) : i32
+    //     Fold val into a running CRC32 state. Reflected polynomial
+    //     0xEDB88320, no initial / final XOR, val's bytes processed
+    //     LSB-first. Pure function.
+    //   @check_chksum(expected: i32, actual: i32) : i32
+    //     Return `actual` if it equals `expected`, otherwise abort with a
+    //     diagnostic on stderr (UB in the interpreter).
+    Crc32Update,
+    CheckChksum,
   };
 
   /**
@@ -169,6 +179,11 @@ namespace symir {
       return IntrinsicKind::Fmin;
     if (name == "@fmax")
       return IntrinsicKind::Fmax;
+    // Checksum machinery (see IntrinsicKind comment above).
+    if (name == "@crc32_update")
+      return IntrinsicKind::Crc32Update;
+    if (name == "@check_chksum")
+      return IntrinsicKind::CheckChksum;
     return std::nullopt;
   }
 
