@@ -29,9 +29,13 @@
 #include "ast/sir_printer.hpp"
 #include "cxxopts.hpp"
 #include "frontend/diagnostics.hpp"
+#include "frontend/lexer.hpp"
+#include "frontend/parser.hpp"
 #include "frontend/semchecker.hpp"
 #include "frontend/typechecker.hpp"
+#include "interp/interpreter.hpp"
 #include "reify/cfg_gen.hpp"
+#include "reify/checksum.hpp"
 #include "reify/common.hpp"
 #include "reify/func_desc.hpp"
 #include "reify/func_gen.hpp"
@@ -92,94 +96,54 @@ static auto makeSolverFactory() {
 }
 
 static bool validateWithSymiri(
-    const fs::path &symiriPath, const fs::path &sirPath, const std::string &funcName,
-    const std::vector<std::string> &paramArgs, bool verbose
-) {
-  std::string cmd =
-      "\"" + symiriPath.string() + "\" --main @" + funcName + " \"" + sirPath.string() + "\"";
-  // [v0.2.2] Forward the solver-synthesised parameter values as
-  // positional CLI args (after `--` to escape negatives). Without
-  // this a fn that takes any parameter would arity-error.
-  if (!paramArgs.empty()) {
-    cmd += " --";
-    for (const auto &a: paramArgs)
-      cmd += " " + a;
-  }
-  if (!verbose)
-    cmd += " > /dev/null 2>&1";
-  int status = std::system(cmd.c_str());
-  return status == 0;
-}
-
-// Run symiri on `sirPath` and return the integer printed on its
-// `Result: <value>` line, formatted as a decimal string. Used after the
-// exit-block CRC32 rewrite so the descriptor's `retValue` reflects the
-// actual program return (the CRC32) rather than the solver's stale
-// pre-rewrite model. Returns `std::nullopt` if symiri fails to launch,
-// exits non-zero, or doesn't produce a parseable `Result:` line — the
-// caller then falls back to the solver's value (which is wrong after
-// rewrite but still better than crashing).
-static std::optional<std::string> runSymiriCaptureResult(
-    const fs::path &symiriPath, const fs::path &sirPath, const std::string &funcName,
-    const std::vector<std::string> &paramArgs
-) {
-  // Same command shape as validateWithSymiri, but stderr is dropped and
-  // stdout is captured rather than streamed.
-  std::string cmd =
-      "\"" + symiriPath.string() + "\" --main @" + funcName + " \"" + sirPath.string() + "\"";
-  if (!paramArgs.empty()) {
-    cmd += " --";
-    for (const auto &a: paramArgs)
-      cmd += " " + a;
-  }
-  cmd += " 2>/dev/null";
-  FILE *pipe = ::popen(cmd.c_str(), "r");
-  if (!pipe)
-    return std::nullopt;
-  std::string out;
-  char buf[256];
-  while (std::fgets(buf, sizeof(buf), pipe))
-    out.append(buf);
-  int status = ::pclose(pipe);
-  if (status != 0)
-    return std::nullopt;
-  // symiri prints exactly one `Result: <decimal>` line for int-returning
-  // entry functions (see src/interp/interpreter.cpp RetTerm handling).
-  // Scan back-to-front so a stray earlier `Result:` substring in some
-  // future trace can't fool us.
-  auto pos = out.rfind("Result:");
-  if (pos == std::string::npos)
-    return std::nullopt;
-  pos += 7; // past "Result:"
-  while (pos < out.size() && (out[pos] == ' ' || out[pos] == '\t'))
-    ++pos;
-  auto end = out.find_first_of("\r\n", pos);
-  std::string val = out.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
-  if (val.empty())
-    return std::nullopt;
-  return val;
-}
-
-static bool compileWithSymirc(
-    const fs::path &symircPath, const fs::path &sirPath, const std::string &target,
-    const fs::path &outPath, bool noRequire, const std::string &vecLowering, bool emitMain,
+    const fs::path &sirPath, const std::string &funcName, const std::vector<std::string> &paramArgs,
     bool verbose
 ) {
-  std::string cmd = "\"" + symircPath.string() + "\" \"" + sirPath.string() + "\" --target " +
-                    target + " -o \"" + outPath.string() + "\"";
-  if (emitMain)
-    cmd += " --emit-main";
-  if (noRequire)
-    cmd += " --no-require";
-  if (!vecLowering.empty())
-    cmd += " --vec-lowering " + vecLowering;
-  // Match validateWithSymiri's policy: silence both streams when not
-  // verbose. Previously this swallowed only stderr, leaving symirc's
-  // stdout in test output even on success.
-  if (!verbose)
-    cmd += " > /dev/null 2>&1";
-  int status = std::system(cmd.c_str());
-  return status == 0;
+  std::ifstream ifs(sirPath);
+  if (!ifs)
+    return false;
+  std::stringstream ss;
+  ss << ifs.rdbuf();
+  std::string src = ss.str();
+  try {
+    Lexer lx(src);
+    auto toks = lx.lexAll();
+    Parser ps(std::move(toks));
+    Program prog = ps.parseProgram();
+
+    if (!runAnalysisPasses(prog, /*verbose=*/false))
+      return false;
+
+    std::string canonical = funcName.empty() || funcName[0] == '@' ? funcName : "@" + funcName;
+
+    std::streambuf *oldCout = std::cout.rdbuf();
+    std::stringstream capturedStream;
+    if (!verbose) {
+      std::cout.rdbuf(capturedStream.rdbuf());
+    }
+
+    std::streambuf *oldCerr = std::cerr.rdbuf();
+    std::stringstream capturedErrorStream;
+    if (!verbose) {
+      std::cerr.rdbuf(capturedErrorStream.rdbuf());
+    }
+
+    bool success = true;
+    try {
+      Interpreter interp(prog);
+      interp.run(canonical, {}, paramArgs);
+    } catch (...) {
+      success = false;
+    }
+
+    if (!verbose) {
+      std::cout.rdbuf(oldCout);
+      std::cerr.rdbuf(oldCerr);
+    }
+    return success;
+  } catch (...) {
+    return false;
+  }
 }
 
 // [v0.2.2] One per concretized .sir file. Bundles the on-disk path
@@ -220,14 +184,7 @@ static GenerateResult generateLeaf(
     const std::string &genId,
     // [v0.2.2] When true, write the rylink-consumable func_<id>_<i>.json
     // sidecar next to each successful concrete .sir.
-    bool emitDesc, bool emitMain,
-    // Sibling symiri binary. After the post-solve CRC32 rewrite the
-    // solver's `retModel` no longer matches the program's actual return
-    // value; we re-run symiri on the rewritten concrete .sir to obtain
-    // the CRC32 result so the descriptor's `retValue` is correct.
-    // Empty when symiri is not on disk — the rewrite is then skipped
-    // and the program is emitted in its original sum form.
-    const fs::path &symiriPath
+    bool emitDesc, bool emitMain
 ) {
   // S1: CFG
   GenCFGParams cfgParams;
@@ -442,8 +399,7 @@ static GenerateResult generateLeaf(
               printer.print(miniProg);
             }
           }
-          auto captured =
-              runSymiriCaptureResult(symiriPath, tempPath, "minimal_" + funcName, paramVals);
+          auto captured = runSymiriCaptureResult(tempPath, "minimal_" + funcName, paramVals);
           std::error_code ec;
           fs::remove(tempPath, ec); // best-effort; safe to leave on disk
           (void) ec;
@@ -735,24 +691,6 @@ int main(int argc, char **argv) {
   // while the on-disk program returns the CRC32, breaking every
   // compiled program downstream — so abort rather than silently emit
   // bad oracles. --validate's symiri usage rides on the same binary.
-  fs::path symiriPath = fs::path(argv[0]).parent_path() / "symiri";
-  if (!fs::exists(symiriPath)) {
-    std::cerr << "error: symiri not found at " << symiriPath
-              << " — rysmith requires the sibling symiri binary to "
-                 "compute post-rewrite CRC32 return values\n";
-    return 1;
-  }
-
-  // Find symirc for compilation
-  fs::path symircPath;
-  if (target != "sir") {
-    symircPath = fs::path(argv[0]).parent_path() / "symirc";
-    if (!fs::exists(symircPath)) {
-      std::cerr << "warning: symirc not found at " << symircPath << " — disabling --target\n";
-      target = "sir";
-    }
-  }
-
   // ---- Main loop -----------------------------------------------------------
   auto wallStart = std::chrono::steady_clock::now();
   int nOk = 0, nFail = 0;
@@ -786,7 +724,7 @@ int main(int argc, char **argv) {
           nBbls, pBranch, pBackedge, maxLoopIter, minLoopIter, fnVarCfg, funcName, nStmts,
           safeOffPath, enableInterestCoefs, coefLo, coefHi, valueLo, valueHi, indexLo, indexHi,
           exprCfg, enableIntrinsics, timeoutMs, maxRetries, nInits, outDir, keepSymbolic, verbose,
-          state->rng, funcSeed, genId, emitDesc, emitMain, symiriPath
+          state->rng, funcSeed, genId, emitDesc, emitMain
       );
       state->done.store(true, std::memory_order_release);
     });
@@ -829,9 +767,8 @@ int main(int argc, char **argv) {
         std::string vecLowering = reify::pickVecLowering(rng, vecLoweringOpt);
         if (verbose && !vecLowering.empty())
           std::cout << "  vec-lowering: " << vecLowering << "\n";
-        bool ok = compileWithSymirc(
-            symircPath, p, target, outPath, noRequire, vecLowering, emitMain, verbose
-        );
+        bool ok =
+            compileSirInProcess(p, target, outPath, !noRequire, vecLowering, emitMain, verbose);
         if (ok)
           std::cout << "  compiled: " << outPath << "\n";
         else
@@ -875,11 +812,11 @@ int main(int argc, char **argv) {
         // crash.
         bool ok = false;
         std::string mismatchReason;
-        if (auto observed = runSymiriCaptureResult(symiriPath, p, baseFuncName, paramArgs)) {
+        if (auto observed = runSymiriCaptureResult(p, baseFuncName, paramArgs)) {
           if (cf.rz.retValue.empty()) {
             // No oracle to compare against (e.g. the rewrite was
             // skipped). Fall back to the exit-code check.
-            ok = validateWithSymiri(symiriPath, p, baseFuncName, paramArgs, verbose);
+            ok = validateWithSymiri(p, baseFuncName, paramArgs, verbose);
           } else if (*observed == cf.rz.retValue) {
             ok = true;
           } else {

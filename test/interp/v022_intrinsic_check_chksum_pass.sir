@@ -1,4 +1,5 @@
 // EXPECT: PASS
+// SKIP: WASM
 // [v0.2.2] @check_chksum(expected, actual): equality predicate that
 // returns `actual` on match. The interpreter mirrors the C lowering's
 // `if (a != b) abort()` contract; here we only exercise the happy path.

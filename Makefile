@@ -55,34 +55,32 @@ COMMON_SRCS = src/frontend/lexer.cpp src/frontend/parser.cpp src/frontend/ast_du
               src/frontend/diagnostics.cpp
 
 TEST_SRCS =
-INTERP_SRCS = src/symiri.cpp src/interp/interpreter.cpp src/interp/intrinsics.cpp
-COMPILER_SRCS = src/symirc.cpp src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
-                src/backend/intrinsics_c.cpp src/backend/intrinsics_wasm.cpp \
-                src/backend/vec_lowering_vecext.cpp \
-                src/backend/vec_lowering_array.cpp \
-                src/backend/vec_lowering_scalars.cpp \
-                src/backend/vec_lowering_struct.cpp
+BACKEND_SRCS = src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
+               src/backend/intrinsics_c.cpp src/backend/intrinsics_wasm.cpp \
+               src/backend/vec_lowering_vecext.cpp \
+               src/backend/vec_lowering_array.cpp \
+               src/backend/vec_lowering_scalars.cpp \
+               src/backend/vec_lowering_struct.cpp
+INTERP_IMPL_SRCS = src/interp/interpreter.cpp src/interp/intrinsics.cpp
+INTERP_SRCS = src/symiri.cpp $(INTERP_IMPL_SRCS)
+COMPILER_SRCS = src/symirc.cpp $(BACKEND_SRCS)
 SOLVER_MAIN_SRCS = src/symirsolve.cpp src/solver/solver.cpp src/solver/intrinsics.cpp
 SOLVER_ALL_SRCS = $(SOLVER_MAIN_SRCS) $(SOLVER_SRCS)
 REIFY_SRCS = src/reify/cfg_gen.cpp src/reify/path_sampler.cpp \
              src/reify/type_gen.cpp src/reify/var_catalogue.cpp \
              src/reify/expr_gen.cpp src/reify/func_gen.cpp \
              src/reify/func_desc.cpp \
+             src/reify/checksum.cpp \
+             src/reify/common.cpp \
              src/reify/func_pool.cpp src/reify/cg_gen.cpp \
              src/reify/rewrite.cpp
-RYSMITH_SRCS = src/rysmith.cpp src/solver/solver.cpp src/solver/intrinsics.cpp $(REIFY_SRCS)
+RYSMITH_SRCS = src/rysmith.cpp src/solver/solver.cpp src/solver/intrinsics.cpp $(REIFY_SRCS) $(BACKEND_SRCS) $(INTERP_IMPL_SRCS)
 # [v0.2.2] rylink links the C / WASM backends in-process so the bundle's
 # FunDecl::sourceStem survives all the way to emitSplit. Driving symirc
 # as a subprocess instead would parse the bundled .sir back from text
 # and reset every sourceStem to "", collapsing --split-by-source to a
 # single program.c.
-RYLINK_SRCS = src/rylink.cpp $(REIFY_SRCS) \
-              src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
-              src/backend/intrinsics_c.cpp src/backend/intrinsics_wasm.cpp \
-              src/backend/vec_lowering_vecext.cpp \
-              src/backend/vec_lowering_array.cpp \
-              src/backend/vec_lowering_scalars.cpp \
-              src/backend/vec_lowering_struct.cpp
+RYLINK_SRCS = src/rylink.cpp $(REIFY_SRCS) $(BACKEND_SRCS) $(INTERP_IMPL_SRCS)
 
 COMMON_OBJS = $(COMMON_SRCS:.cpp=.o)
 TEST_OBJS = $(TEST_SRCS:.cpp=.o)

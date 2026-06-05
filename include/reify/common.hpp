@@ -5,12 +5,10 @@
 // when driving the deterministic backends.  The C / WASM backends
 // themselves are deterministic; randomness lives on this side so a
 // multi-program sweep can vary backend strategies independently.
-//
-// Header-only by convention; everything must be `inline` (or a
-// template) so this file can be included from rysmith, rylink, and
-// any future generator without dragging in a `.cpp`.
 
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
 #include <vector>
@@ -204,5 +202,49 @@ namespace symir::reify {
   ) {
     return buildMainFunction(prog, entryFn, std::vector<MainCall>{{paramValues, retValue}});
   }
+
+  // ---------------------------------------------------------------------------
+  // Shared symiri runner
+  // ---------------------------------------------------------------------------
+
+  // Run frontend and analysis passes on prog. Returns true if well-formed.
+  bool runAnalysisPasses(symir::Program &prog, bool verbose);
+
+  // Run symiri on `sirPath` with `--main <funcName>` and capture its
+  // `Result: <value>` output line. Returns the trimmed value string on
+  // success; std::nullopt when symiri fails to launch, exits non-zero,
+  // or doesn't produce a parseable `Result:` line.
+  //
+  // `paramArgs` are forwarded as positional CLI args after `--` so
+  // functions with parameters can be exercised deterministically.
+  std::optional<std::string> runSymiriCaptureResult(
+      const std::filesystem::path &sirPath, const std::string &funcName,
+      const std::vector<std::string> &paramArgs
+  );
+
+  // ---------------------------------------------------------------------------
+  // Shared backend compiler helpers
+  // ---------------------------------------------------------------------------
+
+  // Compile a Program to C (in-process).
+  bool emitCInProcess(
+      symir::Program &prog, const std::filesystem::path &outDir, const std::string &primaryStem,
+      bool keepRequire, const std::string &vecLowering, bool emitMain, bool splitBySource,
+      bool verbose
+  );
+
+  // Compile a Program to WASM (in-process).
+  bool emitWasmInProcess(
+      symir::Program &prog, const std::filesystem::path &outFile, bool keepRequire, bool emitMain,
+      bool verbose
+  );
+
+  // Parse a .sir file and compile it using CBackend or WasmBackend.
+  // Returns true on success.
+  bool compileSirInProcess(
+      const std::filesystem::path &sirPath, const std::string &target,
+      const std::filesystem::path &outPath, bool keepRequire, const std::string &vecLowering,
+      bool emitMain, bool verbose
+  );
 
 } // namespace symir::reify

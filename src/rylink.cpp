@@ -48,6 +48,7 @@
 #include "frontend/semchecker.hpp"
 #include "frontend/typechecker.hpp"
 #include "reify/cg_gen.hpp"
+#include "reify/checksum.hpp"
 #include "reify/common.hpp"
 #include "reify/func_desc.hpp"
 #include "reify/func_pool.hpp"
@@ -233,159 +234,6 @@ static void writeBundledSir(
 }
 
 // ---------------------------------------------------------------------------
-// In-process backend emission
-//
-// rylink keeps the bundled Program in memory and drives CBackend /
-// WasmBackend directly. Going through symirc-as-subprocess would
-// require writing the bundle to text and re-parsing it, which loses
-// FunDecl::sourceStem (the AST field isn't serialised by SIRPrinter)
-// — and that single fact is what makes --split-by-source useful for
-// rylink in the first place. Calling the backends here also drops
-// every cross-process boundary so symirc-side log lines (e.g. the
-// old `wrote …` per-file message) stop leaking into rylink's output.
-// ---------------------------------------------------------------------------
-
-// Run the same analysis passes symirc runs before backend emission.
-// Returns true iff the program is well-formed; on failure the errors
-// are dropped (the caller treats a failed generateOne as a retry).
-static bool runAnalysisPasses(Program &prog, bool verbose) {
-  DiagBag diags;
-  PassManager pm(diags);
-  pm.addModulePass(std::make_unique<SemChecker>());
-  pm.addModulePass(std::make_unique<TypeChecker>());
-  pm.addFunctionPass(std::make_unique<ReachabilityAnalysis>());
-  pm.addFunctionPass(std::make_unique<DefiniteInitAnalysis>());
-  pm.addFunctionPass(std::make_unique<UnusedNameAnalysis>());
-  if (pm.run(prog) == PassResult::Error) {
-    if (verbose) {
-      std::cerr << "rylink: analysis passes failed:\n";
-      for (const auto &d: diags.diags)
-        if (d.level == DiagLevel::Error)
-          std::cerr << "  error: " << d.message << "\n";
-    }
-    return false;
-  }
-  return true;
-}
-
-// Emit the bundled program as one .c per distinct FunDecl::sourceStem
-// plus common.h, in `outDir`. `primaryStem` keys the .c file that
-// holds funs with empty sourceStem (none in rylink's case — every
-// merged fn carries the .sir stem it came from — but the parameter
-// is still required by CBackend::emitSplit).
-static bool emitCInProcess(
-    Program &prog, const fs::path &outDir, const std::string &primaryStem, bool keepRequire,
-    const std::string &vecLowering, bool emitMain, bool splitBySource, bool verbose
-) {
-  if (!runAnalysisPasses(prog, verbose))
-    return false;
-  // `vecLowering` is the resolved strategy name (caller already
-  // expanded `random` against the per-program rng).  An empty string
-  // falls back to vecext to preserve rylink's historical default.
-  auto vl = makeVecLowering(vecLowering.empty() ? "vecext" : vecLowering);
-  if (splitBySource) {
-    // Suppress stdout chatter inside the backend; CBackend writes to
-    // its own streams and any extra logging we add via `verbose`
-    // belongs to rylink, not the backend. The emit itself prints
-    // nothing.
-    std::ofstream sink;
-    CBackend cb(sink);
-    cb.setNoRequire(!keepRequire);
-    cb.setNoMainMangle(emitMain);
-    cb.setVecLowering(std::move(vl));
-    try {
-      cb.emitSplit(prog, outDir.string(), primaryStem);
-    } catch (const std::exception &e) {
-      if (verbose)
-        std::cerr << "rylink: CBackend failed: " << e.what() << "\n";
-      return false;
-    }
-    return true;
-  }
-  // Single-file emission: write everything into `<outDir>/<primaryStem>.c`.
-  fs::path outFile = outDir / (primaryStem + ".c");
-  std::ofstream ofs(outFile);
-  if (!ofs) {
-    if (verbose)
-      std::cerr << "rylink: cannot open " << outFile << "\n";
-    return false;
-  }
-  CBackend cb(ofs);
-  cb.setNoRequire(!keepRequire);
-  cb.setNoMainMangle(emitMain);
-  cb.setVecLowering(std::move(vl));
-  try {
-    cb.emit(prog);
-  } catch (const std::exception &e) {
-    if (verbose)
-      std::cerr << "rylink: CBackend failed: " << e.what() << "\n";
-    return false;
-  }
-  return true;
-}
-
-static bool emitWasmInProcess(
-    Program &prog, const fs::path &outFile, bool keepRequire, bool emitMain, bool verbose
-) {
-  if (!runAnalysisPasses(prog, verbose))
-    return false;
-  std::ofstream ofs(outFile);
-  if (!ofs) {
-    if (verbose)
-      std::cerr << "rylink: cannot open " << outFile << "\n";
-    return false;
-  }
-  WasmBackend wb(ofs);
-  wb.setNoRequire(!keepRequire);
-  wb.setNoMainMangle(emitMain);
-  try {
-    wb.emit(prog);
-  } catch (const std::exception &e) {
-    if (verbose)
-      std::cerr << "rylink: WasmBackend failed: " << e.what() << "\n";
-    return false;
-  }
-  return true;
-}
-
-// Run symiri on the bundled program with the given entry function and
-// positional param args. Captures stdout and extracts the "Result: <v>"
-// line. Returns nullopt on any tool failure or missing Result line.
-static std::optional<std::string> runSymiri(
-    const fs::path &symiri, const fs::path &programSir, const std::string &entryFn,
-    const std::vector<std::string> &paramArgs
-) {
-  std::string outPath = "/tmp/rylink_symiri_" + std::to_string(::getpid()) + ".out";
-  // Wrap in `timeout` because symiri has no internal wall-clock limit;
-  // a generated program with an unbounded loop can hang the validator
-  // and stall the batch. 10s is plenty for a properly-terminating run.
-  std::string cmd = "timeout 10s \"" + symiri.string() + "\" --main " + entryFn + " \"" +
-                    programSir.string() + "\"";
-  if (!paramArgs.empty()) {
-    cmd += " --";
-    for (const auto &a: paramArgs)
-      cmd += " " + a;
-  }
-  cmd += " > " + outPath + " 2>&1";
-  int rc = std::system(cmd.c_str());
-  std::string out = readFile(outPath);
-  fs::remove(outPath);
-  if (rc != 0)
-    return std::nullopt;
-  auto pos = out.find("Result:");
-  if (pos == std::string::npos)
-    return std::nullopt;
-  std::string tail = out.substr(pos + 7);
-  size_t i = 0;
-  while (i < tail.size() && std::isspace((unsigned char) tail[i]))
-    ++i;
-  size_t j = tail.size();
-  while (j > i && (tail[j - 1] == '\n' || tail[j - 1] == '\r'))
-    --j;
-  return tail.substr(i, j - i);
-}
-
-// ---------------------------------------------------------------------------
 // Per-program pipeline
 // ---------------------------------------------------------------------------
 
@@ -404,7 +252,6 @@ struct PerProgConfig {
                            // sweeps independently — matching rysmith).
   bool keepRequire = false;
   bool validate = false;
-  fs::path symiriPath;
   bool verbose = false;
   bool emitMain = false;
   // [v0.2.2] When false, emit one `<progDir>/program.c` instead of the
@@ -587,7 +434,7 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     std::vector<std::string> args;
     for (const auto &pv: entryRz.paramValues)
       args.push_back(pv.second);
-    auto got = runSymiri(cfg.symiriPath, programSir, nodes[cg.entry()].funcName, args);
+    auto got = runSymiriCaptureResult(programSir, nodes[cg.entry()].funcName, args);
     bool ok = got && (*got == entryRz.retValue);
     if (ok) {
       std::cout << "  validated: OK (" << failTag << ")\n";
@@ -703,21 +550,11 @@ int main(int argc, char **argv) {
     }
   }
 
-  // Locate symiri/symirc as siblings of this binary (same pattern as
-  // rysmith). Disable validate / non-sir targets gracefully if missing
-  // rather than refusing to start.
-  if (pc.validate) {
-    pc.symiriPath = fs::path(argv[0]).parent_path() / "symiri";
-    if (!fs::exists(pc.symiriPath)) {
-      std::cerr << "rylink: symiri not found at " << pc.symiriPath << " — disabling --validate\n";
-      pc.validate = false;
-    }
-  }
   // [v0.2.2] No `--target` sibling-binary discovery any more: the C
   // and WASM backends are linked directly into rylink, so all
   // target=c / target=wasm runs work without symirc on disk.
 
-  std::cout << "rylink: seed = " << seed << "\n";
+  std::cout << "rylink: master seed = " << seed << "\n";
   std::cout << "rylink: generation id = " << genId << "\n";
   FuncPool pool = loadFuncPool(res["input-dir"].as<std::string>());
   if (pool.entries.empty()) {

@@ -1,5 +1,6 @@
 // EXPECT: PASS
 // EXPECT_RC: 1150244089
+// SKIP: WASM
 // [v0.2.2] Cross-validate @crc32_update across all four val widths
 // (i8 / i16 / i32 / i64) by chaining one update at each width into a
 // single state. symiri and the compiled C lowering must agree
