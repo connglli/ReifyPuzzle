@@ -1428,6 +1428,131 @@ namespace symir {
       }
       if (retTermLocal.internal)
         finalRes.retModel = extractValue(retTermLocal);
+
+      // Reverse-lookup a 64-bit base tag against every local in the
+      // entry function. The forward map (`tagOfLocal`) is FNV-1a, so
+      // we just hash each name and compare. Used against the
+      // `prov_base` field of a pointer SymbolicValue (which always
+      // names the underlying object even after the body advanced the
+      // pointer inside it via ptrfield / ptrindex / pointer
+      // arithmetic). Returns "" when no local matches — cross-object
+      // arithmetic, undef pointer, etc.
+      auto reverseLookupLocal = [&](uint64_t tag) -> std::string {
+        for (const auto &l: entry->lets) {
+          if (tagOfLocal(l.name.name) == tag)
+            return l.name.name;
+        }
+        for (const auto &p: entry->params) {
+          if (tagOfLocal(p.name.name) == tag)
+            return p.name.name;
+        }
+        return {};
+      };
+
+      // Concrete model value of every entry-function let at the end of
+      // the solved path. The tree shape mirrors the declared type and
+      // recurses through the matching SymbolicValue.arrayVal /
+      // structVal that path execution built up. For pointer cells we
+      // ask the solver for the concrete tag and reverse-FNV it back
+      // to a local name so consumers can identify the pointee
+      // symbolically rather than as a raw 64-bit address.
+      std::function<LetExitValue(const SymbolicValue &, const TypePtr &)> extractLet =
+          [&](const SymbolicValue &sv, const TypePtr &declType) -> LetExitValue {
+        LetExitValue out;
+        if (declType && std::holds_alternative<PtrType>(declType->v)) {
+          out.kind = LetExitValue::Kind::Ptr;
+          // `prov_base` names the underlying object (even after
+          // ptrfield / ptrindex / pointer arithmetic shifted the
+          // pointer inside it); `sv.term` is the actual exit-time
+          // address. The delta is the in-object offset in tag units.
+          if (sv.term.internal && sv.prov_base.internal) {
+            try {
+              auto baseTerm = solver.get_value(sv.prov_base);
+              auto addrTerm = solver.get_value(sv.term);
+              auto baseStr = solver.get_bv_value_string(baseTerm, 10);
+              auto addrStr = solver.get_bv_value_string(addrTerm, 10);
+              uint64_t baseTag = std::stoull(baseStr, nullptr, 10);
+              uint64_t addrTag = std::stoull(addrStr, nullptr, 10);
+              out.targetLocal = reverseLookupLocal(baseTag);
+              out.targetOffset = addrTag - baseTag; // wraps mod 2^64
+            } catch (...) {
+              // get_value may fail when the term escaped its solver
+              // context or wasn't asserted on the SAT path. Leave
+              // the pointer unresolved — the consumer's fallback
+              // path will replay the entry-block addr-init.
+            }
+          }
+          return out;
+        }
+        switch (sv.kind) {
+          case SymbolicValue::Kind::Int: {
+            if (!sv.term.internal) {
+              out.kind = LetExitValue::Kind::Undef;
+              return out;
+            }
+            bool isFp = declType && std::holds_alternative<FloatType>(declType->v);
+            out.kind = isFp ? LetExitValue::Kind::Float : LetExitValue::Kind::Int;
+            out.scalar = extractValue(sv.term);
+            return out;
+          }
+          case SymbolicValue::Kind::Array: {
+            out.kind = LetExitValue::Kind::Array;
+            TypePtr elemTy;
+            if (declType && std::holds_alternative<ArrayType>(declType->v))
+              elemTy = std::get<ArrayType>(declType->v).elem;
+            out.elems.reserve(sv.arrayVal.size());
+            for (const auto &e: sv.arrayVal)
+              out.elems.push_back(extractLet(e, elemTy));
+            return out;
+          }
+          case SymbolicValue::Kind::Struct: {
+            out.kind = LetExitValue::Kind::Struct;
+            const StructDecl *sd = nullptr;
+            if (declType && std::holds_alternative<StructType>(declType->v)) {
+              const auto &sn = std::get<StructType>(declType->v).name.name;
+              for (const auto &s: prog_.structs) {
+                if (s.name.name == sn) {
+                  sd = &s;
+                  break;
+                }
+              }
+            }
+            for (const auto &[fname, fv]: sv.structVal) {
+              TypePtr fieldTy;
+              if (sd) {
+                for (const auto &f: sd->fields) {
+                  if (f.name == fname) {
+                    fieldTy = f.type;
+                    break;
+                  }
+                }
+              }
+              out.fields.emplace(fname, extractLet(fv, fieldTy));
+            }
+            return out;
+          }
+          case SymbolicValue::Kind::Vec: {
+            out.kind = LetExitValue::Kind::Vec;
+            TypePtr elemTy;
+            if (declType && std::holds_alternative<VecType>(declType->v))
+              elemTy = std::get<VecType>(declType->v).elem;
+            out.elems.reserve(sv.arrayVal.size());
+            for (const auto &e: sv.arrayVal)
+              out.elems.push_back(extractLet(e, elemTy));
+            return out;
+          }
+          case SymbolicValue::Kind::Undef:
+          default:
+            out.kind = LetExitValue::Kind::Undef;
+            return out;
+        }
+      };
+      for (const auto &letd: entry->lets) {
+        auto it = store.find(letd.name.name);
+        if (it == store.end())
+          continue;
+        finalRes.letExitValues.emplace(letd.name.name, extractLet(it->second, letd.type));
+      }
     } else if (res == smt::Result::UNSAT) {
       finalRes.unsat = true;
     } else {

@@ -33,6 +33,50 @@ namespace symir {
     );
 
     /**
+     * Tree-shaped concrete value extracted from the solver model for
+     * an entry-function let at the end of the solved path. The
+     * structure mirrors the SymIR type the let was declared with:
+     *   - Scalar Int / Float → `scalar` holds the concrete value.
+     *   - Array / Vec        → `elems[i]` holds the i-th element.
+     *   - Struct             → `fields[name]` holds each field.
+     *   - Ptr                → `targetLocal` names the entry-function
+     *                          let / param this pointer pointed to at
+     *                          the end of the solved path, resolved
+     *                          by inverting the FNV-1a hash that
+     *                          tagged the SymbolicValue.prov_base.
+     *                          Empty when the pointer's exit-time
+     *                          tag does not match any local — pointer
+     *                          arithmetic that crossed an object
+     *                          boundary, undef pointer, etc.
+     *   - Undef              → no defined value in the model.
+     *
+     * This is a general per-let model export. Consumers that need to
+     * reconstruct end-of-path state (oracles, post-mortem dumps,
+     * differential validators) read this map; the solver itself
+     * makes no further use of it.
+     */
+    using ModelVal = std::variant<int64_t, double>;
+
+    struct LetExitValue {
+      enum class Kind { Int, Float, Array, Struct, Vec, Ptr, Undef } kind = Kind::Undef;
+      ModelVal scalar;
+      std::vector<LetExitValue> elems;
+      std::unordered_map<std::string, LetExitValue> fields;
+      // Ptr only: `targetLocal` is the entry-function let / param the
+      // pointer's provenance base resolves to (FNV-1a inverse of the
+      // model value of SymbolicValue::prov_base). `targetOffset` is
+      // the address delta inside that object in tag units (one unit
+      // per scalar leaf — same scale `sizeofTagUnits` reports).
+      // Together they pinpoint *which scalar leaf* the pointer points
+      // at exit time, even when the body retargeted it mid-aggregate
+      // via ptrfield / ptrindex / pointer arithmetic. Empty
+      // targetLocal means the tag did not resolve to any local —
+      // cross-object arithmetic, undef pointer, etc.
+      std::string targetLocal;
+      uint64_t targetOffset = 0;
+    };
+
+    /**
      * Represents the result of symbolic execution/solving.
      */
     struct Result {
@@ -40,7 +84,7 @@ namespace symir {
       bool unsat = false;
       bool unknown = false;
       std::string message;
-      using ModelVal = std::variant<int64_t, double>;
+      using ModelVal = SymbolicExecutor::ModelVal;
       std::unordered_map<std::string, ModelVal> model;
       // [v0.2.1] Per-lane model for vector syms. Populated only for syms
       // of vector type. Each entry holds N lane values matching the sym's
@@ -56,6 +100,11 @@ namespace symir {
       // expression on the chosen path. `has_value() == false` when the
       // path's terminator is not a `ret <expr>;`.
       std::optional<ModelVal> retModel;
+      // Concrete value of every entry-function let at the end of the
+      // solved path. Keyed by let name (`%v0`, `%a0`, …). The tree
+      // shape under each entry mirrors the let's declared type — see
+      // LetExitValue. Empty for paths that did not produce a model.
+      std::unordered_map<std::string, LetExitValue> letExitValues;
     };
 
     /**

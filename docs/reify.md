@@ -233,7 +233,9 @@ rysmith [OPTIONS]
 | `--target sir\|c\|wasm` | `sir` | Optionally compile each concrete `.sir` via `symirc` |
 | `--keep-require` | off | Include `require` checks in compiled output |
 | `--keep-symbolic` | off | Write intermediate symbolic `.sir` to disk |
-| `--validate` | off | Run `symiri` on each concrete `.sir` to confirm correctness |
+| `--validate` | off | Run `symiri` on each concrete `.sir` and check its `Result:` line matches the descriptor's captured CRC32 retValue |
+| `--emit-main` | off | Append a `@main()` wrapper that calls the entry with its solver-synthesised params and asserts the CRC32 retValue via `@check_chksum` |
+| `--emit-desc` | off | Emit per-function descriptor JSON (`func_<id>_<i>.json`) used by `rylink` |
 | `-v, --verbose` | off | Verbose progress output |
 
 ### Example
@@ -254,10 +256,12 @@ rysmith -n 30 --seed 42 -o out/
 
 ### Output format
 
-Each concrete `.sir` file is a valid SymIR program containing one function `@funcN`. All variables are initialized to concrete integer or float values. The `^exit` block computes a checksum over all live variables and returns it:
+Each concrete `.sir` file is a valid SymIR program containing one function `@funcN`. All variables are initialized to concrete integer or float values. The `^exit` block folds **every** scalar leaf of every let-init local and every parameter — recursing through nested arrays, structs, and vector lanes — into a running CRC32 state and returns it:
 
 ```sir
-fun @func0() : i32 {
+intrinsic @crc32_update(%state: i32, %val: i32) : i32;
+
+fun @func0(%pa0: i32) : i32 {
   let mut %v0: i32 = 7;
   let mut %v1: i64 = -3;
   let mut %p0: ptr i32 = undef;
@@ -267,13 +271,16 @@ fun @func0() : i32 {
   ...
 ^exit:
   %_chk = 0;
-  %_chk = %_chk + %v0;
-  %_chk = %_chk + (i32) %v1;
+  %_chk = call @crc32_update(%_chk, %v0);
+  %_chk = call @crc32_update(%_chk, %v1 as i32);
+  %_chk = call @crc32_update(%_chk, %pa0);
   ret %_chk;
 }
 ```
 
-The return value is the expected output $o$. After lowering to C with `symirc -t c`, executing the function should always return this value regardless of compiler version or optimization level.
+The return value is the expected output $o$. Internally rysmith asks the solver for the cheaper sum-based contract (`%_chk = %_chk + atom`), then a post-solve rewriter replaces every accumulator step with a `@crc32_update` call before the .sir is written; the solver never has to encode the CRC32 recurrence. After lowering to C with `symirc -t c`, executing the function should always return this value regardless of compiler version or optimization level — the helper carries a function-local `static` lookup table and a `static __attribute__((noinline))` qualifier (see `docs/intrinsics.md` §12.7) so the optimizer cannot fold the chain.
+
+With `--emit-main`, rysmith additionally appends a `@main()` wrapper that calls `@func0` with the solver-synthesised parameter values and asserts the return matches the captured CRC32 via `@check_chksum(EXPECTED, %r);`. The C lowering of `@check_chksum` aborts on mismatch (`fprintf(stderr, …); abort();`) — that externally-visible side effect anchors the entire call chain against IPA-CP, so the compiler cannot fold the body away even at `-O3 -flto`.
 
 
 ## Tool: rylink

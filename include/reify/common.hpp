@@ -37,15 +37,85 @@ namespace symir::reify {
     return strategies[d(rng)];
   }
 
-  inline FunDecl buildMainFunction(
-      const FunDecl &entryFn, const std::vector<std::string> &paramValues,
-      const std::string &retValue
-  ) {
+  /**
+   * One call site to splice into the main wrapper. `paramValues` are
+   * decimal-int / hex-float strings (one per entry-function parameter,
+   * in declaration order) parsed into IntLit / FloatLit atoms.
+   * `retValue` is the expected return value; when non-empty the wrapper
+   * compares the call result against it via `@check_chksum`. An empty
+   * `retValue` skips the check for that call (used when the descriptor
+   * has no oracle, e.g. symiri failed to produce one).
+   */
+  struct MainCall {
+    std::vector<std::string> paramValues;
+    std::string retValue;
+  };
+
+  /**
+   * Make sure `prog.intrinsics` declares `@check_chksum(i32, i32) : i32`.
+   * Idempotent — only appends a new IntrinsicDecl when no matching
+   * signature is already present. Called by buildMainFunction whenever
+   * any of its calls carry a non-empty retValue so the AST is
+   * self-consistent before SIRPrinter runs.
+   */
+  inline void ensureCheckChksumDecl(Program &prog) {
+    auto makeI32 = []() {
+      return std::make_shared<Type>(Type{IntType{IntType::Kind::I32, {}, {}}, {}});
+    };
+    for (const auto &id: prog.intrinsics) {
+      if (id.name.name != "@check_chksum")
+        continue;
+      if (id.params.size() != 2)
+        continue;
+      // Type widths are all required to be i32 by the semchecker, so a
+      // name + arity match is sufficient.
+      return;
+    }
+    IntrinsicDecl id;
+    id.name = GlobalId{"@check_chksum", {}};
+    id.retType = makeI32();
+    ParamDecl pe;
+    pe.name = LocalId{"%expected", {}};
+    pe.type = makeI32();
+    ParamDecl pa;
+    pa.name = LocalId{"%actual", {}};
+    pa.type = makeI32();
+    id.params.push_back(std::move(pe));
+    id.params.push_back(std::move(pa));
+    prog.intrinsics.push_back(std::move(id));
+  }
+
+  /**
+   * Build a `fun @main() : i32` that runs `entryFn` once per element of
+   * `calls`, asserting each return value via `@check_chksum(EXPECTED, …)`
+   * when the corresponding `retValue` is non-empty. Always returns 0 on
+   * the happy path; mismatches abort inside @check_chksum's lowering
+   * (fprintf + abort in C, UB in symiri).
+   *
+   * Side effect: appends `@check_chksum(i32, i32) : i32` to
+   * `prog.intrinsics` (idempotent via ensureCheckChksumDecl) whenever
+   * any call carries a non-empty retValue.
+   *
+   * Backward-compat overload below preserves the original
+   * `(entryFn, paramValues, retValue)` shape for call sites that haven't
+   * been migrated yet; it forwards to this one with a single-element
+   * vector.
+   */
+  inline FunDecl
+  buildMainFunction(Program &prog, const FunDecl &entryFn, const std::vector<MainCall> &calls) {
+    auto makeI32 = []() {
+      return std::make_shared<Type>(Type{IntType{IntType::Kind::I32, {}, {}}, {}});
+    };
+
     FunDecl mainFn;
     mainFn.name = GlobalId{"@main", {}};
-    mainFn.retType = std::make_shared<Type>(Type{IntType{IntType::Kind::I32, {}, {}}, {}});
+    mainFn.retType = makeI32();
 
-    // 1. Declare %r: entryFn.retType
+    // `%r` is reused across every call site as a scratch holder for the
+    // entry-function return value. Its declared type matches entryFn so
+    // a float-returning entry doesn't trip the typechecker; the actual
+    // value is consumed immediately by @check_chksum (when present) or
+    // dropped.
     LetDecl letR;
     letR.isMutable = true;
     letR.name = LocalId{"%r", {}};
@@ -53,71 +123,86 @@ namespace symir::reify {
     letR.init = InitVal{InitVal::Kind::Undef, LocalId{}, {}};
     mainFn.lets.push_back(std::move(letR));
 
-    // 2. Declare %exit_code: i32
-    LetDecl letExit;
-    letExit.isMutable = true;
-    letExit.name = LocalId{"%exit_code", {}};
-    letExit.type = std::make_shared<Type>(Type{IntType{IntType::Kind::I32, {}, {}}, {}});
-    letExit.init = InitVal{InitVal::Kind::Undef, LocalId{}, {}};
-    mainFn.lets.push_back(std::move(letExit));
-
-    // 3. Construct basic block
     Block b;
     b.label = BlockLabel{"^entry", {}};
 
-    // 3.1 Construct CallAtom
-    CallAtom ca;
-    ca.callee = entryFn.name;
-    for (size_t i = 0; i < entryFn.params.size() && i < paramValues.size(); ++i) {
-      const auto &p = entryFn.params[i];
-      const std::string &valStr = paramValues[i];
-      Expr argExpr;
-      if (p.type && std::holds_alternative<FloatType>(p.type->v)) {
-        argExpr.first = Atom{CoefAtom{Coef{FloatLit{parseFloatLiteral(valStr), {}}}, {}}, {}};
-      } else {
-        argExpr.first = Atom{CoefAtom{Coef{IntLit{parseIntegerLiteral(valStr), {}}}, {}}, {}};
+    bool anyCheck = false;
+    for (const auto &call: calls) {
+      // %r = call @entry(arg0, arg1, ...);
+      CallAtom ca;
+      ca.callee = entryFn.name;
+      for (size_t i = 0; i < entryFn.params.size() && i < call.paramValues.size(); ++i) {
+        const auto &p = entryFn.params[i];
+        const std::string &valStr = call.paramValues[i];
+        Expr argExpr;
+        if (p.type && std::holds_alternative<FloatType>(p.type->v)) {
+          argExpr.first = Atom{CoefAtom{Coef{FloatLit{parseFloatLiteral(valStr), {}}}, {}}, {}};
+        } else {
+          argExpr.first = Atom{CoefAtom{Coef{IntLit{parseIntegerLiteral(valStr), {}}}, {}}, {}};
+        }
+        ca.args.push_back(std::make_shared<Expr>(std::move(argExpr)));
       }
-      ca.args.push_back(std::make_shared<Expr>(std::move(argExpr)));
+      AssignInstr callAssign;
+      callAssign.lhs = LValue{LocalId{"%r", {}}, {}, {}};
+      callAssign.rhs = Expr{Atom{std::move(ca), {}}, {}, {}};
+      b.instrs.push_back(std::move(callAssign));
+
+      // %r = call @check_chksum(EXPECTED, %r);  (skipped when retValue
+      // is empty — happens for descriptors that the symiri-capture
+      // step couldn't fill in).
+      //
+      // The check is gated on an integer-returning entry: @check_chksum
+      // is i32-typed and SymIR has no implicit FP↔int cast at call
+      // boundaries. Float-returning entries skip the check; we
+      // intentionally don't synthesise a hash-of-bits comparison here
+      // because reify's float oracles already go through the
+      // sum/CRC32 path on the SymIR-side checksum machinery.
+      if (!call.retValue.empty() && entryFn.retType &&
+          std::holds_alternative<IntType>(entryFn.retType->v)) {
+        CallAtom check;
+        check.callee = GlobalId{"@check_chksum", {}};
+        // arg0: expected (literal from descriptor)
+        Expr expArg;
+        expArg.first = Atom{CoefAtom{Coef{IntLit{parseIntegerLiteral(call.retValue), {}}}, {}}, {}};
+        check.args.push_back(std::make_shared<Expr>(std::move(expArg)));
+        // arg1: actual (%r read)
+        Expr actArg;
+        actArg.first = Atom{RValueAtom{RValue{LocalId{"%r", {}}, {}, {}}, {}}, {}};
+        check.args.push_back(std::make_shared<Expr>(std::move(actArg)));
+        AssignInstr checkAssign;
+        checkAssign.lhs = LValue{LocalId{"%r", {}}, {}, {}};
+        checkAssign.rhs = Expr{Atom{std::move(check), {}}, {}, {}};
+        b.instrs.push_back(std::move(checkAssign));
+        anyCheck = true;
+      }
     }
 
-    // 3.2 Assign instruction: %r = call @entry_func(...)
-    AssignInstr callAssign;
-    callAssign.lhs = LValue{LocalId{"%r", {}}, {}, {}};
-    callAssign.rhs = Expr{Atom{ca, {}}, {}, {}};
-    b.instrs.push_back(std::move(callAssign));
-
-    // 3.3 Comparison condition and SelectAtom
-    // %exit_code = select %r == expected, 0, 1;
-    Cond cond;
-    cond.lhs = Expr{Atom{RValueAtom{RValue{LocalId{"%r", {}}, {}, {}}, {}}, {}}, {}, {}};
-    cond.op = RelOp::EQ;
-    if (entryFn.retType && std::holds_alternative<FloatType>(entryFn.retType->v)) {
-      cond.rhs =
-          Expr{Atom{CoefAtom{Coef{FloatLit{parseFloatLiteral(retValue), {}}}, {}}, {}}, {}, {}};
-    } else {
-      cond.rhs =
-          Expr{Atom{CoefAtom{Coef{IntLit{parseIntegerLiteral(retValue), {}}}, {}}, {}}, {}, {}};
-    }
-
-    SelectAtom sa;
-    sa.cond = std::make_unique<Cond>(std::move(cond));
-    sa.vtrue = Coef{IntLit{0, {}}};
-    sa.vfalse = Coef{IntLit{1, {}}};
-
-    // Assign instruction: %exit_code = select ...
-    AssignInstr selectAssign;
-    selectAssign.lhs = LValue{LocalId{"%exit_code", {}}, {}, {}};
-    selectAssign.rhs = Expr{Atom{std::move(sa), {}}, {}, {}};
-    b.instrs.push_back(std::move(selectAssign));
-
-    // 3.4 Terminator: ret %exit_code;
+    // Always exit with 0 on the happy path. Any mismatch above
+    // unwinds through @check_chksum's abort() before this terminator
+    // is reached.
     RetTerm ret;
-    ret.value = Expr{Atom{RValueAtom{RValue{LocalId{"%exit_code", {}}, {}, {}}, {}}, {}}, {}, {}};
+    Expr zero;
+    zero.first = Atom{CoefAtom{Coef{IntLit{0, {}}}, {}}, {}};
+    ret.value = std::move(zero);
     b.term = std::move(ret);
 
     b.span = {};
     mainFn.blocks.push_back(std::move(b));
+
+    if (anyCheck)
+      ensureCheckChksumDecl(prog);
+
     return mainFn;
+  }
+
+  /// Single-realization convenience overload — wraps the multi-call form
+  /// with a one-element vector so existing single-call sites don't have
+  /// to be migrated all at once.
+  inline FunDecl buildMainFunction(
+      Program &prog, const FunDecl &entryFn, const std::vector<std::string> &paramValues,
+      const std::string &retValue
+  ) {
+    return buildMainFunction(prog, entryFn, std::vector<MainCall>{{paramValues, retValue}});
   }
 
 } // namespace symir::reify

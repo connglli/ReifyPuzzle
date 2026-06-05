@@ -467,7 +467,19 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
   const auto &entryEntry = pool.entries[nodes[cg.entry()].poolIdx];
   const auto &entryRz = entryEntry.desc.realizations[nodes[cg.entry()].realizationIdx];
 
-  // Append main function if requested
+  // Append main function if requested. Each rylink program bundles ONE
+  // specific realization of each entry/callee descriptor (the SIR
+  // body is model-substituted per realization, so different
+  // realizations have different bodies), so main must call the entry
+  // with exactly that realization's paramValues and assert against
+  // that realization's retValue. Calling with another realization's
+  // params against this body would produce a different CRC32 and
+  // trip @check_chksum.
+  //
+  // R10 (multiple @check_chksum call sites in main) is intentionally
+  // deferred: it requires bundling multiple realization bodies as
+  // distinct FunDecls so main can vary args per-call without
+  // mismatching the bundled body. A follow-up can lift this.
   if (cfg.emitMain) {
     const FunDecl *entryFn = nullptr;
     for (const auto &f: bundle.funs) {
@@ -478,6 +490,7 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     }
     if (entryFn) {
       std::vector<std::string> paramVals;
+      paramVals.reserve(entryFn->params.size());
       for (const auto &p: entryFn->params) {
         std::string val = "0";
         for (const auto &pv: entryRz.paramValues) {
@@ -486,10 +499,9 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
             break;
           }
         }
-        paramVals.push_back(val);
+        paramVals.push_back(std::move(val));
       }
-      std::string retVal = entryRz.retValue.empty() ? "0" : entryRz.retValue;
-      FunDecl mainFn = buildMainFunction(*entryFn, paramVals, retVal);
+      FunDecl mainFn = reify::buildMainFunction(bundle, *entryFn, paramVals, entryRz.retValue);
       bundle.funs.push_back(std::move(mainFn));
     }
   }
@@ -516,7 +528,7 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     emitStem = "program";
     programSir = progDir / rylink::hp::kEntrySirName;
     compiledReport = progDir.string();
-    failTag = failTag;
+    failTag = progBase;
   } else {
     emitDir = cfg.outRoot;
     emitStem = progBase;

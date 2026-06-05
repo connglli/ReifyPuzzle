@@ -111,6 +111,55 @@ static bool validateWithSymiri(
   return status == 0;
 }
 
+// Run symiri on `sirPath` and return the integer printed on its
+// `Result: <value>` line, formatted as a decimal string. Used after the
+// exit-block CRC32 rewrite so the descriptor's `retValue` reflects the
+// actual program return (the CRC32) rather than the solver's stale
+// pre-rewrite model. Returns `std::nullopt` if symiri fails to launch,
+// exits non-zero, or doesn't produce a parseable `Result:` line — the
+// caller then falls back to the solver's value (which is wrong after
+// rewrite but still better than crashing).
+static std::optional<std::string> runSymiriCaptureResult(
+    const fs::path &symiriPath, const fs::path &sirPath, const std::string &funcName,
+    const std::vector<std::string> &paramArgs
+) {
+  // Same command shape as validateWithSymiri, but stderr is dropped and
+  // stdout is captured rather than streamed.
+  std::string cmd =
+      "\"" + symiriPath.string() + "\" --main @" + funcName + " \"" + sirPath.string() + "\"";
+  if (!paramArgs.empty()) {
+    cmd += " --";
+    for (const auto &a: paramArgs)
+      cmd += " " + a;
+  }
+  cmd += " 2>/dev/null";
+  FILE *pipe = ::popen(cmd.c_str(), "r");
+  if (!pipe)
+    return std::nullopt;
+  std::string out;
+  char buf[256];
+  while (std::fgets(buf, sizeof(buf), pipe))
+    out.append(buf);
+  int status = ::pclose(pipe);
+  if (status != 0)
+    return std::nullopt;
+  // symiri prints exactly one `Result: <decimal>` line for int-returning
+  // entry functions (see src/interp/interpreter.cpp RetTerm handling).
+  // Scan back-to-front so a stray earlier `Result:` substring in some
+  // future trace can't fool us.
+  auto pos = out.rfind("Result:");
+  if (pos == std::string::npos)
+    return std::nullopt;
+  pos += 7; // past "Result:"
+  while (pos < out.size() && (out[pos] == ' ' || out[pos] == '\t'))
+    ++pos;
+  auto end = out.find_first_of("\r\n", pos);
+  std::string val = out.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+  if (val.empty())
+    return std::nullopt;
+  return val;
+}
+
 static bool compileWithSymirc(
     const fs::path &symircPath, const fs::path &sirPath, const std::string &target,
     const fs::path &outPath, bool noRequire, const std::string &vecLowering, bool emitMain,
@@ -171,7 +220,14 @@ static GenerateResult generateLeaf(
     const std::string &genId,
     // [v0.2.2] When true, write the rylink-consumable func_<id>_<i>.json
     // sidecar next to each successful concrete .sir.
-    bool emitDesc, bool emitMain
+    bool emitDesc, bool emitMain,
+    // Sibling symiri binary. After the post-solve CRC32 rewrite the
+    // solver's `retModel` no longer matches the program's actual return
+    // value; we re-run symiri on the rewritten concrete .sir to obtain
+    // the CRC32 result so the descriptor's `retValue` is correct.
+    // Empty when symiri is not on disk — the rewrite is then skipped
+    // and the program is emitted in its original sum form.
+    const fs::path &symiriPath
 ) {
   // S1: CFG
   GenCFGParams cfgParams;
@@ -294,6 +350,21 @@ static GenerateResult generateLeaf(
       }
 
       if (res.sat) {
+        // Apply the checksum rewrite while we still hold the in-memory
+        // prog. The solver only saw the sum-based `%_chk = %_chk + ...`
+        // contract; rewriting now means every downstream consumer
+        // (SIRPrinter, symiri, symirc, the C / WASM backends) sees the
+        // opaque CRC32 form instead. The model from the solver
+        // (sym → value bindings) carries over unchanged because no
+        // symbols are introduced or removed by the rewrite. The
+        // pre-rewrite `res.retModel` (the solver's sum) is now stale
+        // and is dropped from the SOLVED header so the post-rewrite
+        // symiri value can take its place below.
+        size_t crcUpdates = rewriteExitToCrc32Checksum(prog, funcName);
+        bool rewriteApplied = crcUpdates > 0;
+        if (rewriteApplied)
+          res.retModel.reset();
+
         // [v0.2.2] Init suffix is a lowercase letter a..z so descriptor
         // consumers (rylink) can address a specific concretization by
         // `<funcName><letter>`. nInits is clamped to [1, 26] at CLI
@@ -301,6 +372,104 @@ static GenerateResult generateLeaf(
         char letter = static_cast<char>('a' + initIdx);
         std::string outName = nInits > 1 ? funcName + letter + ".sir" : funcName + ".sir";
         auto concretePath = outDir / outName;
+
+        // Locate the entry function in the rewritten prog. Snapshot
+        // every piece of metadata we'll need (params, syms) into
+        // owning vectors here, BEFORE any subsequent `prog.funs`
+        // mutation — e.g. the optional `@main` push_back below
+        // invalidates pointers/references into the funs vector when
+        // it reallocates, and reading `entry->params` afterward
+        // returned junk for `cf.rz.paramValues`, which fed the
+        // wrong CLI args to the validate-time symiri.
+        const FunDecl *entry = nullptr;
+        for (const auto &f: prog.funs) {
+          if (f.name.name == "@" + funcName) {
+            entry = &f;
+            break;
+          }
+        }
+        std::vector<std::string> paramVals;
+        std::vector<std::pair<std::string, std::string>> paramValuesCaptured;
+        std::vector<std::pair<std::string, std::string>> symValuesCaptured;
+        if (entry) {
+          paramVals.reserve(entry->params.size());
+          for (const auto &p: entry->params) {
+            auto it = res.paramModel.find(p.name.name);
+            std::string val = it != res.paramModel.end() ? fmtModelVal(it->second) : "0";
+            paramVals.push_back(val);
+            if (it != res.paramModel.end())
+              paramValuesCaptured.emplace_back(p.name.name, std::move(val));
+          }
+          for (const auto &s: entry->syms) {
+            auto it = res.model.find(s.name.name);
+            if (it != res.model.end())
+              symValuesCaptured.emplace_back(s.name.name, fmtModelVal(it->second));
+          }
+        }
+
+        // Capture the post-rewrite CRC32 return value via a MINIMAL
+        // oracle program. The oracle:
+        //   - shares struct decls and the @crc32_update intrinsic with
+        //     the full program;
+        //   - declares the same lets + params as the entry function,
+        //     but each scalar / aggregate let-init is rewritten to its
+        //     solver-known exit-time value (LetExitValue);
+        //   - replays each pointer let's EXIT-time target via
+        //     `%p = addr <targetLocal>;` (the solver's prov_base
+        //     reverse-FNV'd back to a local name) so body-side
+        //     pointer retargets — e.g. `%p0 = load %pp1;` — are
+        //     captured;
+        //   - then runs the verbatim exit block (load preamble +
+        //     CRC32 chain + ret).
+        // Driving the oracle from a SEPARATE program is intentional:
+        // it makes `--validate` a real cross-check that the solver's
+        // exit-time model + the minimal program == the interpreter's
+        // execution of the full program. If we instead captured from
+        // the full program itself, validate would compare X to X.
+        //
+        // Capture failure (symiri exits non-zero or returns no
+        // parseable Result line) typically means the generated
+        // function tripped UB that the solver missed. Treat the init
+        // as failed: skip the .sir write and try the next init.
+        std::string crcRetValue;
+        if (rewriteApplied && entry) {
+          Program miniProg = buildMiniCrc32Prog(prog, funcName, res.letExitValues);
+          auto tempPath = outDir / (outName + ".oracle.tmp");
+          {
+            std::ofstream tofs(tempPath);
+            if (tofs) {
+              SIRPrinter printer(tofs);
+              printer.print(miniProg);
+            }
+          }
+          auto captured =
+              runSymiriCaptureResult(symiriPath, tempPath, "minimal_" + funcName, paramVals);
+          std::error_code ec;
+          fs::remove(tempPath, ec); // best-effort; safe to leave on disk
+          (void) ec;
+          if (!captured) {
+            if (verbose) {
+              std::cerr << "[oracle] init " << initIdx
+                        << ": symiri capture failed for the minimal "
+                           "checksum oracle of "
+                        << concretePath << "; skipping init\n";
+            }
+            continue;
+          }
+          crcRetValue = std::move(*captured);
+        }
+
+        // Now that we have the CRC32 retValue we can build a faithful
+        // `@main` wrapper that asserts it via `@check_chksum`. This
+        // push_back invalidates `entry`, but every read we needed
+        // from it has already been snapshotted into paramVals /
+        // paramValuesCaptured / symValuesCaptured above.
+        if (emitMain && entry) {
+          FunDecl mainFn = buildMainFunction(prog, *entry, paramVals, crcRetValue);
+          prog.funs.push_back(std::move(mainFn));
+          entry = nullptr; // do not use after realloc
+        }
+
         {
           std::ofstream ofs(concretePath);
           if (!ofs) {
@@ -310,78 +479,42 @@ static GenerateResult generateLeaf(
           // [v0.2.2] SOLVED header (same format as symirsolve --output).
           // Records the synthesised param + ret values so symiri can
           // re-run via `--main @f <file> -- <p0> <p1>` deterministically.
-          if (!res.paramModel.empty() || res.retModel.has_value()) {
+          if (!res.paramModel.empty() || res.retModel.has_value() || !crcRetValue.empty()) {
             ofs << "// SOLVED:";
             bool first = true;
             for (const auto &[name, val]: res.paramModel) {
               ofs << (first ? " " : ", ") << name << "=" << fmtModelVal(val);
               first = false;
             }
-            if (res.retModel.has_value()) {
+            if (!crcRetValue.empty()) {
+              ofs << (first ? " " : ", ") << "ret=" << crcRetValue;
+            } else if (res.retModel.has_value()) {
               ofs << (first ? " " : ", ") << "ret=" << fmtModelVal(*res.retModel);
             }
             ofs << "\n";
           }
           writePathHeader(ofs);
-          if (emitMain) {
-            const FunDecl *entry = nullptr;
-            for (const auto &f: prog.funs) {
-              if (f.name.name == "@" + funcName) {
-                entry = &f;
-                break;
-              }
-            }
-            if (entry) {
-              std::vector<std::string> paramVals;
-              for (const auto &p: entry->params) {
-                auto it = res.paramModel.find(p.name.name);
-                if (it != res.paramModel.end()) {
-                  paramVals.push_back(fmtModelVal(it->second));
-                } else {
-                  paramVals.push_back("0");
-                }
-              }
-              std::string retVal = res.retModel.has_value() ? fmtModelVal(*res.retModel) : "0";
-              FunDecl mainFn = buildMainFunction(*entry, paramVals, retVal);
-              prog.funs.push_back(std::move(mainFn));
-            }
-          }
           SIRPrinter printer(ofs, res.model);
           printer.print(prog);
         }
-        // [v0.2.2] Capture the solver-synthesised parameter, sym
-        // and return values alongside the concrete file path. We
-        // pull them straight from res.paramModel / res.model /
-        // res.retModel — same source the SOLVED header serialises
-        // from. Downstream consumers (--validate, --emit-desc) use
-        // them directly without re-parsing the .sir.
+        // [v0.2.2] Use the metadata we snapshotted above (entry may now
+        // be dangling thanks to the @main push_back). Param values
+        // are in declaration order — symiri positional args need that
+        // ordering at validate time. Syms are in declaration order so
+        // the descriptor's top-level `syms` list and the per-realization
+        // `symValues` line up positionally.
         ConcreteFile cf;
         cf.path = concretePath;
         cf.rz.file = concretePath.filename().string();
-        const FunDecl *entry = nullptr;
-        for (const auto &f: prog.funs)
-          if (f.name.name == "@" + funcName) {
-            entry = &f;
-            break;
-          }
-        if (entry) {
-          // Params in declaration order — symiri positional args
-          // need that ordering at validate time.
-          for (const auto &p: entry->params) {
-            auto it = res.paramModel.find(p.name.name);
-            if (it != res.paramModel.end())
-              cf.rz.paramValues.emplace_back(p.name.name, fmtModelVal(it->second));
-          }
-          // Syms in declaration order so the descriptor's
-          // top-level `syms` list and the per-realization
-          // `symValues` line up positionally.
-          for (const auto &s: entry->syms) {
-            auto it = res.model.find(s.name.name);
-            if (it != res.model.end())
-              cf.rz.symValues.emplace_back(s.name.name, fmtModelVal(it->second));
-          }
-        }
-        if (res.retModel.has_value())
+        cf.rz.paramValues = std::move(paramValuesCaptured);
+        cf.rz.symValues = std::move(symValuesCaptured);
+        // Prefer the post-rewrite CRC32 captured from symiri above;
+        // fall back to the solver's pre-rewrite model only when the
+        // rewrite was skipped (e.g. checksum already in CRC32 form or
+        // exit block didn't match the sum pattern).
+        if (!crcRetValue.empty())
+          cf.rz.retValue = crcRetValue;
+        else if (res.retModel.has_value())
           cf.rz.retValue = fmtModelVal(*res.retModel);
         produced.push_back(std::move(cf));
         if (emitDesc) {
@@ -594,14 +727,20 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // Find symiri for validation (sibling of this binary)
-  fs::path symiriPath;
-  if (doValidate) {
-    symiriPath = fs::path(argv[0]).parent_path() / "symiri";
-    if (!fs::exists(symiriPath)) {
-      std::cerr << "warning: symiri not found at " << symiriPath << " — disabling --validate\n";
-      doValidate = false;
-    }
+  // Sibling symiri is mandatory: the post-solve checksum rewrite uses
+  // it to compute each concrete .sir's CRC32 return value, which lands
+  // in the descriptor's `retValue` and gets asserted by rylink's
+  // `@check_chksum(EXPECTED, …)` main wrapper. Falling back to the
+  // solver's pre-rewrite model would put the SUM into the descriptor
+  // while the on-disk program returns the CRC32, breaking every
+  // compiled program downstream — so abort rather than silently emit
+  // bad oracles. --validate's symiri usage rides on the same binary.
+  fs::path symiriPath = fs::path(argv[0]).parent_path() / "symiri";
+  if (!fs::exists(symiriPath)) {
+    std::cerr << "error: symiri not found at " << symiriPath
+              << " — rysmith requires the sibling symiri binary to "
+                 "compute post-rewrite CRC32 return values\n";
+    return 1;
   }
 
   // Find symirc for compilation
@@ -647,7 +786,7 @@ int main(int argc, char **argv) {
           nBbls, pBranch, pBackedge, maxLoopIter, minLoopIter, fnVarCfg, funcName, nStmts,
           safeOffPath, enableInterestCoefs, coefLo, coefHi, valueLo, valueHi, indexLo, indexHi,
           exprCfg, enableIntrinsics, timeoutMs, maxRetries, nInits, outDir, keepSymbolic, verbose,
-          state->rng, funcSeed, genId, emitDesc, emitMain
+          state->rng, funcSeed, genId, emitDesc, emitMain, symiriPath
       );
       state->done.store(true, std::memory_order_release);
     });
@@ -726,8 +865,33 @@ int main(int argc, char **argv) {
         paramArgs.reserve(cf.rz.paramValues.size());
         for (const auto &pv: cf.rz.paramValues)
           paramArgs.push_back(pv.second);
-        bool ok = validateWithSymiri(symiriPath, p, baseFuncName, paramArgs, verbose);
-        std::cout << "  validated: " << (ok ? "OK" : "FAIL") << " (" << p.filename() << ")\n";
+        // Validate by running the on-disk full program through symiri
+        // and asserting its result matches the descriptor's retValue
+        // (which was captured from the minimal oracle program at emit
+        // time). Equality across those two independent runs cross-
+        // checks the rewriter, the CFG body execution, and the
+        // interpreter's intrinsic dispatch in a single shot — exit
+        // code 0 on its own would only have proven that symiri didn't
+        // crash.
+        bool ok = false;
+        std::string mismatchReason;
+        if (auto observed = runSymiriCaptureResult(symiriPath, p, baseFuncName, paramArgs)) {
+          if (cf.rz.retValue.empty()) {
+            // No oracle to compare against (e.g. the rewrite was
+            // skipped). Fall back to the exit-code check.
+            ok = validateWithSymiri(symiriPath, p, baseFuncName, paramArgs, verbose);
+          } else if (*observed == cf.rz.retValue) {
+            ok = true;
+          } else {
+            mismatchReason = "expected=" + cf.rz.retValue + " observed=" + *observed;
+          }
+        } else {
+          mismatchReason = "symiri produced no Result line";
+        }
+        std::cout << "  validated: " << (ok ? "OK" : "FAIL") << " (" << p.filename() << ")";
+        if (!ok && !mismatchReason.empty())
+          std::cout << " [" << mismatchReason << "]";
+        std::cout << "\n";
         if (!ok) {
           allOk = false;
           nFail++;

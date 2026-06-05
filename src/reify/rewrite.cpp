@@ -357,7 +357,7 @@ namespace symir::reify {
             continue;
           // Skip the checksum accumulator — it is unconditionally
           // overwritten to `0` at the top of the exit block (see
-          // func_gen::buildChecksum), so any splice into its let-init
+          // func_gen::buildSumChecksum), so any splice into its let-init
           // is dead computation. Filtering it out at the source rule
           // saves a wasted attempt budget per edge.
           if (ld.name.name == "%_chk")
