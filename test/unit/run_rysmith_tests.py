@@ -10,6 +10,11 @@
   (4) The concrete .sir output carries a `// SOLVED:` header naming
       the solved parameter values, which `symiri ... -- <vals>`
       replays bit-exact.
+  (5) R3 assignment-shape invariants: the generator never emits
+      `%x = %x;` (self-assigns), plain `%x = %y;` copies for
+      scalar/vec LHS, or any pattern where the LHS token reappears
+      on the RHS. These shapes fold flat under SCCP / IPA-CP and
+      were the bulk of pre-R3's optimization surface.
 
 Run as:
 
@@ -356,6 +361,189 @@ def test_rysmith_main(rysmith, symiri):
     )
 
 
+# ---------------------------------------------------------------------------
+# R3 assignment-shape invariants
+# ---------------------------------------------------------------------------
+#
+# rysmith's RHS generator (src/reify/expr_gen.cpp) filters the LHS local
+# name out of every variable-pool pick so reductive patterns can't appear
+# in the solved output. The plan + rationale lives in tmp/reify_effectiveness_plan.md.
+# These tests sample a band of seeds, walk every emitted body assignment,
+# and assert the four invariants below.
+
+# Seeds chosen to exercise a variety of programs without overlapping the
+# seeds used by the v0.2.2-surface tests above.
+_R3_SEEDS = [1001, 1002, 1003, 1004, 1005, 1006]
+
+# `%v0`, `%pa1`, `%pp2`, `%t0`, `%a0`, etc. — any local sigil.
+_R3_LOCAL = r"%[A-Za-z_][A-Za-z0-9_]*"
+# A simple LValue at the start of a line: `LHS = RHS;` with no field/index
+# accesses on LHS. Aggregate LHS (`%a[i] = …`) is excluded because the
+# root may legitimately appear in RHS at a different access path.
+_R3_SIMPLE_LHS = re.compile(rf"^\s*({_R3_LOCAL})\s*=\s*(.+);\s*$")
+_R3_BARE_LOCAL_RHS = re.compile(rf"^({_R3_LOCAL})$")
+# rysmith naming convention (see src/reify/var_catalogue.cpp): %v scalar,
+# %vec vector, %a array, %t struct, %p ptr, %pp ptr-to-ptr, %ap aggregate
+# ptr, %pa param scalar. The plain-copy test exempts pointer-typed LHS:
+# `%p0 = %p1;` is a meaningful aliasing operation and the alternative
+# (e.g. `%p0 = %p1 + 1;`) would push %p0 past the single-element object
+# it points to and cause UB on any subsequent `load %p0`.
+_R3_PTR_LHS = re.compile(r"^%(p|pp|ap)\d")
+
+
+def _r3_collect_sirs(rysmith, seeds, n_funcs=4):
+  """Generate programs with the given seeds and return a list of .sir paths."""
+  sirs = []
+  for s in seeds:
+    d = tempfile.mkdtemp(prefix="r3_")
+    r = run([rysmith, "--n-funcs", str(n_funcs), "--seed", str(s), "-o", d])
+    if r.returncode != 0:
+      print(f"  {RED}rysmith failed for seed {s}: {r.stderr[:200]!r}{NC}")
+      continue
+    for f in os.listdir(d):
+      if f.endswith(".sir"):
+        sirs.append(os.path.join(d, f))
+  return sirs
+
+
+def _r3_body_assign_lines(sir_path):
+  """Yield body assignment lines from a .sir file, skipping the synthesized
+  CRC32 exit-block chain and the @main wrapper (both produced by reify
+  rather than the user-code generator)."""
+  with open(sir_path) as f:
+    text = f.read()
+  in_main = False
+  for line in text.splitlines():
+    stripped = line.strip()
+    if not stripped or stripped.startswith("//"):
+      continue
+    if stripped.startswith("fun @main"):
+      in_main = True
+      continue
+    if stripped.startswith("fun @") and not stripped.startswith("fun @main"):
+      in_main = False
+      continue
+    if in_main:
+      continue
+    # Skip the CRC32 exit-block chain (all lines touch %_chk only).
+    if "%_chk" in stripped:
+      continue
+    if "=" not in stripped or not stripped.endswith(";"):
+      continue
+    if stripped.startswith("let "):
+      continue
+    yield stripped
+
+
+def _r3_split_lhs_rhs(line):
+  m = _R3_SIMPLE_LHS.match(line)
+  if not m:
+    return None, None
+  return m.group(1), m.group(2).strip()
+
+
+def test_r3_no_self_assign(rysmith):
+  """R3: `%x = %x;` should never appear."""
+  sirs = _r3_collect_sirs(rysmith, _R3_SEEDS)
+  bad = []
+  for sir in sirs:
+    for line in _r3_body_assign_lines(sir):
+      lhs, rhs = _r3_split_lhs_rhs(line)
+      if lhs is None:
+        continue
+      m = _R3_BARE_LOCAL_RHS.match(rhs)
+      if m and m.group(1) == lhs:
+        bad.append((sir, line))
+  check(
+    f"R3: 0 scalar/ptr/vec self-assigns across {len(sirs)} .sir files",
+    not bad,
+    f"first violation: {bad[0]}" if bad else "",
+  )
+
+
+def test_r3_no_plain_copy(rysmith):
+  """R3: `%x = %y;` (plain copy, both bare locals, x != y) should never
+  appear for scalar/vec LHS. Pointer LHS is exempted — `%p0 = %p1;` is a
+  meaningful aliasing op and the obvious "fix" (`%p1 + 1`) would step a
+  pointer past its single-element object and trip load UB."""
+  sirs = _r3_collect_sirs(rysmith, _R3_SEEDS)
+  bad = []
+  for sir in sirs:
+    for line in _r3_body_assign_lines(sir):
+      lhs, rhs = _r3_split_lhs_rhs(line)
+      if lhs is None or _R3_PTR_LHS.match(lhs):
+        continue
+      m = _R3_BARE_LOCAL_RHS.match(rhs)
+      if m and m.group(1) != lhs:
+        bad.append((sir, line))
+  check(
+    f"R3: 0 plain bare-RValueAtom copies (scalar/vec LHS) across {len(sirs)} .sir files",
+    not bad,
+    f"first violation: {bad[0]}" if bad else "",
+  )
+
+
+def test_r3_no_lhs_in_rhs(rysmith):
+  """R3: the LHS variable token must not appear anywhere in the RHS of a
+  simple-LHS assignment. Catches `%v3 = %v3 - 4 * %v3 + 4 * %v3;` and
+  similar reductive patterns. `addr`/`load` forms are exempted because
+  they index different pools that R3 intentionally leaves untouched."""
+  sirs = _r3_collect_sirs(rysmith, _R3_SEEDS)
+  bad = []
+  for sir in sirs:
+    for line in _r3_body_assign_lines(sir):
+      lhs, rhs = _r3_split_lhs_rhs(line)
+      if lhs is None:
+        continue
+      if rhs.startswith("addr ") or rhs.startswith("load "):
+        continue
+      pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(lhs)}(?![A-Za-z0-9_])")
+      if pattern.search(rhs):
+        bad.append((sir, line))
+  check(
+    f"R3: 0 LHS-appears-in-RHS violations across {len(sirs)} .sir files",
+    not bad,
+    f"first violation: {bad[0]}" if bad else "",
+  )
+
+
+def test_r3_baseline_assignment_volume(rysmith):
+  """R3 sanity guard: the harness actually saw a meaningful number of
+  body assignments. Without this, the "0 violations" tests pass
+  trivially if rysmith stops emitting code."""
+  sirs = _r3_collect_sirs(rysmith, _R3_SEEDS)
+  n = 0
+  for sir in sirs:
+    for _ in _r3_body_assign_lines(sir):
+      n += 1
+  check(
+    f"R3: >= 200 body assignments observed across {len(sirs)} .sir files",
+    n >= 200,
+    f"only {n} body assignments",
+  )
+
+
+def test_r3_pa_param_uses_present(rysmith):
+  """R3 spirit-check: plain-copy elimination must not starve out param
+  usage. After R3 we still expect non-trivial expressions involving
+  `%paN` (e.g. `%v0 = %pa1 - 4;` or `%v0 = sym * %pa1`) — otherwise
+  the generator may have degenerated into literal-only RHSs."""
+  sirs = _r3_collect_sirs(rysmith, _R3_SEEDS)
+  param_uses = 0
+  for sir in sirs:
+    for line in _r3_body_assign_lines(sir):
+      lhs, rhs = _r3_split_lhs_rhs(line)
+      if lhs is None:
+        continue
+      if re.search(r"%pa\d", rhs) and re.search(r"[+\-*/%&|^<>]", rhs):
+        param_uses += 1
+  check(
+    f"R3: >= 1 non-trivial RHS uses of a %paN param across {len(sirs)} files",
+    param_uses >= 1,
+    f"only {param_uses} non-trivial param uses observed",
+  )
+
+
 def main():
   if len(sys.argv) != 3:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri>")
@@ -373,6 +561,16 @@ def main():
   test_solved_replay(rysmith, symiri)
   print("=== rysmith --emit-main wrapper ===")
   test_rysmith_main(rysmith, symiri)
+  print("=== R3: scalar/ptr/vec self-assign elimination ===")
+  test_r3_no_self_assign(rysmith)
+  print("=== R3: plain-copy elimination ===")
+  test_r3_no_plain_copy(rysmith)
+  print("=== R3: LHS does not appear in RHS ===")
+  test_r3_no_lhs_in_rhs(rysmith)
+  print("=== R3: baseline assignment volume sanity ===")
+  test_r3_baseline_assignment_volume(rysmith)
+  print("=== R3: parameter uses survive in complex RHS ===")
+  test_r3_pa_param_uses_present(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

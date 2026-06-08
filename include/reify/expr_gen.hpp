@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <random>
 #include <set>
 #include <string>
@@ -77,10 +78,15 @@ namespace symir::reify {
   // Generate an Expr of type targetType.
   // onPath=true: use symbols (sym counter). onPath=false: use concrete literals.
   // sym may be nullptr for off-path generation.
+  // excludeName, when set, is the LHS local name that must NOT appear as an
+  // RValue on the RHS — this defeats self-assigns (%x = %x) and reductive
+  // patterns like %x = %x + 1 that fold flat under SCCP. Plumb through
+  // every variable-pool pick.
   Expr genExpr(
       std::mt19937 &rng,
       SymCounter *sym, // nullptr-safe: if nullptr, always concrete
-      const VarCatalogue &vars, const TypePtr &targetType, bool onPath, const ExprGenConfig &cfg
+      const VarCatalogue &vars, const TypePtr &targetType, bool onPath, const ExprGenConfig &cfg,
+      const std::optional<std::string> &excludeName = std::nullopt
   );
 
   // Generate a branch Cond using random scalar var from available vars.

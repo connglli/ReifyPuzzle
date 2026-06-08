@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <optional>
 #include "reify/hyperparameters.hpp"
 #include "reify/intrinsic_whitelist.hpp"
 
@@ -57,6 +58,23 @@ namespace symir::reify {
     assert(!v.empty());
     std::uniform_int_distribution<int> d(0, (int) v.size() - 1);
     return v[d(rng)];
+  }
+
+  // Filter a candidate var pool, dropping any entry whose name matches
+  // `excludeName`. When `excludeName` is unset the input is returned
+  // unchanged. Applied at every variable-pool pick in the body of an RHS
+  // expression to make `%x = %x;`, `%x = -4 * %x;`, etc. impossible.
+  static std::vector<const VarEntry *>
+  excluding(std::vector<const VarEntry *> vec, const std::optional<std::string> &excludeName) {
+    if (!excludeName)
+      return vec;
+    vec.erase(
+        std::remove_if(
+            vec.begin(), vec.end(), [&](const VarEntry *v) { return v->name == *excludeName; }
+        ),
+        vec.end()
+    );
+    return vec;
   }
 
   // ---------------------------------------------------------------------------
@@ -198,9 +216,10 @@ namespace symir::reify {
   // Build a SelectVal of targetType: either a same-typed scalar local or a
   // literal/sym Coef. For off-path (sym == nullptr), only locals and literals.
   static SelectVal pickSelectVal(
-      std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType
+      std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
+      const std::optional<std::string> &excludeName = std::nullopt
   ) {
-    auto scalars = vars.scalarsOf(targetType);
+    auto scalars = excluding(vars.scalarsOf(targetType), excludeName);
     std::uniform_int_distribution<int> kind(0, 2);
     int k = kind(rng);
     if (k == 0 && !scalars.empty()) {
@@ -219,10 +238,11 @@ namespace symir::reify {
   // Generate a SelectAtom of the given target type. Cond compares a scalar
   // local to a literal (defensive: same-type) so the typechecker is happy.
   static Atom genSelectAtom(
-      std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType
+      std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
+      const std::optional<std::string> &excludeName = std::nullopt
   ) {
     Cond cond;
-    auto allScalars = vars.allScalars();
+    auto allScalars = excluding(vars.allScalars(), excludeName);
     if (!allScalars.empty()) {
       auto *vL = pickOne(rng, allScalars);
       cond.lhs = simpleExpr(rvalAtom(localLV(vL->name)));
@@ -242,15 +262,16 @@ namespace symir::reify {
 
     SelectAtom sa;
     sa.cond = std::make_unique<Cond>(std::move(cond));
-    sa.vtrue = pickSelectVal(rng, sym, vars, targetType);
-    sa.vfalse = pickSelectVal(rng, sym, vars, targetType);
+    sa.vtrue = pickSelectVal(rng, sym, vars, targetType, excludeName);
+    sa.vfalse = pickSelectVal(rng, sym, vars, targetType, excludeName);
     return Atom{std::move(sa), {}};
   }
 
   // Forward declaration — defined later in this file.
   static std::pair<Expr, std::vector<Instr>> genExprWithRequires(
       std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
-      bool onPath, const ExprGenConfig &cfg
+      bool onPath, const ExprGenConfig &cfg,
+      const std::optional<std::string> &excludeName = std::nullopt
   );
 
   // Generate an intrinsic-call atom for the given integer target type.
@@ -260,7 +281,8 @@ namespace symir::reify {
   // the same intrinsic can be instantiated at multiple bitwidths.
   static Atom genIntrinsicCallAtom(
       std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
-      bool onPath, const ExprGenConfig &cfg, std::vector<Instr> &extraRequires
+      bool onPath, const ExprGenConfig &cfg, std::vector<Instr> &extraRequires,
+      const std::optional<std::string> &excludeName = std::nullopt
   ) {
     // Skip i1-returning intrinsics since i1 is not a commonly generated target type.
     const auto &all = getIntrinsicWhitelist();
@@ -280,12 +302,13 @@ namespace symir::reify {
     std::vector<std::shared_ptr<Expr>> args;
     for (int pi = 0; pi < wi->paramCount; pi++) {
       if (onPath && sym) {
-        auto [ae, areqs] = genExprWithRequires(rng, sym, vars, targetType, onPath, cfg);
+        auto [ae, areqs] =
+            genExprWithRequires(rng, sym, vars, targetType, onPath, cfg, excludeName);
         for (auto &r: areqs)
           extraRequires.push_back(std::move(r));
         args.push_back(std::make_shared<Expr>(std::move(ae)));
       } else {
-        auto ae = genExpr(rng, sym, vars, targetType, onPath, cfg);
+        auto ae = genExpr(rng, sym, vars, targetType, onPath, cfg, excludeName);
         args.push_back(std::make_shared<Expr>(std::move(ae)));
       }
     }
@@ -303,14 +326,15 @@ namespace symir::reify {
   // Generate a single Atom of the given integer type (on-path, uses sym)
   static Atom genIntAtomOnPath(
       std::mt19937 &rng, SymCounter &sym, const VarCatalogue &vars, const TypePtr &targetType,
-      const ExprGenConfig &cfg, std::vector<Instr> &extraRequires
+      const ExprGenConfig &cfg, std::vector<Instr> &extraRequires,
+      const std::optional<std::string> &excludeName = std::nullopt
   ) {
     // Collect scalars of the target type for use as RValues
-    auto scalarsOfT = vars.scalarsOf(targetType);
+    auto scalarsOfT = excluding(vars.scalarsOf(targetType), excludeName);
     bool hasRval = !scalarsOfT.empty();
 
     // Also collect scalars of ANY int type for casts
-    auto allScalars = vars.allScalars();
+    auto allScalars = excluding(vars.allScalars(), excludeName);
     std::vector<const VarEntry *> otherIntScalars;
     for (auto *v: allScalars)
       if (isIntType(v->type) && !typeEquals(v->type, targetType))
@@ -360,7 +384,7 @@ namespace symir::reify {
       // For proper typing: coef must match targetType, rval (shift amount) must be i32
       // So we need an i32 var as rval for shift amount, and use an index sym as the coef
       // The index sym type must also be targetType for type consistency
-      auto i32scalars = vars.scalarsOf(makeI32());
+      auto i32scalars = excluding(vars.scalarsOf(makeI32()), excludeName);
       if (!i32scalars.empty() || isIntType(targetType)) {
         // Use index sym of targetType as the value being shifted
         // use an i32 var as shift amount if available, else use an int literal
@@ -416,17 +440,19 @@ namespace symir::reify {
     }
     if (s < rysmith::hp::kIntOnPath_LoadEnd) {
       // Load from a ptr T var if any exist
-      auto ptrs = vars.ptrsOf(targetType);
+      auto ptrs = excluding(vars.ptrsOf(targetType), excludeName);
       if (!ptrs.empty()) {
         auto *pv = pickOne(rng, ptrs);
         return Atom{LoadAtom{localLV(pv->name), {}}, {}};
       }
     }
     if (s < rysmith::hp::kIntOnPath_SelectEnd && cfg.enableSelect) {
-      return genSelectAtom(rng, &sym, vars, targetType);
+      return genSelectAtom(rng, &sym, vars, targetType, excludeName);
     }
     if (s < rysmith::hp::kIntOnPath_IntrinsicEnd && cfg.enableIntrinsics) {
-      return genIntrinsicCallAtom(rng, &sym, vars, targetType, true, cfg, extraRequires);
+      return genIntrinsicCallAtom(
+          rng, &sym, vars, targetType, true, cfg, extraRequires, excludeName
+      );
     }
     // Fallback: standalone sym
     return coefAtom(symCoef(sym.nextCoef(targetType)));
@@ -435,12 +461,12 @@ namespace symir::reify {
   // Generate a single Atom of the given integer type (off-path, concrete only)
   static Atom genIntAtomOffPath(
       std::mt19937 &rng, const VarCatalogue &vars, const TypePtr &targetType,
-      const ExprGenConfig &cfg
+      const ExprGenConfig &cfg, const std::optional<std::string> &excludeName = std::nullopt
   ) {
-    auto scalarsOfT = vars.scalarsOf(targetType);
+    auto scalarsOfT = excluding(vars.scalarsOf(targetType), excludeName);
     bool hasRval = !scalarsOfT.empty();
 
-    auto allScalars = vars.allScalars();
+    auto allScalars = excluding(vars.allScalars(), excludeName);
     std::vector<const VarEntry *> otherIntScalars;
     for (auto *v: allScalars)
       if (isIntType(v->type) && !typeEquals(v->type, targetType))
@@ -494,18 +520,20 @@ namespace symir::reify {
     }
     if (s < rysmith::hp::kIntOffPath_LoadEnd) {
       // Load from a ptr T var if available
-      auto ptrs = vars.ptrsOf(targetType);
+      auto ptrs = excluding(vars.ptrsOf(targetType), excludeName);
       if (!ptrs.empty()) {
         auto *pv = pickOne(rng, ptrs);
         return Atom{LoadAtom{localLV(pv->name), {}}, {}};
       }
     }
     if (s < rysmith::hp::kIntOffPath_SelectEnd && cfg.enableSelect) {
-      return genSelectAtom(rng, /*sym=*/nullptr, vars, targetType);
+      return genSelectAtom(rng, /*sym=*/nullptr, vars, targetType, excludeName);
     }
     if (s < rysmith::hp::kIntOffPath_IntrinsicEnd && cfg.enableIntrinsics) {
       std::vector<Instr> dummyReqs; // off-path args are concrete-only, no requires expected
-      return genIntrinsicCallAtom(rng, /*sym=*/nullptr, vars, targetType, false, cfg, dummyReqs);
+      return genIntrinsicCallAtom(
+          rng, /*sym=*/nullptr, vars, targetType, false, cfg, dummyReqs, excludeName
+      );
     }
     return genConcreteIntAtom(rng, targetType);
   }
@@ -513,10 +541,10 @@ namespace symir::reify {
   // Generate a float atom (on-path: cast from i32 sym or concrete float)
   static Atom genFloatAtomOnPath(
       std::mt19937 &rng, SymCounter &sym, const VarCatalogue &vars, const TypePtr &targetType,
-      const ExprGenConfig &cfg
+      const ExprGenConfig &cfg, const std::optional<std::string> &excludeName = std::nullopt
   ) {
-    auto fpVars = vars.scalarsOf(targetType);
-    auto i32scalars = vars.scalarsOf(makeI32());
+    auto fpVars = excluding(vars.scalarsOf(targetType), excludeName);
+    auto i32scalars = excluding(vars.scalarsOf(makeI32()), excludeName);
 
     std::uniform_int_distribution<int> slot(0, 99);
     int s = slot(rng);
@@ -546,7 +574,7 @@ namespace symir::reify {
       return Atom{std::move(ca), {}};
     }
     if (s < rysmith::hp::kFloatOnPath_SelectEnd && cfg.enableSelect) {
-      return genSelectAtom(rng, &sym, vars, targetType);
+      return genSelectAtom(rng, &sym, vars, targetType, excludeName);
     }
     // Concrete float literal
     return genConcreteFloatAtom(rng);
@@ -557,14 +585,21 @@ namespace symir::reify {
 
   // Generate a ptr-type atom. Collects all candidate atoms uniformly so each
   // option (addr, copy, load-from-ptr-ptr) appears with equal probability.
-  static Atom genPtrAtom(std::mt19937 &rng, const VarCatalogue &vars, const TypePtr &targetType) {
+  static Atom genPtrAtom(
+      std::mt19937 &rng, const VarCatalogue &vars, const TypePtr &targetType,
+      const std::optional<std::string> &excludeName = std::nullopt
+  ) {
     assert(isPtrType(targetType));
     TypePtr ptee = pointeeType(targetType);
 
     std::vector<Atom> options;
 
+    auto nameExcluded = [&](const std::string &n) { return excludeName && n == *excludeName; };
+
     // addr of any addressable var whose type equals the pointee
     for (auto *v: vars.allAddressable()) {
+      if (nameExcluded(v->name))
+        continue;
       if (typeEquals(v->type, ptee)) {
         options.push_back(Atom{AddrAtom{localLV(v->name), {}}, {}});
       }
@@ -572,11 +607,15 @@ namespace symir::reify {
 
     // copy from an existing ptr T var (same type)
     for (auto *pv: vars.ptrsOf(ptee)) {
+      if (nameExcluded(pv->name))
+        continue;
       options.push_back(rvalAtom(localLV(pv->name)));
     }
 
     // load from a ptr ptr T var to materialise a ptr T value
     for (auto *ppv: vars.ptrsOf(targetType)) {
+      if (nameExcluded(ppv->name))
+        continue;
       options.push_back(Atom{LoadAtom{localLV(ppv->name), {}}, {}});
     }
 
@@ -585,6 +624,8 @@ namespace symir::reify {
     if (isScalarType(ptee)) {
       for (const auto &v: vars.vars) {
         if (!isPtrType(v.type))
+          continue;
+        if (nameExcluded(v.name))
           continue;
         auto innerPtee = pointeeType(v.type);
         if (!innerPtee || !std::holds_alternative<ArrayType>(innerPtee->v))
@@ -604,6 +645,8 @@ namespace symir::reify {
     // a field of type ptee, we can ptrfield it.
     for (const auto &v: vars.vars) {
       if (!isPtrType(v.type))
+        continue;
+      if (nameExcluded(v.name))
         continue;
       auto innerPtee = pointeeType(v.type);
       if (!innerPtee || !std::holds_alternative<StructType>(innerPtee->v))
@@ -636,7 +679,7 @@ namespace symir::reify {
 
   Expr genExpr(
       std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
-      bool onPath, const ExprGenConfig &cfg
+      bool onPath, const ExprGenConfig &cfg, const std::optional<std::string> &excludeName
   ) {
     // Build a 1-3 atom expression (first + rest).
     // Note: div/mod safety requires are lost in this public API;
@@ -667,21 +710,21 @@ namespace symir::reify {
       Atom a;
       if (isIntType(targetType)) {
         if (onPath && sym) {
-          a = genIntAtomOnPath(rng, *sym, vars, targetType, cfg, dummyReqs);
+          a = genIntAtomOnPath(rng, *sym, vars, targetType, cfg, dummyReqs, excludeName);
         } else {
-          a = genIntAtomOffPath(rng, vars, targetType, cfg);
+          a = genIntAtomOffPath(rng, vars, targetType, cfg, excludeName);
         }
       } else if (isFpType(targetType)) {
         if (onPath && sym) {
-          a = genFloatAtomOnPath(rng, *sym, vars, targetType, cfg);
+          a = genFloatAtomOnPath(rng, *sym, vars, targetType, cfg, excludeName);
         } else {
           a = genFloatAtomOffPath(rng);
         }
       } else if (isPtrType(targetType)) {
-        a = genPtrAtom(rng, vars, targetType);
+        a = genPtrAtom(rng, vars, targetType, excludeName);
       } else if (isVecType(targetType)) {
         // [v0.2.1] Vec atom generation.
-        auto vecs = vars.vecsOf(targetType);
+        auto vecs = excluding(vars.vecsOf(targetType), excludeName);
         const auto &vt = std::get<VecType>(targetType->v);
 
         if (i == 0) {
@@ -774,10 +817,11 @@ namespace symir::reify {
   // the tail atoms that reference actual vars of targetType.
   static Atom genFirstIntAtomOffPath(
       std::mt19937 &rng, const VarCatalogue &vars, const TypePtr &targetType,
-      [[maybe_unused]] const ExprGenConfig &cfg
+      [[maybe_unused]] const ExprGenConfig &cfg,
+      const std::optional<std::string> &excludeName = std::nullopt
   ) {
-    auto scalarsOfT = vars.scalarsOf(targetType);
-    auto allScalars = vars.allScalars();
+    auto scalarsOfT = excluding(vars.scalarsOf(targetType), excludeName);
+    auto allScalars = excluding(vars.allScalars(), excludeName);
     std::vector<const VarEntry *> otherIntScalars;
     for (auto *v: allScalars)
       if (isIntType(v->type) && !typeEquals(v->type, targetType))
@@ -810,15 +854,16 @@ namespace symir::reify {
   // which prints as "<value> as <type>" and preserves the type annotation.
   static Atom genFirstIntAtomOnPath(
       std::mt19937 &rng, SymCounter &sym, const VarCatalogue &vars, const TypePtr &targetType,
-      const ExprGenConfig &cfg, std::vector<Instr> &extraRequires
+      const ExprGenConfig &cfg, std::vector<Instr> &extraRequires,
+      const std::optional<std::string> &excludeName = std::nullopt
   ) {
     // For i32, a bare CoefAtom is fine (i32 is the default inferred type).
     if (intBitWidth(targetType) == 32) {
-      return genIntAtomOnPath(rng, sym, vars, targetType, cfg, extraRequires);
+      return genIntAtomOnPath(rng, sym, vars, targetType, cfg, extraRequires, excludeName);
     }
     // Non-i32: prefer RValueAtom (variable of targetType) since its type is
     // inferred from the declaration. Failing that, wrap a sym coef in a CastAtom.
-    auto scalarsOfT = vars.scalarsOf(targetType);
+    auto scalarsOfT = excluding(vars.scalarsOf(targetType), excludeName);
     if (!scalarsOfT.empty()) {
       // 50% chance of RValueAtom vs CastAtom{sym}
       std::uniform_int_distribution<int> coin(0, 1);
@@ -836,7 +881,7 @@ namespace symir::reify {
 
   static std::pair<Expr, std::vector<Instr>> genExprWithRequires(
       std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
-      bool onPath, const ExprGenConfig &cfg
+      bool onPath, const ExprGenConfig &cfg, const std::optional<std::string> &excludeName
   ) {
     std::vector<Instr> reqs;
     std::vector<Atom> atoms;
@@ -859,9 +904,9 @@ namespace symir::reify {
           // explicitly-typed first atom. A bare CoefAtom{SymId} would print as a
           // bare integer literal after model substitution, defaulting to i32.
           if (i == 0) {
-            a = genFirstIntAtomOnPath(rng, *sym, vars, targetType, cfg, reqs);
+            a = genFirstIntAtomOnPath(rng, *sym, vars, targetType, cfg, reqs, excludeName);
           } else {
-            a = genIntAtomOnPath(rng, *sym, vars, targetType, cfg, reqs);
+            a = genIntAtomOnPath(rng, *sym, vars, targetType, cfg, reqs, excludeName);
           }
         } else {
           // The first atom of an off-path expression must be explicitly typed.
@@ -870,23 +915,23 @@ namespace symir::reify {
           // Using genFirstIntAtomOffPath for i==0 ensures the first atom is always
           // a RValueAtom or CastAtom whose type is unambiguous.
           if (i == 0) {
-            a = genFirstIntAtomOffPath(rng, vars, targetType, cfg);
+            a = genFirstIntAtomOffPath(rng, vars, targetType, cfg, excludeName);
           } else {
-            a = genIntAtomOffPath(rng, vars, targetType, cfg);
+            a = genIntAtomOffPath(rng, vars, targetType, cfg, excludeName);
           }
         }
       } else if (isFpType(targetType)) {
         if (onPath && sym) {
-          a = genFloatAtomOnPath(rng, *sym, vars, targetType, cfg);
+          a = genFloatAtomOnPath(rng, *sym, vars, targetType, cfg, excludeName);
         } else {
           a = genFloatAtomOffPath(rng);
         }
       } else if (isPtrType(targetType)) {
-        a = genPtrAtom(rng, vars, targetType);
+        a = genPtrAtom(rng, vars, targetType, excludeName);
       } else if (isVecType(targetType)) {
         // [v0.2.1] Vec target in genExprWithRequires — delegate to the
         // same logic as genExpr's vec branch.
-        auto vecs = vars.vecsOf(targetType);
+        auto vecs = excluding(vars.vecsOf(targetType), excludeName);
         const auto &vt = std::get<VecType>(targetType->v);
         if (i == 0 && !vecs.empty()) {
           auto *v = pickOne(rng, vecs);
@@ -922,6 +967,33 @@ namespace symir::reify {
         a = genConcreteIntAtom(rng, makeI32());
       }
       atoms.push_back(std::move(a));
+    }
+
+    // Forbid single-atom bare-RValueAtom RHS for int/float scalars —
+    // `%v = %w;` plain copies optimize away under SCCP just as easily as
+    // self-assigns. Append a tail atom so the RHS becomes `%w + <something>`
+    // (typically a literal coef or another var), which the compiler cannot
+    // collapse without value-numbering across the join. Skip for ptr/vec
+    // (ptr is forced single-atom and excludeName already filtered the
+    // pool; vec already mixes whole-vec copy with lane-wise tails in the
+    // dispatch above).
+    if (atoms.size() == 1 && std::holds_alternative<RValueAtom>(atoms[0].v) &&
+        (isIntType(targetType) || isFpType(targetType))) {
+      Atom tail;
+      if (isIntType(targetType)) {
+        if (onPath && sym) {
+          tail = genIntAtomOnPath(rng, *sym, vars, targetType, cfg, reqs, excludeName);
+        } else {
+          tail = genIntAtomOffPath(rng, vars, targetType, cfg, excludeName);
+        }
+      } else {
+        if (onPath && sym) {
+          tail = genFloatAtomOnPath(rng, *sym, vars, targetType, cfg, excludeName);
+        } else {
+          tail = genFloatAtomOffPath(rng);
+        }
+      }
+      atoms.push_back(std::move(tail));
     }
 
     Expr expr;
@@ -1108,15 +1180,28 @@ namespace symir::reify {
       } else if (isPtrType(lhsVar->type)) {
         // Ptr reassignment: redirect to another target
         lhs = localLV(lhsVar->name);
-        Expr rhs = simpleExpr(genPtrAtom(rng, vars, lhsVar->type));
+        // Exclude the LHS ptr from its own RHS pool — `%p = %p;` is
+        // a no-op that SCCP folds; the ptr-copy slot of genPtrAtom picks
+        // from `vars.ptrsOf(ptee)` which would otherwise include %p.
+        // Bare `%p = %q;` (q != p) is intentionally permitted — adding
+        // pointer arithmetic like `%p = %q + 1;` would push %p past
+        // single-element objects (every reify ptr is `addr %scalar`),
+        // making any later `load %p` UB. Aliasing through a plain ptr
+        // copy is a useful, semantically distinct shape from a true
+        // self-assign.
+        Expr rhs = simpleExpr(genPtrAtom(rng, vars, lhsVar->type, lhsVar->name));
         result.push_back(Instr{AssignInstr{std::move(lhs), std::move(rhs), {}}});
         continue;
       } else if (isVecType(lhsVar->type)) {
         // [v0.2.1] Vec assignment: whole-vec only if we have another vec
         // var of the same type to copy from (otherwise the typechecker
         // rejects scalar RHS). Fall back to lane write.
+        // Exclude LHS from the same-type pool — `%vec = %vec;` is a
+        // no-op and the whole-vec RHS expr would otherwise have to pick
+        // the same var. With only the LHS available, fall through to
+        // lane write so the RHS lives in scalar-pool territory.
         const auto &vt = std::get<VecType>(lhsVar->type->v);
-        auto sameVecs = vars.vecsOf(lhsVar->type);
+        auto sameVecs = excluding(vars.vecsOf(lhsVar->type), lhsVar->name);
         bool canWholeVec = !sameVecs.empty();
         std::uniform_int_distribution<int> vslot(0, 99);
         if (canWholeVec && vslot(rng) >= rysmith::hp::kVecLaneWriteProb) {
@@ -1137,7 +1222,12 @@ namespace symir::reify {
       if (!assignType)
         continue;
 
-      auto [rhs, reqs] = genExprWithRequires(rng, sym, vars, assignType, onPath, cfg);
+      // The LHS root name (e.g. `%v0`, `%a` in `%a[i].f`, `%vec` in
+      // `%vec` whole-vec or `%vec[i]` lane write) is forbidden as an
+      // RValue anywhere in the RHS. For aggregate LHS (`%a[i]`, `%t.f`),
+      // excluding the root has no practical effect (the root is not a
+      // scalar and scalar pickers never see it), but it costs nothing.
+      auto [rhs, reqs] = genExprWithRequires(rng, sym, vars, assignType, onPath, cfg, lhsVar->name);
 
       // Insert safety requires before assignment if on-path (or safeOffPath)
       if (onPath || safeOffPath) {
