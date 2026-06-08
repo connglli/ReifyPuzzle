@@ -96,8 +96,13 @@ namespace symir::reify {
   );
 
   // Generate interest requires for new coef syms since coefCountBefore.
-  // These are RequireInstrs that exclude trivial values (0, 1, -1).
-  std::vector<Instr> interestCoefRequires(const SymCounter &sym, int coefCountBefore);
+  // Tiered: for each new coef, with probability `pLargeCoef` emit one
+  // `|c| > 2^20` require; otherwise emit nothing. The unconditional
+  // `c != 0,1,-1` triple from earlier versions clustered the solver at
+  // ±2 and starved the literal pool of magnitude diversity.
+  std::vector<Instr> interestCoefRequires(
+      std::mt19937 &rng, const SymCounter &sym, int coefCountBefore, double pLargeCoef
+  );
 
   // Generate N statements (assign + store mix) for a block.
   // onPath=true: uses sym. onPath=false: concrete only. safeOffPath: add UB guards.

@@ -140,18 +140,6 @@ namespace symir::reify::rysmith::hp {
   inline constexpr std::int64_t kConcreteInt_Default_Lo = -4;
   inline constexpr std::int64_t kConcreteInt_Default_Hi = 8;
 
-  // Concrete int range used as the multiplicative coef in off-path OpAtoms.
-  // (Off-path code is constant-folded by the typechecker / runtime, so we
-  // keep the coef small and human-friendly here rather than full-width.)
-  inline constexpr std::int64_t kOffPathCoef_Lo = -8;
-  inline constexpr std::int64_t kOffPathCoef_Hi = 8;
-  inline constexpr std::int64_t kOffPathCoefI8_Lo = -4;
-  inline constexpr std::int64_t kOffPathCoefI8_Hi = 4;
-  // Off-path divisor must be nonzero — kept positive so the off-path branch
-  // can never trigger div-by-zero UB without adding a runtime guard.
-  inline constexpr std::int64_t kOffPathDivisor_Lo = 1;
-  inline constexpr std::int64_t kOffPathDivisor_Hi = 8;
-
   // ===========================================================================
   // Float literal pools.
   //
@@ -170,16 +158,28 @@ namespace symir::reify::rysmith::hp {
   // break differential testing.
   // ===========================================================================
   // Bare-literal float Coef pool (genConcreteFloatAtom).
-  inline constexpr double kFloatLitPool[] = {0.0, 1.0,  -1.0, 2.0,   -2.0,  4.0,    -4.0, 8.0, -8.0,
-                                             0.5, -0.5, 0.25, -0.25, 0.125, -0.125, 3.0,  -3.0};
+  // Extended with non-power-of-2 dyadic rationals (1.5 = 3/2,
+  // 2.5 = 5/2, 3.75 = 15/4, 1.125 = 9/8, 0.375 = 3/8, 1.75 = 7/4,
+  // 0.625 = 5/8). Each is bit-exact across SymIR / GCC / WASM and
+  // composes cleanly with the existing power-of-2 entries; the extension
+  // breaks the previous pure-power-of-2 pattern that the compiler could
+  // recognise as `pow2 * var`-style strength-reduce candidates.
+  inline constexpr double kFloatLitPool[] = {
+      0.0,   1.0,   -1.0,   2.0,    -2.0,   4.0,  -4.0,  8.0,   -8.0,   0.5,  -0.5,
+      0.25,  -0.25, 0.125,  -0.125, 3.0,    -3.0, 1.5,   -1.5,  2.5,    -2.5, 3.75,
+      -3.75, 1.125, -1.125, 0.375,  -0.375, 1.75, -1.75, 0.625, -0.625,
+  };
   inline constexpr std::size_t kFloatLitPoolSize = sizeof(kFloatLitPool) / sizeof(kFloatLitPool[0]);
 
   // Multiplicative float coefs used in float * var atoms (genFloatAtomOnPath
   // Mul slot). 0.0 is intentionally omitted to avoid trivial zero terms.
   // Small odd ints (3, 5) are dyadic-exact themselves; products like 3*5=15
   // stay exact until precision overflow.
-  inline constexpr double kFloatMulCoefPool[] = {2.0,  -2.0, 4.0,   -4.0, 8.0,  -8.0, 0.5,
-                                                 -0.5, 0.25, -0.25, 3.0,  -3.0, 5.0,  -5.0};
+  // Extended with the same non-power-of-2 dyadics as kFloatLitPool.
+  inline constexpr double kFloatMulCoefPool[] = {
+      2.0, -2.0, 4.0, -4.0, 8.0,  -8.0,  0.5,   -0.5,   0.25,  -0.25,  3.0,  -3.0,  5.0,   -5.0,
+      1.5, -1.5, 2.5, -2.5, 3.75, -3.75, 1.125, -1.125, 0.375, -0.375, 1.75, -1.75, 0.625, -0.625,
+  };
   inline constexpr std::size_t kFloatMulCoefPoolSize =
       sizeof(kFloatMulCoefPool) / sizeof(kFloatMulCoefPool[0]);
 

@@ -544,6 +544,214 @@ def test_r3_pa_param_uses_present(rysmith):
   )
 
 
+# ---------------------------------------------------------------------------
+# R4–R8 effectiveness invariants
+# ---------------------------------------------------------------------------
+#
+# Each R-step closes a specific optimization-fold pathway that PLDI-style
+# reify exposed. The tests below sample a band of seeds, parse the output,
+# and assert the headline outcome — not the implementation. Detailed
+# rationale: tmp/reify_effectiveness_plan.md.
+
+_R48_SEEDS = [2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008]
+
+
+def _collect_sirs_with(rysmith, seeds, extra_flags=None, n_funcs=4, n_params=2):
+  """Generate programs with optional extra rysmith flags."""
+  sirs = []
+  for s in seeds:
+    d = tempfile.mkdtemp(prefix="r48_")
+    cmd = [
+      rysmith,
+      "--n-funcs",
+      str(n_funcs),
+      "--seed",
+      str(s),
+      "--n-params",
+      str(n_params),
+      "-o",
+      d,
+    ]
+    if extra_flags:
+      cmd.extend(extra_flags)
+    r = run(cmd)
+    if r.returncode != 0:
+      print(f"  {RED}rysmith failed for seed {s}: {r.stderr[:200]!r}{NC}")
+      continue
+    for f in os.listdir(d):
+      if f.endswith(".sir"):
+        sirs.append(os.path.join(d, f))
+  return sirs
+
+
+def test_r4_default_loops_iterate(rysmith):
+  """R4: the default `--max-loop-iter` was raised so the path sampler is
+  allowed to take back edges. Verified directly via `--help`: pre-R4 the
+  default was 1 (no iteration possible); post-R4 it is 3. The actual
+  iteration rate depends on the random walk and the CFG's back-edge
+  density; forcing iteration via `--min-loop-iter > 0` stresses pre-
+  existing typechecker fragility in the generation pipeline, so the
+  default leaves min at 0 and lets the bump act as a ceiling raise."""
+  r = run([rysmith, "--help"])
+  has_default_three = "max-loop-iter" in r.stdout and "(default: 3)" in r.stdout
+  check(
+    "R4: --help reports --max-loop-iter default 3",
+    has_default_three,
+    f"help missing 'max-loop-iter ... (default: 3)'; head={r.stdout[:300]!r}",
+  )
+
+
+_LIT_INT_RE = re.compile(r"(?<![\w.])(-?\d+)(?![\w.])")
+# Look for integer literals appearing as a Mul/Add coefficient in body
+# code. Excludes literal indices like `[0]` (covered by `?<!.` and `?!.`
+# rules above) and floats like `1.5` (the trailing `.` would match).
+
+
+def _body_int_literals(sir_path):
+  """Yield all integer literals from body statements (excluding indices
+  inside `[...]`, the SOLVED/PATH header, the @main wrapper, and the
+  %_chk exit-block helper)."""
+  with open(sir_path) as f:
+    text = f.read()
+  in_main = False
+  for line in text.splitlines():
+    stripped = line.strip()
+    if not stripped or stripped.startswith("//"):
+      continue
+    if stripped.startswith("fun @main"):
+      in_main = True
+      continue
+    if stripped.startswith("fun @") and not stripped.startswith("fun @main"):
+      in_main = False
+      continue
+    if in_main:
+      continue
+    if "%_chk" in stripped:
+      continue
+    if stripped.startswith("let "):
+      continue
+    # Strip out array/struct index brackets so `[3]` and `[0]` don't
+    # pollute the literal pool.
+    cleaned = re.sub(r"\[\s*-?\d+\s*\]", "", stripped)
+    for m in _LIT_INT_RE.finditer(cleaned):
+      try:
+        yield int(m.group(1))
+      except ValueError:
+        pass
+
+
+def test_r5_large_coef_share(rysmith):
+  """R5: the tiered interest-coef require lets ~30% of coefs land outside
+  the small-value pool. Proxy: ≥18% of body integer literals must have
+  `|v| > 2**20`. Pre-R5 the unconditional `c != 0,1,-1` triple clusters
+  the solver at ±2, leaving ≤10% of literals in this range."""
+  sirs = _collect_sirs_with(rysmith, _R48_SEEDS)
+  large = 0
+  total = 0
+  for sir in sirs:
+    for v in _body_int_literals(sir):
+      total += 1
+      if abs(v) > (1 << 20):
+        large += 1
+  share = large / total if total else 0.0
+  check(
+    f"R5: >= 18% of body int literals have |v| > 2^20 across {len(sirs)} files",
+    share >= 0.18,
+    f"share={share:.3%} ({large}/{total})",
+  )
+
+
+def test_r6_offpath_mul_widened(rysmith):
+  """R6: off-path `<lit> * %v` patterns now draw from the per-width int
+  pool, not the [-8, 8] kOffPathCoef_* range. Proxy: ≥20 distinct
+  `<lit> * %var` patterns where |lit| falls in (8, 2^20]. Pre-R6 only
+  on-path solver values (rare, clustered at ±2) reach this range, so
+  baseline is ≤10."""
+  sirs = _collect_sirs_with(rysmith, _R48_SEEDS)
+  mul_lit_var = re.compile(rf"(?<![\w.])(-?\d+)\s*\*\s*({_R3_LOCAL})")
+  count = 0
+  for sir in sirs:
+    with open(sir) as f:
+      text = f.read()
+    for m in mul_lit_var.finditer(text):
+      lit = abs(int(m.group(1)))
+      if 8 < lit <= (1 << 20):
+        count += 1
+  check(
+    f"R6: >= 80 `<lit> * %var` patterns with 8 < |lit| <= 2^20 across {len(sirs)} files",
+    count >= 80,
+    f"only {count} mid-range mul patterns observed",
+  )
+
+
+def test_r7_pickselectval_literal_diversity(rysmith):
+  """R7: the `select cond, a, b` literal slot must draw from the per-width
+  pool, not the hardcoded `intCoef(1)` / `floatCoef(1.0)` constants.
+  Pre-R7 every `select <cond>, <lit>, <lit>` (both literal-slot picks)
+  has both arms set to 1 because the literal slot is constant. After R7
+  the arms come from the int / float concrete pool, so most such pairs
+  have at least one arm != 1."""
+  sirs = _collect_sirs_with(rysmith, _R48_SEEDS)
+  both_literal = 0
+  both_one = 0
+  pat = re.compile(r"select\s+[^,]+,\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\s*[,;]")
+  for sir in sirs:
+    with open(sir) as f:
+      text = f.read()
+    for m in pat.finditer(text):
+      both_literal += 1
+      a, b = m.group(1), m.group(2)
+      if a in ("1", "1.0") and b in ("1", "1.0"):
+        both_one += 1
+  if both_literal == 0:
+    check("R7: at least 1 dual-literal select observed", False, "no patterns")
+    return
+  share_one = both_one / both_literal
+  check(
+    f"R7: < 50% of `select …, lit, lit` patterns are `lit, lit = 1, 1` "
+    f"({both_one}/{both_literal} both-one)",
+    share_one < 0.5,
+    f"share_one={share_one:.2%}",
+  )
+
+
+def test_r8_dyadic_fp_pool_extension(rysmith):
+  """R8: kFloatLitPool / kFloatMulCoefPool extended with non-power-of-2
+  dyadic values {±1.5, ±2.5, ±3.75, ±1.125, ±0.375, ±1.75, ±0.625}. At
+  least one of these new values must appear in a generated FP literal."""
+  sirs = _collect_sirs_with(rysmith, _R48_SEEDS, n_funcs=6)
+  new_values = {
+    "1.5",
+    "-1.5",
+    "2.5",
+    "-2.5",
+    "3.75",
+    "-3.75",
+    "1.125",
+    "-1.125",
+    "0.375",
+    "-0.375",
+    "1.75",
+    "-1.75",
+    "0.625",
+    "-0.625",
+  }
+  found = set()
+  for sir in sirs:
+    with open(sir) as f:
+      text = f.read()
+    for m in re.finditer(r"(-?\d+\.\d+)", text):
+      v = m.group(1)
+      # Drop trailing zeros but keep the canonical form
+      if v in new_values:
+        found.add(v)
+  check(
+    f"R8: >= 1 non-power-of-2 dyadic FP literal observed across {len(sirs)} files",
+    len(found) >= 1,
+    f"found={sorted(found)}",
+  )
+
+
 def main():
   if len(sys.argv) != 3:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri>")
@@ -571,6 +779,16 @@ def main():
   test_r3_baseline_assignment_volume(rysmith)
   print("=== R3: parameter uses survive in complex RHS ===")
   test_r3_pa_param_uses_present(rysmith)
+  print("=== R4: default loop-iter actually iterates ===")
+  test_r4_default_loops_iterate(rysmith)
+  print("=== R5: large-coef share above floor ===")
+  test_r5_large_coef_share(rysmith)
+  print("=== R6: off-path mul-coef widened ===")
+  test_r6_offpath_mul_widened(rysmith)
+  print("=== R7: pickSelectVal literal diversity ===")
+  test_r7_pickselectval_literal_diversity(rysmith)
+  print("=== R8: dyadic FP pool extension ===")
+  test_r8_dyadic_fp_pool_extension(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

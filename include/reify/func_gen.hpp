@@ -20,6 +20,12 @@ namespace symir::reify {
     bool enableInterestCoefs = true;
     bool enableInterestInits = true;
     bool enableIntrinsics = true;
+    // Probability that a new on-path coef sym gets a `|c| > 2^20`
+    // require, replacing the old unconditional `c != 0 ∧ c != 1 ∧ c != -1`
+    // triple. With the triple in place the solver clusters every coef at
+    // ±2 (the smallest values surviving the filter); R5 trades that
+    // floor for a real diversity guarantee.
+    double pLargeCoef = 0.3;
     ExprGenConfig exprCfg;
     // Sym counter domains
     int64_t coefLo = -8, coefHi = 8;

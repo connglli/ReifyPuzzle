@@ -170,8 +170,8 @@ static GenerateResult generateLeaf(
     const VarGenConfig &varCfg,
     // Func params
     const std::string &funcName, int nStmts, bool safeOffPath, bool enableInterestCoefs,
-    int64_t coefLo, int64_t coefHi, int64_t valueLo, int64_t valueHi, int64_t indexLo,
-    int64_t indexHi, const ExprGenConfig &exprCfg, bool enableIntrinsics,
+    double pLargeCoef, int64_t coefLo, int64_t coefHi, int64_t valueLo, int64_t valueHi,
+    int64_t indexLo, int64_t indexHi, const ExprGenConfig &exprCfg, bool enableIntrinsics,
     // Solver params
     uint32_t timeoutMs,
     // Retry params
@@ -246,6 +246,7 @@ static GenerateResult generateLeaf(
       fcfg.enableInterestCoefs = enableInterestCoefs;
       fcfg.enableInterestInits = true;
       fcfg.enableIntrinsics = enableIntrinsics;
+      fcfg.pLargeCoef = pLargeCoef;
       fcfg.exprCfg = exprCfg;
       fcfg.coefLo = coefLo;
       fcfg.coefHi = coefHi;
@@ -550,9 +551,11 @@ int main(int argc, char **argv) {
     ("max-retries",       "Retry attempts on solver failure",
                           cxxopts::value<int>()->default_value("2"))
     ("max-loop-iter",     "Max loop iterations in the execution path (EP) sample",
-                          cxxopts::value<int>()->default_value("1"))
+                          cxxopts::value<int>()->default_value("3"))
     ("min-loop-iter",     "Require at least one loop in the EP to iterate this many times",
-                          cxxopts::value<int>())
+                          cxxopts::value<int>()->default_value("0"))
+    ("p-large-coef",      "Fraction of new on-path coefs forced to |c| > 2^20",
+                          cxxopts::value<double>()->default_value("0.3"))
     // Output
     ("o,output-dir",      "Output directory",
                           cxxopts::value<std::string>()->default_value("rysmith_out"))
@@ -647,7 +650,7 @@ int main(int argc, char **argv) {
   int nBbls = result["n-bbls"].as<int>();
   int nStmts = result["n-stmts"].as<int>();
   int maxLoopIter = result["max-loop-iter"].as<int>();
-  int minLoopIter = result.count("min-loop-iter") ? result["min-loop-iter"].as<int>() : 0;
+  int minLoopIter = result["min-loop-iter"].as<int>();
   // [v0.2.2] Clamp to [1, 26] — each init's concrete file is named
   // with a lowercase-letter suffix `func_<id>_<i><a..z>.sir`, so
   // 26 is the natural cap. 0 is meaningless (no concretization).
@@ -664,6 +667,11 @@ int main(int argc, char **argv) {
   double pBackedge = result["p-backedge"].as<double>();
   bool safeOffPath = result.count("safe-off-path") > 0;
   bool enableInterestCoefs = true; // kept in code; not user-exposed
+  double pLargeCoef = result["p-large-coef"].as<double>();
+  if (pLargeCoef < 0.0 || pLargeCoef > 1.0) {
+    std::cerr << "error: --p-large-coef must be in [0, 1] (got " << pLargeCoef << ")\n";
+    return 2;
+  }
   uint32_t timeoutMs = result["timeout"].as<uint32_t>();
   // Wall-clock budget per function: covers all retries × inits plus 50 ms for non-solver overhead
   // (CFG gen, path sampling, formula construction, SIRPrinter). Compilation runs outside the
@@ -722,9 +730,9 @@ int main(int argc, char **argv) {
     std::thread t([&, state]() {
       state->result = generateLeaf(
           nBbls, pBranch, pBackedge, maxLoopIter, minLoopIter, fnVarCfg, funcName, nStmts,
-          safeOffPath, enableInterestCoefs, coefLo, coefHi, valueLo, valueHi, indexLo, indexHi,
-          exprCfg, enableIntrinsics, timeoutMs, maxRetries, nInits, outDir, keepSymbolic, verbose,
-          state->rng, funcSeed, genId, emitDesc, emitMain
+          safeOffPath, enableInterestCoefs, pLargeCoef, coefLo, coefHi, valueLo, valueHi, indexLo,
+          indexHi, exprCfg, enableIntrinsics, timeoutMs, maxRetries, nInits, outDir, keepSymbolic,
+          verbose, state->rng, funcSeed, genId, emitDesc, emitMain
       );
       state->done.store(true, std::memory_order_release);
     });

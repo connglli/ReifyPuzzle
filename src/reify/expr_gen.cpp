@@ -142,41 +142,58 @@ namespace symir::reify {
   // Interest coef requires
   // ---------------------------------------------------------------------------
 
-  std::vector<Instr> interestCoefRequires(const SymCounter &sym, int coefCountBefore) {
-    auto newCoefs = sym.namesOfKindSince(SymKind::Coef, coefCountBefore);
+  std::vector<Instr> interestCoefRequires(
+      std::mt19937 &rng, const SymCounter &sym, int coefCountBefore, double pLargeCoef
+  ) {
     std::vector<Instr> instrs;
-    for (const auto &c: newCoefs) {
-      // require c != 0
-      {
-        RequireInstr req;
-        req.cond.lhs = simpleExpr(coefAtom(symCoef(c)));
-        req.cond.op = RelOp::NE;
-        req.cond.rhs = simpleExpr(coefAtom(intCoef(0)));
-        req.message = "coef nonzero";
-        instrs.push_back(Instr{std::move(req)});
-      }
-      // require (c - 1) != 0  i.e. c != 1
-      {
-        RequireInstr req;
-        Expr lhs = simpleExpr(coefAtom(symCoef(c)));
-        lhs.rest.push_back({AddOp::Minus, coefAtom(intCoef(1)), {}});
-        req.cond.lhs = std::move(lhs);
-        req.cond.op = RelOp::NE;
-        req.cond.rhs = simpleExpr(coefAtom(intCoef(0)));
-        req.message = "coef not 1";
-        instrs.push_back(Instr{std::move(req)});
-      }
-      // require (c + 1) != 0  i.e. c != -1
-      {
-        RequireInstr req;
-        Expr lhs = simpleExpr(coefAtom(symCoef(c)));
-        lhs.rest.push_back({AddOp::Plus, coefAtom(intCoef(1)), {}});
-        req.cond.lhs = std::move(lhs);
-        req.cond.op = RelOp::NE;
-        req.cond.rhs = simpleExpr(coefAtom(intCoef(0)));
-        req.message = "coef not -1";
-        instrs.push_back(Instr{std::move(req)});
-      }
+    std::uniform_real_distribution<double> coin(0.0, 1.0);
+    std::uniform_int_distribution<int> side(0, 1);
+    // Walk new coef entries (post-coefCountBefore) directly so each
+    // require's threshold can be sized to that coef's actual bitwidth —
+    // a require like `c > 2^20` is malformed for an i8/i16 coef because
+    // the literal doesn't fit the typechecker's per-type range.
+    int idx = 0;
+    for (const auto &e: sym.entries) {
+      if (e.kind != SymKind::Coef)
+        continue;
+      const int thisIdx = idx++;
+      if (thisIdx < coefCountBefore)
+        continue;
+      if (coin(rng) >= pLargeCoef)
+        continue;
+      // [bugfix] Vec lane operations create coef syms whose type is the
+      // vec element type (expr_gen.cpp `sym->nextCoef(vt.elem)`), which
+      // can be f32 / f64. intBitWidth asserts isIntType and would
+      // crash. The "large coef" notion only applies to integer
+      // bit-vectors, so skip non-int coefs entirely.
+      if (!isIntType(e.type))
+        continue;
+      // Threshold sized to the coef's declared bitwidth. We want
+      // 2^(bits-2) (= MAX/2) when the coef has room for it, capped at
+      // 2^20 — large enough to break the ±2 cluster the old c != 0/1/-1
+      // triple produced and small enough to leave the solver room.
+      uint32_t bits = intBitWidth(e.type);
+      if (bits == 0) // unknown — skip
+        continue;
+      int64_t threshold;
+      if (bits >= 22)
+        threshold = (int64_t) 1 << 20; // i32, i64
+      else if (bits >= 4)
+        threshold = (int64_t) 1 << (bits - 2); // i16 → 16384, i8 → 64
+      else
+        continue; // i1 / weird narrow — skip
+      // Encode |c| > T as a single relop by randomly picking the sign.
+      // RequireInstr.cond is one Cond, so we can't OR two predicates in
+      // a single require; the disjunction `c > T ∨ c < -T` is encoded
+      // per-coef as one of the two sides chosen at generation time.
+      // Average behaviour over many coefs covers both magnitudes.
+      bool positive = side(rng) == 0;
+      RequireInstr req;
+      req.cond.lhs = simpleExpr(coefAtom(symCoef(e.name)));
+      req.cond.op = positive ? RelOp::GT : RelOp::LT;
+      req.cond.rhs = simpleExpr(coefAtom(intCoef(positive ? threshold : -threshold)));
+      req.message = positive ? "coef large positive" : "coef large negative";
+      instrs.push_back(Instr{std::move(req)});
     }
     return instrs;
   }
@@ -185,9 +202,10 @@ namespace symir::reify {
   // Core expression builders
   // ---------------------------------------------------------------------------
 
-  // Generate a random concrete integer literal in [lo, hi] of the given bitwidth.
-  // The type checker validates literal range, so we keep values small.
-  static Atom genConcreteIntAtom(std::mt19937 &rng, const TypePtr &targetType) {
+  // Return the [lo, hi] inclusive range used for concrete integer literals
+  // of the given target type. Centralised so off-path coef draws and bare
+  // literal atoms share a single source of truth (see R6).
+  static std::pair<int64_t, int64_t> concreteIntRange(const TypePtr &targetType) {
     uint32_t bits = intBitWidth(targetType);
     int64_t lo = rysmith::hp::kConcreteInt_Default_Lo, hi = rysmith::hp::kConcreteInt_Default_Hi;
     if (bits == 8) {
@@ -203,8 +221,29 @@ namespace symir::reify {
       lo = rysmith::hp::kConcreteInt_I64_Lo;
       hi = rysmith::hp::kConcreteInt_I64_Hi;
     }
+    return {lo, hi};
+  }
+
+  static int64_t pickConcreteIntLit(std::mt19937 &rng, const TypePtr &targetType) {
+    auto [lo, hi] = concreteIntRange(targetType);
     std::uniform_int_distribution<int64_t> d(lo, hi);
-    return coefAtom(intCoef(d(rng)));
+    return d(rng);
+  }
+
+  // Pick a nonzero concrete literal from the per-width pool. Used as
+  // the dividend in off-path `lit / %v` and `lit % %v` atoms — div-by-zero
+  // on the runtime variable %v is a separate, pre-existing concern (off-
+  // path code is sampled around the solver-chosen execution path).
+  static int64_t pickConcreteIntLitNonzero(std::mt19937 &rng, const TypePtr &targetType) {
+    int64_t v = pickConcreteIntLit(rng, targetType);
+    if (v == 0)
+      v = 1;
+    return v;
+  }
+
+  // Generate a random concrete integer literal in [lo, hi] of the given bitwidth.
+  static Atom genConcreteIntAtom(std::mt19937 &rng, const TypePtr &targetType) {
+    return coefAtom(intCoef(pickConcreteIntLit(rng, targetType)));
   }
 
   // Generate a concrete float atom
@@ -226,13 +265,27 @@ namespace symir::reify {
       auto *v = pickOne(rng, scalars);
       return SelectVal{LValue{LocalId{v->name, {}}, {}, {}}};
     }
-    if (k == 1 && sym != nullptr) {
-      return SelectVal{symCoef(sym->nextValue())};
+    if (k == 1 && sym != nullptr && isIntType(targetType)) {
+      // [bugfix] Sym slot must produce a sym whose declared type matches
+      // `targetType`. SymCounter::nextValue() hardcoded i32, so a select
+      // returning i64 ended up with arms of mismatched widths (i32 sym
+      // vs i64 literal/local) and the typechecker rejected the program.
+      // Skip the sym slot for FP target types (rysmith does not currently
+      // mint FP value-syms in this code path); fall through to the
+      // float-literal pool below.
+      return SelectVal{symCoef(sym->next(SymKind::Value, targetType))};
     }
-    // Literal of the right kind
-    if (isFpType(targetType))
-      return SelectVal{floatCoef(1.0)};
-    return SelectVal{intCoef(1)};
+    // Literal slot draws from the same per-width / FP pool as bare
+    // concrete atoms instead of the hardcoded `1` / `1.0`. Pre-R7 every
+    // select fallback arm was exactly `1`, which collapses any
+    // `select cond, 1, 1` (both literal arms) to a constant — the
+    // compiler removes the select entirely and the cond evaluation with
+    // it.
+    if (isFpType(targetType)) {
+      std::uniform_int_distribution<std::size_t> d(0, rysmith::hp::kFloatLitPoolSize - 1);
+      return SelectVal{floatCoef(rysmith::hp::kFloatLitPool[d(rng)])};
+    }
+    return SelectVal{intCoef(pickConcreteIntLit(rng, targetType))};
   }
 
   // Generate a SelectAtom of the given target type. Cond compares a scalar
@@ -479,24 +532,20 @@ namespace symir::reify {
       return genConcreteIntAtom(rng, targetType);
     }
     if (s < rysmith::hp::kIntOffPath_MulEnd) {
+      // Coefficient is drawn from the per-width concrete pool — the
+      // old [-8, 8] kOffPathCoef_* range starved the literal magnitude
+      // distribution and let the compiler fold most off-path code at -O2.
       auto *v = pickOne(rng, scalarsOfT);
-      uint32_t bits = intBitWidth(targetType);
-      int64_t lo = rysmith::hp::kOffPathCoef_Lo, hi = rysmith::hp::kOffPathCoef_Hi;
-      if (bits == 8) {
-        lo = rysmith::hp::kOffPathCoefI8_Lo;
-        hi = rysmith::hp::kOffPathCoefI8_Hi;
-      }
-      std::uniform_int_distribution<int64_t> cd(lo, hi);
-      return opAtom(AtomOpKind::Mul, intCoef(cd(rng)), localLV(v->name));
+      return opAtom(
+          AtomOpKind::Mul, intCoef(pickConcreteIntLit(rng, targetType)), localLV(v->name)
+      );
     }
     if (s < rysmith::hp::kIntOffPath_BitwiseEnd && cfg.enableAllOps) {
+      // Same as above for bitwise ops.
       auto *v = pickOne(rng, scalarsOfT);
       static const AtomOpKind bops[] = {AtomOpKind::And, AtomOpKind::Or, AtomOpKind::Xor};
       std::uniform_int_distribution<int> op(0, 2);
-      std::uniform_int_distribution<int64_t> cv(
-          rysmith::hp::kOffPathCoef_Lo, rysmith::hp::kOffPathCoef_Hi
-      );
-      return opAtom(bops[op(rng)], intCoef(cv(rng)), localLV(v->name));
+      return opAtom(bops[op(rng)], intCoef(pickConcreteIntLit(rng, targetType)), localLV(v->name));
     }
     if (s < rysmith::hp::kIntOffPath_CastEnd && !otherIntScalars.empty()) {
       auto *v = pickOne(rng, otherIntScalars);
@@ -506,13 +555,16 @@ namespace symir::reify {
       return Atom{std::move(ca), {}};
     }
     if (s < rysmith::hp::kIntOffPath_DivModEnd && cfg.enableDiv && hasRval) {
+      // Dividend draws from the per-width pool (nonzero); the divisor
+      // (the runtime LValue %v) carries a pre-existing div-by-zero risk
+      // that this slot has always had — wrapping with `select v == 0, …`
+      // would need OpAtom.rval to admit SelectAtom, which the grammar
+      // forbids. Off-path is sampled around the on-path so this branch
+      // is not part of the solver-chosen execution path.
       auto *v = pickOne(rng, scalarsOfT);
       std::uniform_int_distribution<int> dm(0, 1);
       AtomOpKind op = dm(rng) ? AtomOpKind::Mod : AtomOpKind::Div;
-      std::uniform_int_distribution<int64_t> cd(
-          rysmith::hp::kOffPathDivisor_Lo, rysmith::hp::kOffPathDivisor_Hi
-      );
-      return opAtom(op, intCoef(cd(rng)), localLV(v->name));
+      return opAtom(op, intCoef(pickConcreteIntLitNonzero(rng, targetType)), localLV(v->name));
     }
     if (s < rysmith::hp::kIntOffPath_PlainRvalEnd) {
       auto *v = pickOne(rng, scalarsOfT);

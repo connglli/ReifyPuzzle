@@ -327,7 +327,7 @@ namespace symir::reify {
 
         // Interest coef requires (on-path only, before terminator)
         if (fcfg.enableInterestCoefs && onPath) {
-          auto reqs = interestCoefRequires(sym, coefsBefore);
+          auto reqs = interestCoefRequires(rng, sym, coefsBefore, fcfg.pLargeCoef);
           for (auto &r: reqs)
             block.instrs.push_back(std::move(r));
         }
