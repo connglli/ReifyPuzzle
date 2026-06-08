@@ -94,6 +94,25 @@ namespace symir::reify::rysmith::hp {
   // pushes the skip rate from ~20% per slot to under 1‰.
   inline constexpr int kAssignTargetMaxAttempts = 5;
 
+  // Probability that a generated RHS expression is allowed to keep a
+  // fully-literal shape (`%x = 3;`, `%x = 3 + 5 - 2;`, `%x = 3 as i64;`,
+  // and any expression where no atom reads a runtime LValue). Pure-
+  // literal RHSs fold flat under SCCP, then DCE removes the def, and
+  // the assignment contributes nothing to the compiler's optimization
+  // surface. The complement (default 95%) of these expressions has one
+  // atom rerolled until it carries a runtime data dependency. The
+  // small `kPAllowAllLiteral` slice exists to keep the solver loose
+  // when tight path constraints make non-trivial RHSs hard to satisfy.
+  inline constexpr double kPAllowAllLiteral = 0.05;
+
+  // How many times `genExpr` / `genExprWithRequires` tries to roll a
+  // non-trivial atom before giving up and accepting whatever the gen
+  // returns. With the ~40-50% trivial rate of the on/off-path atom
+  // dispatch tables, 5 retries pushes the post-check failure rate to
+  // (~0.5)^5 ≈ 3% — the residual leak that survives alongside the
+  // intentional `kPAllowAllLiteral` allowance.
+  inline constexpr int kAtomRerollMaxAttempts = 5;
+
   // 50/50 between `+` and `-` when joining tail atoms in an expression.
   // The lone `coin(0, 1)` site in `genExpr` / `genExprWithRequires`
   // — kept as a named constant so a future "favour `-` for sign-bit

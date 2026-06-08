@@ -77,6 +77,27 @@ namespace symir::reify {
     return vec;
   }
 
+  // An atom is "trivially constant" when it carries no runtime LValue
+  // dependency: a bare literal CoefAtom, a CoefAtom referring to a
+  // SymId (the solver picks a literal post-solve, indistinguishable
+  // from a hardcoded literal in the substituted .sir), or a CastAtom
+  // whose source is an IntLit / FloatLit / SymId. Every other atom
+  // kind reads from at least one LValue (RValueAtom, OpAtom, UnaryAtom,
+  // CastAtom-from-LValue, SelectAtom, AddrAtom, LoadAtom, PtrIndex,
+  // PtrField, CallAtom) and contributes a real data dependency that
+  // the compiler can't collapse without value-numbering the surrounding
+  // code. Used by the post-check that rejects all-trivial RHSs.
+  static bool isTriviallyConstantAtom(const Atom &a) {
+    if (auto *ca = std::get_if<CoefAtom>(&a.v)) {
+      if (auto *lsi = std::get_if<LocalOrSymId>(&ca->coef))
+        return std::holds_alternative<SymId>(*lsi); // LocalId reads the var → not trivial
+      return true;                                  // IntLit, FloatLit, NullLit
+    }
+    if (auto *cast = std::get_if<CastAtom>(&a.v))
+      return !std::holds_alternative<LValue>(cast->src);
+    return false;
+  }
+
   // ---------------------------------------------------------------------------
   // SymCounter implementation
   // ---------------------------------------------------------------------------
@@ -636,7 +657,26 @@ namespace symir::reify {
   }
 
   // Generate a float atom (off-path: concrete literals only)
-  static Atom genFloatAtomOffPath(std::mt19937 &rng) { return genConcreteFloatAtom(rng); }
+  // Off-path FP atom. Pre-restructure this returned a concrete float
+  // literal unconditionally — that left every off-path FP expression
+  // 100% trivially constant (no runtime LValue ref) so the trivial-
+  // shape post-check could never repair it. Allow ~50% var-ref atoms
+  // when a same-typed FP var is available so the post-check has a
+  // non-trivial source to draw from.
+  static Atom genFloatAtomOffPath(
+      std::mt19937 &rng, const VarCatalogue &vars, const TypePtr &targetType,
+      const std::optional<std::string> &excludeName = std::nullopt
+  ) {
+    auto fpVars = excluding(vars.scalarsOf(targetType), excludeName);
+    if (!fpVars.empty()) {
+      std::uniform_real_distribution<double> coin(0.0, 1.0);
+      if (coin(rng) < 0.5) {
+        auto *v = pickOne(rng, fpVars);
+        return rvalAtom(localLV(v->name));
+      }
+    }
+    return genConcreteFloatAtom(rng);
+  }
 
   // Generate a ptr-type atom. Collects all candidate atoms uniformly so each
   // option (addr, copy, load-from-ptr-ptr) appears with equal probability.
@@ -729,6 +769,103 @@ namespace symir::reify {
   }
 
   // ---------------------------------------------------------------------------
+  // Trivial-shape post-check helpers
+  //
+  // Shared by `genExpr` and `genExprWithRequires`. The two callers used to
+  // carry near-identical inline lambdas + post-check blocks; factoring
+  // here keeps the trivial-shape contract in one place. Only int / fp
+  // target types are supported — ptr / vec / struct are shape-restricted
+  // by their own dispatch and shouldn't be reshaped here.
+  // ---------------------------------------------------------------------------
+
+  // Thin wrapper around the per-direction × per-class atom dispatch.
+  // Threads `extraRequires` so on-path int atoms can publish their
+  // div-by-zero guards (the off-path/FP paths don't touch it).
+  static Atom genOneAtomOfType(
+      std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
+      bool onPath, const ExprGenConfig &cfg, std::vector<Instr> &extraRequires,
+      const std::optional<std::string> &excludeName
+  ) {
+    if (isIntType(targetType))
+      return (onPath && sym)
+                 ? genIntAtomOnPath(rng, *sym, vars, targetType, cfg, extraRequires, excludeName)
+                 : genIntAtomOffPath(rng, vars, targetType, cfg, excludeName);
+    return (onPath && sym) ? genFloatAtomOnPath(rng, *sym, vars, targetType, cfg, excludeName)
+                           : genFloatAtomOffPath(rng, vars, targetType, excludeName);
+  }
+
+  // Generate an atom that carries a runtime LValue dependency. Tries
+  // the standard dispatch up to `kAtomRerollMaxAttempts` times, then
+  // falls back to a hand-rolled `RValueAtom` / `CastAtom` from any
+  // in-scope LValue. The fallback is what keeps the trivial-shape post-
+  // check effective in narrow var pools — e.g. an f32 LHS whose only
+  // same-type sibling is itself (excluded by R3) has no good slot in
+  // `genFloatAtomOnPath` and would otherwise leave us with a trivial
+  // result every roll.
+  static Atom genNonTrivialAtomOfType(
+      std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
+      bool onPath, const ExprGenConfig &cfg, std::vector<Instr> &extraRequires,
+      const std::optional<std::string> &excludeName
+  ) {
+    Atom last =
+        genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, extraRequires, excludeName);
+    if (!isTriviallyConstantAtom(last))
+      return last;
+    for (int r = 1; r < rysmith::hp::kAtomRerollMaxAttempts; r++) {
+      Atom cand =
+          genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, extraRequires, excludeName);
+      if (!isTriviallyConstantAtom(cand))
+        return cand;
+      last = std::move(cand);
+    }
+    auto same = excluding(vars.scalarsOf(targetType), excludeName);
+    if (!same.empty()) {
+      auto *v = pickOne(rng, same);
+      return rvalAtom(localLV(v->name));
+    }
+    auto allScalars = excluding(vars.allScalars(), excludeName);
+    for (auto *v: allScalars) {
+      if (!isIntType(v->type))
+        continue;
+      CastAtom ca;
+      ca.src = LValue{LocalId{v->name, {}}, {}, {}};
+      ca.dstType = targetType;
+      return Atom{std::move(ca), {}};
+    }
+    return last;
+  }
+
+  // Apply the trivial-shape post-check in place. With probability
+  // `1 - kPAllowAllLiteral`, if every atom is trivially constant the
+  // single-atom case grows to two atoms by appending a non-trivial
+  // tail; the multi-atom case has its last atom rewritten. Replacing
+  // the last (not the first) atom keeps the typechecker's first-atom
+  // width inference intact.
+  static void rewriteIfAllTriviallyConstant(
+      std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
+      bool onPath, const ExprGenConfig &cfg, std::vector<Instr> &extraRequires,
+      const std::optional<std::string> &excludeName, std::vector<Atom> &atoms
+  ) {
+    if (!isIntType(targetType) && !isFpType(targetType))
+      return;
+    std::uniform_real_distribution<double> allowCoin(0.0, 1.0);
+    if (allowCoin(rng) < rysmith::hp::kPAllowAllLiteral)
+      return;
+    bool allTrivial = std::all_of(atoms.begin(), atoms.end(), [](const Atom &a) {
+      return isTriviallyConstantAtom(a);
+    });
+    if (!allTrivial)
+      return;
+    Atom replacement = genNonTrivialAtomOfType(
+        rng, sym, vars, targetType, onPath, cfg, extraRequires, excludeName
+    );
+    if (atoms.size() == 1)
+      atoms.push_back(std::move(replacement));
+    else
+      atoms.back() = std::move(replacement);
+  }
+
+  // ---------------------------------------------------------------------------
   // Main genExpr
   // ---------------------------------------------------------------------------
 
@@ -773,7 +910,7 @@ namespace symir::reify {
         if (onPath && sym) {
           a = genFloatAtomOnPath(rng, *sym, vars, targetType, cfg, excludeName);
         } else {
-          a = genFloatAtomOffPath(rng);
+          a = genFloatAtomOffPath(rng, vars, targetType, excludeName);
         }
       } else if (isPtrType(targetType)) {
         a = genPtrAtom(rng, vars, targetType, excludeName);
@@ -850,6 +987,13 @@ namespace symir::reify {
       }
       atoms.push_back(std::move(a));
     }
+
+    // Trivial-shape post-check. `genExpr` is also called for intrinsic
+    // arguments — `call @foo(3, 5)` is just as foldable as a body
+    // `%x = 3 + 5;` and benefits from the same reshape.
+    rewriteIfAllTriviallyConstant(
+        rng, sym, vars, targetType, onPath, cfg, dummyReqs, excludeName, atoms
+    );
 
     // Build Expr from atoms
     Expr expr;
@@ -987,7 +1131,7 @@ namespace symir::reify {
         if (onPath && sym) {
           a = genFloatAtomOnPath(rng, *sym, vars, targetType, cfg, excludeName);
         } else {
-          a = genFloatAtomOffPath(rng);
+          a = genFloatAtomOffPath(rng, vars, targetType, excludeName);
         }
       } else if (isPtrType(targetType)) {
         a = genPtrAtom(rng, vars, targetType, excludeName);
@@ -1032,32 +1176,23 @@ namespace symir::reify {
       atoms.push_back(std::move(a));
     }
 
-    // Forbid single-atom bare-RValueAtom RHS for int/float scalars —
-    // `%v = %w;` plain copies optimize away under SCCP just as easily as
-    // self-assigns. Append a tail atom so the RHS becomes `%w + <something>`
-    // (typically a literal coef or another var), which the compiler cannot
-    // collapse without value-numbering across the join. Skip for ptr/vec
-    // (ptr is forced single-atom and excludeName already filtered the
-    // pool; vec already mixes whole-vec copy with lane-wise tails in the
-    // dispatch above).
+    // R3: forbid single-atom bare-RValueAtom RHS for int/float scalars.
+    // `%v = %w;` plain copies fold away under SCCP just as easily as
+    // self-assigns. Append a tail atom so the RHS becomes `%w + ...`,
+    // which the compiler cannot collapse without value-numbering across
+    // the join. Unconditional (no kPAllowAllLiteral gate) because R3's
+    // contract is "0 plain copies", not "5% allowed". Skip for ptr/vec:
+    // ptr is forced single-atom with `excludeName` already filtering
+    // the pool; vec already mixes whole-vec copy with lane-wise tails
+    // in its own dispatch.
     if (atoms.size() == 1 && std::holds_alternative<RValueAtom>(atoms[0].v) &&
         (isIntType(targetType) || isFpType(targetType))) {
-      Atom tail;
-      if (isIntType(targetType)) {
-        if (onPath && sym) {
-          tail = genIntAtomOnPath(rng, *sym, vars, targetType, cfg, reqs, excludeName);
-        } else {
-          tail = genIntAtomOffPath(rng, vars, targetType, cfg, excludeName);
-        }
-      } else {
-        if (onPath && sym) {
-          tail = genFloatAtomOnPath(rng, *sym, vars, targetType, cfg, excludeName);
-        } else {
-          tail = genFloatAtomOffPath(rng);
-        }
-      }
-      atoms.push_back(std::move(tail));
+      atoms.push_back(genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, reqs, excludeName));
     }
+
+    rewriteIfAllTriviallyConstant(
+        rng, sym, vars, targetType, onPath, cfg, reqs, excludeName, atoms
+    );
 
     Expr expr;
     expr.first = std::move(atoms[0]);

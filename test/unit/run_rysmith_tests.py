@@ -852,6 +852,133 @@ def test_n_stmts_counts_assignments_only(rysmith):
     )
 
 
+def _classify_body_assigns(rysmith_dir):
+  """Walk every body assignment across the .sir files in `rysmith_dir`
+  and bucket them by RHS shape. Returns (total, trivial, single_atom_lit)
+  where:
+    - total: every `LHS = RHS;` body line (excludes store / require /
+      `addr` inits / @main / %_chk).
+    - trivial: RHS contains no `%` — the entire RHS is a literal-only
+      expression that the compiler can fold without any runtime data
+      flow. Covers `%x = 3;`, `%x = 3 + 5 - 2;`, `%x = 3 as i64;`,
+      `%x = 3 as i64 - 2147483647;`, etc.
+    - single_atom_lit: RHS is a single bare literal (`3`, `-1.5`, `null`),
+      a strict subset of `trivial`.
+  """
+  total = trivial = single_atom_lit = 0
+  for f in os.listdir(rysmith_dir):
+    if not f.endswith(".sir"):
+      continue
+    text = open(os.path.join(rysmith_dir, f)).read()
+    in_main = False
+    for line in text.splitlines():
+      s = line.strip()
+      if s.startswith("fun @main"):
+        in_main = True
+        continue
+      if s.startswith("fun @") and not s.startswith("fun @main"):
+        in_main = False
+        continue
+      if in_main or "%_chk" in s:
+        continue
+      if (
+        s.startswith("store ")
+        or s.startswith("require ")
+        or s.startswith("br ")
+        or s.startswith("ret ")
+        or s.startswith("unreachable")
+      ):
+        continue
+      m = re.match(r"%\w[^=]*=\s*(.+);\s*$", s)
+      if not m:
+        continue
+      rhs = m.group(1).strip()
+      # Skip ptr-init `addr %v` shapes that look like assignments in
+      # entry blocks but are synthesized by reify, not by the body
+      # generator.
+      if rhs.startswith("addr "):
+        total += 1
+        continue
+      total += 1
+      if "%" in rhs:
+        continue
+      trivial += 1
+      if re.fullmatch(r"-?\d+(?:\.\d+(?:[eE][-+]?\d+)?)?|null", rhs):
+        single_atom_lit += 1
+  return total, trivial, single_atom_lit
+
+
+def test_no_all_literal_assignment(rysmith):
+  """The bulk of body RHS expressions must reference a runtime LValue.
+  Pure-literal RHS (`%x = 3 + 5 - 2;`, `%x = 3 as i64;`, etc.) folds
+  flat under SCCP and contributes nothing to compiler stress. The
+  generator allows a small `kPAllowAllLiteral` slice (default 5%) so
+  the solver retains headroom on tight paths."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "8",
+        "--seed",
+        "1001",
+        "--n-params",
+        "2",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("trivial-shape: rysmith run exits 0", False, r.stderr[:200])
+      return
+    total, trivial, _ = _classify_body_assigns(d)
+    if total == 0:
+      check("trivial-shape: observed any assignments", False, "no assigns")
+      return
+    share = trivial / total
+    check(
+      f"trivial-shape: all-literal RHS share <= 10% "
+      f"(observed {share:.1%}, {trivial}/{total})",
+      share <= 0.10,
+      f"share={share:.3%}",
+    )
+
+
+def test_no_single_atom_literal_assignment(rysmith):
+  """`%x = 3;` is the worst case: SCCP folds the assignment, then DCE
+  removes the def, and `%x` becomes a constant. The generator should
+  almost never emit this shape — `kPAllowAllLiteral`-fraction allowance
+  applies."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "8",
+        "--seed",
+        "1001",
+        "--n-params",
+        "2",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("trivial-shape: rysmith run exits 0", False, r.stderr[:200])
+      return
+    total, _, single_lit = _classify_body_assigns(d)
+    if total == 0:
+      check("trivial-shape: observed any assignments", False, "no assigns")
+      return
+    share = single_lit / total
+    check(
+      f"trivial-shape: single-atom literal RHS share <= 10% "
+      f"(observed {share:.1%}, {single_lit}/{total})",
+      share <= 0.10,
+      f"share={share:.3%}",
+    )
+
+
 def main():
   if len(sys.argv) != 3:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri>")
@@ -891,6 +1018,10 @@ def main():
   test_r8_dyadic_fp_pool_extension(rysmith)
   print("=== n-stmts counts only assignments ===")
   test_n_stmts_counts_assignments_only(rysmith)
+  print("=== trivial-shape: all-literal RHS ===")
+  test_no_all_literal_assignment(rysmith)
+  print("=== trivial-shape: single-atom literal RHS ===")
+  test_no_single_atom_literal_assignment(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)
