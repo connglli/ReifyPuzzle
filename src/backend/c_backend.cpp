@@ -673,6 +673,22 @@ namespace symir {
         out_ << "\n";
 
       // 3b. Function signature
+      // [v0.2.3] FunDecl::Attributes hints. The backend reads only the
+      // bits it knows how to express in C; the rest are silently dropped.
+      // Skipped for `@main` because the C entry point is not a callee.
+      // Each enabled bit becomes one attribute token. With both set we
+      // emit a single `__attribute__((noinline, noclone))` to keep the
+      // line compact; either alone uses its own attribute group.
+      if (f.name.name != "@main" && (f.attributes.noInline || f.attributes.noClone)) {
+        out_ << "__attribute__((";
+        if (f.attributes.noInline && f.attributes.noClone)
+          out_ << "noinline, noclone";
+        else if (f.attributes.noInline)
+          out_ << "noinline";
+        else
+          out_ << "noclone";
+        out_ << ")) ";
+      }
       emitType(f.retType);
       out_ << " " << mangleName(f.name.name) << "(";
       if (f.params.empty()) {

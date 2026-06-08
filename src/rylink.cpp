@@ -260,6 +260,14 @@ struct PerProgConfig {
   // single-file compile loops, or shipping the generated C as one
   // self-contained snippet).
   bool splitBySource = true;
+  // Probabilities that each bundled callee carries the matching
+  // backend hint via FunDecl::Attributes. 0.0 (the default) preserves
+  // pre-R9 behaviour. The entry function and any `@main` wrapper are
+  // never marked. The C backend translates the bits into
+  // `__attribute__((noinline))` / `__attribute__((noclone))`; WASM
+  // ignores them.
+  double pNoinlineCallees = 0.0;
+  double pNocloneCallees = 0.0;
 };
 
 static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgConfig &cfg) {
@@ -307,6 +315,29 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
           *nodes[i].fn, pool.entries[nodes[i].poolIdx].desc, *nodes[j].fn,
           pool.entries[nodes[j].poolIdx].desc, nodes[j].realizationIdx, rng
       );
+    }
+  }
+
+  // Backend-hint roll for callees. The bits live on
+  // FunDecl::Attributes — the backend reads them and emits the
+  // matching `__attribute__((noinline))` / `__attribute__((noclone))`
+  // (combined when both are set) before the function signature. We
+  // intentionally exclude the entry function (and `@main`, which is
+  // appended below): the marker is meant to defeat IPA-CP across
+  // *callee* boundaries — the entry has no caller in the bundle that
+  // would inline it, and the C entry point can't be cloned anyway.
+  if (cfg.pNoinlineCallees > 0.0 || cfg.pNocloneCallees > 0.0) {
+    std::uniform_real_distribution<double> coin(0.0, 1.0);
+    const int entryNode = cg.entry();
+    for (int i = 0; i < cg.nNodes; ++i) {
+      if (i == entryNode)
+        continue;
+      if (!nodes[i].fn)
+        continue;
+      if (coin(rng) < cfg.pNoinlineCallees)
+        nodes[i].fn->attributes.noInline = true;
+      if (coin(rng) < cfg.pNocloneCallees)
+        nodes[i].fn->attributes.noClone = true;
     }
   }
 
@@ -477,6 +508,10 @@ int main(int argc, char **argv) {
         cxxopts::value<bool>()->default_value("false"))
     ("emit-main", "Generate a main wrapper in the output program",
         cxxopts::value<bool>()->default_value("false"))
+    ("p-noinline-callees", "Probability each bundled callee is marked noinline",
+        cxxopts::value<double>()->default_value("0.0"))
+    ("p-noclone-callees", "Probability each bundled callee is marked noclone",
+        cxxopts::value<double>()->default_value("0.0"))
     ("no-split-by-source", "Emit each program flat as "
                            "<outRoot>/prog_<id>_<i>.{sir,c,wasm} (one .c per "
                            "program, no common.h) instead of the default "
@@ -525,6 +560,16 @@ int main(int argc, char **argv) {
   pc.emitMain = res["emit-main"].as<bool>();
   pc.splitBySource = !res["no-split-by-source"].as<bool>();
   pc.verbose = res["v"].as<bool>();
+  pc.pNoinlineCallees = res["p-noinline-callees"].as<double>();
+  pc.pNocloneCallees = res["p-noclone-callees"].as<double>();
+  for (auto [name, val]:
+       {std::pair{"--p-noinline-callees", pc.pNoinlineCallees},
+        std::pair{"--p-noclone-callees", pc.pNocloneCallees}}) {
+    if (val < 0.0 || val > 1.0) {
+      std::cerr << "rylink: " << name << " must be in [0, 1] (got " << val << ")\n";
+      return 2;
+    }
+  }
 
   if (pc.target != "sir" && pc.target != "c" && pc.target != "wasm") {
     std::cerr << "rylink: --target must be sir | c | wasm\n";

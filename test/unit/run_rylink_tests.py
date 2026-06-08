@@ -497,6 +497,105 @@ def test_rylink_main(rylink, rysmith, symiri):
             )
 
 
+def test_r9_p_noinline_noclone_callees(rylink, rysmith):
+  """R9: `--p-noinline-callees` and `--p-noclone-callees` (independent
+  probabilities, both default 0) randomly mark bundled non-entry funs
+  with `__attribute__((noinline))` / `__attribute__((noclone))`. When
+  both bits are set on the same fun the C backend folds them into a
+  single `__attribute__((noinline, noclone))` token.
+
+  The mechanism lives on FunDecl::Attributes, not in the backend. The C
+  backend just reads the bits and emits the matching qualifier; the
+  WASM backend ignores them. Entry funcs and `@main` are never marked
+  — IPA-CP doesn't cross those boundaries (entry has no in-bundle
+  caller, main is the program entry point and can't be cloned)."""
+  # The R1 CRC32 intrinsic helper uses bare `__attribute__((noinline))`.
+  # The combined `noinline, noclone` substring distinguishes the R9
+  # output from the pre-existing helper without scoping to specific
+  # functions.
+  combined = "__attribute__((noinline, noclone))"
+  with tempfile.TemporaryDirectory() as pool:
+    seed_pool(rysmith, pool)
+    # PROB=0,0: no R9 attribute in the C output.
+    with tempfile.TemporaryDirectory() as out:
+      r = run(
+        [
+          rylink,
+          "--input-dir",
+          pool,
+          "--n-progs",
+          "1",
+          "--seed",
+          "5",
+          "--target",
+          "c",
+          "-o",
+          out,
+        ]
+      )
+      check("R9: PROB=0 default rylink run exits 0", r.returncode == 0, r.stderr[:200])
+      saw_at_default = False
+      for root, _, files in os.walk(out):
+        for f in files:
+          if f.endswith(".c") and combined in open(os.path.join(root, f)).read():
+            saw_at_default = True
+            break
+      check(
+        "R9: defaults emit no R9 noinline+noclone attribute",
+        not saw_at_default,
+        "(noinline, noclone) appeared without the --p-* flags",
+      )
+    # PROB=1,1 + emit-main: every callee carries the combined token,
+    # @main does not.
+    with tempfile.TemporaryDirectory() as out:
+      r = run(
+        [
+          rylink,
+          "--input-dir",
+          pool,
+          "--n-progs",
+          "1",
+          "--seed",
+          "5",
+          "--target",
+          "c",
+          "--emit-main",
+          "--p-noinline-callees",
+          "1.0",
+          "--p-noclone-callees",
+          "1.0",
+          "-o",
+          out,
+        ]
+      )
+      check("R9: both-prob-1 rylink run exits 0", r.returncode == 0, r.stderr[:300])
+      saw_combined = False
+      main_unmarked = True
+      for root, _, files in os.walk(out):
+        for f in files:
+          if not f.endswith(".c"):
+            continue
+          text = open(os.path.join(root, f)).read()
+          if combined in text:
+            saw_combined = True
+          lines = text.splitlines()
+          for i, line in enumerate(lines):
+            if "int32_t main(void)" in line or " main(void)" in line:
+              prev = lines[i - 1] if i > 0 else ""
+              if combined in prev:
+                main_unmarked = False
+      check(
+        "R9: both probabilities at 1.0 produce the combined attribute",
+        saw_combined,
+        "(noinline, noclone) missing from all .c outputs",
+      )
+      check(
+        "R9: @main never carries the R9 attribute",
+        main_unmarked,
+        "@main was preceded by (noinline, noclone)",
+      )
+
+
 def main():
   if len(sys.argv) != 4:
     print("Usage: python3 -m test.unit.run_rylink_tests <rylink> <rysmith> <symiri>")
@@ -518,6 +617,8 @@ def main():
   test_rewrite_offset_in_range(rylink, rysmith, symiri)
   print("=== rylink --emit-main wrapper ===")
   test_rylink_main(rylink, rysmith, symiri)
+  print("=== R9: --p-noinline-callees / --p-noclone-callees ===")
+  test_r9_p_noinline_noclone_callees(rylink, rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

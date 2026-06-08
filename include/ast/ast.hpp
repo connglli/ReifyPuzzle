@@ -634,6 +634,23 @@ namespace symir {
     // The C backend uses this to split per-source `<stem>.c` outputs
     // when --split-by-source is enabled.
     std::string sourceStem;
+
+    // [v0.2.3] Backend-facing hints. These are not part of the SymIR
+    // surface syntax — the parser does not currently emit them. They
+    // are set by upstream tooling (e.g. reify's --p-noinline-callees
+    // and --p-noclone-callees randomly mark generated callees) and
+    // consumed by each backend in whatever way the target language
+    // supports. The C backend translates `noInline` / `noClone` into
+    // the matching `__attribute__((noinline))` / `__attribute__((noclone))`
+    // qualifier (combined when both are set); the WASM backend ignores
+    // both because WAT has no portable inlining / cloning suppression
+    // directive. Keeping these as a tagged struct (instead of a
+    // free-form attribute list) means each backend interprets only
+    // the hints it understands and ignores the rest by construction.
+    struct Attributes {
+      bool noInline = false;
+      bool noClone = false;
+    } attributes;
   };
 
   /**
