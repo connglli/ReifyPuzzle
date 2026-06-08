@@ -259,13 +259,16 @@ namespace symir::reify {
       const std::optional<std::string> &excludeName = std::nullopt
   ) {
     auto scalars = excluding(vars.scalarsOf(targetType), excludeName);
-    std::uniform_int_distribution<int> kind(0, 2);
-    int k = kind(rng);
-    if (k == 0 && !scalars.empty()) {
+    // `s in [0, 99]` walks the same percent-slot pattern as the atom
+    // dispatch tables: [0, kSelectArm_LocalEnd) → local, then sym,
+    // then literal. Default split is uniform thirds.
+    std::uniform_int_distribution<int> slot(0, 99);
+    int s = slot(rng);
+    if (s < rysmith::hp::kSelectArm_LocalEnd && !scalars.empty()) {
       auto *v = pickOne(rng, scalars);
       return SelectVal{LValue{LocalId{v->name, {}}, {}, {}}};
     }
-    if (k == 1 && sym != nullptr && isIntType(targetType)) {
+    if (s < rysmith::hp::kSelectArm_SymEnd && sym != nullptr && isIntType(targetType)) {
       // [bugfix] Sym slot must produce a sym whose declared type matches
       // `targetType`. SymCounter::nextValue() hardcoded i32, so a select
       // returning i64 ended up with arms of mismatched widths (i32 sym
@@ -793,7 +796,8 @@ namespace symir::reify {
               a = opAtom(AtomOpKind::Mul, symCoef(sym->nextCoef(vt.elem)), localLV(v->name));
             } else if (s < rysmith::hp::kVecConcMulEnd) {
               auto *v = pickOne(rng, vecs);
-              int64_t c = std::uniform_int_distribution<int64_t>(-4, 4)(rng);
+              int64_t c = std::uniform_int_distribution<
+                  int64_t>(rysmith::hp::kVecConcMulLo, rysmith::hp::kVecConcMulHi)(rng);
               if (c == 0)
                 c = 1;
               a = opAtom(AtomOpKind::Mul, intCoef(c), localLV(v->name));
@@ -812,26 +816,30 @@ namespace symir::reify {
           // Tail atom (i > 0): can be vec-typed OR a broadcast scalar literal.
           std::uniform_int_distribution<int> tailSlot(0, 99);
           int ts = tailSlot(rng);
-          if (ts < 40 && !vecs.empty()) {
+          if (ts < rysmith::hp::kVecTailCopyEnd && !vecs.empty()) {
             // Vec copy (lane-wise +/- with another vec var).
             auto *v = pickOne(rng, vecs);
             a = rvalAtom(localLV(v->name));
-          } else if (ts < 60 && !vecs.empty()) {
+          } else if (ts < rysmith::hp::kVecTailOpEnd && !vecs.empty()) {
             // OpAtom on vec var.
             auto *v = pickOne(rng, vecs);
-            int64_t c = std::uniform_int_distribution<int64_t>(-4, 4)(rng);
+            int64_t c = std::uniform_int_distribution<
+                int64_t>(rysmith::hp::kVecConcMulLo, rysmith::hp::kVecConcMulHi)(rng);
             if (c == 0)
               c = 1;
             a = opAtom(AtomOpKind::Mul, intCoef(c), localLV(v->name));
           } else {
-            // Broadcast scalar literal (valid in +/- tail position).
+            // Broadcast scalar literal (valid in +/- tail position). The
+            // int draw uses the same per-width concrete pool as bare
+            // literal atoms — pre-consolidation this was a hardcoded
+            // [-8, 8] uniform, which narrowed the literal magnitude
+            // distribution well below what the compiler folds.
             CoefAtom ca;
             if (isFpType(vt.elem)) {
               std::uniform_int_distribution<std::size_t> fd(0, rysmith::hp::kFloatLitPoolSize - 1);
               ca.coef = FloatLit{rysmith::hp::kFloatLitPool[fd(rng)], {}};
             } else {
-              int64_t c = std::uniform_int_distribution<int64_t>(-8, 8)(rng);
-              ca.coef = IntLit{c, {}};
+              ca.coef = IntLit{pickConcreteIntLit(rng, vt.elem), {}};
             }
             a = Atom{std::move(ca), {}};
           }
@@ -846,10 +854,13 @@ namespace symir::reify {
     // Build Expr from atoms
     Expr expr;
     expr.first = std::move(atoms[0]);
-    std::uniform_int_distribution<int> coin(0, 1);
+    std::uniform_real_distribution<double> addOpCoin(0.0, 1.0);
     for (std::size_t i = 1; i < atoms.size(); i++) {
       // For float, always use Plus (subtraction is fine but let's keep it simple)
-      AddOp op = isFpType(targetType) ? AddOp::Plus : (coin(rng) ? AddOp::Plus : AddOp::Minus);
+      AddOp op =
+          isFpType(targetType)
+              ? AddOp::Plus
+              : (addOpCoin(rng) < rysmith::hp::kPTailAddOpIsPlus ? AddOp::Plus : AddOp::Minus);
       expr.rest.push_back({op, std::move(atoms[i]), {}});
     }
 
@@ -1050,9 +1061,12 @@ namespace symir::reify {
 
     Expr expr;
     expr.first = std::move(atoms[0]);
-    std::uniform_int_distribution<int> coin(0, 1);
+    std::uniform_real_distribution<double> addOpCoin(0.0, 1.0);
     for (std::size_t i = 1; i < atoms.size(); i++) {
-      AddOp op = isFpType(targetType) ? AddOp::Plus : (coin(rng) ? AddOp::Plus : AddOp::Minus);
+      AddOp op =
+          isFpType(targetType)
+              ? AddOp::Plus
+              : (addOpCoin(rng) < rysmith::hp::kPTailAddOpIsPlus ? AddOp::Plus : AddOp::Minus);
       expr.rest.push_back({op, std::move(atoms[i]), {}});
     }
 
@@ -1122,172 +1136,197 @@ namespace symir::reify {
       if (isPtrType(v.type))
         ptrVars.push_back(&v);
 
-    for (int s = 0; s < nStmts; s++) {
-      // 80% assignment, 20% store (if ptr vars exist)
-      double r = prob(rng);
-      bool doStore = (r > 0.80) && !ptrVars.empty();
-
-      if (doStore) {
-        // StoreInstr: pick a ptr T var, generate Expr of type T
-        auto *pv = pickOne(rng, ptrVars);
-        TypePtr ptee = pointeeType(pv->type);
-
-        // ptr expr: RValueAtom of the ptr var
-        Expr ptrExpr = simpleExpr(rvalAtom(localLV(pv->name)));
-
-        if (isIntType(ptee) || isFpType(ptee)) {
-          auto [valExpr, reqs] = genExprWithRequires(rng, sym, vars, ptee, onPath, cfg);
-          // Insert safety requires before store if on-path
-          if (onPath || safeOffPath) {
-            for (auto &req: reqs)
-              result.push_back(std::move(req));
-          }
-          StoreInstr st;
-          st.ptr = std::move(ptrExpr);
-          st.val = std::move(valExpr);
-          result.push_back(Instr{std::move(st)});
-        }
-        // Skip stores if pointee is agg (not supported)
-        continue;
-      }
-
-      // Assignment: pick a random mutable target
-      if (allVars.empty())
-        continue;
-      auto *lhsVar = pickOne(rng, allVars);
-
-      // Build LHS based on var type
-      LValue lhs;
-      TypePtr assignType;
-
-      if (isScalarType(lhsVar->type)) {
-        lhs = localLV(lhsVar->name);
-        assignType = lhsVar->type;
-      } else if (std::holds_alternative<ArrayType>(lhsVar->type->v)) {
-        const auto &at = std::get<ArrayType>(lhsVar->type->v);
-        std::uniform_int_distribution<int64_t> idxd(0, (int64_t) at.size - 1);
-        int64_t idx = idxd(rng);
-        if (isScalarType(at.elem)) {
-          lhs = arrayLV(lhsVar->name, idx);
-          assignType = at.elem;
-        } else if (std::holds_alternative<StructType>(at.elem->v)) {
-          // Array-of-struct: pick a scalar field, generate %a[i].f = expr
-          const std::string &ename = std::get<StructType>(at.elem->v).name.name;
-          const StructDecl *sd = nullptr;
-          for (const auto &decl: vars.structDecls)
-            if (decl.name.name == ename) {
-              sd = &decl;
-              break;
-            }
-          if (!sd || sd->fields.empty())
-            continue;
-          std::vector<const FieldDecl *> scalarFields;
-          for (const auto &f: sd->fields)
-            if (isScalarType(f.type))
-              scalarFields.push_back(&f);
-          if (scalarFields.empty())
-            continue;
-          const FieldDecl *f = pickOne(rng, scalarFields);
-          lhs = arrayLV(lhsVar->name, idx);
-          lhs.accesses.push_back(AccessField{f->name, {}});
-          assignType = f->type;
-        } else {
-          continue; // nested array or other, skip
-        }
-      } else if (std::holds_alternative<StructType>(lhsVar->type->v)) {
-        const std::string &sname = lhsVar->structTypeName;
-        const StructDecl *sd = nullptr;
-        for (const auto &decl: vars.structDecls)
-          if (decl.name.name == sname) {
-            sd = &decl;
-            break;
-          }
-        if (!sd || sd->fields.empty()) {
-          // Fallback: scalar assignment
-          auto scalars = vars.allScalars();
-          if (scalars.empty())
-            continue;
-          auto *sv = pickOne(rng, scalars);
-          lhs = localLV(sv->name);
-          assignType = sv->type;
-        } else {
-          std::uniform_int_distribution<int> fpick(0, (int) sd->fields.size() - 1);
-          const auto &f = sd->fields[fpick(rng)];
-          if (isScalarType(f.type)) {
-            lhs = structLV(lhsVar->name, f.name);
-            assignType = f.type;
-          } else if (std::holds_alternative<ArrayType>(f.type->v)) {
-            // Struct-of-array field: pick an element, generate %t.f[i] = expr
-            const auto &fat = std::get<ArrayType>(f.type->v);
-            if (!isScalarType(fat.elem))
-              continue;
-            std::uniform_int_distribution<int64_t> idxd2(0, (int64_t) fat.size - 1);
-            lhs = structLV(lhsVar->name, f.name);
-            lhs.accesses.push_back(AccessIndex{Index{IntLit{idxd2(rng), {}}}, {}});
-            assignType = fat.elem;
-          } else {
-            continue; // ptr field or other, skip
-          }
-        }
-      } else if (isPtrType(lhsVar->type)) {
-        // Ptr reassignment: redirect to another target
-        lhs = localLV(lhsVar->name);
-        // Exclude the LHS ptr from its own RHS pool — `%p = %p;` is
-        // a no-op that SCCP folds; the ptr-copy slot of genPtrAtom picks
-        // from `vars.ptrsOf(ptee)` which would otherwise include %p.
-        // Bare `%p = %q;` (q != p) is intentionally permitted — adding
-        // pointer arithmetic like `%p = %q + 1;` would push %p past
-        // single-element objects (every reify ptr is `addr %scalar`),
-        // making any later `load %p` UB. Aliasing through a plain ptr
-        // copy is a useful, semantically distinct shape from a true
-        // self-assign.
-        Expr rhs = simpleExpr(genPtrAtom(rng, vars, lhsVar->type, lhsVar->name));
-        result.push_back(Instr{AssignInstr{std::move(lhs), std::move(rhs), {}}});
-        continue;
-      } else if (isVecType(lhsVar->type)) {
-        // [v0.2.1] Vec assignment: whole-vec only if we have another vec
-        // var of the same type to copy from (otherwise the typechecker
-        // rejects scalar RHS). Fall back to lane write.
-        // Exclude LHS from the same-type pool — `%vec = %vec;` is a
-        // no-op and the whole-vec RHS expr would otherwise have to pick
-        // the same var. With only the LHS available, fall through to
-        // lane write so the RHS lives in scalar-pool territory.
-        const auto &vt = std::get<VecType>(lhsVar->type->v);
-        auto sameVecs = excluding(vars.vecsOf(lhsVar->type), lhsVar->name);
-        bool canWholeVec = !sameVecs.empty();
-        std::uniform_int_distribution<int> vslot(0, 99);
-        if (canWholeVec && vslot(rng) >= rysmith::hp::kVecLaneWriteProb) {
-          // Whole-vec assign (copy or broadcast-mul)
-          lhs = localLV(lhsVar->name);
-          assignType = lhsVar->type;
-        } else {
-          // Lane write: %vec[i] = scalar_expr
-          std::uniform_int_distribution<int64_t> ld(0, (int64_t) vt.size - 1);
-          lhs = localLV(lhsVar->name);
-          lhs.accesses.push_back(AccessIndex{Index{IntLit{ld(rng), {}}}, {}});
-          assignType = vt.elem;
-        }
-      } else {
-        continue; // unknown type, skip
-      }
-
-      if (!assignType)
-        continue;
-
-      // The LHS root name (e.g. `%v0`, `%a` in `%a[i].f`, `%vec` in
-      // `%vec` whole-vec or `%vec[i]` lane write) is forbidden as an
-      // RValue anywhere in the RHS. For aggregate LHS (`%a[i]`, `%t.f`),
-      // excluding the root has no practical effect (the root is not a
-      // scalar and scalar pickers never see it), but it costs nothing.
-      auto [rhs, reqs] = genExprWithRequires(rng, sym, vars, assignType, onPath, cfg, lhsVar->name);
-
-      // Insert safety requires before assignment if on-path (or safeOffPath)
+    // Splice a single StoreInstr (plus its safety requires) into `result`.
+    // Returns false when no usable ptr exists or the chosen pointee type
+    // is one we don't store through (aggregate pointees aren't supported
+    // by the SymIR `store` form). The Bernoulli chain below stops rolling
+    // on the first false to avoid burning the rng on no-ops.
+    auto tryEmitStore = [&]() -> bool {
+      if (ptrVars.empty())
+        return false;
+      auto *pv = pickOne(rng, ptrVars);
+      TypePtr ptee = pointeeType(pv->type);
+      if (!isIntType(ptee) && !isFpType(ptee))
+        return false;
+      Expr ptrExpr = simpleExpr(rvalAtom(localLV(pv->name)));
+      auto [valExpr, reqs] = genExprWithRequires(rng, sym, vars, ptee, onPath, cfg);
       if (onPath || safeOffPath) {
         for (auto &req: reqs)
           result.push_back(std::move(req));
       }
+      StoreInstr st;
+      st.ptr = std::move(ptrExpr);
+      st.val = std::move(valExpr);
+      result.push_back(Instr{std::move(st)});
+      return true;
+    };
 
-      result.push_back(Instr{AssignInstr{std::move(lhs), std::move(rhs), {}}});
+    for (int s = 0; s < nStmts; s++) {
+      // Bernoulli chain of StoreInstrs spliced before this AssignInstr.
+      // Each successful roll emits one store and rolls again; the chain
+      // stops on the first failed roll. Stores do NOT consume the
+      // `nStmts` budget — the budget tracks AssignInstrs only, so the
+      // name (`n-stmts`) matches what it counts. With the default
+      // `kPStoreBeforeAssign = 0.25` the expected chain length is
+      // p / (1 - p) ≈ 0.33 stores per assignment. Pre-restructure a
+      // single coin toss decided "this slot is a store XOR an assign",
+      // which meant a heavy store density starved the assign count
+      // and `--n-stmts` no longer matched the body's assignment
+      // population.
+      while (prob(rng) < rysmith::hp::kPStoreBeforeAssign) {
+        if (!tryEmitStore())
+          break;
+      }
+
+      // Try up to `kAssignTargetMaxAttempts` LHS picks before giving up.
+      // Aggregate LHSs occasionally land on a slot that can't be built
+      // (array-of-nested-array, struct with only ptr fields, etc.); each
+      // such pick is a `continue` to the next attempt rather than a
+      // `continue` to the next `nStmts` slot, so `--n-stmts N` actually
+      // produces N AssignInstrs per block.
+      bool assignEmitted = false;
+      for (int attempt = 0; attempt < rysmith::hp::kAssignTargetMaxAttempts && !assignEmitted;
+           attempt++) {
+        if (allVars.empty())
+          break;
+        auto *lhsVar = pickOne(rng, allVars);
+
+        // Build LHS based on var type
+        LValue lhs;
+        TypePtr assignType;
+
+        if (isScalarType(lhsVar->type)) {
+          lhs = localLV(lhsVar->name);
+          assignType = lhsVar->type;
+        } else if (std::holds_alternative<ArrayType>(lhsVar->type->v)) {
+          const auto &at = std::get<ArrayType>(lhsVar->type->v);
+          std::uniform_int_distribution<int64_t> idxd(0, (int64_t) at.size - 1);
+          int64_t idx = idxd(rng);
+          if (isScalarType(at.elem)) {
+            lhs = arrayLV(lhsVar->name, idx);
+            assignType = at.elem;
+          } else if (std::holds_alternative<StructType>(at.elem->v)) {
+            // Array-of-struct: pick a scalar field, generate %a[i].f = expr
+            const std::string &ename = std::get<StructType>(at.elem->v).name.name;
+            const StructDecl *sd = nullptr;
+            for (const auto &decl: vars.structDecls)
+              if (decl.name.name == ename) {
+                sd = &decl;
+                break;
+              }
+            if (!sd || sd->fields.empty())
+              continue;
+            std::vector<const FieldDecl *> scalarFields;
+            for (const auto &f: sd->fields)
+              if (isScalarType(f.type))
+                scalarFields.push_back(&f);
+            if (scalarFields.empty())
+              continue;
+            const FieldDecl *f = pickOne(rng, scalarFields);
+            lhs = arrayLV(lhsVar->name, idx);
+            lhs.accesses.push_back(AccessField{f->name, {}});
+            assignType = f->type;
+          } else {
+            continue; // nested array or other, skip
+          }
+        } else if (std::holds_alternative<StructType>(lhsVar->type->v)) {
+          const std::string &sname = lhsVar->structTypeName;
+          const StructDecl *sd = nullptr;
+          for (const auto &decl: vars.structDecls)
+            if (decl.name.name == sname) {
+              sd = &decl;
+              break;
+            }
+          if (!sd || sd->fields.empty()) {
+            // Fallback: scalar assignment
+            auto scalars = vars.allScalars();
+            if (scalars.empty())
+              continue;
+            auto *sv = pickOne(rng, scalars);
+            lhs = localLV(sv->name);
+            assignType = sv->type;
+          } else {
+            std::uniform_int_distribution<int> fpick(0, (int) sd->fields.size() - 1);
+            const auto &f = sd->fields[fpick(rng)];
+            if (isScalarType(f.type)) {
+              lhs = structLV(lhsVar->name, f.name);
+              assignType = f.type;
+            } else if (std::holds_alternative<ArrayType>(f.type->v)) {
+              // Struct-of-array field: pick an element, generate %t.f[i] = expr
+              const auto &fat = std::get<ArrayType>(f.type->v);
+              if (!isScalarType(fat.elem))
+                continue;
+              std::uniform_int_distribution<int64_t> idxd2(0, (int64_t) fat.size - 1);
+              lhs = structLV(lhsVar->name, f.name);
+              lhs.accesses.push_back(AccessIndex{Index{IntLit{idxd2(rng), {}}}, {}});
+              assignType = fat.elem;
+            } else {
+              continue; // ptr field or other, skip
+            }
+          }
+        } else if (isPtrType(lhsVar->type)) {
+          // Ptr reassignment: redirect to another target
+          lhs = localLV(lhsVar->name);
+          // Exclude the LHS ptr from its own RHS pool — `%p = %p;` is
+          // a no-op that SCCP folds; the ptr-copy slot of genPtrAtom picks
+          // from `vars.ptrsOf(ptee)` which would otherwise include %p.
+          // Bare `%p = %q;` (q != p) is intentionally permitted — adding
+          // pointer arithmetic like `%p = %q + 1;` would push %p past
+          // single-element objects (every reify ptr is `addr %scalar`),
+          // making any later `load %p` UB. Aliasing through a plain ptr
+          // copy is a useful, semantically distinct shape from a true
+          // self-assign.
+          Expr rhs = simpleExpr(genPtrAtom(rng, vars, lhsVar->type, lhsVar->name));
+          result.push_back(Instr{AssignInstr{std::move(lhs), std::move(rhs), {}}});
+          assignEmitted = true;
+          continue;
+        } else if (isVecType(lhsVar->type)) {
+          // [v0.2.1] Vec assignment: whole-vec only if we have another vec
+          // var of the same type to copy from (otherwise the typechecker
+          // rejects scalar RHS). Fall back to lane write.
+          // Exclude LHS from the same-type pool — `%vec = %vec;` is a
+          // no-op and the whole-vec RHS expr would otherwise have to pick
+          // the same var. With only the LHS available, fall through to
+          // lane write so the RHS lives in scalar-pool territory.
+          const auto &vt = std::get<VecType>(lhsVar->type->v);
+          auto sameVecs = excluding(vars.vecsOf(lhsVar->type), lhsVar->name);
+          bool canWholeVec = !sameVecs.empty();
+          std::uniform_int_distribution<int> vslot(0, 99);
+          if (canWholeVec && vslot(rng) >= rysmith::hp::kVecLaneWriteProb) {
+            // Whole-vec assign (copy or broadcast-mul)
+            lhs = localLV(lhsVar->name);
+            assignType = lhsVar->type;
+          } else {
+            // Lane write: %vec[i] = scalar_expr
+            std::uniform_int_distribution<int64_t> ld(0, (int64_t) vt.size - 1);
+            lhs = localLV(lhsVar->name);
+            lhs.accesses.push_back(AccessIndex{Index{IntLit{ld(rng), {}}}, {}});
+            assignType = vt.elem;
+          }
+        } else {
+          continue; // unknown type, skip
+        }
+
+        if (!assignType)
+          continue;
+
+        // The LHS root name (e.g. `%v0`, `%a` in `%a[i].f`, `%vec` in
+        // `%vec` whole-vec or `%vec[i]` lane write) is forbidden as an
+        // RValue anywhere in the RHS. For aggregate LHS (`%a[i]`, `%t.f`),
+        // excluding the root has no practical effect (the root is not a
+        // scalar and scalar pickers never see it), but it costs nothing.
+        auto [rhs, reqs] =
+            genExprWithRequires(rng, sym, vars, assignType, onPath, cfg, lhsVar->name);
+
+        // Insert safety requires before assignment if on-path (or safeOffPath)
+        if (onPath || safeOffPath) {
+          for (auto &req: reqs)
+            result.push_back(std::move(req));
+        }
+
+        result.push_back(Instr{AssignInstr{std::move(lhs), std::move(rhs), {}}});
+        assignEmitted = true;
+      } // end of LHS-pick retry loop
     }
 
     return result;

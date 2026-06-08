@@ -752,6 +752,106 @@ def test_r8_dyadic_fp_pool_extension(rysmith):
   )
 
 
+def _count_assigns_per_block(sir_path):
+  """Return {block_label: assign_count} for body blocks of the entry
+  function. Excludes @main, the %_chk exit-block chain, store / require
+  lines and the terminator. Counts every `LHS = RHS;` body line —
+  including `%p = addr %v;`, since the ptr-reassign branch of
+  `genBlockStmts` is allowed to pick an `addr` atom on the RHS and that
+  is a real body assignment (the entry block's synthesized addr inits
+  are filtered separately by the caller). The returned counts are
+  comparable to the `--n-stmts` budget."""
+  text = open(sir_path).read()
+  in_main = False
+  blocks = {}
+  cur = None
+  for line in text.splitlines():
+    s = line.strip()
+    if s.startswith("fun @main"):
+      in_main = True
+      continue
+    if s.startswith("fun @") and not s.startswith("fun @main"):
+      in_main = False
+      continue
+    if in_main:
+      continue
+    m = re.match(r"\^(\w+):", s)
+    if m:
+      cur = m.group(1)
+      blocks.setdefault(cur, 0)
+      continue
+    if cur is None or "%_chk" in s:
+      continue
+    if (
+      s.startswith("store ")
+      or s.startswith("require ")
+      or s.startswith("br ")
+      or s.startswith("ret ")
+      or s.startswith("unreachable")
+    ):
+      continue
+    if re.match(r"%\w[^=]*=", s):
+      blocks[cur] += 1
+  return blocks
+
+
+def test_n_stmts_counts_assignments_only(rysmith):
+  """`--n-stmts N` is the per-block AssignInstr budget. Stores are
+  spliced before assignments (Bernoulli per slot, controlled by the
+  internal `kPStoreBeforeAssign` HP) and do NOT consume `nStmts`.
+  Before this contract was tightened, `nStmts` was the combined
+  store-or-assign budget, so the mean assign count per intermediate
+  block fell short of `nStmts` by the store density."""
+  with tempfile.TemporaryDirectory() as d:
+    nStmts = 3
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "6",
+        "--seed",
+        "1001",
+        "--n-params",
+        "2",
+        "--n-stmts",
+        str(nStmts),
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("n-stmts: rysmith run exits 0", False, r.stderr[:200])
+      return
+    # Aggregate over every intermediate (non-entry, non-exit) block we see.
+    counts = []
+    for f in os.listdir(d):
+      if not f.endswith(".sir"):
+        continue
+      for label, n in _count_assigns_per_block(os.path.join(d, f)).items():
+        if label in ("entry", "exit"):
+          continue
+        counts.append(n)
+    if not counts:
+      check(
+        "n-stmts: observed at least one intermediate block",
+        False,
+        "no intermediate blocks across generated files",
+      )
+      return
+    mean = sum(counts) / len(counts)
+    # With the restructured loop and nStmts=3 every intermediate block
+    # has exactly 3 assignments unless a target-build skip fires (rare
+    # with the default var pool). Mean ≥ 0.9 * nStmts (= 2.7) holds
+    # comfortably after the change; pre-change the mean is ≈ nStmts *
+    # (1 - kPStoreBeforeAssign) ≈ 2.25.
+    check(
+      f"n-stmts: mean intermediate-block assign count ≥ {0.9 * nStmts:.1f} "
+      f"(observed {mean:.2f} across {len(counts)} blocks)",
+      mean >= 0.9 * nStmts,
+      f"mean={mean:.3f}, nStmts={nStmts}",
+    )
+
+
 def main():
   if len(sys.argv) != 3:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri>")
@@ -789,6 +889,8 @@ def main():
   test_r7_pickselectval_literal_diversity(rysmith)
   print("=== R8: dyadic FP pool extension ===")
   test_r8_dyadic_fp_pool_extension(rysmith)
+  print("=== n-stmts counts only assignments ===")
+  test_n_stmts_counts_assignments_only(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

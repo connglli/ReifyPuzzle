@@ -71,6 +71,51 @@ namespace symir::reify::rysmith::hp {
   inline constexpr int kMaxAtomsPerExpr = 3;
 
   // ===========================================================================
+  // Statement-level shape
+  // ===========================================================================
+
+  // Per-AssignInstr probability that one or more StoreInstrs are spliced in
+  // *before* it. Rolled as a Bernoulli chain: each successful roll emits a
+  // store and rolls again, so a single assignment slot may carry several
+  // stores. Stores explicitly do NOT count against the `--n-stmts` budget
+  // — the budget is the number of `AssignInstr`s per block, and stores
+  // are an independent side stream meant to add aliasing for the
+  // compiler to chew on. (Pre-restructure this knob was an inline
+  // `prob > 0.80` that *did* consume the per-iter budget, so heavy
+  // store density starved the assignment count.)
+  inline constexpr double kPStoreBeforeAssign = 0.25;
+
+  // How many LHS picks `genBlockStmts` tries before giving up on the
+  // current `nStmts` slot. The slot can fail to emit an AssignInstr when
+  // the rolled LHS var is an aggregate with no usable scalar leaf
+  // (array-of-nested-array, struct-with-only-ptr-fields). Without
+  // retries those slots silently drop, so `--n-stmts N` produced
+  // visibly fewer than N AssignInstrs per block. A handful of retries
+  // pushes the skip rate from ~20% per slot to under 1‰.
+  inline constexpr int kAssignTargetMaxAttempts = 5;
+
+  // 50/50 between `+` and `-` when joining tail atoms in an expression.
+  // The lone `coin(0, 1)` site in `genExpr` / `genExprWithRequires`
+  // — kept as a named constant so a future "favour `-` for sign-bit
+  // diversity" experiment doesn't need to grep for `coin(0, 1)`.
+  inline constexpr double kPTailAddOpIsPlus = 0.5;
+
+  // ===========================================================================
+  // SelectVal arm distribution.
+  //
+  // `pickSelectVal` rolls a single `kind ∈ {0, 1, 2}` per arm:
+  //   0 → same-typed scalar local (an LValue read)
+  //   1 → fresh `nextValue(targetType)` sym (skipped for FP target types)
+  //   2 → literal from the per-width concrete-int pool / kFloatLitPool
+  // The default 1/3 / 1/3 / 1/3 split mirrors the original `kind(0, 2)`
+  // uniform draw; exposing it lets a future experiment skew toward the
+  // local arm (more cross-statement live-variable use) without touching
+  // the implementation.
+  // ===========================================================================
+  inline constexpr int kSelectArm_LocalEnd = 33; // [0, 33)  → local
+  inline constexpr int kSelectArm_SymEnd = 66;   // [33, 66) → sym, else lit
+
+  // ===========================================================================
   // Type-kind probabilities in genRandomType (sum normalised at use-site).
   // depth-0 distribution; pArray/pStruct are zeroed past maxAggNesting and
   // pPtr is zeroed past maxPtrDepth.
@@ -115,6 +160,22 @@ namespace symir::reify::rysmith::hp {
   // [v0.2.1] Vec lane-write probability in genBlockStmts when LHS is vec.
   // When canWholeVec is true: probability of lane write vs whole-vec assign.
   inline constexpr int kVecLaneWriteProb = 40; // 40% lane write, 60% whole-vec
+
+  // [v0.2.1] Vec tail-atom dispatch (`genExpr` vec branch, i > 0):
+  //   [0, kVecTailCopyEnd) → vec-typed RValueAtom copy
+  //   [kVecTailCopyEnd, kVecTailOpEnd) → OpAtom{Mul, concrete-coef, vec var}
+  //   [kVecTailOpEnd, 100)  → broadcast scalar literal (drawn from the
+  //                           per-width concrete-int pool / kFloatLitPool;
+  //                           pre-consolidation this was a hardcoded
+  //                           `[-8, 8]` uniform draw).
+  inline constexpr int kVecTailCopyEnd = 40;
+  inline constexpr int kVecTailOpEnd = 60;
+
+  // [v0.2.1] Range for the concrete int Mul coef on a vec-typed atom
+  // (`coef * %vec`). Narrow on purpose: large vec multipliers blow up
+  // FMA contraction and break differential testing on lane-wise FP.
+  inline constexpr std::int64_t kVecConcMulLo = -4;
+  inline constexpr std::int64_t kVecConcMulHi = 4;
 
   // Probability that a struct field is an array (struct-of-arrays pattern).
   inline constexpr double kPStructFieldIsArray = 0.30;
