@@ -1944,11 +1944,10 @@ namespace symir {
         [&](auto &&arg) -> SymbolicValue {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, OpAtom>) {
-            smt::Term c = evalCoef(arg.coef, solver, store, expectedSort);
             smt::Term r = evalLValue(arg.rval, solver, store, pc).term;
-
-            auto cSort = solver.get_sort(c);
             auto rSort = solver.get_sort(r);
+            smt::Term c = evalCoef(arg.coef, solver, store, expectedSort.value_or(rSort));
+            auto cSort = solver.get_sort(c);
 
             if (solver.is_fp_sort(cSort)) {
               // SPEC §2.9: all FP ops use RNE. The fmod encoding additionally

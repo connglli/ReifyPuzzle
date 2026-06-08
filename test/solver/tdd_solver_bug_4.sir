@@ -1,0 +1,11 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+fun @main(%pa: i8) : i32 {
+^entry:
+  br 120 * %pa == 100 as i8 + 50, ^b1, ^b2;
+^b1:
+  ret 0;
+^b2:
+  ret 1;
+}

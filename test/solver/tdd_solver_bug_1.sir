@@ -1,0 +1,12 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path '^entry'
+fun @main(%pa: i8) : i32 {
+  let mut %v: i8 = -6;
+^entry:
+  br 118 * %pa == -104 as i8 - 96 * %v, ^b1, ^b2;
+^b1:
+  ret 0;
+^b2:
+  ret 1;
+}
