@@ -225,10 +225,20 @@ static GenerateResult generateLeaf(
     if (verbose)
       std::cout << "[sampler] attempt=" << attempt << " EP len=" << path.size() << "\n";
 
-    // PATH comment header shared by every init of this attempt — the
-    // path itself is fixed for the whole attempt, only the per-init
+    // CFG/PATH comment header shared by every init of this attempt
+    // the path itself is fixed for the whole attempt, only the per-init
     // sym/param solutions differ.
     auto writePathHeader = [&](std::ostream &os) {
+      os << "// CFG:\n";
+      for (const auto &b: cfg.blocks) {
+        os << "//   " << b.label;
+        if (!b.succs.empty()) {
+          os << " ->";
+          for (const auto &succ: b.succs)
+            os << " " << succ;
+        }
+        os << "\n";
+      }
       os << "// PATH:";
       for (std::size_t k = 0; k < path.size(); k++)
         os << (k == 0 ? " " : " -> ") << path[k];

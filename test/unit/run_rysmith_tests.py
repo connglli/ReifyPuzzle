@@ -979,6 +979,47 @@ def test_no_single_atom_literal_assignment(rysmith):
     )
 
 
+def test_cfg_header_dump(rysmith):
+  """CFG dump is present in the solved .sir header beside PATH."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "1",
+        "--seed",
+        "42",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("cfg-header-dump: rysmith run exits 0", False, r.stderr[:200])
+      return
+
+    header = ""
+    for f in os.listdir(d):
+      if f.endswith(".sir") and not f.endswith(".oracle.tmp"):
+        with open(os.path.join(d, f)) as file:
+          header = file.read(2048)
+        break
+
+    check("cfg-header-dump: header contains '// CFG:\\n'", "// CFG:\n" in header)
+    check("cfg-header-dump: header contains '// PATH:'", "// PATH:" in header)
+    check("cfg-header-dump: header contains entry block", "//   entry" in header)
+    check(
+      "cfg-header-dump: header contains block line formatting",
+      bool(re.search(r"//\s+entry(\s+->)?", header)),
+    )
+
+    cfg_pos = header.find("// CFG:\n")
+    path_pos = header.find("// PATH:")
+    check(
+      "cfg-header-dump: // CFG: appears before // PATH:",
+      cfg_pos != -1 and path_pos != -1 and cfg_pos < path_pos,
+    )
+
+
 def main():
   if len(sys.argv) != 3:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri>")
@@ -1022,6 +1063,8 @@ def main():
   test_no_all_literal_assignment(rysmith)
   print("=== trivial-shape: single-atom literal RHS ===")
   test_no_single_atom_literal_assignment(rysmith)
+  print("=== CFG header dump ===")
+  test_cfg_header_dump(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)
