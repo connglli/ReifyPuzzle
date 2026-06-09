@@ -207,8 +207,8 @@ static FunDecl *mergeInto(
 // return value. These comments are informational — symiri and symirc
 // ignore them — but make the file self-describing for inspection.
 static void writeBundledSir(
-    const fs::path &outPath, const Program &bundle, const CallGraph &cg,
-    const std::vector<Node> &nodes, const FuncDescriptor::Realization &entryRz
+    const fs::path &outPath, const Program &bundle, const RyCG &cg, const std::vector<Node> &nodes,
+    const FuncDescriptor::Realization &entryRz
 ) {
   std::ofstream ofs(outPath);
   ofs << "// ENTRY: " << nodes[cg.entry()].funcName << "\n";
@@ -277,7 +277,7 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
   auto pickIdxs = pickPoolIndices(rng, (size_t) k, pool.entries.size());
 
   CGGenConfig cgCfg{k, cfg.pEdge, cfg.maxOutDeg};
-  CallGraph cg = genCallGraph(rng, cgCfg);
+  RyCG cg = genCallGraph(rng, cgCfg);
 
   // Build the bundle by parsing each chosen .sir.
   // Reserve funs upfront so Node::fn pointers stay valid across the

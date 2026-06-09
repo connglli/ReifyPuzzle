@@ -12,7 +12,7 @@
 
 namespace symir::reify {
 
-  struct CallGraph {
+  struct RyCG {
     int nNodes = 0;
     // Adjacency list: outEdges[i] = nodes that node i calls. Always sorted
     // ascending, all entries > i.
@@ -27,6 +27,6 @@ namespace symir::reify {
     int maxOutDegree = 3;
   };
 
-  CallGraph genCallGraph(std::mt19937 &rng, const CGGenConfig &cfg);
+  RyCG genCallGraph(std::mt19937 &rng, const CGGenConfig &cfg);
 
 } // namespace symir::reify

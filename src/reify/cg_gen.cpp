@@ -4,8 +4,8 @@
 
 namespace symir::reify {
 
-  CallGraph genCallGraph(std::mt19937 &rng, const CGGenConfig &cfg) {
-    CallGraph g;
+  RyCG genCallGraph(std::mt19937 &rng, const CGGenConfig &cfg) {
+    RyCG g;
     g.nNodes = std::max(1, cfg.nNodes);
     g.outEdges.assign(g.nNodes, {});
 
