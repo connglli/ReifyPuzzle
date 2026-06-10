@@ -65,6 +65,8 @@ namespace symir::reify {
     bool enableSelect = true; // select ternary
     bool enableFp = true;
     bool enableIntrinsics = true;
+    int minAtoms = 1;
+    int maxAtoms = 3;
     // Mutable set populated during expression generation. genFunction
     // reads it afterward to emit IntrinsicDecl entries. May be nullptr
     // (e.g. in tests) — intrinsic generation is silently skipped.

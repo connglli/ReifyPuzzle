@@ -859,10 +859,15 @@ namespace symir::reify {
     Atom replacement = genNonTrivialAtomOfType(
         rng, sym, vars, targetType, onPath, cfg, extraRequires, excludeName
     );
-    if (atoms.size() == 1)
-      atoms.push_back(std::move(replacement));
-    else
+    if (atoms.size() == 1) {
+      if (cfg.maxAtoms > 1) {
+        atoms.push_back(std::move(replacement));
+      } else {
+        atoms[0] = std::move(replacement);
+      }
+    } else {
       atoms.back() = std::move(replacement);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -879,10 +884,7 @@ namespace symir::reify {
     std::vector<Instr> dummyReqs;
     std::vector<Atom> atoms;
 
-    // Determine number of atoms in this expression
-    std::uniform_int_distribution<int> nAtomsDist(
-        rysmith::hp::kMinAtomsPerExpr, rysmith::hp::kMaxAtomsPerExpr
-    );
+    std::uniform_int_distribution<int> nAtomsDist(cfg.minAtoms, cfg.maxAtoms);
     int nAtoms = nAtomsDist(rng);
 
     // For ptr types, always single atom
@@ -1093,9 +1095,7 @@ namespace symir::reify {
     std::vector<Instr> reqs;
     std::vector<Atom> atoms;
 
-    std::uniform_int_distribution<int> nAtomsDist(
-        rysmith::hp::kMinAtomsPerExpr, rysmith::hp::kMaxAtomsPerExpr
-    );
+    std::uniform_int_distribution<int> nAtomsDist(cfg.minAtoms, cfg.maxAtoms);
     int nAtoms = nAtomsDist(rng);
 
     if (isPtrType(targetType))
@@ -1187,7 +1187,37 @@ namespace symir::reify {
     // in its own dispatch.
     if (atoms.size() == 1 && std::holds_alternative<RValueAtom>(atoms[0].v) &&
         (isIntType(targetType) || isFpType(targetType))) {
-      atoms.push_back(genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, reqs, excludeName));
+      if (cfg.maxAtoms > 1) {
+        atoms.push_back(
+            genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, reqs, excludeName)
+        );
+      } else {
+        Atom replacement;
+        bool found = false;
+        for (int attempt = 0; attempt < 10; attempt++) {
+          Atom cand = genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, reqs, excludeName);
+          if (!std::holds_alternative<RValueAtom>(cand.v)) {
+            replacement = std::move(cand);
+            found = true;
+            break;
+          }
+        }
+        if (found) {
+          atoms[0] = std::move(replacement);
+        } else {
+          CoefAtom ca;
+          if (onPath && sym) {
+            ca.coef = SymId{sym->nextCoef(targetType), {}};
+          } else {
+            if (isFpType(targetType)) {
+              ca.coef = FloatLit{1.0, {}};
+            } else {
+              ca.coef = IntLit{1, {}};
+            }
+          }
+          atoms[0] = Atom{std::move(ca), {}};
+        }
+      }
     }
 
     rewriteIfAllTriviallyConstant(

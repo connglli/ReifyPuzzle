@@ -1020,6 +1020,210 @@ def test_cfg_header_dump(rysmith):
     )
 
 
+def test_min_atoms_negative_validation(rysmith):
+  """--min-atoms < 1 should fail validation and exit 2."""
+  r = run([rysmith, "--min-atoms", "0"])
+  check(
+    "validation: --min-atoms 0 exits 2",
+    r.returncode == 2,
+    f"rc={r.returncode}, stderr={r.stderr[:200]!r}",
+  )
+  check(
+    "validation: --min-atoms 0 prints error",
+    "error: --min-atoms must be >= 1" in r.stderr,
+    f"stderr={r.stderr[:200]!r}",
+  )
+
+
+def test_max_atoms_less_than_min_validation(rysmith):
+  """--max-atoms < --min-atoms should fail validation and exit 2."""
+  r = run([rysmith, "--min-atoms", "3", "--max-atoms", "2"])
+  check(
+    "validation: --min-atoms 3 --max-atoms 2 exits 2",
+    r.returncode == 2,
+    f"rc={r.returncode}, stderr={r.stderr[:200]!r}",
+  )
+  check(
+    "validation: --min-atoms 3 --max-atoms 2 prints error",
+    "error: --max-atoms must be >= --min-atoms" in r.stderr,
+    f"stderr={r.stderr[:200]!r}",
+  )
+
+
+def _get_integer_scalar_body_assigns(sir_path):
+  """Returns a list of RHS expressions for scalar integer variables in the body of sir_path."""
+  var_types = {}
+  with open(sir_path) as f:
+    text = f.read()
+  for m in re.finditer(r"\blet\s+mut\s+(%v\d+)\s*:\s*(i\d+|f32|f64)\b", text):
+    var_types[m.group(1)] = m.group(2)
+  in_main = False
+  assigns = []
+  for line in text.splitlines():
+    s = line.strip()
+    if s.startswith("fun @main"):
+      in_main = True
+      continue
+    if s.startswith("fun @") and not s.startswith("fun @main"):
+      in_main = False
+      continue
+    if in_main or "%_chk" in s:
+      continue
+    if (
+      s.startswith("store ")
+      or s.startswith("require ")
+      or s.startswith("br ")
+      or s.startswith("ret ")
+      or s.startswith("unreachable")
+    ):
+      continue
+    m = re.match(r"(%v\d+)\s*=\s*(.+);\s*$", s)
+    if not m:
+      continue
+    lhs, rhs = m.group(1), m.group(2).strip()
+    if rhs.startswith("addr ") or rhs.startswith("load "):
+      continue
+    if var_types.get(lhs, "").startswith("i"):
+      assigns.append(rhs)
+  return assigns
+
+
+def _count_atoms(rhs):
+  # Count only top-level " + " and " - " (nesting level of parentheses/braces/brackets is 0).
+  level = 0
+  operators = 0
+  i = 0
+  n = len(rhs)
+  while i < n:
+    c = rhs[i]
+    if c in "([{":
+      level += 1
+      i += 1
+    elif c in ")]}":
+      level -= 1
+      i += 1
+    elif level == 0 and i + 3 <= n and rhs[i : i + 3] in (" + ", " - "):
+      operators += 1
+      i += 3
+    else:
+      i += 1
+  return 1 + operators
+
+
+def test_min_max_atoms_exact_one(rysmith):
+  """Verify that --min-atoms 1 --max-atoms 1 produces only 1-atom integer scalar expressions."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "4",
+        "--seed",
+        "123",
+        "--min-atoms",
+        "1",
+        "--max-atoms",
+        "1",
+        "-o",
+        d,
+      ]
+    )
+    check(
+      "rysmith --min-atoms 1 --max-atoms 1 exits 0",
+      r.returncode == 0,
+      f"stderr={r.stderr[:200]!r}",
+    )
+    if r.returncode != 0:
+      return
+    all_assigns = []
+    for f in os.listdir(d):
+      if f.endswith(".sir"):
+        all_assigns.extend(_get_integer_scalar_body_assigns(os.path.join(d, f)))
+    check("observed integer scalar assignments for 1-atom test", len(all_assigns) > 0)
+    non_conforming = [rhs for rhs in all_assigns if _count_atoms(rhs) != 1]
+    check(
+      "all integer scalar assignments have exactly 1 atom",
+      not non_conforming,
+      f"violations: {non_conforming[:5]}",
+    )
+
+
+def test_min_max_atoms_exact_two(rysmith):
+  """Verify that --min-atoms 2 --max-atoms 2 produces only 2-atom integer scalar expressions."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "4",
+        "--seed",
+        "123",
+        "--min-atoms",
+        "2",
+        "--max-atoms",
+        "2",
+        "-o",
+        d,
+      ]
+    )
+    check(
+      "rysmith --min-atoms 2 --max-atoms 2 exits 0",
+      r.returncode == 0,
+      f"stderr={r.stderr[:200]!r}",
+    )
+    if r.returncode != 0:
+      return
+    all_assigns = []
+    for f in os.listdir(d):
+      if f.endswith(".sir"):
+        all_assigns.extend(_get_integer_scalar_body_assigns(os.path.join(d, f)))
+    check("observed integer scalar assignments for 2-atom test", len(all_assigns) > 0)
+    non_conforming = [rhs for rhs in all_assigns if _count_atoms(rhs) != 2]
+    check(
+      "all integer scalar assignments have exactly 2 atoms",
+      not non_conforming,
+      f"violations: {non_conforming[:5]}",
+    )
+
+
+def test_min_max_atoms_exact_three(rysmith):
+  """Verify that --min-atoms 3 --max-atoms 3 produces only 3-atom integer scalar expressions."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "4",
+        "--seed",
+        "123",
+        "--min-atoms",
+        "3",
+        "--max-atoms",
+        "3",
+        "-o",
+        d,
+      ]
+    )
+    check(
+      "rysmith --min-atoms 3 --max-atoms 3 exits 0",
+      r.returncode == 0,
+      f"stderr={r.stderr[:200]!r}",
+    )
+    if r.returncode != 0:
+      return
+    all_assigns = []
+    for f in os.listdir(d):
+      if f.endswith(".sir"):
+        all_assigns.extend(_get_integer_scalar_body_assigns(os.path.join(d, f)))
+    check("observed integer scalar assignments for 3-atom test", len(all_assigns) > 0)
+    non_conforming = [rhs for rhs in all_assigns if _count_atoms(rhs) != 3]
+    check(
+      "all integer scalar assignments have exactly 3 atoms",
+      not non_conforming,
+      f"violations: {non_conforming[:5]}",
+    )
+
+
 def main():
   if len(sys.argv) != 3:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri>")
@@ -1065,6 +1269,16 @@ def main():
   test_no_single_atom_literal_assignment(rysmith)
   print("=== CFG header dump ===")
   test_cfg_header_dump(rysmith)
+  print("=== rysmith --min-atoms validation ===")
+  test_min_atoms_negative_validation(rysmith)
+  print("=== rysmith --max-atoms validation ===")
+  test_max_atoms_less_than_min_validation(rysmith)
+  print("=== rysmith --min-atoms 1 --max-atoms 1 ===")
+  test_min_max_atoms_exact_one(rysmith)
+  print("=== rysmith --min-atoms 2 --max-atoms 2 ===")
+  test_min_max_atoms_exact_two(rysmith)
+  print("=== rysmith --min-atoms 3 --max-atoms 3 ===")
+  test_min_max_atoms_exact_three(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

@@ -64,11 +64,6 @@ namespace symir::reify::rysmith::hp {
   inline constexpr int kFloatOnPath_SelectEnd = 95;         // select cond, a, b
   // fallthrough → concrete float literal
 
-  // ===========================================================================
-  // Expression structure
-  // ===========================================================================
-  inline constexpr int kMinAtomsPerExpr = 1;
-  inline constexpr int kMaxAtomsPerExpr = 3;
 
   // ===========================================================================
   // Statement-level shape

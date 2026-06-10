@@ -534,6 +534,10 @@ int main(int argc, char **argv) {
                           cxxopts::value<int>()->default_value("10"))
     ("n-stmts",           "Statements per block on path",
                           cxxopts::value<int>()->default_value("3"))
+    ("min-atoms",         "Minimum atoms per generated expression",
+                          cxxopts::value<int>()->default_value("1"))
+    ("max-atoms",         "Maximum atoms per generated expression",
+                          cxxopts::value<int>()->default_value("3"))
     ("safe-off-path",     "Add UB guards in off-path code")
     // Operators
     ("no-divmod",         "Disable integer division and modulo")
@@ -641,6 +645,18 @@ int main(int argc, char **argv) {
   typeCfg.maxAggNesting = result["max-agg-nest"].as<int>();
   typeCfg.maxAggElems = result["max-agg-elems"].as<int>();
 
+  int minAtoms = result["min-atoms"].as<int>();
+  int maxAtoms = result["max-atoms"].as<int>();
+  if (minAtoms < 1) {
+    std::cerr << "error: --min-atoms must be >= 1 (got " << minAtoms << ")\n";
+    return 2;
+  }
+  if (maxAtoms < minAtoms) {
+    std::cerr << "error: --max-atoms must be >= --min-atoms (got " << maxAtoms << " vs " << minAtoms
+              << ")\n";
+    return 2;
+  }
+
   // Var config
   VarGenConfig varCfg;
   varCfg.nVars = result["n-vars"].as<int>();
@@ -654,6 +670,8 @@ int main(int argc, char **argv) {
   exprCfg.enableDiv = !result.count("no-divmod");
   exprCfg.enableSelect = !result.count("no-select");
   exprCfg.enableFp = typeCfg.enableFp;
+  exprCfg.minAtoms = minAtoms;
+  exprCfg.maxAtoms = maxAtoms;
   bool enableIntrinsics = !result.count("no-intrinsics");
 
   int nFuncs = result["n-funcs"].as<int>();
