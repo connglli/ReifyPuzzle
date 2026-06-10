@@ -77,24 +77,58 @@ namespace symir::reify {
     return vec;
   }
 
+  // A Coef carries no runtime dependency unless it names a LocalId (a
+  // SymId resolves to a solver-chosen literal post-solve, a bare literal
+  // is trivially constant).
+  static bool isTriviallyConstantCoef(const Coef &c) {
+    if (auto *lsi = std::get_if<LocalOrSymId>(&c))
+      return std::holds_alternative<SymId>(*lsi); // LocalId reads the var → not trivial
+    return true;                                  // IntLit, FloatLit, NullLit
+  }
+
+  static bool isTriviallyConstantAtom(const Atom &a); // mutually recursive with Expr
+
+  // An Expr is trivially constant when every atom in it is.
+  static bool isTriviallyConstantExpr(const Expr &e) {
+    if (!isTriviallyConstantAtom(e.first))
+      return false;
+    for (const auto &t: e.rest)
+      if (!isTriviallyConstantAtom(t.atom))
+        return false;
+    return true;
+  }
+
+  // A select arm (RValue | Coef): an RValue reads a local; a Coef follows
+  // the Coef rule above.
+  static bool isTriviallyConstantSelectVal(const SelectVal &sv) {
+    if (std::holds_alternative<RValue>(sv))
+      return false; // RValue == LValue → reads a local
+    return isTriviallyConstantCoef(std::get<Coef>(sv));
+  }
+
   // An atom is "trivially constant" when it carries no runtime LValue
-  // dependency: a bare literal CoefAtom, a CoefAtom referring to a
-  // SymId (the solver picks a literal post-solve, indistinguishable
-  // from a hardcoded literal in the substituted .sir), or a CastAtom
-  // whose source is an IntLit / FloatLit / SymId. Every other atom
-  // kind reads from at least one LValue (RValueAtom, OpAtom, UnaryAtom,
-  // CastAtom-from-LValue, SelectAtom, AddrAtom, LoadAtom, PtrIndex,
-  // PtrField, CallAtom) and contributes a real data dependency that
-  // the compiler can't collapse without value-numbering the surrounding
-  // code. Used by the post-check that rejects all-trivial RHSs.
+  // dependency: a bare literal / SymId CoefAtom (the solver picks a literal
+  // post-solve, indistinguishable from a hardcoded literal), a CastAtom
+  // whose source is not an LValue, or a SelectAtom whose condition/mask and
+  // both arms are themselves trivially constant (e.g. `select 0 == 0, 1, 2`
+  // — which the compiler folds flat). Every other atom kind (RValueAtom,
+  // OpAtom, UnaryAtom, CastAtom-from-LValue, AddrAtom, LoadAtom, PtrIndex,
+  // PtrField, CallAtom, or a select reading any local) contributes a real
+  // data dependency. Used by the post-check that rejects all-trivial RHSs.
   static bool isTriviallyConstantAtom(const Atom &a) {
-    if (auto *ca = std::get_if<CoefAtom>(&a.v)) {
-      if (auto *lsi = std::get_if<LocalOrSymId>(&ca->coef))
-        return std::holds_alternative<SymId>(*lsi); // LocalId reads the var → not trivial
-      return true;                                  // IntLit, FloatLit, NullLit
-    }
+    if (auto *ca = std::get_if<CoefAtom>(&a.v))
+      return isTriviallyConstantCoef(ca->coef);
     if (auto *cast = std::get_if<CastAtom>(&a.v))
       return !std::holds_alternative<LValue>(cast->src);
+    if (auto *sa = std::get_if<SelectAtom>(&a.v)) {
+      if (!isTriviallyConstantSelectVal(sa->vtrue) || !isTriviallyConstantSelectVal(sa->vfalse))
+        return false;
+      if (sa->cond)
+        return isTriviallyConstantExpr(sa->cond->lhs) && isTriviallyConstantExpr(sa->cond->rhs);
+      if (sa->maskExpr)
+        return isTriviallyConstantExpr(*sa->maskExpr);
+      return true;
+    }
     return false;
   }
 
