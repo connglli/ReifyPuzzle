@@ -842,6 +842,35 @@ namespace symir::reify {
         return cand;
       last = std::move(cand);
     }
+    // Fallback chain when every standard roll came back trivial. Each step
+    // reads a runtime LValue and is UB-free:
+    //   1. a same-type scalar via a plain RValueAtom (cheapest);
+    //   2. a cast from a differently-typed scalar, restricted to total
+    //      conversions — int→int, int→fp, and the widening f32→f64. A
+    //      narrowing fp→fp (f64→f32) can overflow to ±inf and fp→int can
+    //      be out-of-range, both UB, so they are excluded;
+    //   3. a load through a ptr-to-targetType.
+    // Only when none of these exist (no readable LValue besides the
+    // excluded LHS) is the trivial `last` returned — a genuinely
+    // input-free expression cannot carry a runtime dependency, and the
+    // kPAllowAllLiteral slice absorbs it.
+    auto scalarWidth = [](const TypePtr &t) -> uint32_t {
+      if (isIntType(t))
+        return intBitWidth(t);
+      if (auto *ft = std::get_if<FloatType>(&t->v))
+        return ft->kind == FloatType::Kind::F32 ? 32u : 64u;
+      return 0;
+    };
+    auto safeCastSource = [&](const TypePtr &src) -> bool {
+      if (typeEquals(src, targetType))
+        return false; // same type → covered by the RValueAtom step
+      if (isIntType(targetType))
+        return isIntType(src); // int→int is total; fp→int can be range-UB
+      if (isIntType(src))
+        return true;                                                      // int→fp is always finite
+      return isFpType(src) && scalarWidth(src) < scalarWidth(targetType); // widening only
+    };
+
     auto same = excluding(vars.scalarsOf(targetType), excludeName);
     if (!same.empty()) {
       auto *v = pickOne(rng, same);
@@ -849,12 +878,17 @@ namespace symir::reify {
     }
     auto allScalars = excluding(vars.allScalars(), excludeName);
     for (auto *v: allScalars) {
-      if (!isIntType(v->type))
+      if (!safeCastSource(v->type))
         continue;
       CastAtom ca;
       ca.src = LValue{LocalId{v->name, {}}, {}, {}};
       ca.dstType = targetType;
       return Atom{std::move(ca), {}};
+    }
+    auto ptrs = excluding(vars.ptrsOf(targetType), excludeName);
+    if (!ptrs.empty()) {
+      auto *pv = pickOne(rng, ptrs);
+      return Atom{LoadAtom{localLV(pv->name), {}}, {}};
     }
     return last;
   }
