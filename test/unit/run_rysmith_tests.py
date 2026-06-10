@@ -1476,6 +1476,55 @@ def test_off_path_atoms_scaled(rysmith):
   )
 
 
+def test_cheap_rewrite_sym_share(rysmith):
+  """P3: when the trivial-shape rewrite fires ON-path it must produce cheap
+  linear atoms (concrete-coef mul, plain read, cast, load) instead of
+  rerolling the sym-heavy slot table. In single-atom mode (--min/max-atoms
+  1) the bare-sym slot (~40%) always triggers the rewrite, so the share of
+  on-path assignments containing a `%?s` sym is a direct probe: pre-P3 the
+  rerolled replacements were mostly `sym * var`, giving ~29%; post-P3 only
+  the organically non-trivial sym slots remain (~8%)."""
+  tot = symy = 0
+  for seed in (5001, 5002, 5003):
+    d = tempfile.mkdtemp(prefix="p3_")
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "4",
+        "--seed",
+        str(seed),
+        "--min-atoms",
+        "1",
+        "--max-atoms",
+        "1",
+        "--keep-symbolic",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      continue
+    for f in os.listdir(d):
+      if "_sym" not in f or not f.endswith(".sir"):
+        continue
+      path_labels, blocks = _split_blocks(os.path.join(d, f))
+      for label, stmts in blocks.items():
+        if label in ("entry", "exit") or label not in path_labels:
+          continue
+        for s in stmts:
+          if s.startswith("%") and " = " in s and not s.startswith("%?"):
+            tot += 1
+            if "%?s" in s:
+              symy += 1
+  share = symy / tot if tot else 1.0
+  check(
+    f"on-path single-atom sym share <= 15% (got {share:.1%} of {tot})",
+    tot > 0 and share <= 0.15,
+    f"share={share:.1%}",
+  )
+
+
 def test_safe_off_path_removed(rysmith):
   """--safe-off-path was removed: off-path blocks are never executed at the
   solved inputs, so its UB guards only ever decorated dead code. The flag
@@ -1565,6 +1614,8 @@ def main():
   test_off_path_multiplier_one_uniform(rysmith)
   print("=== --off-path-multiplier: atoms scaled ===")
   test_off_path_atoms_scaled(rysmith)
+  print("=== P3: cheap on-path rewrite sym share ===")
+  test_cheap_rewrite_sym_share(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

@@ -852,42 +852,48 @@ namespace symir::reify {
                            : genFloatAtomOffPath(rng, vars, targetType, excludeName);
   }
 
-  // Generate an atom that carries a runtime LValue dependency. Tries
-  // the standard dispatch up to `kAtomRerollMaxAttempts` times, then
-  // falls back to a hand-rolled `RValueAtom` / `CastAtom` from any
-  // in-scope LValue. The fallback is what keeps the trivial-shape post-
-  // check effective in narrow var pools — e.g. an f32 LHS whose only
-  // same-type sibling is itself (excluded by R3) has no good slot in
-  // `genFloatAtomOnPath` and would otherwise leave us with a trivial
-  // result every roll.
-  static Atom genNonTrivialAtomOfType(
-      std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
-      bool onPath, const ExprGenConfig &cfg, std::vector<Instr> &extraRequires,
-      const std::optional<std::string> &excludeName
+  // [P3] Build a cheap, solver-linear atom that reads a runtime LValue and
+  // is UB-safe. The chain, each step falling through when its pool is
+  // empty:
+  //   1. concrete-coef multiply or plain read of a same-type scalar — the
+  //      coef is a moderate nonzero literal (kCheapMulCoef*) for ints and a
+  //      kFloatMulCoefPool dyadic for floats, so the on-path no-overflow
+  //      constraint degrades to a loose linear bound instead of a nonlinear
+  //      `sym * var` term (`allowBareRead=false` forces the multiply so the
+  //      result can replace a plain copy without recreating one);
+  //   2. a cast from a differently-typed scalar, restricted to total
+  //      conversions — int→int, int→fp, and the widening f32→f64. A
+  //      narrowing fp→fp (f64→f32) can overflow to ±inf and fp→int can
+  //      be out-of-range, both UB, so they are excluded;
+  //   3. a load through a ptr-to-targetType.
+  // Returns nullopt when no readable LValue exists besides the excluded
+  // LHS — a genuinely input-free pool cannot carry a runtime dependency.
+  static std::optional<Atom> genCheapLinearAtom(
+      std::mt19937 &rng, const VarCatalogue &vars, const TypePtr &targetType,
+      const std::optional<std::string> &excludeName, bool allowBareRead
   ) {
-    Atom last =
-        genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, extraRequires, excludeName);
-    if (!isTriviallyConstantAtom(last))
-      return last;
-    for (int r = 1; r < rysmith::hp::kAtomRerollMaxAttempts; r++) {
-      Atom cand =
-          genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, extraRequires, excludeName);
-      if (!isTriviallyConstantAtom(cand))
-        return cand;
-      last = std::move(cand);
+    auto same = excluding(vars.scalarsOf(targetType), excludeName);
+    if (!same.empty()) {
+      auto *v = pickOne(rng, same);
+      std::uniform_int_distribution<int> slot(0, 99);
+      bool mul = !allowBareRead || slot(rng) < rysmith::hp::kCheapAtom_MulEnd;
+      if (mul && isIntType(targetType)) {
+        std::uniform_int_distribution<int64_t> d(
+            rysmith::hp::kCheapMulCoefLo, rysmith::hp::kCheapMulCoefHi
+        );
+        int64_t c = d(rng);
+        if (c == 0)
+          c = 2; // a 0 coef folds the term and drops the read
+        return opAtom(AtomOpKind::Mul, intCoef(c), localLV(v->name));
+      }
+      if (mul && isFpType(targetType)) {
+        std::uniform_int_distribution<std::size_t> d(0, rysmith::hp::kFloatMulCoefPoolSize - 1);
+        return opAtom(
+            AtomOpKind::Mul, floatCoef(rysmith::hp::kFloatMulCoefPool[d(rng)]), localLV(v->name)
+        );
+      }
+      return rvalAtom(localLV(v->name));
     }
-    // Fallback chain when every standard roll came back trivial. Each step
-    // reads a runtime LValue and is UB-free:
-    //   1. a same-type scalar via a plain RValueAtom (cheapest);
-    //   2. a cast from a differently-typed scalar, restricted to total
-    //      conversions — int→int, int→fp, and the widening f32→f64. A
-    //      narrowing fp→fp (f64→f32) can overflow to ±inf and fp→int can
-    //      be out-of-range, both UB, so they are excluded;
-    //   3. a load through a ptr-to-targetType.
-    // Only when none of these exist (no readable LValue besides the
-    // excluded LHS) is the trivial `last` returned — a genuinely
-    // input-free expression cannot carry a runtime dependency, and the
-    // kPAllowAllLiteral slice absorbs it.
     auto scalarWidth = [](const TypePtr &t) -> uint32_t {
       if (isIntType(t))
         return intBitWidth(t);
@@ -897,19 +903,13 @@ namespace symir::reify {
     };
     auto safeCastSource = [&](const TypePtr &src) -> bool {
       if (typeEquals(src, targetType))
-        return false; // same type → covered by the RValueAtom step
+        return false; // same type → covered by the read/mul step
       if (isIntType(targetType))
         return isIntType(src); // int→int is total; fp→int can be range-UB
       if (isIntType(src))
         return true;                                                      // int→fp is always finite
       return isFpType(src) && scalarWidth(src) < scalarWidth(targetType); // widening only
     };
-
-    auto same = excluding(vars.scalarsOf(targetType), excludeName);
-    if (!same.empty()) {
-      auto *v = pickOne(rng, same);
-      return rvalAtom(localLV(v->name));
-    }
     auto allScalars = excluding(vars.allScalars(), excludeName);
     for (auto *v: allScalars) {
       if (!safeCastSource(v->type))
@@ -924,6 +924,43 @@ namespace symir::reify {
       auto *pv = pickOne(rng, ptrs);
       return Atom{LoadAtom{localLV(pv->name), {}}, {}};
     }
+    return std::nullopt;
+  }
+
+  // Generate an atom that carries a runtime LValue dependency.
+  //
+  // On-path the cheap-linear chain is used DIRECTLY: rerolling the slot
+  // table would converge on `sym * var` — a fresh free variable plus a
+  // nonlinear BV multiply, the most solver-expensive replacement possible
+  // for what was a solver-free all-literal RHS (P3).
+  //
+  // Off-path (solver never looks) the standard dispatch is rerolled up to
+  // `kAtomRerollMaxAttempts` times for shape diversity before the same
+  // cheap chain takes over. When even the chain has no readable LValue the
+  // last trivial roll is returned — the kPAllowAllLiteral slice absorbs it.
+  static Atom genNonTrivialAtomOfType(
+      std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
+      bool onPath, const ExprGenConfig &cfg, std::vector<Instr> &extraRequires,
+      const std::optional<std::string> &excludeName
+  ) {
+    if (onPath && !cfg.condContext) {
+      if (auto cheap = genCheapLinearAtom(rng, vars, targetType, excludeName, true))
+        return std::move(*cheap);
+      return isFpType(targetType) ? genConcreteFloatAtom(rng) : genConcreteIntAtom(rng, targetType);
+    }
+    Atom last =
+        genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, extraRequires, excludeName);
+    if (!isTriviallyConstantAtom(last))
+      return last;
+    for (int r = 1; r < rysmith::hp::kAtomRerollMaxAttempts; r++) {
+      Atom cand =
+          genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, extraRequires, excludeName);
+      if (!isTriviallyConstantAtom(cand))
+        return cand;
+      last = std::move(cand);
+    }
+    if (auto cheap = genCheapLinearAtom(rng, vars, targetType, excludeName, true))
+      return std::move(*cheap);
     return last;
   }
 
@@ -1280,22 +1317,35 @@ namespace symir::reify {
     if (atoms.size() == 1 && std::holds_alternative<RValueAtom>(atoms[0].v) &&
         (isIntType(targetType) || isFpType(targetType))) {
       if (cfg.maxAtoms > 1) {
-        atoms.push_back(
-            genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, reqs, excludeName)
-        );
-      } else {
-        Atom replacement;
-        bool found = false;
-        for (int attempt = 0; attempt < 10; attempt++) {
-          Atom cand = genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, reqs, excludeName);
-          if (!std::holds_alternative<RValueAtom>(cand.v)) {
-            replacement = std::move(cand);
-            found = true;
-            break;
-          }
+        // [P3] On-path the appended tail is a cheap linear atom — a slot-
+        // table roll would mostly mint a fresh sym (free variable) or a
+        // nonlinear `sym * var` for what is purely an anti-copy reshape.
+        std::optional<Atom> tail =
+            (onPath && !cfg.condContext)
+                ? genCheapLinearAtom(rng, vars, targetType, excludeName, true)
+                : std::nullopt;
+        if (tail) {
+          atoms.push_back(std::move(*tail));
+        } else {
+          atoms.push_back(
+              genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, reqs, excludeName)
+          );
         }
-        if (found) {
-          atoms[0] = std::move(replacement);
+      } else {
+        // [P3] In-place replacement must not be another bare read (that
+        // would recreate a plain copy of a different var), so the cheap
+        // chain is asked for a multiply / cast / load.
+        std::optional<Atom> replacement =
+            (onPath && !cfg.condContext)
+                ? genCheapLinearAtom(rng, vars, targetType, excludeName, false)
+                : std::nullopt;
+        for (int attempt = 0; !replacement && attempt < 10; attempt++) {
+          Atom cand = genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, reqs, excludeName);
+          if (!std::holds_alternative<RValueAtom>(cand.v))
+            replacement = std::move(cand);
+        }
+        if (replacement) {
+          atoms[0] = std::move(*replacement);
         } else {
           CoefAtom ca;
           if (onPath && sym) {
@@ -1353,9 +1403,16 @@ namespace symir::reify {
       }
     }
 
+    // [P3] Mark the arm expressions as condition context so their trivial-
+    // shape replacements keep minting syms — conditions are the solver's
+    // handles for driving the path; sym-free arms starve it of freedom and
+    // inflate the UNSAT/retry rate.
+    ExprGenConfig condCfg = cfg;
+    condCfg.condContext = true;
+
     std::vector<Instr> lhsReqs, rhsReqs;
-    auto [lhs, lreqs] = genExprWithRequires(rng, sym, vars, condType, onPath, cfg);
-    auto [rhs, rreqs] = genExprWithRequires(rng, sym, vars, condType, onPath, cfg);
+    auto [lhs, lreqs] = genExprWithRequires(rng, sym, vars, condType, onPath, condCfg);
+    auto [rhs, rreqs] = genExprWithRequires(rng, sym, vars, condType, onPath, condCfg);
     // Note: condition requires are discarded here (condition can't have inline requires easily)
     // This is acceptable since the requires from div are an optional safety feature
     (void) lreqs;

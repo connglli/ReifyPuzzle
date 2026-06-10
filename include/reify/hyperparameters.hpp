@@ -258,6 +258,19 @@ namespace symir::reify::rysmith::hp {
   inline constexpr std::size_t kFloatMulCoefPoolSize =
       sizeof(kFloatMulCoefPool) / sizeof(kFloatMulCoefPool[0]);
 
+  // [P3] Cheap-linear replacement atoms (genCheapLinearAtom). When the
+  // trivial-shape rewrite fires on-path, the replacement is a concrete-coef
+  // multiply or a plain read instead of a slot-table reroll (whose
+  // non-trivial outcomes are dominated by solver-expensive `sym * var`).
+  // The int coef range is kept moderate so the on-path no-overflow
+  // constraint `|coef * var| < 2^(N-1)` stays loose; 0 is rerolled away
+  // (a `0 * var` term folds and drops the read).
+  inline constexpr std::int64_t kCheapMulCoefLo = -16;
+  inline constexpr std::int64_t kCheapMulCoefHi = 16;
+  // Slot split inside genCheapLinearAtom: [0, kCheapAtom_MulEnd) → coef*var,
+  // rest → plain same-type read.
+  inline constexpr int kCheapAtom_MulEnd = 50;
+
   // ===========================================================================
   // Output naming
   //

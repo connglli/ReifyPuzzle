@@ -67,6 +67,12 @@ namespace symir::reify {
     bool enableIntrinsics = true;
     int minAtoms = 1;
     int maxAtoms = 3;
+    // [P3] Set by genCond for its arm expressions: branch/require conditions
+    // are the solver's handles for driving the path, so their trivial-shape
+    // replacements keep the sym-minting reroll instead of the cheap linear
+    // chain. Body assignments leave this false and get sym-free, solver-
+    // linear replacements.
+    bool condContext = false;
     // Mutable set populated during expression generation. genFunction
     // reads it afterward to emit IntrinsicDecl entries. May be nullptr
     // (e.g. in tests) — intrinsic generation is silently skipped.
