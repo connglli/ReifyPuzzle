@@ -462,24 +462,83 @@ def test_r3_no_self_assign(rysmith):
 
 
 def test_r3_no_plain_copy(rysmith):
-  """R3: `%x = %y;` (plain copy, both bare locals, x != y) should never
-  appear for scalar/vec LHS. Pointer LHS is exempted — `%p0 = %p1;` is a
-  meaningful aliasing op and the obvious "fix" (`%p1 + 1`) would step a
-  pointer past its single-element object and trip load UB."""
+  """R3 + P6: `%x = %y;` (plain copy, both bare locals, x != y) is allowed
+  for scalar/vec LHS only at the low kPAllowPlainCopy probability — copy
+  propagation is a distinct dataflow shape worth keeping in the mix, but a
+  high share would re-open the SCCP collapse R3 closed. Pointer LHS is
+  exempted — `%p0 = %p1;` is a meaningful aliasing op and the obvious
+  "fix" (`%p1 + 1`) would step a pointer past its single-element object
+  and trip load UB."""
   sirs = _r3_collect_sirs(rysmith, _R3_SEEDS)
-  bad = []
+  copies = 0
+  total = 0
   for sir in sirs:
     for line in _r3_body_assign_lines(sir):
       lhs, rhs = _r3_split_lhs_rhs(line)
       if lhs is None or _R3_PTR_LHS.match(lhs):
         continue
+      total += 1
       m = _R3_BARE_LOCAL_RHS.match(rhs)
       if m and m.group(1) != lhs:
-        bad.append((sir, line))
+        copies += 1
+  share = copies / total if total else 0.0
   check(
-    f"R3: 0 plain bare-RValueAtom copies (scalar/vec LHS) across {len(sirs)} .sir files",
-    not bad,
-    f"first violation: {bad[0]}" if bad else "",
+    f"plain-copy share <= 10% of scalar/vec assigns ({copies}/{total} across "
+    f"{len(sirs)} .sir files)",
+    total > 0 and share <= 0.10,
+    f"share={share:.1%}",
+  )
+
+
+def test_plain_copies_present_at_low_p(rysmith):
+  """P6 (partial revert of 04883da): SCALAR plain copies must actually
+  appear at the kPAllowPlainCopy rate, and ONLY via that gate — the
+  trivial-rewrite's in-place branch now refuses bare reads, so it can no
+  longer manufacture copies out of all-literal RHSs. Single-atom mode
+  maximizes bare-RValueAtom rolls (every one hits the anti-copy bump), so
+  across these seeds at p=0.05 several scalar `%x = %y;` survive. Scoped
+  to scalar-typed LHS — vec whole-copies are a separate, pre-existing
+  admission. Self-assigns remain forbidden."""
+  copies = 0
+  total = 0
+  scalar_let = re.compile(r"\blet\s+(?:mut\s+)?(%\w+)\s*:\s*(?:i\d+|f32|f64)\b")
+  for seed in (6001, 6002, 6003, 6004, 6005, 6006):
+    d = tempfile.mkdtemp(prefix="p6_")
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "4",
+        "--seed",
+        str(seed),
+        "--min-atoms",
+        "1",
+        "--max-atoms",
+        "1",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      continue
+    for f in os.listdir(d):
+      if not f.endswith(".sir"):
+        continue
+      p = os.path.join(d, f)
+      scalars = set(scalar_let.findall(open(p).read()))
+      for line in _r3_body_assign_lines(p):
+        lhs, rhs = _r3_split_lhs_rhs(line)
+        if lhs is None or lhs not in scalars:
+          continue
+        total += 1
+        m = _R3_BARE_LOCAL_RHS.match(rhs)
+        if m and m.group(1) != lhs:
+          copies += 1
+  share = copies / total if total else 0.0
+  check(
+    f"scalar plain copies present but rare in single-atom mode ({copies}/{total})",
+    copies >= 1 and share <= 0.10,
+    f"copies={copies}, share={share:.1%}",
   )
 
 
@@ -1556,8 +1615,10 @@ def main():
   test_rysmith_main(rysmith, symiri)
   print("=== R3: scalar/ptr/vec self-assign elimination ===")
   test_r3_no_self_assign(rysmith)
-  print("=== R3: plain-copy elimination ===")
+  print("=== R3+P6: plain-copy share low ===")
   test_r3_no_plain_copy(rysmith)
+  print("=== P6: plain copies present at low p ===")
+  test_plain_copies_present_at_low_p(rysmith)
   print("=== R3: LHS does not appear in RHS ===")
   test_r3_no_lhs_in_rhs(rysmith)
   print("=== R3: baseline assignment volume sanity ===")

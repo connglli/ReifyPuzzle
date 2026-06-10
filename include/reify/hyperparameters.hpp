@@ -100,6 +100,15 @@ namespace symir::reify::rysmith::hp {
   // when tight path constraints make non-trivial RHSs hard to satisfy.
   inline constexpr double kPAllowAllLiteral = 0.05;
 
+  // [P6] Probability that a single bare-RValueAtom RHS (`%x = %y;`) is
+  // KEPT instead of being reshaped by the R3 anti-copy bump. Copy
+  // propagation is a distinct dataflow shape the optimizer exercises —
+  // forbidding it outright homogenises every def into an arithmetic
+  // join. A low rate reintroduces the shape without re-opening the bulk
+  // SCCP collapse R3 closed; self-assigns stay impossible (the LHS is
+  // excluded from every RHS pool).
+  inline constexpr double kPAllowPlainCopy = 0.05;
+
   // How many times `genExpr` / `genExprWithRequires` tries to roll a
   // non-trivial atom before giving up and accepting whatever the gen
   // returns. With the ~40-50% trivial rate of the on/off-path atom

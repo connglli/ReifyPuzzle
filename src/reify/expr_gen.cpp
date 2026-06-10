@@ -938,28 +938,37 @@ namespace symir::reify {
   // `kAtomRerollMaxAttempts` times for shape diversity before the same
   // cheap chain takes over. When even the chain has no readable LValue the
   // last trivial roll is returned — the kPAllowAllLiteral slice absorbs it.
+  //
+  // `allowBareRead=false` additionally rules out a bare RValueAtom result:
+  // a caller about to use the atom as a whole single-atom RHS would
+  // otherwise manufacture a plain copy, whose rate must stay solely under
+  // kPAllowPlainCopy's control (P6).
   static Atom genNonTrivialAtomOfType(
       std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
       bool onPath, const ExprGenConfig &cfg, std::vector<Instr> &extraRequires,
-      const std::optional<std::string> &excludeName
+      const std::optional<std::string> &excludeName, bool allowBareRead = true
   ) {
     if (onPath && !cfg.condContext) {
-      if (auto cheap = genCheapLinearAtom(rng, vars, targetType, excludeName, true))
+      if (auto cheap = genCheapLinearAtom(rng, vars, targetType, excludeName, allowBareRead))
         return std::move(*cheap);
       return isFpType(targetType) ? genConcreteFloatAtom(rng) : genConcreteIntAtom(rng, targetType);
     }
     Atom last =
         genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, extraRequires, excludeName);
-    if (!isTriviallyConstantAtom(last))
+    auto acceptable = [&](const Atom &a) {
+      return !isTriviallyConstantAtom(a) &&
+             (allowBareRead || !std::holds_alternative<RValueAtom>(a.v));
+    };
+    if (acceptable(last))
       return last;
     for (int r = 1; r < rysmith::hp::kAtomRerollMaxAttempts; r++) {
       Atom cand =
           genOneAtomOfType(rng, sym, vars, targetType, onPath, cfg, extraRequires, excludeName);
-      if (!isTriviallyConstantAtom(cand))
+      if (acceptable(cand))
         return cand;
       last = std::move(cand);
     }
-    if (auto cheap = genCheapLinearAtom(rng, vars, targetType, excludeName, true))
+    if (auto cheap = genCheapLinearAtom(rng, vars, targetType, excludeName, allowBareRead))
       return std::move(*cheap);
     return last;
   }
@@ -985,8 +994,16 @@ namespace symir::reify {
     });
     if (!allTrivial)
       return;
+    // [P6] When the replacement becomes the WHOLE RHS (single atom replaced
+    // in place), a bare read would manufacture a plain copy out of an
+    // all-literal RHS — copy frequency must stay solely under
+    // kPAllowPlainCopy's control, so bare reads are ruled out here. Tail
+    // positions (append / last-atom replacement) keep them: a read joined
+    // by +/- is not a copy.
+    bool inPlaceWholeRhs = atoms.size() == 1 && cfg.maxAtoms <= 1;
     Atom replacement = genNonTrivialAtomOfType(
-        rng, sym, vars, targetType, onPath, cfg, extraRequires, excludeName
+        rng, sym, vars, targetType, onPath, cfg, extraRequires, excludeName,
+        /*allowBareRead=*/!inPlaceWholeRhs
     );
     if (atoms.size() == 1) {
       if (cfg.maxAtoms > 1) {
@@ -1305,17 +1322,19 @@ namespace symir::reify {
       atoms.push_back(std::move(a));
     }
 
-    // R3: forbid single-atom bare-RValueAtom RHS for int/float scalars.
-    // `%v = %w;` plain copies fold away under SCCP just as easily as
-    // self-assigns. Append a tail atom so the RHS becomes `%w + ...`,
-    // which the compiler cannot collapse without value-numbering across
-    // the join. Unconditional (no kPAllowAllLiteral gate) because R3's
-    // contract is "0 plain copies", not "5% allowed". Skip for ptr/vec:
+    // R3 + P6: a single-atom bare-RValueAtom RHS (`%v = %w;`) is reshaped
+    // so it can't bulk-collapse under SCCP — except for a kPAllowPlainCopy
+    // slice that survives verbatim: copy propagation is a distinct dataflow
+    // shape the optimizer exercises, and forbidding it outright homogenises
+    // every def into an arithmetic join. Self-assigns remain impossible
+    // (excludeName filters the LHS from every pool). Skip for ptr/vec:
     // ptr is forced single-atom with `excludeName` already filtering
     // the pool; vec already mixes whole-vec copy with lane-wise tails
     // in its own dispatch.
+    std::uniform_real_distribution<double> copyCoin(0.0, 1.0);
     if (atoms.size() == 1 && std::holds_alternative<RValueAtom>(atoms[0].v) &&
-        (isIntType(targetType) || isFpType(targetType))) {
+        (isIntType(targetType) || isFpType(targetType)) &&
+        copyCoin(rng) >= rysmith::hp::kPAllowPlainCopy) {
       if (cfg.maxAtoms > 1) {
         // [P3] On-path the appended tail is a cheap linear atom — a slot-
         // table roll would mostly mint a fresh sym (free variable) or a
