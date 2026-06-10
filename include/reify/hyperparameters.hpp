@@ -46,15 +46,33 @@ namespace symir::reify::rysmith::hp {
   // fallthrough → standalone sym Coef
 
   // --- genIntAtomOffPath: concrete coefs only, no syms ---
-  inline constexpr int kIntOffPath_ConcreteEnd = 30;  // bare int literal
-  inline constexpr int kIntOffPath_MulEnd = 50;       // lit * var
-  inline constexpr int kIntOffPath_BitwiseEnd = 60;   // lit & | ^ var
-  inline constexpr int kIntOffPath_CastEnd = 65;      // var as T
-  inline constexpr int kIntOffPath_DivModEnd = 70;    // lit / % var
-  inline constexpr int kIntOffPath_PlainRvalEnd = 75; // bare lvalue
-  inline constexpr int kIntOffPath_LoadEnd = 83;      // load %p
+  inline constexpr int kIntOffPath_ConcreteEnd = 25;  // bare int literal
+  inline constexpr int kIntOffPath_MulEnd = 45;       // coef * var
+  inline constexpr int kIntOffPath_BitwiseEnd = 55;   // coef & | ^ var
+  inline constexpr int kIntOffPath_ShiftEnd = 63;     // coef << >> >>> var
+  inline constexpr int kIntOffPath_CastEnd = 68;      // var as T
+  inline constexpr int kIntOffPath_DivModEnd = 73;    // coef / % var
+  inline constexpr int kIntOffPath_PlainRvalEnd = 78; // bare lvalue
+  inline constexpr int kIntOffPath_LoadEnd = 85;      // load %p
   inline constexpr int kIntOffPath_SelectEnd = 93;    // select cond, a, b
   inline constexpr int kIntOffPath_IntrinsicEnd = 97; // call @intrinsic(args)
+
+  // [P7] Probability that an off-path OpAtom coefficient is a same-type
+  // LocalId (`%a * %b`) instead of a literal. Var-op-var is grammar-legal
+  // for every operator, compiler-opaque (both sides are runtime values),
+  // and solver-free off-path. On-path ops never use var coefs — var*var
+  // is a nonlinear BV term.
+  inline constexpr double kPOffPathVarCoef = 0.4;
+
+  // [P7] Off-path FP atom slots. FP `/` and `%` (fmod) are typecheck-legal
+  // (floats admit Mul / Div / Mod) but were never generated; off-path they
+  // cost the solver nothing and cannot diverge interpreter-vs-backend
+  // because the block never executes.
+  inline constexpr int kFloatOffPath_ReadEnd = 35; // bare same-type read
+  inline constexpr int kFloatOffPath_MulEnd = 55;  // coef * var
+  inline constexpr int kFloatOffPath_DivEnd = 68;  // coef / var
+  inline constexpr int kFloatOffPath_ModEnd = 78;  // coef % var (fmod)
+  // rest: concrete float literal
   // fallthrough → concrete int literal
 
   // --- genFloatAtomOnPath ---

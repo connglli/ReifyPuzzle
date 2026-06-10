@@ -381,11 +381,22 @@ namespace symir::reify {
     if (!allScalars.empty()) {
       auto *vL = pickOne(rng, allScalars);
       cond.lhs = simpleExpr(rvalAtom(localLV(vL->name)));
-      // RHS: a 0-literal of the same int width, or 0.0 for fp — keeps types compatible.
-      if (isFpType(vL->type))
-        cond.rhs = simpleExpr(coefAtom(floatCoef(0.0)));
-      else
-        cond.rhs = simpleExpr(coefAtom(intCoef(0)));
+      // RHS literal of the lhs var's type. On-path (sym != null) it stays 0
+      // so the path constraint is a simple sign test; off-path [P7] it is
+      // drawn from the per-width pool — the threshold value is opaque to
+      // the compiler either way, but a fixed 0 needlessly homogenises the
+      // never-executed arms.
+      if (isFpType(vL->type)) {
+        double f = 0.0;
+        if (!sym) {
+          std::uniform_int_distribution<std::size_t> d(0, rysmith::hp::kFloatLitPoolSize - 1);
+          f = rysmith::hp::kFloatLitPool[d(rng)];
+        }
+        cond.rhs = simpleExpr(coefAtom(floatCoef(f)));
+      } else {
+        int64_t i = sym ? 0 : pickConcreteIntLit(rng, vL->type);
+        cond.rhs = simpleExpr(coefAtom(intCoef(i)));
+      }
     } else {
       cond.lhs = simpleExpr(coefAtom(intCoef(0)));
       cond.rhs = simpleExpr(coefAtom(intCoef(0)));
@@ -474,18 +485,6 @@ namespace symir::reify {
     for (auto *v: allScalars)
       if (isIntType(v->type) && !typeEquals(v->type, targetType))
         otherIntScalars.push_back(v);
-
-    // Probability distribution over atom kinds
-    // We use a simple slot-based approach
-    // Slots:
-    //  0-39: CoefAtom{sym}  (standalone symbolic coef)
-    //  40-59: OpAtom{Mul, sym, rval}  (requires rval)
-    //  60-69: bitwise ops (if enableAllOps, requires rval)
-    //  70-74: shift (if enableAllOps, requires rval)
-    //  75-79: unary not (requires rval)
-    //  80-84: cast from other int width (requires otherIntScalars)
-    //  85-89: div/mod (if enableDiv, requires rval)
-    //  90-99: CoefAtom{sym} fallback
 
     std::uniform_int_distribution<int> slot(0, 99);
     int s = slot(rng);
@@ -593,7 +592,42 @@ namespace symir::reify {
     return coefAtom(symCoef(sym.nextCoef(targetType)));
   }
 
-  // Generate a single Atom of the given integer type (off-path, concrete only)
+  // [P7] Off-path OpAtom coefficient: a same-type LocalId with probability
+  // kPOffPathVarCoef (`%a * %b` — every operator admits a LocalId coef per
+  // the grammar, both sides are runtime values the compiler can't fold,
+  // and the solver never visits off-path blocks), else a per-width
+  // literal. `nonzeroLit` keeps the literal branch's dividend nonzero for
+  // div/mod (a 0 dividend folds the whole term).
+  static Coef pickOffPathIntCoef(
+      std::mt19937 &rng, const VarCatalogue &vars, const TypePtr &targetType,
+      const std::optional<std::string> &excludeName, bool nonzeroLit
+  ) {
+    auto pool = excluding(vars.scalarsOf(targetType), excludeName);
+    std::uniform_real_distribution<double> coin(0.0, 1.0);
+    if (!pool.empty() && coin(rng) < rysmith::hp::kPOffPathVarCoef)
+      return LocalOrSymId{LocalId{pickOne(rng, pool)->name, {}}};
+    int64_t v = nonzeroLit ? pickConcreteIntLitNonzero(rng, targetType)
+                           : pickConcreteIntLit(rng, targetType);
+    return IntLit{v, {}};
+  }
+
+  // FP analogue. The literal branch draws from kFloatMulCoefPool (dyadic,
+  // 0-free) so the term never folds to a constant.
+  static Coef pickOffPathFpCoef(
+      std::mt19937 &rng, const VarCatalogue &vars, const TypePtr &targetType,
+      const std::optional<std::string> &excludeName
+  ) {
+    auto pool = excluding(vars.scalarsOf(targetType), excludeName);
+    std::uniform_real_distribution<double> coin(0.0, 1.0);
+    if (!pool.empty() && coin(rng) < rysmith::hp::kPOffPathVarCoef)
+      return LocalOrSymId{LocalId{pickOne(rng, pool)->name, {}}};
+    std::uniform_int_distribution<std::size_t> d(0, rysmith::hp::kFloatMulCoefPoolSize - 1);
+    return FloatLit{rysmith::hp::kFloatMulCoefPool[d(rng)], {}};
+  }
+
+  // Generate a single Atom of the given integer type (off-path; never
+  // executed at the solved inputs, so the only constraint is that it
+  // typechecks and compiles)
   static Atom genIntAtomOffPath(
       std::mt19937 &rng, const VarCatalogue &vars, const TypePtr &targetType,
       const ExprGenConfig &cfg, const std::optional<std::string> &excludeName = std::nullopt
@@ -614,20 +648,33 @@ namespace symir::reify {
       return genConcreteIntAtom(rng, targetType);
     }
     if (s < rysmith::hp::kIntOffPath_MulEnd) {
-      // Coefficient is drawn from the per-width concrete pool — the
-      // old [-8, 8] kOffPathCoef_* range starved the literal magnitude
-      // distribution and let the compiler fold most off-path code at -O2.
       auto *v = pickOne(rng, scalarsOfT);
       return opAtom(
-          AtomOpKind::Mul, intCoef(pickConcreteIntLit(rng, targetType)), localLV(v->name)
+          AtomOpKind::Mul, pickOffPathIntCoef(rng, vars, targetType, excludeName, false),
+          localLV(v->name)
       );
     }
     if (s < rysmith::hp::kIntOffPath_BitwiseEnd && cfg.enableAllOps) {
-      // Same as above for bitwise ops.
       auto *v = pickOne(rng, scalarsOfT);
       static const AtomOpKind bops[] = {AtomOpKind::And, AtomOpKind::Or, AtomOpKind::Xor};
       std::uniform_int_distribution<int> op(0, 2);
-      return opAtom(bops[op(rng)], intCoef(pickConcreteIntLit(rng, targetType)), localLV(v->name));
+      return opAtom(
+          bops[op(rng)], pickOffPathIntCoef(rng, vars, targetType, excludeName, false),
+          localLV(v->name)
+      );
+    }
+    if (s < rysmith::hp::kIntOffPath_ShiftEnd && cfg.enableAllOps) {
+      // [P7] All three shift ops at any width. The shift amount is a
+      // runtime var and may be negative / oversized at runtime — UB the
+      // block never reaches; it only has to typecheck (coef width ==
+      // rval width) and compile.
+      auto *v = pickOne(rng, scalarsOfT);
+      static const AtomOpKind sops[] = {AtomOpKind::Shl, AtomOpKind::Shr, AtomOpKind::LShr};
+      std::uniform_int_distribution<int> op(0, 2);
+      return opAtom(
+          sops[op(rng)], pickOffPathIntCoef(rng, vars, targetType, excludeName, false),
+          localLV(v->name)
+      );
     }
     if (s < rysmith::hp::kIntOffPath_CastEnd && !otherIntScalars.empty()) {
       auto *v = pickOne(rng, otherIntScalars);
@@ -637,16 +684,14 @@ namespace symir::reify {
       return Atom{std::move(ca), {}};
     }
     if (s < rysmith::hp::kIntOffPath_DivModEnd && cfg.enableDiv && hasRval) {
-      // Dividend draws from the per-width pool (nonzero); the divisor
-      // (the runtime LValue %v) carries a pre-existing div-by-zero risk
-      // that this slot has always had — wrapping with `select v == 0, …`
-      // would need OpAtom.rval to admit SelectAtom, which the grammar
-      // forbids. Off-path is sampled around the on-path so this branch
-      // is not part of the solver-chosen execution path.
+      // The divisor (the runtime LValue %v) carries a div-by-zero risk
+      // this slot has always had — irrelevant, the block never executes.
       auto *v = pickOne(rng, scalarsOfT);
       std::uniform_int_distribution<int> dm(0, 1);
       AtomOpKind op = dm(rng) ? AtomOpKind::Mod : AtomOpKind::Div;
-      return opAtom(op, intCoef(pickConcreteIntLitNonzero(rng, targetType)), localLV(v->name));
+      return opAtom(
+          op, pickOffPathIntCoef(rng, vars, targetType, excludeName, true), localLV(v->name)
+      );
     }
     if (s < rysmith::hp::kIntOffPath_PlainRvalEnd) {
       auto *v = pickOne(rng, scalarsOfT);
@@ -726,13 +771,31 @@ namespace symir::reify {
       const std::optional<std::string> &excludeName = std::nullopt
   ) {
     auto fpVars = excluding(vars.scalarsOf(targetType), excludeName);
-    if (!fpVars.empty()) {
-      std::uniform_real_distribution<double> coin(0.0, 1.0);
-      if (coin(rng) < 0.5) {
-        auto *v = pickOne(rng, fpVars);
-        return rvalAtom(localLV(v->name));
-      }
+    std::uniform_int_distribution<int> slot(0, 99);
+    int s = slot(rng);
+    if (fpVars.empty())
+      return genConcreteFloatAtom(rng);
+    if (s < rysmith::hp::kFloatOffPath_ReadEnd) {
+      auto *v = pickOne(rng, fpVars);
+      return rvalAtom(localLV(v->name));
     }
+    // [P7] Floats admit Mul / Div / Mod (fmod) per the typechecker; the
+    // div-by-zero / overflow UB these can hit at runtime never fires in an
+    // off-path block, and bit-exactness is moot for code that never
+    // executes — it only has to compile.
+    auto pickVar = [&]() { return localLV(pickOne(rng, fpVars)->name); };
+    if (s < rysmith::hp::kFloatOffPath_MulEnd)
+      return opAtom(
+          AtomOpKind::Mul, pickOffPathFpCoef(rng, vars, targetType, excludeName), pickVar()
+      );
+    if (s < rysmith::hp::kFloatOffPath_DivEnd)
+      return opAtom(
+          AtomOpKind::Div, pickOffPathFpCoef(rng, vars, targetType, excludeName), pickVar()
+      );
+    if (s < rysmith::hp::kFloatOffPath_ModEnd)
+      return opAtom(
+          AtomOpKind::Mod, pickOffPathFpCoef(rng, vars, targetType, excludeName), pickVar()
+      );
     return genConcreteFloatAtom(rng);
   }
 

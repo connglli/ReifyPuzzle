@@ -1110,8 +1110,11 @@ if (a0 != a1) {
 return a1;
 ```
 The C backend's preamble already `#include`s `<stdio.h>` and
-`<stdlib.h>` unconditionally so the helper compiles on a bare
-`gcc out.c` without further options.
+`<stdlib.h>` unconditionally so the helper itself needs no further
+options. Note that the program as a whole should be linked with
+`-lm`: generated code may call libm functions (`fmod` / `fmodf` from
+floating-point `%`, and the FP intrinsic helpers), which live in a
+separate library on toolchains older than glibc 2.35 and on musl.
 
 **WASM**: not lowered (matches `@crc32_update`).
 

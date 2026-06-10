@@ -134,7 +134,7 @@ Multiple concretizations of the same symbolic template (different solver seeds, 
 The concrete `.sir` file is lowered to C or WASM by `symirc`:
 
 ```
-rysmith  →  concrete .sir  →  symirc -t c  →  .c  →  gcc / clang
+rysmith  →  concrete .sir  →  symirc -t c  →  .c  →  gcc / clang (link with -lm)
                             →  symirc -t wasm →  .wat / .wasm
 ```
 

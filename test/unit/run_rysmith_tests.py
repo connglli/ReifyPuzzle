@@ -1584,6 +1584,86 @@ def test_cheap_rewrite_sym_share(rysmith):
   )
 
 
+def _collect_sym_text(rysmith, seeds, extra_flags=None):
+  """Concatenated symbolic-dump text (comments stripped) across seeds."""
+  chunks = []
+  for seed in seeds:
+    d = tempfile.mkdtemp(prefix="p7_")
+    cmd = [rysmith, "--n-funcs", "4", "--seed", str(seed), "--keep-symbolic", "-o", d]
+    if extra_flags:
+      cmd.extend(extra_flags)
+    r = run(cmd)
+    if r.returncode != 0:
+      continue
+    for f in os.listdir(d):
+      if "_sym" in f and f.endswith(".sir"):
+        chunks.append(open(os.path.join(d, f)).read())
+  return re.sub(r"//[^\n]*", "", "\n".join(chunks))
+
+
+_P7_SEEDS = (8101, 8102, 8103)
+
+
+def test_offpath_shift_atoms(rysmith):
+  """P7: off-path blocks generate shift atoms (all three ops, lit- or
+  var-shifted). Pre-change the only shifts were on-path `%?sN << %v`
+  (i32-only), so a shift whose shiftee is NOT a sym is a pure off-path
+  signature."""
+  text = _collect_sym_text(rysmith, _P7_SEEDS)
+  found = {
+    op: len(re.findall(rf"(?:\b-?\d+|%(?!\?)\w+) {re.escape(op)} %", text))
+    for op in ("<<", ">>", ">>>")
+  }
+  # `>>` matches inside `>>>`; subtract the overlap.
+  found[">>"] -= found[">>>"]
+  check(
+    f"off-path shifts present for all ops ({found})",
+    all(n >= 3 for n in found.values()),
+    f"found={found}",
+  )
+
+
+def test_offpath_var_op_var_atoms(rysmith):
+  """P7: `Coef ::= LocalId` — `%a * %b`, `%a & %b`, ... are grammar-legal
+  and must appear off-path (runtime values on both sides; the compiler
+  cannot fold them, the solver never sees them)."""
+  text = _collect_sym_text(rysmith, _P7_SEEDS)
+  n = len(re.findall(r"%(?!\?)\w+ (?:\*|/|&|\||\^) %(?!\?)\w+", text))
+  check(
+    f"var-op-var atoms present off-path ({n} found)",
+    n >= 10,
+    f"found={n}",
+  )
+
+
+def test_offpath_fp_divmod_atoms(rysmith):
+  """P7: FP `/` and `%` (fmod) are typecheck-legal (Mul/Div/Mod for floats)
+  and must appear off-path. A float-literal coefficient (always printed
+  with a `.`) dividing a var is the signature."""
+  text = _collect_sym_text(rysmith, _P7_SEEDS)
+  n = len(re.findall(r"-?\d+\.\d+(?:e[+-]?\d+)? [/%] %", text))
+  check(
+    f"FP div/mod atoms present off-path ({n} found)",
+    n >= 3,
+    f"found={n}",
+  )
+
+
+def test_offpath_select_cond_nonzero_rhs(rysmith):
+  """P7: off-path select conditions compare against a drawn literal, not
+  the hardcoded 0 — `select %v >= -123, ...` instead of always
+  `select %v >= 0, ...`."""
+  text = _collect_sym_text(rysmith, _P7_SEEDS)
+  n = len(
+    re.findall(r"select %\w+ (?:==|!=|<=|>=|<|>) -?(?:[1-9]\d*)(?:\.\d+)?,", text)
+  )
+  check(
+    f"off-path select conds with nonzero literal RHS ({n} found)",
+    n >= 3,
+    f"found={n}",
+  )
+
+
 def test_safe_off_path_removed(rysmith):
   """--safe-off-path was removed: off-path blocks are never executed at the
   solved inputs, so its UB guards only ever decorated dead code. The flag
@@ -1677,6 +1757,14 @@ def main():
   test_off_path_atoms_scaled(rysmith)
   print("=== P3: cheap on-path rewrite sym share ===")
   test_cheap_rewrite_sym_share(rysmith)
+  print("=== P7: off-path shift atoms ===")
+  test_offpath_shift_atoms(rysmith)
+  print("=== P7: off-path var-op-var atoms ===")
+  test_offpath_var_op_var_atoms(rysmith)
+  print("=== P7: off-path FP div/mod atoms ===")
+  test_offpath_fp_divmod_atoms(rysmith)
+  print("=== P7: off-path select cond literal RHS ===")
+  test_offpath_select_cond_nonzero_rhs(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)
