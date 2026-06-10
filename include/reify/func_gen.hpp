@@ -26,6 +26,11 @@ namespace symir::reify {
     // ±2 (the smallest values surviving the filter); R5 trades that
     // floor for a real diversity guarantee.
     double pLargeCoef = 0.3;
+    // Magnitude threshold T for the `|c| > T` interest require, set by
+    // --large-coef. Clamped per-coef to the coef's domain ∩ type range, so
+    // a value wider than --coef-domain degrades to the largest in-domain
+    // magnitude rather than going UNSAT.
+    int64_t largeCoefThreshold = 1 << 20;
     ExprGenConfig exprCfg;
     // Sym counter domains
     int64_t coefLo = -8, coefHi = 8;

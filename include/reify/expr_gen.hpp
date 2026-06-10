@@ -99,11 +99,16 @@ namespace symir::reify {
 
   // Generate interest requires for new coef syms since coefCountBefore.
   // Tiered: for each new coef, with probability `pLargeCoef` emit one
-  // `|c| > 2^20` require; otherwise emit nothing. The unconditional
+  // `|c| > largeCoefThreshold` require; otherwise emit nothing. The
+  // threshold is clamped per-coef into the intersection of its declared
+  // domain and its type's representable range, so the require is always
+  // both type-valid (literal fits the coef's width) and satisfiable
+  // (cannot exceed a narrow `--coef-domain`). The unconditional
   // `c != 0,1,-1` triple from earlier versions clustered the solver at
   // ±2 and starved the literal pool of magnitude diversity.
   std::vector<Instr> interestCoefRequires(
-      std::mt19937 &rng, const SymCounter &sym, int coefCountBefore, double pLargeCoef
+      std::mt19937 &rng, const SymCounter &sym, int coefCountBefore, double pLargeCoef,
+      int64_t largeCoefThreshold
   );
 
   // Generate N statements (assign + store mix) for a block.

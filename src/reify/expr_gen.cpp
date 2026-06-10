@@ -164,7 +164,8 @@ namespace symir::reify {
   // ---------------------------------------------------------------------------
 
   std::vector<Instr> interestCoefRequires(
-      std::mt19937 &rng, const SymCounter &sym, int coefCountBefore, double pLargeCoef
+      std::mt19937 &rng, const SymCounter &sym, int coefCountBefore, double pLargeCoef,
+      int64_t largeCoefThreshold
   ) {
     std::vector<Instr> instrs;
     std::uniform_real_distribution<double> coin(0.0, 1.0);
@@ -189,30 +190,53 @@ namespace symir::reify {
       // bit-vectors, so skip non-int coefs entirely.
       if (!isIntType(e.type))
         continue;
-      // Threshold sized to the coef's declared bitwidth. We want
-      // 2^(bits-2) (= MAX/2) when the coef has room for it, capped at
-      // 2^20 — large enough to break the ±2 cluster the old c != 0/1/-1
-      // triple produced and small enough to leave the solver room.
+      // Effective feasible range for this coef = its declared --coef-domain
+      // [e.lo, e.hi] intersected with the type's representable range. The
+      // solver applies the same clamp when emitting the domain constraint
+      // (see solver.cpp), so the require literal must land inside this range
+      // — otherwise it is either rejected by the typechecker (literal too
+      // wide for the coef type) or unsatisfiable against the domain (the R5
+      // UNSAT-under-narrow-`--coef-domain` bug).
       uint32_t bits = intBitWidth(e.type);
       if (bits == 0) // unknown — skip
         continue;
-      int64_t threshold;
-      if (bits >= 22)
-        threshold = (int64_t) 1 << 20; // i32, i64
-      else if (bits >= 4)
-        threshold = (int64_t) 1 << (bits - 2); // i16 → 16384, i8 → 64
-      else
-        continue; // i1 / weird narrow — skip
-      // Encode |c| > T as a single relop by randomly picking the sign.
-      // RequireInstr.cond is one Cond, so we can't OR two predicates in
-      // a single require; the disjunction `c > T ∨ c < -T` is encoded
-      // per-coef as one of the two sides chosen at generation time.
-      // Average behaviour over many coefs covers both magnitudes.
-      bool positive = side(rng) == 0;
+      int64_t typeLo, typeHi;
+      if (bits >= 64) {
+        typeLo = INT64_MIN;
+        typeHi = INT64_MAX;
+      } else {
+        typeHi = ((int64_t) 1 << (bits - 1)) - 1;
+        typeLo = -typeHi - 1;
+      }
+      int64_t dlo = std::max(e.lo, typeLo);
+      int64_t dhi = std::min(e.hi, typeHi);
+      if (dlo > dhi)
+        continue; // empty domain — nothing to constrain
+
+      // Clamp the requested magnitude threshold into the feasible range,
+      // independently per side: `c > posT` needs a value in (posT, dhi];
+      // `c < negT` needs one in [dlo, negT). When the domain is roomier than
+      // the threshold the require keeps its requested magnitude; when it is
+      // tighter the require degrades to the largest in-domain magnitude
+      // (forcing c toward dhi / dlo) instead of going UNSAT.
+      const int64_t T = largeCoefThreshold;
+      int64_t posT = std::min(T, dhi - 1);  // c in (posT, dhi]
+      int64_t negT = std::max(-T, dlo + 1); // c in [dlo, negT)
+      bool posViable = dhi >= 1 && posT >= 0 && posT < dhi;
+      bool negViable = dlo <= -1 && negT <= 0 && negT > dlo;
+      if (!posViable && !negViable)
+        continue; // domain too tight to force a nonzero magnitude
+
+      // Encode |c| > T as a single relop by picking a viable sign.
+      // RequireInstr.cond is one Cond, so we can't OR two predicates in a
+      // single require; the disjunction `c > posT ∨ c < negT` is encoded
+      // per-coef as one of the two sides. When both are viable the side is
+      // random so the magnitude distribution covers both signs.
+      bool positive = (posViable && negViable) ? (side(rng) == 0) : posViable;
       RequireInstr req;
       req.cond.lhs = simpleExpr(coefAtom(symCoef(e.name)));
       req.cond.op = positive ? RelOp::GT : RelOp::LT;
-      req.cond.rhs = simpleExpr(coefAtom(intCoef(positive ? threshold : -threshold)));
+      req.cond.rhs = simpleExpr(coefAtom(intCoef(positive ? posT : negT)));
       req.message = positive ? "coef large positive" : "coef large negative";
       instrs.push_back(Instr{std::move(req)});
     }

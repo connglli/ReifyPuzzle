@@ -1224,6 +1224,105 @@ def test_min_max_atoms_exact_three(rysmith):
     )
 
 
+def test_large_coef_help_default(rysmith):
+  """The interest-coef magnitude threshold is exposed as --large-coef and
+  defaults to 1048576 (2^20), pairing with the --p-large-coef fraction."""
+  r = run([rysmith, "--help"])
+  check(
+    "--help lists --large-coef with default 1048576",
+    "large-coef" in r.stdout and "(default: 1048576)" in r.stdout,
+    f"help missing 'large-coef ... (default: 1048576)'; stdout={r.stdout[:400]!r}",
+  )
+
+
+def test_large_coef_negative_validation(rysmith):
+  """--large-coef must be >= 0 (a magnitude threshold); negative is rejected."""
+  r = run([rysmith, "--large-coef", "-1"])
+  check(
+    "validation: --large-coef -1 exits 2",
+    r.returncode == 2,
+    f"rc={r.returncode}, stderr={r.stderr[:200]!r}",
+  )
+  check(
+    "validation: --large-coef -1 prints error",
+    "error: --large-coef must be >= 0" in r.stderr,
+    f"stderr={r.stderr[:200]!r}",
+  )
+
+
+def test_large_coef_narrow_domain_sat(rysmith):
+  """Regression: a --coef-domain narrower than the large-coef threshold must
+  NOT cause mass UNSAT. Pre-fix the threshold was a hardcoded 2^20 ignoring
+  the coef domain, so `--coef-domain [-1000,1000] --p-large-coef 1.0`
+  emitted `c > 2^20` for every on-path coef → unsatisfiable against the
+  domain `c <= 1000` → every function failed. After the per-coef clamp the
+  require degrades to the largest in-domain magnitude and stays SAT."""
+  sirs = _collect_sirs_with(
+    rysmith,
+    _R48_SEEDS,
+    extra_flags=["--coef-domain", "[-1000,1000]", "--p-large-coef", "1.0"],
+  )
+  check(
+    "narrow --coef-domain + --p-large-coef 1.0 still produces output",
+    len(sirs) >= 8,
+    f"only {len(sirs)} concretes produced (pre-fix: ~0 from mass UNSAT)",
+  )
+
+
+def test_large_coef_custom_threshold_respected(rysmith):
+  """A custom --large-coef raises the magnitude floor: with a wide coef
+  domain and --large-coef 8000000 --p-large-coef 1.0, a meaningful share of
+  body integer literals must exceed 8e6. With the old hardcoded 2^20 floor
+  (≈1.05e6) almost none would."""
+  sirs = _collect_sirs_with(
+    rysmith,
+    _R48_SEEDS,
+    extra_flags=["--large-coef", "8000000", "--p-large-coef", "1.0"],
+  )
+  big = 0
+  total = 0
+  for sir in sirs:
+    for v in _body_int_literals(sir):
+      total += 1
+      if abs(v) > 8000000:
+        big += 1
+  share = big / total if total else 0.0
+  check(
+    f"--large-coef 8000000 pushes >= 8% of body int literals past 8e6 "
+    f"across {len(sirs)} files",
+    share >= 0.08,
+    f"share={share:.3%} ({big}/{total})",
+  )
+
+
+def test_large_coef_zero_accepted(rysmith):
+  """Edge: --large-coef 0 is accepted and stays SAT. With threshold 0 the
+  require degenerates to `c > 0` / `c < 0` (a nonzero floor), which fits any
+  non-degenerate domain."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "4",
+        "--seed",
+        "2001",
+        "--large-coef",
+        "0",
+        "--p-large-coef",
+        "1.0",
+        "-o",
+        d,
+      ]
+    )
+    produced = [f for f in os.listdir(d) if f.endswith(".sir")]
+    check(
+      "--large-coef 0 exits 0 and produces output",
+      r.returncode == 0 and len(produced) >= 1,
+      f"rc={r.returncode}, produced={len(produced)}, stderr={r.stderr[:200]!r}",
+    )
+
+
 def main():
   if len(sys.argv) != 3:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri>")
@@ -1279,6 +1378,16 @@ def main():
   test_min_max_atoms_exact_two(rysmith)
   print("=== rysmith --min-atoms 3 --max-atoms 3 ===")
   test_min_max_atoms_exact_three(rysmith)
+  print("=== --large-coef: help/default ===")
+  test_large_coef_help_default(rysmith)
+  print("=== --large-coef: negative validation ===")
+  test_large_coef_negative_validation(rysmith)
+  print("=== --large-coef: narrow domain stays SAT ===")
+  test_large_coef_narrow_domain_sat(rysmith)
+  print("=== --large-coef: custom threshold respected ===")
+  test_large_coef_custom_threshold_respected(rysmith)
+  print("=== --large-coef: zero accepted ===")
+  test_large_coef_zero_accepted(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)
