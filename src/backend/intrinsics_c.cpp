@@ -872,6 +872,15 @@ namespace symir {
         out(backend) << "  }\n";
         out(backend) << "  uint32_t s = (uint32_t)a0;\n";
         out(backend) << "  uint" << valW << "_t v = (uint" << valW << "_t)a1;\n";
+        if (valBits % 8 != 0 && valBits < valW) {
+          // Zero-extend the iN value to whole bytes per the spec: bits
+          // [valBits, 8*nBytes) of the last byte must read as 0. The
+          // (uintW)a1 cast preserves a1's raw high bits (a negative iN's
+          // sign extension), so mask them off to match the interpreter's
+          // argUint(valBits) and keep the C / interpreter oracle in sync.
+          uint64_t mask = (1ULL << valBits) - 1;
+          out(backend) << "  v &= (uint" << valW << "_t)" << mask << "u;\n";
+        }
         if (nBytes == 1) {
           out(backend) << "  s = (s >> 8) ^ tab[(s ^ (uint32_t)(v & 0xFFu)) & 0xFFu];\n";
         } else {

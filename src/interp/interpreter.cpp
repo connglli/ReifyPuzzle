@@ -28,7 +28,9 @@ namespace symir {
     return val;
   }
 
-  Interpreter::Interpreter(const Program &prog) : prog_(prog) {
+  Interpreter::Interpreter(const Program &prog) : Interpreter(prog, std::cout) {}
+
+  Interpreter::Interpreter(const Program &prog, std::ostream &out) : prog_(prog), out_(out) {
     for (const auto &s: prog_.structs) {
       structs_[s.name.name] = &s;
     }
@@ -1157,7 +1159,7 @@ namespace symir {
     while (true) {
       const Block &block = f.blocks[pc];
       if (dumpExec_) {
-        std::cout << block.label.name << ":\n";
+        out_ << block.label.name << ":\n";
       }
 
       for (const auto &ins: block.instrs) {
@@ -1167,31 +1169,31 @@ namespace symir {
               if constexpr (std::is_same_v<T, AssignInstr>) {
                 RuntimeValue rhs = evalExpr(i.rhs, store);
                 if (dumpExec_) {
-                  std::cout << "  " << i.lhs.base.name;
+                  out_ << "  " << i.lhs.base.name;
                   for (const auto &acc: i.lhs.accesses) {
                     if (auto ai = std::get_if<AccessIndex>(&acc)) {
-                      std::cout << "[";
+                      out_ << "[";
                       if (auto ilit = std::get_if<IntLit>(&ai->index)) {
-                        std::cout << ilit->value;
+                        out_ << ilit->value;
                       } else {
                         auto id = std::get<LocalOrSymId>(ai->index);
                         std::visit(
                             [&](auto &&id_val) {
                               auto it = store.find(id_val.name);
                               if (it != store.end())
-                                std::cout << it->second.intVal;
+                                out_ << it->second.intVal;
                               else
-                                std::cout << id_val.name;
+                                out_ << id_val.name;
                             },
                             id
                         );
                       }
-                      std::cout << "]";
+                      out_ << "]";
                     } else if (auto af = std::get_if<AccessField>(&acc)) {
-                      std::cout << "." << af->field;
+                      out_ << "." << af->field;
                     }
                   }
-                  std::cout << " = " << rvToString(rhs) << "\n";
+                  out_ << " = " << rvToString(rhs) << "\n";
                 }
                 setLValue(i.lhs, rhs, store);
               } else if constexpr (std::is_same_v<T, AssumeInstr>) {
@@ -1326,7 +1328,7 @@ namespace symir {
                   return;
                 }
                 if (res.kind == RuntimeValue::Kind::Int)
-                  std::cout << "Result: " << res.intVal << "\n";
+                  out_ << "Result: " << res.intVal << "\n";
                 else if (res.kind == RuntimeValue::Kind::Float) {
                   // Print floats as IEEE 754 hex (printf %a) so the output is
                   // bit-exact: round-trips losslessly, distinguishes +0/-0,
@@ -1335,11 +1337,11 @@ namespace symir {
                   // tests; decimal would silently lose bits at the boundary.
                   char buf[64];
                   std::snprintf(buf, sizeof(buf), "%a", res.floatVal);
-                  std::cout << "Result: " << buf << "\n";
+                  out_ << "Result: " << buf << "\n";
                 } else if (res.kind == RuntimeValue::Kind::Ptr)
-                  std::cout << "Result: ptr(0x" << std::hex << res.ptrVal << std::dec << ")\n";
+                  out_ << "Result: ptr(0x" << std::hex << res.ptrVal << std::dec << ")\n";
               } else {
-                std::cout << "Result: void\n";
+                out_ << "Result: void\n";
               }
               return;
             } else if constexpr (std::is_same_v<T, UnreachableTerm>) {

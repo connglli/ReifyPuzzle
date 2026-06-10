@@ -143,6 +143,20 @@ namespace symir::reify {
     if (!exit)
       return 0;
 
+    // Idempotency guard: a `@crc32_update` call in the exit block can only
+    // come from a prior run of this rewrite (buildSumChecksum emits a plain
+    // `+` sum). Steps 1-3 already no-op on a second pass, but step 4 would
+    // re-append the pointer-load chain and push duplicate `%_pld_*` scratch
+    // lets. Bail so the whole rewrite is idempotent.
+    for (const auto &instr: exit->instrs) {
+      const auto *ai = std::get_if<AssignInstr>(&instr);
+      if (!ai)
+        continue;
+      const auto *call = std::get_if<CallAtom>(&ai->rhs.first.v);
+      if (call && call->callee.name == "@crc32_update")
+        return 0;
+    }
+
     // 3. Walk instructions. Skip the `%_chk = 0;` init. For each
     // `%_chk = %_chk + <atom>` (or `<atom> + %_chk` for cast-first form),
     // extract the addend and replace the RHS with

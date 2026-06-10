@@ -116,29 +116,18 @@ static bool validateWithSymiri(
 
     std::string canonical = funcName.empty() || funcName[0] == '@' ? funcName : "@" + funcName;
 
-    std::streambuf *oldCout = std::cout.rdbuf();
-    std::stringstream capturedStream;
-    if (!verbose) {
-      std::cout.rdbuf(capturedStream.rdbuf());
-    }
-
-    std::streambuf *oldCerr = std::cerr.rdbuf();
-    std::stringstream capturedErrorStream;
-    if (!verbose) {
-      std::cerr.rdbuf(capturedErrorStream.rdbuf());
-    }
+    // Send the interpreter's `Result:` line to a local sink unless verbose,
+    // instead of redirecting the process-global std::cout (unsafe with
+    // concurrent worker threads).
+    std::stringstream sink;
+    std::ostream &out = verbose ? std::cout : sink;
 
     bool success = true;
     try {
-      Interpreter interp(prog);
+      Interpreter interp(prog, out);
       interp.run(canonical, {}, paramArgs);
     } catch (...) {
       success = false;
-    }
-
-    if (!verbose) {
-      std::cout.rdbuf(oldCout);
-      std::cerr.rdbuf(oldCerr);
     }
     return success;
   } catch (...) {

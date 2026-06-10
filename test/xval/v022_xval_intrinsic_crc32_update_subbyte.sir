@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// EXPECT_RC: -1467705806
+// SKIP: WASM
+// [v0.2.2] Cross-validate @crc32_update on val widths that are NOT a
+// multiple of 8, using negative values so the high bits of the last
+// byte are set after sign-extension. The spec zero-pads those pad bits
+// (`nBytes = ⌈N/8⌉`, high bits of the last byte read as 0); the
+// interpreter masks val to N via argUint, and the C lowering must do
+// the same. A negative i12 widens to int16_t = 0xFxxx, whose byte 1
+// high nibble must be masked off before hashing — without the mask the
+// C side hashes 0xFF where the interpreter hashes 0x0F and the two
+// diverge.
+
+intrinsic @crc32_update(%state: i32, %val: i12) : i32;
+intrinsic @crc32_update(%state: i32, %val: i20) : i32;
+
+fun @main() : i32 {
+  let mut %s: i32 = 0;
+  let %a: i12 = -1;
+  let %b: i20 = -1000;
+^entry:
+  %s = call @crc32_update(%s, %a);
+  %s = call @crc32_update(%s, %b);
+  ret %s;
+}

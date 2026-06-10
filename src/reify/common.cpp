@@ -79,26 +79,16 @@ namespace symir::reify {
 
       std::string canonical = funcName.empty() || funcName[0] == '@' ? funcName : "@" + funcName;
 
-      // Redirect std::cout to capture "Result: <value>"
-      std::streambuf *oldCout = std::cout.rdbuf();
+      // Capture "Result: <value>" via a local sink rather than redirecting
+      // the process-global std::cout, which races with concurrent worker
+      // threads (rysmith runs one generation thread per function).
       std::stringstream capturedStream;
-      std::cout.rdbuf(capturedStream.rdbuf());
-
-      std::streambuf *oldCerr = std::cerr.rdbuf();
-      std::stringstream capturedErrorStream;
-      std::cerr.rdbuf(capturedErrorStream.rdbuf());
-
       try {
-        Interpreter interp(prog);
+        Interpreter interp(prog, capturedStream);
         interp.run(canonical, {}, paramArgs);
       } catch (...) {
-        std::cout.rdbuf(oldCout);
-        std::cerr.rdbuf(oldCerr);
         return std::nullopt;
       }
-
-      std::cout.rdbuf(oldCout);
-      std::cerr.rdbuf(oldCerr);
 
       std::string out = capturedStream.str();
       auto pos = out.rfind("Result:");

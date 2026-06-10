@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iosfwd>
 #include <list>
 #include <string>
 #include <unordered_map>
@@ -17,6 +18,12 @@ namespace symir {
   class Interpreter {
   public:
     explicit Interpreter(const Program &prog);
+    // Output sink for the `Result:` line and the `--dump-exec` trace.
+    // Defaults to std::cout via the single-arg ctor; callers that need to
+    // capture the output (e.g. the reify oracle) pass a local stream
+    // instead of redirecting the process-global std::cout, which is unsafe
+    // when other threads are running concurrently.
+    Interpreter(const Program &prog, std::ostream &out);
     /**
      * Executes the specified entry function with given symbolic bindings.
      * @param entryFuncName The name of the function to start execution from.
@@ -54,6 +61,7 @@ namespace symir {
 
   private:
     const Program &prog_;
+    std::ostream &out_; // sink for Result: / dump-exec (default std::cout)
     bool dumpExec_ = false;
     std::unordered_map<std::string, const StructDecl *> structs_;
 

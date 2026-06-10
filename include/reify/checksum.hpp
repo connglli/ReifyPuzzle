@@ -35,7 +35,8 @@ namespace symir::reify {
   //
   // Returns the number of `%_chk = call @crc32_update(...)` instructions
   // emitted; 0 means the exit block did not contain a recognisable sum
-  // chain and the program was left unchanged.
+  // chain and the program was left unchanged. Idempotent: a second call on
+  // an already-rewritten program is a no-op and returns 0.
   size_t rewriteExitToCrc32Checksum(symir::Program &prog, const std::string &funcName);
 
   // ---------------------------------------------------------------------------
