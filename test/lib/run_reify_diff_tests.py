@@ -55,6 +55,26 @@ _CTY = {
   "f64": "double",
 }
 
+
+def _ctype_of(symir_type):
+  """C type for a scalar SymIR type, or None for non-scalars. Custom iN
+  widths map to the same widened storage type the C backend uses
+  (N <= 8 -> int8_t, <= 16 -> int16_t, <= 32 -> int32_t, <= 64 -> int64_t)."""
+  ct = _CTY.get(symir_type)
+  if ct is not None:
+    return ct
+  m = re.fullmatch(r"i(\d+)", symir_type)
+  if not m:
+    return None
+  bits = int(m.group(1))
+  if bits < 1 or bits > 64:
+    return None
+  for cap, name in ((8, "int8_t"), (16, "int16_t"), (32, "int32_t"), (64, "int64_t")):
+    if bits <= cap:
+      return name
+  return None
+
+
 # Batch size for generation + cross-validation. Large -n runs proceed
 # one batch at a time so the user sees periodic progress (and so a
 # 10000-program run does not need to materialise 10000 .sir/.c files
@@ -171,12 +191,12 @@ def _parse_program(sir_path, entry_hint=None):
 def _write_main_c(path, fname, ret_type, param_types, param_values):
   """Returns True on success, False if the entry has a non-scalar slot
   we can't synthesize from the CLI."""
-  cret = _CTY.get(ret_type)
+  cret = _ctype_of(ret_type)
   if cret is None:
     return False
   cparams = []
   for pt in param_types:
-    cp = _CTY.get(pt)
+    cp = _ctype_of(pt)
     if cp is None:
       return False  # non-scalar param: skip.
     cparams.append(cp)

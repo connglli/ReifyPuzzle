@@ -1394,20 +1394,36 @@ namespace symir {
             // casting it directly with `(dst)(src)` zero-extends rather
             // than sign-extending. Pre-extend the source from its
             // declared iN bits up to int64_t with the shift-pair idiom
-            // so the cast preserves signed semantics.
+            // so the cast preserves signed semantics. The source type is
+            // resolved through the full access path (array element,
+            // struct field, vector lane), not just bare locals.
             std::optional<std::uint32_t> srcBits;
             if (auto lv = std::get_if<LValue>(&arg.src)) {
-              if (lv->accesses.empty()) {
-                auto it = varTypes_.find(lv->base.name);
-                if (it != varTypes_.end() && std::holds_alternative<IntType>(it->second->v))
-                  srcBits = TypeUtils::getIntBitWidth(it->second);
-              }
+              TypePtr srcType = getLValueType(*lv);
+              if (srcType && std::holds_alternative<IntType>(srcType->v))
+                srcBits = TypeUtils::getIntBitWidth(srcType);
             }
             const bool intDst = arg.dstType && std::holds_alternative<IntType>(arg.dstType->v);
             const bool needSext = intDst && srcBits.has_value() && *srcBits < 64 && *srcBits > 0;
+            // [P7] Narrowing to a CUSTOM destination width must truncate
+            // mod 2^M and sign-extend from bit M-1 (SPEC §6.4). Native
+            // widths get this for free from the C cast — `(int8_t)x`
+            // keeps the low 8 bits — but a custom width's storage type
+            // is wider (i20 lives in int32_t), so `(int32_t)x` keeps all
+            // 32 bits and leaks out-of-range values. Emulate the C
+            // type system with the shift-pair on the int64 value. The
+            // inner `(int64_t)` also converts float sources, whose
+            // out-of-range values are UB anyway (SPEC rule 8).
+            std::uint32_t dstBits =
+                intDst ? TypeUtils::getIntBitWidth(arg.dstType).value_or(64) : 64;
+            const bool nativeDst = dstBits == 8 || dstBits == 16 || dstBits == 32 || dstBits == 64;
+            const bool needTrunc = intDst && !nativeDst;
             out_ << "(";
             emitType(arg.dstType);
             out_ << ")(";
+            if (needTrunc) {
+              out_ << "(int64_t)((uint64_t)((int64_t)(";
+            }
             if (needSext) {
               // Sign-extend via unsigned shift so UBSan doesn't trip on
               // "left shift of negative value". `(int64_t)((uint64_t)x
@@ -1435,6 +1451,10 @@ namespace symir {
             if (needSext) {
               std::uint32_t shift = 64u - *srcBits;
               out_ << ") << " << shift << ") >> " << shift;
+            }
+            if (needTrunc) {
+              std::uint32_t shift = 64u - dstBits;
+              out_ << ")) << " << shift << ") >> " << shift;
             }
             out_ << ")";
           }

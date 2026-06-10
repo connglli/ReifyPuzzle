@@ -383,6 +383,8 @@ Arithmetic is defined over **scalar integer and floating-point leaves**. Pointer
 
 **Integer widening: signed sign-extension.** All `iN` types are *signed* N-bit two's-complement integers, including the boolean width `i1`. For `iN as iM` with `N < M`, the result sign-extends bit `N-1`. In particular, `(i1 = true) as iM = -1` for every `M > 1` (the one-bit value `1` sign-extends to all-ones), and `(i1 = false) as iM = 0`. The two representable `i1` values are therefore `{0, -1}` — interpretation as `{0, 1}` is unsupported and would diverge between the interpreter and the backends. `cmp` and predicate intrinsics (`@parity`, `@is_pow2`, `@signbit`, `@is_normal`, `@is_subnormal`) accordingly produce `-1` for true and `0` for false.
 
+**Integer narrowing: truncation [Clarified].** For `iN as iM` with `N > M`, the result is the low `M` bits of the source, reinterpreted as a signed M-bit value (truncate mod `2^M`, then sign-extend bit `M-1`). Narrowing is always defined — never UB, regardless of the source value. This matches SMT `(extract (M-1) 0)` semantics and C's behavior for exact-width destination types; a backend whose storage type for `iM` is wider than `M` (e.g. `i20` stored in `int32_t`) must truncate and sign-extend explicitly.
+
 ### 6.5 Bitwise and shift typing
 Both operands must be scalar integers of the same bit-width. Pointers not valid.
 

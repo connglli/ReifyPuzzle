@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: -48576
+// [P7] `as i20` truncation through a struct field.
+struct @S { f0: i20; }
+fun @main() : i32 {
+  let %x: i64 = 1000000;
+  let mut %t: @S = {1};
+^entry:
+  %t.f0 = %x as i20;
+  ret %t.f0 as i32;
+}

@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// EXPECT_RC: -48576
+// [P7] `as i20` truncation for a value stored through a ptr i20.
+fun @main() : i32 {
+  let %x: i64 = 1000000;
+  let mut %y: i20 = 0;
+  let mut %p: ptr i20 = undef;
+^entry:
+  %p = addr %y;
+  store %p, %x as i20;
+  ret %y as i32;
+}

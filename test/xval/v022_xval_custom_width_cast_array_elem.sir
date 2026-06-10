@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// EXPECT_RC: -48576
+// [P7] `as i20` truncation through an array element.
+fun @main() : i32 {
+  let %x: i64 = 1000000;
+  let mut %a: [2] i20 = {1, 1};
+^entry:
+  %a[0] = %x as i20;
+  ret %a[0] as i32;
+}

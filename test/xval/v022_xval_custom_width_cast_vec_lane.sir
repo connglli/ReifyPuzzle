@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// EXPECT_RC: -48576
+// [P7] `as i20` must truncate to 20 bits + sign-extend (1000000 -> -48576)
+// even when the value round-trips through a vector lane. The C backend
+// stores custom-width lanes in widened C types; an unmasked cast leaks
+// the raw 1000000.
+fun @main() : i32 {
+  let %x: i64 = 1000000;
+  let mut %v: <2> i20 = {1, 1};
+^entry:
+  %v[0] = %x as i20;
+  ret %v[0] as i32;
+}
