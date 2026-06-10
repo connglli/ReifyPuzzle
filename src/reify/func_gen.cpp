@@ -314,13 +314,12 @@ namespace symir::reify {
 
         // Generate statements for on-path non-exit blocks
         if (onPath) {
-          auto stmts = genBlockStmts(rng, &sym, vars, fcfg.nStmts, true, false, exprCfg);
+          auto stmts = genBlockStmts(rng, &sym, vars, fcfg.nStmts, true, exprCfg);
           for (auto &s: stmts)
             block.instrs.push_back(std::move(s));
         } else {
           // Off-path: concrete-only stmts
-          auto stmts =
-              genBlockStmts(rng, nullptr, vars, fcfg.nStmts, false, fcfg.safeOffPath, exprCfg);
+          auto stmts = genBlockStmts(rng, nullptr, vars, fcfg.nStmts, false, exprCfg);
           for (auto &s: stmts)
             block.instrs.push_back(std::move(s));
         }

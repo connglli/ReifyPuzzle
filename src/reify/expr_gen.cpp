@@ -1306,7 +1306,7 @@ namespace symir::reify {
 
   std::vector<Instr> genBlockStmts(
       std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, int nStmts, bool onPath,
-      bool safeOffPath, const ExprGenConfig &cfg
+      const ExprGenConfig &cfg
   ) {
     std::vector<Instr> result;
     std::uniform_real_distribution<double> prob(0.0, 1.0);
@@ -1339,7 +1339,7 @@ namespace symir::reify {
         return false;
       Expr ptrExpr = simpleExpr(rvalAtom(localLV(pv->name)));
       auto [valExpr, reqs] = genExprWithRequires(rng, sym, vars, ptee, onPath, cfg);
-      if (onPath || safeOffPath) {
+      if (onPath) {
         for (auto &req: reqs)
           result.push_back(std::move(req));
       }
@@ -1507,8 +1507,9 @@ namespace symir::reify {
         auto [rhs, reqs] =
             genExprWithRequires(rng, sym, vars, assignType, onPath, cfg, lhsVar->name);
 
-        // Insert safety requires before assignment if on-path (or safeOffPath)
-        if (onPath || safeOffPath) {
+        // Insert safety requires before assignment (on-path only — off-path
+        // blocks are never executed at the solved inputs).
+        if (onPath) {
           for (auto &req: reqs)
             result.push_back(std::move(req));
         }

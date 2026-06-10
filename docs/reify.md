@@ -52,7 +52,7 @@ This is the core generation step. Every block in the CFG is populated with typed
 
 **On-path blocks** (those appearing in $\pi$): statements use *symbolic variables* whose values will be determined by the SMT solver. Symbols are declared with domains and kind annotations (`coef`, `value`, `index`). Interest constraints — `require` statements that exclude trivial values like 0, 1, −1 from coefficients — push the solver toward diverse, non-degenerate programs.
 
-**Off-path blocks** (those not in $\pi$): statements use *concrete random literals*. These blocks will never be executed under the generated input, but the compiler still compiles them. Off-path code is generated without solver constraints and may contain potential UB (unreachable paths with division by a variable that could be zero, out-of-bounds-capable accesses, etc.), maximizing the diversity of IR presented to optimization passes such as DCE, alias analysis, and vectorization. A `--safe-off-path` flag restricts off-path generation to avoid UB if needed.
+**Off-path blocks** (those not in $\pi$): statements use *concrete random literals*. These blocks are never executed under the generated input — the solver pins every on-path branch, so control never enters an off-path successor — but the compiler still compiles them. Off-path code is therefore deliberately left unconstrained and may contain UB (division by a variable that could be zero, signed overflow from wide literals, out-of-bounds-capable accesses, etc.). Because off-path code never runs, this UB never reaches the differential oracle; it simply maximizes the diversity of IR presented to optimization passes such as DCE, alias analysis, and vectorization.
 
 #### Type system
 
@@ -196,7 +196,6 @@ rysmith [OPTIONS]
 |---|---|---|
 | `--n-vars N` | 10 | Total variables per function (types drawn independently) |
 | `--n-stmts N` | 3 | Statements per block (both on-path and off-path) |
-| `--safe-off-path` | off | Add UB guards in off-path code (div `!= 0`, bounds checks) |
 
 #### Operators
 
@@ -246,9 +245,6 @@ rysmith -n 10 --n-inits 3 --validate -o out/
 
 # Stress pointer and mixed-type generation, disable floats
 rysmith -n 20 --no-fp --max-ptr-depth 2 --max-agg-nest 2 -o out/
-
-# Maximally safe off-path code (useful when lowering to Rust with strict UB)
-rysmith -n 10 --safe-off-path -o out/
 
 # Reproduce a specific run
 rysmith -n 30 --seed 42 -o out/

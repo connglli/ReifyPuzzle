@@ -112,11 +112,13 @@ namespace symir::reify {
   );
 
   // Generate N statements (assign + store mix) for a block.
-  // onPath=true: uses sym. onPath=false: concrete only. safeOffPath: add UB guards.
+  // onPath=true: uses sym and emits UB-safety requires. onPath=false:
+  // concrete only, no requires (off-path blocks are never executed at the
+  // solved inputs, so their UB is unreachable).
   std::vector<Instr> genBlockStmts(
       std::mt19937 &rng,
       SymCounter *sym, // null for off-path
-      const VarCatalogue &vars, int nStmts, bool onPath, bool safeOffPath, const ExprGenConfig &cfg
+      const VarCatalogue &vars, int nStmts, bool onPath, const ExprGenConfig &cfg
   );
 
 } // namespace symir::reify

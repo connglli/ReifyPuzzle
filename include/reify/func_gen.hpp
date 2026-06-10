@@ -16,7 +16,6 @@ namespace symir::reify {
     std::string funcName = "func";
     uint32_t seed = 0;
     int nStmts = 3;
-    bool safeOffPath = false;
     bool enableInterestCoefs = true;
     bool enableInterestInits = true;
     bool enableIntrinsics = true;

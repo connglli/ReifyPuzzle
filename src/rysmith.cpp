@@ -169,10 +169,9 @@ static GenerateResult generateLeaf(
     // Var params (varCfg.typeConfig contains the type generation configuration)
     const VarGenConfig &varCfg,
     // Func params
-    const std::string &funcName, int nStmts, bool safeOffPath, bool enableInterestCoefs,
-    double pLargeCoef, int64_t largeCoefThreshold, int64_t coefLo, int64_t coefHi, int64_t valueLo,
-    int64_t valueHi, int64_t indexLo, int64_t indexHi, const ExprGenConfig &exprCfg,
-    bool enableIntrinsics,
+    const std::string &funcName, int nStmts, bool enableInterestCoefs, double pLargeCoef,
+    int64_t largeCoefThreshold, int64_t coefLo, int64_t coefHi, int64_t valueLo, int64_t valueHi,
+    int64_t indexLo, int64_t indexHi, const ExprGenConfig &exprCfg, bool enableIntrinsics,
     // Solver params
     uint32_t timeoutMs,
     // Retry params
@@ -253,7 +252,6 @@ static GenerateResult generateLeaf(
       fcfg.funcName = funcName;
       fcfg.seed = rng();
       fcfg.nStmts = nStmts;
-      fcfg.safeOffPath = safeOffPath;
       fcfg.enableInterestCoefs = enableInterestCoefs;
       fcfg.enableInterestInits = true;
       fcfg.enableIntrinsics = enableIntrinsics;
@@ -540,7 +538,6 @@ int main(int argc, char **argv) {
                           cxxopts::value<int>()->default_value("1"))
     ("max-atoms",         "Maximum atoms per generated expression",
                           cxxopts::value<int>()->default_value("3"))
-    ("safe-off-path",     "Add UB guards in off-path code")
     // Operators
     ("no-divmod",         "Disable integer division and modulo")
     ("no-select",         "Disable select ternary expressions")
@@ -697,7 +694,6 @@ int main(int argc, char **argv) {
   int maxRetries = result["max-retries"].as<int>();
   double pBranch = result["p-branch"].as<double>();
   double pBackedge = result["p-backedge"].as<double>();
-  bool safeOffPath = result.count("safe-off-path") > 0;
   bool enableInterestCoefs = true; // kept in code; not user-exposed
   double pLargeCoef = result["p-large-coef"].as<double>();
   if (pLargeCoef < 0.0 || pLargeCoef > 1.0) {
@@ -767,9 +763,9 @@ int main(int argc, char **argv) {
     std::thread t([&, state]() {
       state->result = generateLeaf(
           nBbls, pBranch, pBackedge, maxLoopIter, minLoopIter, fnVarCfg, funcName, nStmts,
-          safeOffPath, enableInterestCoefs, pLargeCoef, largeCoefThreshold, coefLo, coefHi, valueLo,
-          valueHi, indexLo, indexHi, exprCfg, enableIntrinsics, timeoutMs, maxRetries, nInits,
-          outDir, keepSymbolic, verbose, state->rng, funcSeed, genId, emitDesc, emitMain
+          enableInterestCoefs, pLargeCoef, largeCoefThreshold, coefLo, coefHi, valueLo, valueHi,
+          indexLo, indexHi, exprCfg, enableIntrinsics, timeoutMs, maxRetries, nInits, outDir,
+          keepSymbolic, verbose, state->rng, funcSeed, genId, emitDesc, emitMain
       );
       state->done.store(true, std::memory_order_release);
     });

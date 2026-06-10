@@ -1323,6 +1323,18 @@ def test_large_coef_zero_accepted(rysmith):
     )
 
 
+def test_safe_off_path_removed(rysmith):
+  """--safe-off-path was removed: off-path blocks are never executed at the
+  solved inputs, so its UB guards only ever decorated dead code. The flag
+  must now be rejected as unknown."""
+  r = run([rysmith, "--safe-off-path", "--n-funcs", "1"])
+  check(
+    "--safe-off-path is rejected (flag removed)",
+    r.returncode != 0 and "safe-off-path" in r.stderr,
+    f"rc={r.returncode}, stderr={r.stderr[:200]!r}",
+  )
+
+
 def main():
   if len(sys.argv) != 3:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri>")
@@ -1388,6 +1400,8 @@ def main():
   test_large_coef_custom_threshold_respected(rysmith)
   print("=== --large-coef: zero accepted ===")
   test_large_coef_zero_accepted(rysmith)
+  print("=== --safe-off-path removed ===")
+  test_safe_off_path_removed(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)
