@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <functional>
 #include <set>
 #include <unordered_set>
@@ -253,6 +254,16 @@ namespace symir::reify {
       exprCfg.usedIntrinsics = nullptr;
     }
 
+    // Off-path volume scaling (see FuncGenConfig::offPathMultiplier): the
+    // CLI volume knobs describe on-path blocks; off-path blocks — which the
+    // solver never visits — get them scaled, widening the compiler-facing
+    // surface at zero solver cost.
+    auto scaleOff = [&](int v) { return (int) std::lround(v * fcfg.offPathMultiplier); };
+    int offNStmts = std::max(0, scaleOff(fcfg.nStmts));
+    ExprGenConfig offExprCfg = exprCfg;
+    offExprCfg.minAtoms = std::max(1, scaleOff(exprCfg.minAtoms));
+    offExprCfg.maxAtoms = std::max(offExprCfg.minAtoms, scaleOff(exprCfg.maxAtoms));
+
     // Generate a single input sym (i32) used for interest-init requires
     std::string inputSym = sym.nextValue();
 
@@ -318,8 +329,8 @@ namespace symir::reify {
           for (auto &s: stmts)
             block.instrs.push_back(std::move(s));
         } else {
-          // Off-path: concrete-only stmts
-          auto stmts = genBlockStmts(rng, nullptr, vars, fcfg.nStmts, false, exprCfg);
+          // Off-path: concrete-only stmts at the scaled volume
+          auto stmts = genBlockStmts(rng, nullptr, vars, offNStmts, false, offExprCfg);
           for (auto &s: stmts)
             block.instrs.push_back(std::move(s));
         }
@@ -334,7 +345,8 @@ namespace symir::reify {
 
         // Terminator
         if (blk->isBranch()) {
-          Cond cond = genCond(rng, onPath ? &sym : nullptr, vars, onPath, exprCfg);
+          Cond cond =
+              genCond(rng, onPath ? &sym : nullptr, vars, onPath, onPath ? exprCfg : offExprCfg);
           BrTerm br;
           br.cond = std::move(cond);
           br.thenLabel = BlockLabel{"^" + blk->succs[0], {}};

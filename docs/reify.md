@@ -54,6 +54,8 @@ This is the core generation step. Every block in the CFG is populated with typed
 
 **Off-path blocks** (those not in $\pi$): statements use *concrete random literals*. These blocks are never executed under the generated input — the solver pins every on-path branch, so control never enters an off-path successor — but the compiler still compiles them. Off-path code is therefore deliberately left unconstrained and may contain UB (division by a variable that could be zero, signed overflow from wide literals, out-of-bounds-capable accesses, etc.). Because off-path code never runs, this UB never reaches the differential oracle; it simply maximizes the diversity of IR presented to optimization passes such as DCE, alias analysis, and vectorization.
 
+Because off-path volume costs the solver nothing, the volume knobs (`--n-stmts`, `--min-atoms`, `--max-atoms`) describe **on-path** blocks, and off-path blocks scale them by `--off-path-multiplier` (default 2×). This buys compiler-facing surface for free and lets on-path volume — the solver's bottleneck — be tuned independently.
+
 #### Type system
 
 Reify uses the full SymIR type lattice. Each variable independently draws its type from:
@@ -195,7 +197,8 @@ rysmith [OPTIONS]
 | Flag | Default | Description |
 |---|---|---|
 | `--n-vars N` | 10 | Total variables per function (types drawn independently) |
-| `--n-stmts N` | 3 | Statements per block (both on-path and off-path) |
+| `--n-stmts N` | 3 | Statements per on-path block |
+| `--off-path-multiplier F` | 2.0 | Scale `--n-stmts` / `--min-atoms` / `--max-atoms` by `F` in off-path blocks |
 
 #### Operators
 

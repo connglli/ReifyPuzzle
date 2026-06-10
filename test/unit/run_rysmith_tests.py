@@ -1124,6 +1124,10 @@ def test_min_max_atoms_exact_one(rysmith):
         "1",
         "--max-atoms",
         "1",
+        # Atom knobs are on-path-only; pin the off-path multiplier so the
+        # file-wide exactness scan below holds for every block.
+        "--off-path-multiplier",
+        "1.0",
         "-o",
         d,
       ]
@@ -1162,6 +1166,8 @@ def test_min_max_atoms_exact_two(rysmith):
         "2",
         "--max-atoms",
         "2",
+        "--off-path-multiplier",
+        "1.0",
         "-o",
         d,
       ]
@@ -1200,6 +1206,8 @@ def test_min_max_atoms_exact_three(rysmith):
         "3",
         "--max-atoms",
         "3",
+        "--off-path-multiplier",
+        "1.0",
         "-o",
         d,
       ]
@@ -1323,6 +1331,151 @@ def test_large_coef_zero_accepted(rysmith):
     )
 
 
+def _split_blocks(sir_path):
+  """Parse a concrete .sir into (path_label_set, {label: [stmt lines]}) for
+  the entry function, using the `// PATH:` header. Labels are without `^`.
+  Only the first `fun @...` is scanned (no --emit-main in these tests)."""
+  path_labels = set()
+  blocks = {}
+  cur = None
+  in_fun = False
+  with open(sir_path) as f:
+    for line in f:
+      stripped = line.strip()
+      m = re.match(r"//\s*PATH:\s*(.+)", stripped)
+      if m:
+        path_labels = {p.strip() for p in m.group(1).split("->")}
+        continue
+      if stripped.startswith("fun @"):
+        if in_fun:
+          break  # second function — stop
+        in_fun = True
+        continue
+      if not in_fun:
+        continue
+      bm = re.match(r"\^(\w+):", stripped)
+      if bm:
+        cur = bm.group(1)
+        blocks[cur] = []
+        continue
+      if cur is not None and stripped and not stripped.startswith("//"):
+        blocks[cur].append(stripped)
+  return path_labels, blocks
+
+
+def _assigns_in(stmts):
+  """Count AssignInstr lines: `%lhs ... = expr;` (excludes require / store /
+  br / let / ret, which never start with `%`)."""
+  return sum(1 for s in stmts if s.startswith("%") and " = " in s)
+
+
+def _block_density(sirs):
+  """Mean assignments per on-path and off-path intermediate block across
+  files. Entry and exit blocks are excluded (entry carries the ptr-init
+  preamble, exit the checksum)."""
+  on_counts, off_counts = [], []
+  for sir in sirs:
+    path_labels, blocks = _split_blocks(sir)
+    if not path_labels:
+      continue
+    for label, stmts in blocks.items():
+      if label in ("entry", "exit"):
+        continue
+      n = _assigns_in(stmts)
+      if label in path_labels:
+        on_counts.append(n)
+      else:
+        off_counts.append(n)
+
+  def mean(v):
+    return sum(v) / len(v) if v else 0.0
+
+  return mean(on_counts), mean(off_counts), len(on_counts), len(off_counts)
+
+
+def test_off_path_multiplier_help_default(rysmith):
+  """--off-path-multiplier is exposed and defaults to 2.0."""
+  r = run([rysmith, "--help"])
+  check(
+    "--help lists --off-path-multiplier with default 2.0",
+    "off-path-multiplier" in r.stdout and "(default: 2.0)" in r.stdout,
+    f"stdout={r.stdout[:400]!r}",
+  )
+
+
+def test_off_path_multiplier_negative_validation(rysmith):
+  """A negative multiplier is rejected."""
+  r = run([rysmith, "--off-path-multiplier", "-1"])
+  check(
+    "validation: --off-path-multiplier -1 exits 2",
+    r.returncode == 2 and "--off-path-multiplier must be >= 0" in r.stderr,
+    f"rc={r.returncode}, stderr={r.stderr[:200]!r}",
+  )
+
+
+def test_off_path_density_default(rysmith):
+  """P1: --n-stmts describes ON-path blocks; off-path blocks default to 2x.
+  With --n-stmts 3, on-path intermediate blocks carry ~3 assignments and
+  off-path intermediate blocks ~6."""
+  sirs = _collect_sirs_with(rysmith, [3001, 3002])
+  on_mean, off_mean, n_on, n_off = _block_density(sirs)
+  check(
+    f"on-path mean ~3 (got {on_mean:.2f} over {n_on} blocks)",
+    n_on > 0 and 2.7 <= on_mean <= 3.3,
+    f"on_mean={on_mean}",
+  )
+  check(
+    f"off-path mean ~6 (got {off_mean:.2f} over {n_off} blocks)",
+    n_off > 0 and 5.4 <= off_mean <= 6.6,
+    f"off_mean={off_mean}",
+  )
+
+
+def test_off_path_multiplier_one_uniform(rysmith):
+  """--off-path-multiplier 1.0 restores uniform density."""
+  sirs = _collect_sirs_with(
+    rysmith, [3001, 3002], extra_flags=["--off-path-multiplier", "1.0"]
+  )
+  on_mean, off_mean, n_on, n_off = _block_density(sirs)
+  check(
+    f"multiplier 1.0: off-path mean ~3 (got {off_mean:.2f} over {n_off} blocks)",
+    n_off > 0 and 2.7 <= off_mean <= 3.3,
+    f"on={on_mean}, off={off_mean}",
+  )
+
+
+def test_off_path_atoms_scaled(rysmith):
+  """--min/max-atoms describe ON-path expressions; off-path scales them.
+  With --min-atoms 2 --max-atoms 2 and the default 2x multiplier, off-path
+  integer scalar assignments have exactly 4 atoms."""
+  sirs = _collect_sirs_with(
+    rysmith, [3001, 3002], extra_flags=["--min-atoms", "2", "--max-atoms", "2"]
+  )
+  bad = []
+  total = 0
+  for sir in sirs:
+    path_labels, blocks = _split_blocks(sir)
+    var_types = {}
+    with open(sir) as f:
+      for m in re.finditer(r"\blet\s+(?:mut\s+)?(%v\d+)\s*:\s*(i\d+)\b", f.read()):
+        var_types[m.group(1)] = m.group(2)
+    for label, stmts in blocks.items():
+      if label in ("entry", "exit") or label in path_labels:
+        continue
+      for s in stmts:
+        m = re.match(r"^(%v\d+) = (.+);$", s)
+        if not m or m.group(1) not in var_types:
+          continue
+        total += 1
+        if _count_atoms(m.group(2)) != 4:
+          bad.append(s)
+  check(
+    f"off-path int scalar assigns have exactly 4 atoms ({total} checked)",
+    total > 0 and not bad,
+    f"violations: {bad[:5]}",
+  )
+
+
 def test_safe_off_path_removed(rysmith):
   """--safe-off-path was removed: off-path blocks are never executed at the
   solved inputs, so its UB guards only ever decorated dead code. The flag
@@ -1402,6 +1555,16 @@ def main():
   test_large_coef_zero_accepted(rysmith)
   print("=== --safe-off-path removed ===")
   test_safe_off_path_removed(rysmith)
+  print("=== --off-path-multiplier: help/default ===")
+  test_off_path_multiplier_help_default(rysmith)
+  print("=== --off-path-multiplier: negative validation ===")
+  test_off_path_multiplier_negative_validation(rysmith)
+  print("=== --off-path-multiplier: default 2x density ===")
+  test_off_path_density_default(rysmith)
+  print("=== --off-path-multiplier: 1.0 uniform ===")
+  test_off_path_multiplier_one_uniform(rysmith)
+  print("=== --off-path-multiplier: atoms scaled ===")
+  test_off_path_atoms_scaled(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

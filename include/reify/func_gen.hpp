@@ -16,6 +16,12 @@ namespace symir::reify {
     std::string funcName = "func";
     uint32_t seed = 0;
     int nStmts = 3;
+    // Off-path blocks are never executed at the solved inputs, so their
+    // volume costs the solver nothing while widening the compiler-facing
+    // optimization surface. nStmts and exprCfg.{min,max}Atoms describe
+    // ON-path blocks; off-path blocks scale all three by this factor
+    // (--off-path-multiplier, rounded to the nearest int, default 2x).
+    double offPathMultiplier = 2.0;
     bool enableInterestCoefs = true;
     bool enableInterestInits = true;
     bool enableIntrinsics = true;
