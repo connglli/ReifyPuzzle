@@ -110,10 +110,22 @@ namespace symir::reify {
   // Generators
   // ---------------------------------------------------------------------------
 
-  TypePtr genIntType(std::mt19937 &rng) {
+  // Draw an integer bitwidth: one of the standard 8/16/32/64, or — with
+  // probability kPOddIntWidth — a custom width from kOddIntWidths to
+  // exercise the backends' widen-and-mask paths.
+  static uint32_t pickIntBits(std::mt19937 &rng, int standardPick) {
+    std::uniform_real_distribution<double> coin(0.0, 1.0);
+    if (coin(rng) < rysmith::hp::kPOddIntWidth) {
+      std::uniform_int_distribution<std::size_t> d(0, rysmith::hp::kOddIntWidthsSize - 1);
+      return rysmith::hp::kOddIntWidths[d(rng)];
+    }
     static const uint32_t widths[] = {8, 16, 32, 64};
+    return widths[standardPick];
+  }
+
+  TypePtr genIntType(std::mt19937 &rng) {
     std::uniform_int_distribution<int> d(0, 3);
-    return makeIntTypeOfBits(widths[d(rng)]);
+    return makeIntTypeOfBits(pickIntBits(rng, d(rng)));
   }
 
   TypePtr genScalarType(std::mt19937 &rng, bool enableFp) {
@@ -123,8 +135,7 @@ namespace symir::reify {
     std::uniform_int_distribution<int> d(0, enableFp ? 4 : 3);
     int pick = d(rng);
     if (pick < 4) {
-      static const uint32_t widths[] = {8, 16, 32, 64};
-      return makeIntTypeOfBits(widths[pick]);
+      return makeIntTypeOfBits(pickIntBits(rng, pick));
     }
     // Float bucket: pick f32 or f64
     std::uniform_int_distribution<int> fpick(0, 1);

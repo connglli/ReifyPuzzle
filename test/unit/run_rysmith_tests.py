@@ -1610,12 +1610,13 @@ def test_offpath_shift_atoms(rysmith):
   (i32-only), so a shift whose shiftee is NOT a sym is a pure off-path
   signature."""
   text = _collect_sym_text(rysmith, _P7_SEEDS)
+  # The patterns are mutually exclusive: `coef >> %v` cannot match inside
+  # `coef >>> %v` because the `%` anchor after the operator would land on
+  # the third `>`.
   found = {
     op: len(re.findall(rf"(?:\b-?\d+|%(?!\?)\w+) {re.escape(op)} %", text))
     for op in ("<<", ">>", ">>>")
   }
-  # `>>` matches inside `>>>`; subtract the overlap.
-  found[">>"] -= found[">>>"]
   check(
     f"off-path shifts present for all ops ({found})",
     all(n >= 3 for n in found.values()),
@@ -1661,6 +1662,22 @@ def test_offpath_select_cond_nonzero_rhs(rysmith):
     f"off-path select conds with nonzero literal RHS ({n} found)",
     n >= 3,
     f"found={n}",
+  )
+
+
+def test_custom_int_widths_generated(rysmith):
+  """P7: the SPEC admits any `iN` (`IntType := "i" Nat`) and the whole
+  toolchain implements iN via widen-and-mask — a surface with zero
+  generator coverage until now (the crc32 sub-byte bug lived exactly
+  there). Custom widths {12, 20, 24, 40, 48} must appear in generated
+  programs, and generation must stay healthy (concrete outputs exist)."""
+  text = _collect_sym_text(rysmith, _P7_SEEDS)
+  widths = {w: len(re.findall(rf"\bi{w}\b", text)) for w in (12, 20, 24, 40, 48)}
+  total = sum(widths.values())
+  check(
+    f"custom iN widths present ({widths})",
+    total >= 10 and sum(1 for n in widths.values() if n > 0) >= 3,
+    f"widths={widths}",
   )
 
 
@@ -1765,6 +1782,8 @@ def main():
   test_offpath_fp_divmod_atoms(rysmith)
   print("=== P7: off-path select cond literal RHS ===")
   test_offpath_select_cond_nonzero_rhs(rysmith)
+  print("=== P7: custom iN widths ===")
+  test_custom_int_widths_generated(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

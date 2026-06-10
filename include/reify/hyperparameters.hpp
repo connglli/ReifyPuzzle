@@ -57,6 +57,17 @@ namespace symir::reify::rysmith::hp {
   inline constexpr int kIntOffPath_SelectEnd = 93;    // select cond, a, b
   inline constexpr int kIntOffPath_IntrinsicEnd = 97; // call @intrinsic(args)
 
+  // [P7] Probability that a drawn integer type is a custom width instead
+  // of the standard i8/i16/i32/i64. The SPEC admits any `iN`; the
+  // toolchain implements them via widen-and-mask in the backends — a
+  // bug surface (cf. the crc32 sub-byte fix) that standard widths never
+  // touch. Widths stay ≥ 12 so every literal pool in this file fits the
+  // type's range, and the mix includes non-multiples of 8 (sub-byte
+  // masking) alongside multi-byte customs.
+  inline constexpr double kPOddIntWidth = 0.15;
+  inline constexpr uint32_t kOddIntWidths[] = {12, 20, 24, 40, 48};
+  inline constexpr std::size_t kOddIntWidthsSize = sizeof(kOddIntWidths) / sizeof(kOddIntWidths[0]);
+
   // [P7] Probability that an off-path OpAtom coefficient is a same-type
   // LocalId (`%a * %b`) instead of a literal. Var-op-var is grammar-legal
   // for every operator, compiler-opaque (both sides are runtime values),

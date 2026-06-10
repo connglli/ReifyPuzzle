@@ -299,6 +299,12 @@ namespace symir::reify {
     } else if (bits == 64) {
       lo = rysmith::hp::kConcreteInt_I64_Lo;
       hi = rysmith::hp::kConcreteInt_I64_Hi;
+    } else if (bits >= 2 && bits < 64) {
+      // [P7] Custom iN widths span the full signed range, mirroring the
+      // standard widths above. The typechecker's strict literal range
+      // check makes anything wider a hard error.
+      hi = (int64_t(1) << (bits - 1)) - 1;
+      lo = -hi - 1;
     }
     return {lo, hi};
   }
@@ -432,9 +438,14 @@ namespace symir::reify {
   ) {
     // Skip i1-returning intrinsics since i1 is not a commonly generated target type.
     const auto &all = getIntrinsicWhitelist();
+    uint32_t targetBits = intBitWidth(targetType);
     std::vector<const WhitelistedIntrinsic *> compatible;
     for (const auto &wi: all) {
       if (wi.returnsI1)
+        continue;
+      // [P7] @bswap is the one width-restricted whitelisted intrinsic: the
+      // semchecker rejects it for widths that are not a multiple of 8.
+      if (wi.kind == IntrinsicKind::Bswap && targetBits % 8 != 0)
         continue;
       compatible.push_back(&wi);
     }
