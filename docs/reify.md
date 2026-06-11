@@ -336,3 +336,14 @@ rylink -n 10 --n-nodes 4 --validate -i pool/ -o progs/
 # 3. C target with require checks kept
 rylink -n 5 --target c --keep-require -i pool/ -o progs/
 ```
+
+## Known Issues
+
+The following commits, together, cause a 3-5x rysmith performace degradation:
+
+1. 14343fc completely removed trivial "lit op lit" atoms.
+2. e390437 excluded store statements from counting into --n-stmts.
+3. 7118748 introduced indirect store and load.
+
+Limiting them would bring back some trivial patterns that might not be
+bad for compiler testing, and would allow more performant generation.
