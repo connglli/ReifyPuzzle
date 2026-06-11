@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// EXPECT_RC: 87
+// [v0.2.2] Regression: storing through a pointer to a struct field that is
+// itself an array (`%t.f1[1]` where `f1: [2] i32`). The interpreter's
+// store-back into the structured value only modelled two nesting levels
+// (struct field, array-of-struct field), so a write to `%t.f1[1]` fell
+// through to overwriting the whole `[2] i32` field with the scalar — turning
+// the array into a scalar and tripping "Indexing non-array" on the next read
+// of `%t.f1[0]`. The fix walks from the root variable to the scalar leaf by
+// byte offset, handling arbitrary nesting. Cross-validated interp vs C.
+struct @S {
+  f0: i16;
+  f1: [2] i32;
+}
+
+fun @main() : i32 {
+  let mut %t: @S = {1, {10, 20}};
+  let mut %p: ptr i32 = undef;
+  let mut %r: i32 = 0;
+^entry:
+  %p = addr %t.f1[1];
+  store %p, 77;
+  %r = %t.f1[0] + %t.f1[1];
+  ret %r;
+}

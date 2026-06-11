@@ -113,6 +113,13 @@ namespace symir {
     TypePtr getAtomType(const Atom &atom) const;
     TypePtr getExprType(const Expr &expr) const;
     std::uint64_t allocObject(const std::string &varName, const TypePtr &t, const Store &store);
+    // Write every scalar/pointer leaf of `v` (of static type `ty`) into the
+    // flat heap at its byte offset from `addr`, recursing through arrays,
+    // vectors, and structs. Aggregate-typed array elements and struct fields
+    // must be flattened to per-leaf entries so a `load` through a pointer to
+    // a deep cell (e.g. `%a[k].f[i]`) finds a scalar there rather than the
+    // whole sub-aggregate.
+    void flattenValueToHeap(std::uint64_t addr, const RuntimeValue &v, const TypePtr &ty);
     std::uint64_t fieldOffset(const StructDecl &s, const std::string &fieldName) const;
     std::uint64_t
     materializeStruct(const std::string &varName, const StructDecl &s, const Store &store);

@@ -548,6 +548,23 @@ namespace symir {
                       auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, tagTerm});
                       storeMatchConds.push_back(cond);
                       sv.term = solver.make_term(smt::Kind::ITE, {cond, valTerm, sv.term});
+                      // [v0.2.2] Pointer pointee: provenance follows the value
+                      // under `cond`, same as the top-level handler (see there).
+                      if (std::get_if<PtrType>(&pointeeType->v)) {
+                        auto zeroP = solver.make_bv_value_int64(bv64, 0);
+                        auto curBase = sv.prov_base.internal ? sv.prov_base : zeroP;
+                        auto curSize = sv.prov_size.internal ? sv.prov_size : zeroP;
+                        auto newBase = valVal.prov_base.internal ? valVal.prov_base : zeroP;
+                        auto newSize = valVal.prov_size.internal ? valVal.prov_size : zeroP;
+                        sv.prov_base = solver.make_term(smt::Kind::ITE, {cond, newBase, curBase});
+                        sv.prov_size = solver.make_term(smt::Kind::ITE, {cond, newSize, curSize});
+                      }
+                      // Writing makes the cell as defined as the stored value
+                      // (see the top-level handler).
+                      auto curDef = sv.is_defined.internal ? sv.is_defined : solver.make_true();
+                      auto valDef =
+                          valVal.is_defined.internal ? valVal.is_defined : solver.make_true();
+                      sv.is_defined = solver.make_term(smt::Kind::ITE, {cond, valDef, curDef});
                       return;
                     }
                     if (auto at = std::get_if<ArrayType>(&ty->v)) {
@@ -1258,6 +1275,31 @@ namespace symir {
                     auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, tagTerm});
                     storeMatchConds.push_back(cond);
                     sv.term = solver.make_term(smt::Kind::ITE, {cond, valTerm, sv.term});
+                    // [v0.2.2] When the pointee is itself a pointer, the stored
+                    // value carries its own provenance (base/size). The target's
+                    // provenance must follow the value under the same `cond`,
+                    // mirroring the select-arm ITE — otherwise a later store/load
+                    // through this redirected pointer bounds-checks `ptrTerm`
+                    // against the stale base the target held before this store,
+                    // a spurious UNSAT. Absent provenance reads as tag 0 (the
+                    // bounds check is gated on base != 0, so it self-disables).
+                    if (std::get_if<PtrType>(&pointeeType->v)) {
+                      auto zeroP = solver.make_bv_value_int64(bv64, 0);
+                      auto curBase = sv.prov_base.internal ? sv.prov_base : zeroP;
+                      auto curSize = sv.prov_size.internal ? sv.prov_size : zeroP;
+                      auto newBase = valVal.prov_base.internal ? valVal.prov_base : zeroP;
+                      auto newSize = valVal.prov_size.internal ? valVal.prov_size : zeroP;
+                      sv.prov_base = solver.make_term(smt::Kind::ITE, {cond, newBase, curBase});
+                      sv.prov_size = solver.make_term(smt::Kind::ITE, {cond, newSize, curSize});
+                    }
+                    // Writing makes the cell as defined as the stored value, so
+                    // a later load of a now-written cell no longer trips the
+                    // rule-3 undef constraint (paired with the load's
+                    // is_defined propagation).
+                    auto curDef = sv.is_defined.internal ? sv.is_defined : solver.make_true();
+                    auto valDef =
+                        valVal.is_defined.internal ? valVal.is_defined : solver.make_true();
+                    sv.is_defined = solver.make_term(smt::Kind::ITE, {cond, valDef, curDef});
                     return;
                   }
                   if (auto at = std::get_if<ArrayType>(&ty->v)) {
@@ -1429,24 +1471,31 @@ namespace symir {
       if (retTermLocal.internal)
         finalRes.retModel = extractValue(retTermLocal);
 
-      // Reverse-lookup a 64-bit base tag against every local in the
-      // entry function. The forward map (`tagOfLocal`) is FNV-1a, so
-      // we just hash each name and compare. Used against the
-      // `prov_base` field of a pointer SymbolicValue (which always
-      // names the underlying object even after the body advanced the
-      // pointer inside it via ptrfield / ptrindex / pointer
-      // arithmetic). Returns "" when no local matches — cross-object
-      // arithmetic, undef pointer, etc.
-      auto reverseLookupLocal = [&](uint64_t tag) -> std::string {
-        for (const auto &l: entry->lets) {
-          if (tagOfLocal(l.name.name) == tag)
-            return l.name.name;
-        }
-        for (const auto &p: entry->params) {
-          if (tagOfLocal(p.name.name) == tag)
-            return p.name.name;
-        }
-        return {};
+      // Map an exit-time address tag back to the entry-fun local/param
+      // that *contains* it, returning {name, base tag}. The forward map
+      // (`tagOfLocal`) is FNV-1a and every cell of an aggregate gets
+      // `base + offset`, so a whole-object pointer hashes to a local's
+      // bare tag while a sub-object pointer — e.g. `addr %a[2].f0`, whose
+      // prov_base/address land *inside* the aggregate — does not. An
+      // exact-match lookup misses the sub-object case (the prov_base then
+      // resolves to no local, and the consumer silently falls back to the
+      // entry-init, dropping body retargets). Range containment maps the
+      // offset address back to its root object; the in-object delta is
+      // recovered as `addr - baseTag`. Returns {"", 0} when no object
+      // contains the tag — cross-object arithmetic, undef pointer, etc.
+      auto reverseLookupContaining = [&](uint64_t tag) -> std::pair<std::string, uint64_t> {
+        auto contains = [&](const std::string &nm, const TypePtr &ty) -> bool {
+          uint64_t base = tagOfLocal(nm);
+          uint64_t size = sizeofTagUnits(ty, structs_);
+          return base <= tag && tag < base + size;
+        };
+        for (const auto &l: entry->lets)
+          if (contains(l.name.name, l.type))
+            return {l.name.name, tagOfLocal(l.name.name)};
+        for (const auto &p: entry->params)
+          if (contains(p.name.name, p.type))
+            return {p.name.name, tagOfLocal(p.name.name)};
+        return {{}, 0};
       };
 
       // Concrete model value of every entry-function let at the end of
@@ -1467,14 +1516,17 @@ namespace symir {
           // address. The delta is the in-object offset in tag units.
           if (sv.term.internal && sv.prov_base.internal) {
             try {
-              auto baseTerm = solver.get_value(sv.prov_base);
               auto addrTerm = solver.get_value(sv.term);
-              auto baseStr = solver.get_bv_value_string(baseTerm, 10);
               auto addrStr = solver.get_bv_value_string(addrTerm, 10);
-              uint64_t baseTag = std::stoull(baseStr, nullptr, 10);
               uint64_t addrTag = std::stoull(addrStr, nullptr, 10);
-              out.targetLocal = reverseLookupLocal(baseTag);
-              out.targetOffset = addrTag - baseTag; // wraps mod 2^64
+              // Identify the pointee from the actual exit address, not the
+              // prov_base: a sub-lvalue `addr` (`addr %a[2].f0`) leaves
+              // prov_base offset into the aggregate, which no bare local
+              // tag matches. The containing-object lookup recovers the
+              // root local; the in-object delta is `addr - root base`.
+              auto [name, rootTag] = reverseLookupContaining(addrTag);
+              out.targetLocal = name;
+              out.targetOffset = addrTag - rootTag; // wraps mod 2^64
             } catch (...) {
               // get_value may fail when the term escaped its solver
               // context or wasn't asserted on the SAT path. Leave
@@ -2492,6 +2544,13 @@ namespace symir {
 
             smt::Term res_prov_base = zero;
             smt::Term res_prov_size = zero;
+            // Propagate the loaded cell's definedness so a downstream read of
+            // the value trips the rule-3 undef constraint (see evalLValue).
+            // Forcing it to true here would let the solver concretize a path
+            // that loads an undef-initialised cell (e.g. an unwritten element
+            // of `[N] ptr T = {undef, …}`) and then uses it — which the strict
+            // interpreter rejects, producing a solver/interp divergence.
+            smt::Term res_is_defined = solver.make_true();
 
             std::vector<smt::Term> matchConds;
             std::function<void(const TypePtr &, SymbolicValue &, std::uint64_t, std::uint64_t)>
@@ -2511,6 +2570,9 @@ namespace symir {
                 auto svSize = sv.prov_size.internal ? sv.prov_size : zero;
                 res_prov_base = solver.make_term(smt::Kind::ITE, {cond, svBase, res_prov_base});
                 res_prov_size = solver.make_term(smt::Kind::ITE, {cond, svSize, res_prov_size});
+
+                auto svDef = sv.is_defined.internal ? sv.is_defined : solver.make_true();
+                res_is_defined = solver.make_term(smt::Kind::ITE, {cond, svDef, res_is_defined});
                 return;
               }
               if (auto at = std::get_if<ArrayType>(&ty->v)) {
@@ -2558,7 +2620,7 @@ namespace symir {
               pc.push_back(anyMatch);
             }
             return SymbolicValue(
-                SymbolicValue::Kind::Int, result, solver.make_true(), res_prov_base, res_prov_size
+                SymbolicValue::Kind::Int, result, res_is_defined, res_prov_base, res_prov_size
             );
           } else if constexpr (std::is_same_v<T, CallAtom>) {
             // [v0.2.2] Phase 4 handles intrinsic calls only. Fun/decl

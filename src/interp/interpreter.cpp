@@ -355,7 +355,9 @@ namespace symir {
               if (sv.arrayVal[i].kind == RuntimeValue::Kind::Struct) {
                 auto fit = sv.arrayVal[i].structVal.find(f.name);
                 if (fit != sv.arrayVal[i].structVal.end())
-                  heap_[elemBase + off] = fit->second;
+                  // Flatten aggregate fields (e.g. `f: [2] i32`) to per-leaf
+                  // heap entries rather than storing the whole field value.
+                  flattenValueToHeap(elemBase + off, fit->second, f.type);
               }
               off += fSize;
             }
@@ -374,20 +376,9 @@ namespace symir {
                     static_cast<std::uint64_t>(-1), 0, elemTy
                 }
             );
-            // Recursively flatten leaves into heap.
-            std::function<void(uint64_t, const RuntimeValue &, const TypePtr &)> flattenToHeap =
-                [&](uint64_t addr, const RuntimeValue &rv, const TypePtr &ty) {
-                  if (rv.kind == RuntimeValue::Kind::Array) {
-                    auto innerAt = ty ? std::get_if<ArrayType>(&ty->v) : nullptr;
-                    auto innerElem = innerAt ? innerAt->elem : TypePtr{};
-                    uint64_t innerElemSz = innerElem ? sizeofType(innerElem) : 4;
-                    for (std::size_t j = 0; j < rv.arrayVal.size(); ++j)
-                      flattenToHeap(addr + j * innerElemSz, rv.arrayVal[j], innerElem);
-                  } else {
-                    heap_[addr] = rv;
-                  }
-                };
-            flattenToHeap(elemBase, sv.arrayVal[i], elemTy);
+            // Recursively flatten leaves into heap (handles array-of-array
+            // and array-of-struct element nesting).
+            flattenValueToHeap(elemBase, sv.arrayVal[i], elemTy);
           } else {
             heap_[elemBase] = sv.arrayVal[i];
           }
@@ -455,11 +446,23 @@ namespace symir {
   const Interpreter::ObjectInfo *
   Interpreter::findFieldOrStructObject(std::uint64_t addr, const TypePtr &type) const {
     uint64_t size = sizeofType(type);
+    // Base + size alone is ambiguous for a single-element outer array: a
+    // `[1][3] i16` and its sole `[3] i16` element share the same base and
+    // the same 6-byte span, yet differ in element count (1 vs 3). Prefer an
+    // object whose declared type matches `type` exactly so the navigated
+    // element's count is correct; fall back to the first size match (the
+    // historical behaviour) when no type is recorded.
+    const ObjectInfo *sizeMatch = nullptr;
     for (const auto &o: objects_) {
       if (o.base == addr && (o.end - o.base) == size) {
-        return &o;
+        if (o.type && type && TypeUtils::areTypesEqual(o.type, type))
+          return &o;
+        if (!sizeMatch)
+          sizeMatch = &o;
       }
     }
+    if (sizeMatch)
+      return sizeMatch;
     return findObject(addr);
   }
 
@@ -472,6 +475,38 @@ namespace symir {
       offset += sizeofType(f.type);
     }
     throw std::runtime_error("Internal: field '" + fieldName + "' not found in struct");
+  }
+
+  void
+  Interpreter::flattenValueToHeap(std::uint64_t addr, const RuntimeValue &v, const TypePtr &ty) {
+    if (ty) {
+      if (auto at = std::get_if<ArrayType>(&ty->v)) {
+        std::uint64_t es = sizeofType(at->elem);
+        for (std::size_t i = 0; i < v.arrayVal.size(); ++i)
+          flattenValueToHeap(addr + i * es, v.arrayVal[i], at->elem);
+        return;
+      }
+      if (auto vt = std::get_if<VecType>(&ty->v)) {
+        std::uint64_t es = sizeofType(vt->elem);
+        for (std::size_t i = 0; i < v.arrayVal.size(); ++i)
+          flattenValueToHeap(addr + i * es, v.arrayVal[i], vt->elem);
+        return;
+      }
+      if (auto st = std::get_if<StructType>(&ty->v)) {
+        auto sit = structs_.find(st->name.name);
+        if (sit != structs_.end() && v.kind == RuntimeValue::Kind::Struct) {
+          std::uint64_t off = 0;
+          for (const auto &f: sit->second->fields) {
+            auto fit = v.structVal.find(f.name);
+            if (fit != v.structVal.end())
+              flattenValueToHeap(addr + off, fit->second, f.type);
+            off += sizeofType(f.type);
+          }
+          return;
+        }
+      }
+    }
+    heap_[addr] = v; // scalar / pointer leaf
   }
 
   // Materialize a struct variable into the heap: allocate one ObjectInfo per field
@@ -557,28 +592,16 @@ namespace symir {
                   static_cast<std::uint64_t>(-1), 0, sf.type
               }
           );
-          // Sync nested struct field value into heap.
-          if (sv != store.end() && sv->second.kind == RuntimeValue::Kind::Struct) {
-            auto fit = sv->second.structVal.find(f.name);
-            if (fit != sv->second.structVal.end() &&
-                fit->second.kind == RuntimeValue::Kind::Struct) {
-              auto sfit = fit->second.structVal.find(sf.name);
-              if (sfit != fit->second.structVal.end())
-                heap_[fBase + subOff] = sfit->second;
-            }
-          }
           subOff += sfSize;
         }
-      } else if (sv != store.end() && sv->second.kind == RuntimeValue::Kind::Struct) {
+      }
+      // Sync the field value into the heap, flattening any aggregate (nested
+      // struct, array field, array-of-struct, …) down to per-leaf cells so a
+      // `load` through a pointer to a deep cell reads a scalar there.
+      if (sv != store.end() && sv->second.kind == RuntimeValue::Kind::Struct) {
         auto fit = sv->second.structVal.find(f.name);
-        if (fit != sv->second.structVal.end()) {
-          if (fit->second.kind == RuntimeValue::Kind::Array) {
-            for (size_t i = 0; i < fit->second.arrayVal.size(); ++i)
-              heap_[fBase + i * fElemSize] = fit->second.arrayVal[i];
-          } else {
-            heap_[fBase] = fit->second;
-          }
-        }
+        if (fit != sv->second.structVal.end())
+          flattenValueToHeap(fBase, fit->second, f.type);
       }
       offset += fSize;
     }
@@ -1273,30 +1296,60 @@ namespace symir {
                 // ObjectInfo, sync to that field. If it's a whole-struct
                 // ObjectInfo (from ptrfield provenance), find the field
                 // ObjectInfo that contains the address and sync there.
-                const ObjectInfo *syncObj = findObject(ptrVal.ptrVal);
-                if (syncObj && !syncObj->fieldName.empty()) {
-                  if (syncObj->arrayIdx != static_cast<std::uint64_t>(-1) &&
-                      store.count(syncObj->varName) &&
-                      store.at(syncObj->varName).kind == RuntimeValue::Kind::Array) {
-                    auto &arr = store[syncObj->varName].arrayVal;
-                    if (syncObj->arrayIdx < arr.size() &&
-                        arr[syncObj->arrayIdx].kind == RuntimeValue::Kind::Struct)
-                      arr[syncObj->arrayIdx].structVal[syncObj->fieldName] = val;
-                  } else if (store.count(syncObj->varName) &&
-                             store.at(syncObj->varName).kind == RuntimeValue::Kind::Struct) {
-                    store[syncObj->varName].structVal[syncObj->fieldName] = val;
-                  }
-                } else if (obj->count == 1 && obj->fieldName.empty() &&
-                           obj->arrayIdx == static_cast<std::uint64_t>(-1) &&
-                           store.count(obj->varName) &&
-                           store.at(obj->varName).kind != RuntimeValue::Kind::Array &&
-                           store.at(obj->varName).kind != RuntimeValue::Kind::Vec) {
-                  store[obj->varName] = val;
-                } else {
-                  uint64_t idx = (ptrVal.ptrVal - obj->base) / obj->elemSize;
-                  if (store.count(obj->varName) &&
-                      store.at(obj->varName).kind == RuntimeValue::Kind::Array)
-                    store[obj->varName].arrayVal[idx] = val;
+                // Mirror the heap write back into the structured `store`
+                // value so a later structured read (`%t.f[i]` in the exit
+                // checksum, say) sees it. Walk from the root variable by
+                // byte offset through arrays / structs / vectors down to the
+                // scalar leaf. The previous two-level (fieldName + arrayIdx)
+                // sync could only name `%v`, `%a[i]`, `%t.f`, and `%a[i].f`;
+                // a store to a deeper cell such as `%t.f[i]` (a struct field
+                // that is itself an array) fell through to overwriting the
+                // whole array-typed field with the scalar, corrupting its
+                // shape. This offset walk handles arbitrary nesting.
+                const std::string &rootVar = obj->varName;
+                auto baseIt = addrMap_.find(rootVar);
+                auto rootTyIt = typeMap_.find(rootVar);
+                if (baseIt != addrMap_.end() && rootTyIt != typeMap_.end() &&
+                    store.count(rootVar)) {
+                  std::function<bool(RuntimeValue &, const TypePtr &, std::uint64_t)> setLeaf =
+                      [&](RuntimeValue &node, const TypePtr &ty, std::uint64_t off) -> bool {
+                    if (!ty)
+                      return false;
+                    if (auto at = std::get_if<ArrayType>(&ty->v)) {
+                      std::uint64_t es = sizeofType(at->elem);
+                      if (es == 0 || node.kind != RuntimeValue::Kind::Array)
+                        return false;
+                      std::uint64_t idx = off / es;
+                      if (idx >= node.arrayVal.size())
+                        return false;
+                      return setLeaf(node.arrayVal[idx], at->elem, off % es);
+                    }
+                    if (auto vt = std::get_if<VecType>(&ty->v)) {
+                      std::uint64_t es = sizeofType(vt->elem);
+                      if (es == 0 || node.kind != RuntimeValue::Kind::Vec)
+                        return false;
+                      std::uint64_t idx = off / es;
+                      if (idx >= node.arrayVal.size())
+                        return false;
+                      return setLeaf(node.arrayVal[idx], vt->elem, off % es);
+                    }
+                    if (auto st = std::get_if<StructType>(&ty->v)) {
+                      auto sit = structs_.find(st->name.name);
+                      if (sit == structs_.end() || node.kind != RuntimeValue::Kind::Struct)
+                        return false;
+                      std::uint64_t fo = 0;
+                      for (const auto &f: sit->second->fields) {
+                        std::uint64_t fs = sizeofType(f.type);
+                        if (off >= fo && off < fo + fs)
+                          return setLeaf(node.structVal[f.name], f.type, off - fo);
+                        fo += fs;
+                      }
+                      return false;
+                    }
+                    node = val; // scalar / pointer leaf
+                    return true;
+                  };
+                  setLeaf(store[rootVar], rootTyIt->second, ptrVal.ptrVal - baseIt->second);
                 }
               }
             },
@@ -1931,8 +1984,21 @@ namespace symir {
 
             for (const auto &acc: arg.lv.accesses) {
               if (auto ai = std::get_if<AccessIndex>(&acc)) {
-                if (!curObj)
-                  throw std::runtime_error("Internal: no ObjectInfo for index access");
+                // Element count / size and the next address come from the
+                // static `curType`, not from `curObj`: an array-typed struct
+                // field (e.g. `f1: [2] i8`) is registered as a single-element
+                // field object (count 1, elemSize = whole field), so trusting
+                // curObj->count would falsely reject `…f1[1]` and curObj->base
+                // + idx*elemSize would land at the wrong address. Advancing
+                // the running `addr` by `idx * sizeof(elem)` is correct for
+                // every nesting (top-level array, array-of-struct, 2-D array,
+                // struct-of-array).
+                auto at = curType ? std::get_if<ArrayType>(&curType->v) : nullptr;
+                if (!at)
+                  throw std::runtime_error("Internal: index access on non-array type");
+                TypePtr elemTy = at->elem;
+                uint64_t cnt = at->size;
+                uint64_t elemSz = sizeofType(elemTy);
                 int64_t idx = 0;
                 if (std::holds_alternative<IntLit>(ai->index)) {
                   idx = std::get<IntLit>(ai->index).value;
@@ -1943,31 +2009,20 @@ namespace symir {
                                            : store.at(std::get_if<SymId>(&id)->name);
                   idx = idxRv.intVal;
                 }
-                if (idx < 0 || (uint64_t) idx >= curObj->count)
+                if (idx < 0 || (uint64_t) idx >= cnt)
                   throw UndefinedBehaviorError("UB: addr of out-of-bounds array element");
 
-                addr = curObj->base + idx * curObj->elemSize;
-
                 // Provenance = the containing array (spec rule 15).
-                provId = curObj->provId;
+                if (curObj)
+                  provId = curObj->provId;
 
-                // Update curType and find the sub-ObjectInfo if the element is an aggregate.
-                if (curType) {
-                  if (auto at = std::get_if<ArrayType>(&curType->v)) {
-                    curType = at->elem;
-                    if (std::holds_alternative<StructType>(curType->v) ||
-                        std::holds_alternative<ArrayType>(curType->v)) {
-                      curObj = findFieldOrStructObject(addr, curType);
-                    } else {
-                      curObj = nullptr;
-                    }
-                  } else {
-                    curType = nullptr;
-                    curObj = nullptr;
-                  }
-                } else {
+                addr = addr + static_cast<uint64_t>(idx) * elemSz;
+                curType = elemTy;
+                if (curType && (std::holds_alternative<StructType>(curType->v) ||
+                                std::holds_alternative<ArrayType>(curType->v)))
+                  curObj = findFieldOrStructObject(addr, curType);
+                else
                   curObj = nullptr;
-                }
               } else if (auto af = std::get_if<AccessField>(&acc)) {
                 if (!curType)
                   throw std::runtime_error("Internal: no type info for field access");

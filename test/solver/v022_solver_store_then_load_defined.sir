@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+// [v0.2.2] Regression guard paired with the undef-load fix: writing a defined
+// value to an undef-initialised cell makes that cell defined, so a later load
+// of it must stay SAT — not be spuriously pruned as an undef read. This
+// guards the store-side `is_defined` update that complements the load's
+// definedness propagation. The concretized program (ret 42) is also checked
+// by the interpreter.
+fun @main() : i32 {
+  let mut %a: [2] i32 = {undef, undef};
+  let mut %p: ptr i32 = undef;
+  let mut %r: i32 = 0;
+^entry:
+  %p = addr %a[0];
+  store %p, 42;
+  %r = load %p;
+  ret %r;
+}
