@@ -2,6 +2,8 @@
 
 > [!WARNING]
 > The project is under active development. APIs and IR details are still evolving, but semantic decisions in `docs/SPEC_v0.2.1.md` are authoritative for the current release (v0.2.1).
+>
+> The version being developed is v0.2.2, which will include additional features such as intrinsics.
 
 RefractIR (internally SymIR) is a **CFG-based symbolic intermediate representation** designed for program synthesis, symbolic execution, and constraint generation for SMT solvers using **bit-vector (BV) logic**.
 
