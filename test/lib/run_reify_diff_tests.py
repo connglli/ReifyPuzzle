@@ -45,7 +45,7 @@ _FUN_SIG_RE = re.compile(
   r"fun\s+@([a-zA-Z0-9_]+)\s*\(([^)]*)\)\s*:\s*(i[0-9]+|f32|f64)"
 )
 
-# C surface types for SymIR scalars. Same mapping covers param and ret slots.
+# C surface types for RefractIR scalars. Same mapping covers param and ret slots.
 _CTY = {
   "i8": "int8_t",
   "i16": "int16_t",
@@ -56,14 +56,14 @@ _CTY = {
 }
 
 
-def _ctype_of(symir_type):
-  """C type for a scalar SymIR type, or None for non-scalars. Custom iN
+def _ctype_of(refractir_type):
+  """C type for a scalar RefractIR type, or None for non-scalars. Custom iN
   widths map to the same widened storage type the C backend uses
   (N <= 8 -> int8_t, <= 16 -> int16_t, <= 32 -> int32_t, <= 64 -> int64_t)."""
-  ct = _CTY.get(symir_type)
+  ct = _CTY.get(refractir_type)
   if ct is not None:
     return ct
-  m = re.fullmatch(r"i(\d+)", symir_type)
+  m = re.fullmatch(r"i(\d+)", refractir_type)
   if not m:
     return None
   bits = int(m.group(1))
@@ -89,7 +89,7 @@ BATCH_SIZE = 100
 
 
 def _parse_program(sir_path, entry_hint=None):
-  """Parse a SymIR file and return
+  """Parse a RefractIR file and return
     (entry_name, ret_type, param_types[], param_values[], expected_ret)
   or None if anything is missing.
 
@@ -229,9 +229,9 @@ def _write_main_c(path, fname, ret_type, param_types, param_values):
     f.write(
       "#include <stdint.h>\n"
       "#include <stdio.h>\n"
-      f"extern {cret} symir_{fname}({decl_params});\n"
+      f"extern {cret} refractir_{fname}({decl_params});\n"
       "int main(void) {\n"
-      f"  {cret} r = symir_{fname}({call_args});\n" + print_stmt + "  return 0;\n"
+      f"  {cret} r = refractir_{fname}({call_args});\n" + print_stmt + "  return 0;\n"
       "}\n"
     )
   return True
@@ -294,7 +294,7 @@ def _classify(label, sir_path, c_paths, parsed, symiri, clang, main_c, exe, verb
   # `_sym_arr_N_x` name — would otherwise be invisible here, hidden
   # behind a clean rc=0 from the warning suppression. Run a
   # `-fsyntax-only` gate over the backend's .c files (excluding the
-  # synthesised main.c, which carries no SymIR-generated typedefs) so
+  # synthesised main.c, which carries no RefractIR-generated typedefs) so
   # any such bug surfaces as a loud `cfail` instead of a silent pass.
   syn = subprocess.run(
     [

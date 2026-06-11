@@ -1,9 +1,9 @@
 #include "analysis/unused_name.hpp"
 #include <unordered_set>
 
-namespace symir {
+namespace refractir {
 
-  symir::PassResult UnusedNameAnalysis::run(FunDecl &f, DiagBag &diags) {
+  refractir::PassResult UnusedNameAnalysis::run(FunDecl &f, DiagBag &diags) {
     std::unordered_set<std::string> used;
 
     auto collectLValue = [&](const LValue &lv) {
@@ -182,7 +182,7 @@ namespace symir {
         diags.warn("Unused local: " + l.name.name, l.span);
     }
 
-    return symir::PassResult::Success;
+    return refractir::PassResult::Success;
   }
 
-} // namespace symir
+} // namespace refractir

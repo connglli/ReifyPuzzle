@@ -1,9 +1,9 @@
-# SymLang (SymIR)
+# RefractIR
 
 > [!WARNING]
 > The project is under active development. APIs and IR details are still evolving, but semantic decisions in `docs/SPEC_v0.2.1.md` are authoritative for the current release (v0.2.1).
 
-SymIR (also referred to as SymLang) is a **CFG-based symbolic intermediate representation** designed for program synthesis, symbolic execution, and constraint generation for SMT solvers using **bit-vector (BV) logic**.
+RefractIR (internally SymIR) is a **CFG-based symbolic intermediate representation** designed for program synthesis, symbolic execution, and constraint generation for SMT solvers using **bit-vector (BV) logic**.
 
 It provides a robust foundation for building tools that need to reason about program semantics, explore execution paths, or synthesize code snippets that satisfy specific properties.
 
@@ -16,7 +16,7 @@ It provides a robust foundation for building tools that need to reason about pro
   - [Building](#building)
   - [Usage](#usage)
   - [Switching SMT Backends](#switching-smt-backends)
-- [SymLang Example](#📝-symlang-example)
+- [RefractIR Example](#📝-refractir-example)
 - [Project Structure](#📁-project-structure)
 - [Documentation](#📚-documentation)
 
@@ -35,8 +35,8 @@ It provides a robust foundation for building tools that need to reason about pro
 | `symiri` | **Interpreter**: Execute `.sir` programs directly with concrete values or symbol bindings. |
 | `symirc` | **Compiler**: Translate `.sir` programs into optimized C or WebAssembly (WASM). |
 | `symirsolve` | **Solver**: Concretize symbolic programs by solving path constraints via SMT. |
-| `rysmith` | **Reifier**: Generate random SymLang leaf functions for compiler testing. |
-| `rylink` | **Reifier**: Generate random SymLang whole programs for compiler testing. |
+| `rysmith` | **Reifier**: Generate random RefractIR leaf functions for compiler testing. |
+| `rylink` | **Reifier**: Generate random RefractIR whole programs for compiler testing. |
 
 ## 🚀 Getting Started
 
@@ -105,7 +105,7 @@ Automatically find values for symbols that satisfy a specific execution path:
 
 ### Switching SMT Backends
 
-SymLang supports multiple SMT solvers via an abstract interface. The following backends are available:
+RefractIR supports multiple SMT solvers via an abstract interface. The following backends are available:
 
 - **Bitwuzla (Default):** Highly optimized for Bit-Vector (BV) and Floating-Point (FP) logic. It is the recommended solver for performance and reliability in symbolic execution tasks.
 - **AliveSMT (Z3-based):** A Z3-based backend derived from the Alive2 project. It provides an alternative for verification tasks where Z3's specific heuristics or theories are preferred.
@@ -120,7 +120,7 @@ make SOLVER=bitwuzla
 make SOLVER=alivesmt
 ```
 
-## 📝 SymLang Example
+## 📝 RefractIR Example
 
 A 4-round substitution-permutation cipher that exercises the full v0.2.2 surface area in one file:
 

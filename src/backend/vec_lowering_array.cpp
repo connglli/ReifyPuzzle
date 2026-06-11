@@ -10,7 +10,7 @@
 
 #include "backend/vec_lowering.hpp"
 
-namespace symir {
+namespace refractir {
 
   namespace {
 
@@ -88,4 +88,4 @@ namespace symir {
 
   std::unique_ptr<VecLowering> makeArrayLowering() { return std::make_unique<ArrayLowering>(); }
 
-} // namespace symir
+} // namespace refractir

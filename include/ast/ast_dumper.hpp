@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include "ast/ast.hpp"
 
-namespace symir {
+namespace refractir {
 
   class ASTDumper {
   public:
@@ -37,4 +37,4 @@ namespace symir {
     std::string atomOpToString(AtomOpKind op);
   };
 
-} // namespace symir
+} // namespace refractir

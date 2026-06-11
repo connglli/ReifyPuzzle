@@ -1,4 +1,4 @@
-# SymIR Standard Intrinsics
+# RefractIR Standard Intrinsics
 
 > **Spec reference**: §12 of [SPEC_v0.2.2.md](./SPEC_v0.2.2.md)
 > **Implementation files** (one per tool — add new intrinsics to all four):
@@ -15,7 +15,7 @@
 ## Overview
 
 An **intrinsic** is a built-in function whose semantics are defined entirely by
-the SymIR toolchain — not delegated to the target language. Each intrinsic has:
+the RefractIR toolchain — not delegated to the target language. Each intrinsic has:
 
 - A hard-coded implementation in the **interpreter** (`symiri`)
 - A fixed SMT encoding in the **solver** (`symirsolve`)
@@ -701,7 +701,7 @@ fun @demo(%x: i32) : i32 {
 ## Adding a new intrinsic
 
 A new intrinsic must have all four pieces before it can be merged. The rule
-from §12.3: *"Delegate to the target" is not acceptable — SymIR owns the
+from §12.3: *"Delegate to the target" is not acceptable — RefractIR owns the
 semantics.*
 
 1. **Declare** its signature in the test / user program (`intrinsic @name(...) : T;`).
@@ -829,7 +829,7 @@ intrinsic @fabs(%x: fN) : fN;
 ```
 
 Returns the magnitude of `%x` (clears the IEEE 754 sign bit).  Never
-UB on the SymIR finite-only domain.
+UB on the RefractIR finite-only domain.
 
 **SMT encoding**: `fp.abs(x)`.
 **Interpreter**: `std::fabs(x)`.
@@ -894,7 +894,7 @@ integer of equal width.  Width-matched: f32 ↔ i32, f64 ↔ i64.
 
 **SMT encoding**: introduce a fresh BV `b` of width `N`, conjoin
 `fp.eq(x, ((_ to_fp eb sb) b))` to `PC`, return `b`.  The encoding
-relies on SymIR's finite-only domain (§2.9) for the bit pattern of `x`
+relies on RefractIR's finite-only domain (§2.9) for the bit pattern of `x`
 to be uniquely determined.
 **Interpreter**: `memcpy` reinterpret.
 **C**: `__builtin_memcpy(&r, &a, sizeof(r))`.
@@ -922,7 +922,7 @@ makes the comparison false), trap via `unreachable`.
 
 ### §12.6 D.2 per-intrinsic spec
 
-Both are unary predicates over `fN`, returning `i1`.  Under SymIR's
+Both are unary predicates over `fN`, returning `i1`.  Under RefractIR's
 finite-only domain (§2.9) the input is always finite, so the
 classification reduces to three categories: *normal*, *subnormal*, or
 *zero* (±0).
@@ -977,10 +977,10 @@ intrinsic @fmin(%x: fN, %y: fN) : fN;
 intrinsic @fmax(%x: fN, %y: fN) : fN;
 ```
 
-They follow IEEE 754-2008 `minNum` / `maxNum`: under SymIR's
+They follow IEEE 754-2008 `minNum` / `maxNum`: under RefractIR's
 finite-only domain (§2.9) the result is the smaller / larger operand,
 and on the signed-zero pair the result is `-0` for `fmin` and `+0`
-for `fmax`.  No UB on the SymIR domain.
+for `fmax`.  No UB on the RefractIR domain.
 
 The signed-zero tie-break is *implementation-defined* in C's `fmin` /
 `fmax` and in SMT-LIB's `fp.min` / `fp.max`, so every backend except
@@ -1172,7 +1172,7 @@ tolerating per-target ULP drift in test harnesses.
 ### P4 — frontend rejects (planned, permanent)
 
 Declarations of these are refused outright — there is no point letting
-a user write a program SymIR cannot reason about.
+a user write a program RefractIR cannot reason about.
 
 - **Stateful / impure:** `@rand`, `@srand`, `@time`, `@clock`,
   `@getpid`, environment access. Would break determinism: re-execution

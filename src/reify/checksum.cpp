@@ -32,9 +32,9 @@
 #include "reify/type_gen.hpp"
 
 namespace fs = std::filesystem;
-using namespace symir;
+using namespace refractir;
 
-namespace symir::reify {
+namespace refractir::reify {
 
 
   // ---------------------------------------------------------------------------
@@ -118,8 +118,9 @@ namespace symir::reify {
   } // namespace
 
   size_t rewriteExitToCrc32Checksum(
-      symir::Program &prog, const std::string &funcName,
-      const std::unordered_map<std::string, symir::SymbolicExecutor::LetExitValue> &letExitValues
+      refractir::Program &prog, const std::string &funcName,
+      const std::unordered_map<std::string, refractir::SymbolicExecutor::LetExitValue>
+          &letExitValues
   ) {
     // A pointer let may be checksummed only if the solver resolved its
     // exit-time target to a live object (Ptr kind, non-empty targetLocal).
@@ -129,7 +130,7 @@ namespace symir::reify {
     auto pointerLoadable = [&](const std::string &name) {
       auto it = letExitValues.find(name);
       return it != letExitValues.end() &&
-             it->second.kind == symir::SymbolicExecutor::LetExitValue::Kind::Ptr &&
+             it->second.kind == refractir::SymbolicExecutor::LetExitValue::Kind::Ptr &&
              !it->second.targetLocal.empty();
     };
     // 1. Find the entry function.
@@ -316,10 +317,10 @@ namespace symir::reify {
     // ordering. Pointer / Undef entries fall back to InitVal::Undef so
     // the addr-replay in the entry block still has somewhere to write.
     InitVal letExitValueToInitVal(
-        const symir::SymbolicExecutor::LetExitValue &lev, const TypePtr &declType,
+        const refractir::SymbolicExecutor::LetExitValue &lev, const TypePtr &declType,
         const std::vector<StructDecl> &structs
     ) {
-      using LEV = symir::SymbolicExecutor::LetExitValue;
+      using LEV = refractir::SymbolicExecutor::LetExitValue;
       InitVal iv;
       switch (lev.kind) {
         case LEV::Kind::Int: {
@@ -455,9 +456,10 @@ namespace symir::reify {
 
   } // namespace
 
-  symir::Program buildMiniCrc32Prog(
-      const symir::Program &full, const std::string &funcName,
-      const std::unordered_map<std::string, symir::SymbolicExecutor::LetExitValue> &letExitValues
+  refractir::Program buildMiniCrc32Prog(
+      const refractir::Program &full, const std::string &funcName,
+      const std::unordered_map<std::string, refractir::SymbolicExecutor::LetExitValue>
+          &letExitValues
   ) {
     Program minimal;
     minimal.structs = full.structs;
@@ -556,7 +558,7 @@ namespace symir::reify {
       }
       return 1; // scalar / ptr
     };
-    // Type-equality probe restricted to the type families a SymIR
+    // Type-equality probe restricted to the type families a RefractIR
     // pointer pointee can name. Used to decide when to stop the
     // offset-walk: a `ptr T` should land on a sub-value of type T,
     // not on a leaf inside T.
@@ -770,4 +772,4 @@ namespace symir::reify {
     return minimal;
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

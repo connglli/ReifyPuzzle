@@ -1,6 +1,6 @@
 // EXPECT: PASS
 // EXPECT_RC: 0
-// [v0.2.2] Regression: `addr` of an aggregate lv produces a SymIR
+// [v0.2.2] Regression: `addr` of an aggregate lv produces a RefractIR
 // `ptr [N] T` (or nested-array) pointer.  The C backend used to lower
 // `ptr [N] T` to the flat element type (`T *` — emitType for ArrayType
 // dropped the dimensions), but C's `&array` has type `T (*)[N]…`, so

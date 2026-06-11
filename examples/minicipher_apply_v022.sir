@@ -1,7 +1,7 @@
 // EXPECT: PASS
 //
 // =========================================================================
-// SymIR Mini-Cipher (apply-round variant) — v0.2.2 showcase
+// RefractIR Mini-Cipher (apply-round variant) — v0.2.2 showcase
 //
 // Same cipher as `minicipher_v022.sir`, but the per-round logic is moved
 // into a callee `@apply_round` that takes a `ptr @CipherState` and

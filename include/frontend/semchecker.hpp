@@ -4,21 +4,21 @@
 #include <unordered_set>
 #include "analysis/pass_manager.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
-   * Performs semantic analysis on the SymIR program.
+   * Performs semantic analysis on the RefractIR program.
    * Checks for duplicate declarations, invalid sigils, and other
    * well-formedness constraints not captured by the grammar or type checker.
    */
-  class SemChecker : public symir::ModulePass {
+  class SemChecker : public refractir::ModulePass {
   public:
     std::string name() const override { return "SemChecker"; }
 
     /**
      * Executes the semantic checker on the program.
      */
-    symir::PassResult run(Program &prog, DiagBag &diags) override;
+    refractir::PassResult run(Program &prog, DiagBag &diags) override;
 
   private:
     void checkStruct(const StructDecl &s, DiagBag &diags);
@@ -30,4 +30,4 @@ namespace symir {
     void checkIntrinsicDecl(const IntrinsicDecl &d, DiagBag &diags);
   };
 
-} // namespace symir
+} // namespace refractir

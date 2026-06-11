@@ -4,7 +4,7 @@
 #include <optional>
 #include "ast/ast.hpp"
 
-namespace symir {
+namespace refractir {
 
   struct TypeUtils {
     /**
@@ -76,4 +76,4 @@ namespace symir {
     static bool isVec(const TypePtr &t);
   };
 
-} // namespace symir
+} // namespace refractir

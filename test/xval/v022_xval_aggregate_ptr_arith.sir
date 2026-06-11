@@ -6,7 +6,7 @@
 // byte instead of N bytes — a silent semantic bug that would only
 // surface as wrong reads from the wrong row.  With the typedef-based
 // lowering (`ptr [3] i8 → _sym_arr_3_i8 *`), `%p + 1` walks 3 bytes,
-// matching SymIR's spec.
+// matching RefractIR's spec.
 
 fun @main() : i32 {
   let mut %a:  [4] [3] i8 = 0;

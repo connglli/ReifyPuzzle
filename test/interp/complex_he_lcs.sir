@@ -24,7 +24,7 @@ fun @main() : i32 {
   let mut %mx: i32 = 0;
   let mut %res: @LCSResult;
 
-  // Initialize DP table (loops are explicit in SymIR)
+  // Initialize DP table (loops are explicit in RefractIR)
 ^init_outer:
   %i = 0;
   br ^loop_init_outer_cond;

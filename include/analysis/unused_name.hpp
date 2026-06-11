@@ -3,13 +3,13 @@
 #include <string>
 #include "analysis/pass_manager.hpp"
 
-namespace symir {
+namespace refractir {
 
-  class UnusedNameAnalysis : public symir::FunctionPass {
+  class UnusedNameAnalysis : public refractir::FunctionPass {
   public:
     std::string name() const override { return "UnusedNameAnalysis"; }
 
-    symir::PassResult run(FunDecl &f, DiagBag &diags) override;
+    refractir::PassResult run(FunDecl &f, DiagBag &diags) override;
   };
 
-} // namespace symir
+} // namespace refractir

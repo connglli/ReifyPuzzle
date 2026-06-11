@@ -16,7 +16,7 @@ fun @main() : i32 {
   // and see if it compiles and runs.
   // Actually the task is finding BUGS.
   // Let's force a division by zero in one arm and see if it's evaluated lazily.
-  // SymIR v0.2.0 SPEC §7.1 says select is lazy.
+  // RefractIR v0.2.0 SPEC §7.1 says select is lazy.
   // If the C backend unrolls it without ternary operator, it might not be lazy.
   %res = select %mask, %v1, %v2;
 

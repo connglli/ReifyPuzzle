@@ -6,7 +6,7 @@
 #include <vector>
 #include "ast/ast.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
    * VecLowering — abstract strategy that controls how the C backend lowers
@@ -89,4 +89,4 @@ namespace symir {
    */
   std::unique_ptr<VecLowering> makeVecLowering(const std::string &name);
 
-} // namespace symir
+} // namespace refractir

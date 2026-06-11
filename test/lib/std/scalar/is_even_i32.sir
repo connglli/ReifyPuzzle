@@ -9,7 +9,7 @@
 //
 // Semantics:
 //   We test the low bit with a bitwise AND. Using `%` would risk
-//   sign-dependence (-3 % 2 == -1 in SymIR's trunc-toward-zero
+//   sign-dependence (-3 % 2 == -1 in RefractIR's trunc-toward-zero
 //   semantics), so AND is both clearer and width-agnostic.
 fun @is_even_i32(%x: i32) : i32 {
   let %one: i32 = 1;

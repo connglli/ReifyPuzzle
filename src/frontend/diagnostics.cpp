@@ -2,7 +2,7 @@
 #include <iomanip>
 #include <iostream>
 
-namespace symir {
+namespace refractir {
 
   void printMessage(
       std::ostream &os, const std::string &src, const SourceSpan &span, const std::string &msg,
@@ -57,4 +57,4 @@ namespace symir {
     os << levelStr << ": " << msg << "\n";
   }
 
-} // namespace symir
+} // namespace refractir

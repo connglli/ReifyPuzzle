@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include "reify/hyperparameters.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   // ---------------------------------------------------------------------------
   // Factory helpers
@@ -217,4 +217,4 @@ namespace symir::reify {
     return std::make_shared<Type>(Type{pt, {}});
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

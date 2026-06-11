@@ -1,8 +1,8 @@
-# SymIR v0.2.2 Specification
+# RefractIR v0.2.2 Specification
 
 **Status:** Draft v0.2.2
 
-This document is the complete, standalone specification for SymIR v0.2.2. It supersedes v0.2.1. Sections and rules that are unchanged from v0.2.1 are included verbatim for self-containedness. All additions and changes are marked **[New in v0.2.2]**.
+This document is the complete, standalone specification for RefractIR v0.2.2. It supersedes v0.2.1. Sections and rules that are unchanged from v0.2.1 are included verbatim for self-containedness. All additions and changes are marked **[New in v0.2.2]**.
 
 
 ## What's new in v0.2.2
@@ -25,7 +25,7 @@ This document is the complete, standalone specification for SymIR v0.2.2. It sup
 
 ### Intrinsics
 
-- **`intrinsic`**: a built-in function whose semantics are defined entirely by the SymIR toolchain — not delegated to the target language. Each intrinsic has a hard-coded implementation in the interpreter, a fixed SMT encoding in the solver, and a lowering rule in the compiler.
+- **`intrinsic`**: a built-in function whose semantics are defined entirely by the RefractIR toolchain — not delegated to the target language. Each intrinsic has a hard-coded implementation in the interpreter, a fixed SMT encoding in the solver, and a lowering rule in the compiler.
 - **Standard intrinsics**: `@abs`, `@min`, `@max`, `@clz`, `@ctz`, `@popcount`. Memory intrinsics (`@memcpy`, `@memset`) are **not** included — their SMT encoding requires byte-level memory reasoning that is deferred.
 
 ### Restrictions
@@ -40,7 +40,7 @@ This document is the complete, standalone specification for SymIR v0.2.2. It sup
 
 ## 1. Notation and identifier classes
 
-SymIR uses sigils to make identifier categories immediately recognizable:
+RefractIR uses sigils to make identifier categories immediately recognizable:
 
 - `@name` — global identifiers (functions; global type names if desired).
 - `%name` — local identifiers (parameters, locals).
@@ -54,7 +54,7 @@ SymIR uses sigils to make identifier categories immediately recognizable:
 ## 2. Key semantic commitments (v0.2.2)
 
 ### 2.1 Non-SSA and mutable store
-SymIR is not SSA. Locals declared with `let mut` denote **mutable storage cells**. Assignments update the store at the given lvalue location.
+RefractIR is not SSA. Locals declared with `let mut` denote **mutable storage cells**. Assignments update the store at the given lvalue location.
 
 ### 2.2 Path-based execution
 Given a user-chosen path `π` (e.g., `^entry -> ^b1 -> ^b3 -> ^b1 -> ^exit`), the tool executes blocks along `π` in order. Only statements and terminators encountered on `π` contribute constraints.
@@ -72,7 +72,7 @@ Given a user-chosen path `π` (e.g., `^entry -> ^b1 -> ^b3 -> ^b1 -> ^exit`), th
 Both integer and floating-point division and modulo round toward 0 (C-like truncation semantics). For floats, `%` is `fmod`, not IEEE `remainder`. See §8.
 
 ### 2.6 Strict undefined behavior (UB)
-SymIR uses **strict UB** on the chosen path: if UB occurs during evaluation of any statement or condition on `π`, the path becomes **infeasible** and is pruned.
+RefractIR uses **strict UB** on the chosen path: if UB occurs during evaluation of any statement or condition on `π`, the path becomes **infeasible** and is pruned.
 
 ### 2.7 `select` expression (lazy)
 `select` is supported as an atom:
@@ -82,7 +82,7 @@ SymIR uses **strict UB** on the chosen path: if UB occurs during evaluation of a
 - `vtrue` and `vfalse` are restricted to **scalar, pointer, or vector values** (`RValue`, constant `Coef`, or `null`). Both arms must have the same type.
 
 ### 2.8 Memory model
-SymIR uses a typed, stack-only memory model:
+RefractIR uses a typed, stack-only memory model:
 
 - **Stack-only**: all addressable storage is a `let mut` local within the current function. Heap allocation is not supported.
 - **No cross-object aliasing**: a pointer derived from `addr %x` can never alias a pointer derived from `addr %y` for distinct locals `%x` and `%y`. Cross-object pointer arithmetic is **UB**.
@@ -92,9 +92,9 @@ SymIR uses a typed, stack-only memory model:
 
 ### 2.9 Floating-point value model
 
-SymIR uses **finite IEEE 754-2008 semantics** for floating-point:
+RefractIR uses **finite IEEE 754-2008 semantics** for floating-point:
 
-- **Domain**: the only valid floating-point values are **finite** IEEE 754 values. ±∞ and NaN are **not** SymIR values. Any operation whose IEEE 754 result would be ±∞ or NaN is UB (see §7.4).
+- **Domain**: the only valid floating-point values are **finite** IEEE 754 values. ±∞ and NaN are **not** RefractIR values. Any operation whose IEEE 754 result would be ±∞ or NaN is UB (see §7.4).
 - **Signed zeros**: `+0.0` and `-0.0` are distinct bit patterns and both are valid values. They compare equal (`+0.0 == -0.0` is `true`).
 - **Subnormals**: subnormal (denormal) values are regular finite values. No flush-to-zero behavior.
 - **Rounding mode**: all operations use a single fixed mode — **RNE (Round to Nearest, Ties to Even)**.
@@ -121,7 +121,7 @@ enforces this via one canonical pair:
 The C and WASM backends use their own bit-exact formatters because they
 emit C / WAT literals respectively, with target-language-specific
 suffixes; that divergence is intentional and is the only place where
-`formatDouble` is not the canonical SymIR-text formatter.
+`formatDouble` is not the canonical RefractIR-text formatter.
 
 ### 2.10 Pointer arithmetic
 
@@ -442,7 +442,7 @@ UB is checked during symbolic execution along the chosen path. Any UB makes the 
 
 3. **Reading `undef`**: reading any leaf whose stored value is `undef` is UB. This covers uninitialised locals, uninitialised pointer values, and uninitialised vector lanes.
 
-4. **Signed integer overflow**: `+`, `-`, `*`, `<<` that produce a value outside the representable range of the target bit-width. Also: `INT_MIN / -1`. For `<<` specifically: UB if the result `x * 2^n` is not representable in `width(x)` signed bits, OR if `x < 0`. SymIR treats `<<` as signed integer arithmetic (aligning with `+`/`-`/`*`), not as a bit-vector shift — this keeps the overflow story consistent across all integer arithmetic operators.
+4. **Signed integer overflow**: `+`, `-`, `*`, `<<` that produce a value outside the representable range of the target bit-width. Also: `INT_MIN / -1`. For `<<` specifically: UB if the result `x * 2^n` is not representable in `width(x)` signed bits, OR if `x < 0`. RefractIR treats `<<` as signed integer arithmetic (aligning with `+`/`-`/`*`), not as a bit-vector shift — this keeps the overflow story consistent across all integer arithmetic operators.
 
 5. **Overshift**: in `x << n`, `x >> n`, `x >>> n`, UB if `n < 0` or `n >= width(x)`. Separate from rule 4 — overshift is about the shift *amount*, not the shifted result.
 
@@ -532,7 +532,7 @@ See §2.9 for the full floating-point value model.
 
 ## 8. Division and modulo (round toward 0)
 
-SymIR uses **truncation toward zero** for both integer and floating-point `%`. The result sign matches the dividend sign.
+RefractIR uses **truncation toward zero** for both integer and floating-point `%`. The result sign matches the dividend sign.
 
 ### 8.1 Integer division and modulo
 `Q = trunc(A / B)`, `R = A - Q*B`. `|R| < |B|`, sign of `R` matches `A`.
@@ -839,7 +839,7 @@ Each intrinsic is declared once for `iN` (any `N ≥ 1`), not per concrete width
 
 ## 12. Standard intrinsics **[New in v0.2.2]**
 
-Intrinsics are built into the SymIR toolchain. They require no body, no contract, and no `-I` resolution. In this section, `iN` denotes **any concrete integer type** (`i1`, `i8`, `i16`, `i32`, `i64`, or any other `i<Nat>`). Throughout §12.6 and onward, `fN` denotes **any concrete floating-point type** (`f32` or `f64`). The intrinsic is declared once per concrete width the program uses (e.g., `intrinsic @abs(%x: i32) : i32;` or `intrinsic @fabs(%x: f32) : f32;`), and the toolchain applies the same generic encoding regardless of `N`. Integer lowering follows the widening-and-mask strategy described in §11.5; floating-point lowering uses the native target precision directly (no widening, RNE-everywhere per §2.9).
+Intrinsics are built into the RefractIR toolchain. They require no body, no contract, and no `-I` resolution. In this section, `iN` denotes **any concrete integer type** (`i1`, `i8`, `i16`, `i32`, `i64`, or any other `i<Nat>`). Throughout §12.6 and onward, `fN` denotes **any concrete floating-point type** (`f32` or `f64`). The intrinsic is declared once per concrete width the program uses (e.g., `intrinsic @abs(%x: i32) : i32;` or `intrinsic @fabs(%x: f32) : f32;`), and the toolchain applies the same generic encoding regardless of `N`. Integer lowering follows the widening-and-mask strategy described in §11.5; floating-point lowering uses the native target precision directly (no widening, RNE-everywhere per §2.9).
 
 ### 12.1 Arithmetic intrinsics
 
@@ -907,7 +907,7 @@ Additional intrinsics may be added in future versions. Each new intrinsic must s
 - Its interpreter behavior (how `symiri` executes it)
 - Its lowering pattern for each target (C, WASM), following the widening-and-mask strategy in §11.5 (for `iN`) or the native-precision strategy (for `fN`)
 
-An intrinsic is accepted only if all four are defined. "Delegate to the target" is not acceptable — SymIR owns the semantics.
+An intrinsic is accepted only if all four are defined. "Delegate to the target" is not acceptable — RefractIR owns the semantics.
 
 **Priority taxonomy and rejection layers.** The six intrinsics defined above are the v0.2.2 baseline. The full design space — covering C `<math.h>`, WASM numeric instructions, and Rust `iN`/`fN` inherent methods — is classified into priority tiers **P0–P4** in [`docs/intrinsics.md`](./intrinsics.md). The tiering decides which intrinsics ship next, which are gated behind a feature flag, and which are deliberately rejected (at the frontend, by the solver, or by a specific backend). Solver and C support drive the priority; WASM is second-to-last; intrinsics with no efficient SMT encoding are last. v0.2.2 commits to shipping the **P0** tier.
 

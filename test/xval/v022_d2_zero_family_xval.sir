@@ -1,5 +1,5 @@
 // Intention: cross-validate the four observable identities of zero.
-// SymIR's signed-zero model (§2.9) keeps +0.0 and -0.0 numerically
+// RefractIR's signed-zero model (§2.9) keeps +0.0 and -0.0 numerically
 // equal but distinguishable via @signbit and via @to_bits.  This
 // test pins both behaviors against the C backend, and additionally
 // verifies neither zero classifies as normal or subnormal, AND that

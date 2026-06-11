@@ -10,7 +10,7 @@
 // Caller obligations:
 //   - |x| < 2^31. The implementation truncates via an i32 round-trip,
 //     and float-to-integer out-of-range is UB (§7.4 rule 8).
-//   - x finite (per the global SymIR FP domain).
+//   - x finite (per the global RefractIR FP domain).
 //
 // Output:
 //   f32 in (-1, 1). Same sign as x (or zero).

@@ -1,7 +1,7 @@
 #include "solver/bitwuzla_impl.hpp"
 #include <stdexcept>
 
-namespace symir::solver {
+namespace refractir::solver {
 
   static bitwuzla::Options
   create_options(uint32_t timeout, uint32_t seed, uint32_t num_smt_threads) {
@@ -322,4 +322,4 @@ namespace symir::solver {
     return unwrap(t).value<std::string>(2); // Binary
   }
 
-} // namespace symir::solver
+} // namespace refractir::solver

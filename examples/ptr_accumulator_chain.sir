@@ -8,7 +8,7 @@ struct @ChainResult {
 
 fun @main() : i32 {
   // =========================================================================================
-  // SymIR Pointer-Routed Accumulator Chain (v0.2.0)
+  // RefractIR Pointer-Routed Accumulator Chain (v0.2.0)
   //
   // Three accumulators (`%acc_low`, `%acc_mid`, `%acc_high`) collect a fixed stream of
   // signed integers (`%i0..%i3`). The classification routes each input into one of the

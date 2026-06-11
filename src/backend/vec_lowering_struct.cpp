@@ -17,7 +17,7 @@
 #include <stdexcept>
 #include "backend/vec_lowering.hpp"
 
-namespace symir {
+namespace refractir {
 
   // We re-declare these tiny helpers locally rather than pulling them in
   // from another file — each strategy file is self-contained.
@@ -213,4 +213,4 @@ namespace symir {
     return std::make_unique<StructScalarsLowering>();
   }
 
-} // namespace symir
+} // namespace refractir

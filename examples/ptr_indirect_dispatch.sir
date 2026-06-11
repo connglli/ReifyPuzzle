@@ -7,7 +7,7 @@ struct @Bank {
 
 fun @main() : i32 {
   // =========================================================================================
-  // SymIR Indirect Dispatch (v0.2.0)
+  // RefractIR Indirect Dispatch (v0.2.0)
   //
   // A minimal "two-register virtual machine" that uses a `ptr ptr i32` to redirect each
   // step's write target. The control state alternates between two physical registers via

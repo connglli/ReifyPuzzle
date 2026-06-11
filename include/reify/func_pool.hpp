@@ -16,7 +16,7 @@
 
 #include "reify/func_desc.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   struct PoolEntry {
     // Parsed descriptor (carries name, signature, realizations).
@@ -45,4 +45,4 @@ namespace symir::reify {
   // crash condition. The CLI driver decides what to do with an empty pool.
   FuncPool loadFuncPool(const std::filesystem::path &dir);
 
-} // namespace symir::reify
+} // namespace refractir::reify

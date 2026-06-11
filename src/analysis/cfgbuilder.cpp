@@ -4,7 +4,7 @@
 #include <queue>
 #include "analysis/cfg.hpp"
 
-namespace symir {
+namespace refractir {
 
   CFG CFG::build(const FunDecl &f, DiagBag &diags) {
     CFG g;
@@ -118,4 +118,4 @@ namespace symir {
     return nextStep;
   }
 
-} // namespace symir
+} // namespace refractir

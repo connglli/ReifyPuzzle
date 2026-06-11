@@ -1,13 +1,13 @@
-# SymIR Floating-Point
+# RefractIR Floating-Point
 
-This document consolidates every floating-point commitment SymIR makes,
+This document consolidates every floating-point commitment RefractIR makes,
 across the spec, the interpreter (`symiri`), the C/WASM backends
 (`symirc`), and the solver (`symirsolve`). It is a companion to the
 formal spec — every section names the spec reference it derives from —
 and to its siblings [`undefined.md`](./undefined.md) (UB rules,
 per-tool) and [`intrinsics.md`](./intrinsics.md) (intrinsic taxonomy).
 
-SymIR's FP design has one overriding principle:
+RefractIR's FP design has one overriding principle:
 
 > **Every FP operation produces the same bit pattern on every backend.**
 
@@ -22,8 +22,8 @@ exists to keep that property mechanical and checkable, not aspirational.
 
 - **Types.** `f32` (IEEE 754 binary32) and `f64` (IEEE 754 binary64).
   No `f16`, `f128`, `bfloat16`, x87 80-bit extended, or decimal floats.
-- **Domain — finite only.** The only valid SymIR FP values are
-  *finite* IEEE 754 values. `±∞` and NaN are **not** SymIR values; any
+- **Domain — finite only.** The only valid RefractIR FP values are
+  *finite* IEEE 754 values. `±∞` and NaN are **not** RefractIR values; any
   op whose IEEE result would be `±∞` or NaN is **UB** (§7.4 rules 6–7).
   Programs that depend on infinity or NaN propagation are outside the
   language.
@@ -33,7 +33,7 @@ exists to keep that property mechanical and checkable, not aspirational.
   The canonical serializer preserves the sign bit across every text
   boundary.
 - **Subnormals.** Subnormal (denormal) values are first-class finite
-  values. SymIR does **not** flush-to-zero, and no backend may enable
+  values. RefractIR does **not** flush-to-zero, and no backend may enable
   FTZ/DAZ. `parseFloatLiteral` accepts subnormals; only true overflow
   to `±HUGE_VAL` is rejected.
 - **Rounding.** All ops use **round-to-nearest, ties-to-even** (IEEE
@@ -43,7 +43,7 @@ exists to keep that property mechanical and checkable, not aspirational.
 
 SMT sort mapping:
 
-| SymIR type | SMT sort               |
+| RefractIR type | SMT sort               |
 |------------|------------------------|
 | `f32`      | `(_ FloatingPoint 8 24)`  |
 | `f64`      | `(_ FloatingPoint 11 53)` |
@@ -101,7 +101,7 @@ is a legal idiom to dodge divide-by-zero UB on the `y == 0` path.
 
 This is the most-likely-to-trip-up corner of the language.
 
-SymIR's `%` is **C `fmod`** (truncated quotient), **not** IEEE 754
+RefractIR's `%` is **C `fmod`** (truncated quotient), **not** IEEE 754
 `remainder` (`fp.rem`):
 
 > `x % y = x - trunc(x / y) * y`
@@ -193,7 +193,7 @@ local) — see §13 non-goals.
   default of `i32`, this matches the "narrow if possible" tradition
   C / Rust users expect.
 - **Bit-exact parsing.** Every float literal is parsed by
-  `symir::parseFloatLiteral` (which wraps `std::strtod` — never
+  `refractir::parseFloatLiteral` (which wraps `std::strtod` — never
   `std::stod`, see §9 below).
 - **`undef` of FP type** is allowed at the type level (any leaf may be
   `undef`); reading it is UB (§7.1 rule 3).
@@ -216,17 +216,17 @@ trips up users who write `% 0.5` for fractional-part tricks (where
 
 ## 9. Canonical serialization invariant (CLAUDE.md, MANDATORY)
 
-SymIR carries `f32`/`f64` values **bit-exactly** across every text
+RefractIR carries `f32`/`f64` values **bit-exactly** across every text
 boundary: `.sir` source, descriptor JSON, SOLVED/PARAMS/RETURN headers,
 model-dump files, and CLI positional args. Two canonical entry points
 own this:
 
-- **`symir::formatDouble(double)`** (`include/ast/ast.hpp`) — shortest
+- **`refractir::formatDouble(double)`** (`include/ast/ast.hpp`) — shortest
   decimal string that round-trips via
   `std::to_chars(…, std::chars_format::shortest)`, with `.0` appended
   if neither `.` nor exponent appears (so an integer-valued literal
   still tokenises as float). Preserves signed zero.
-- **`symir::parseFloatLiteral(std::string)`** — wraps `std::strtod`.
+- **`refractir::parseFloatLiteral(std::string)`** — wraps `std::strtod`.
   Accepts subnormals; only true overflow to `±HUGE_VAL` raises.
   **Never use `std::stod`** — libstdc++ throws `out_of_range` on any
   `ERANGE` including valid subnormals.
@@ -235,12 +235,12 @@ Intentional, documented divergences:
 
 | Site                       | Why                                            |
 |----------------------------|------------------------------------------------|
-| `src/backend/c_backend.cpp`   | Emits **C grammar** floats (`f`/`F` suffix). Its own bit-exact formatter; comments point back to `symir::formatDouble`. |
+| `src/backend/c_backend.cpp`   | Emits **C grammar** floats (`f`/`F` suffix). Its own bit-exact formatter; comments point back to `refractir::formatDouble`. |
 | `src/backend/wasm_backend.cpp`| Emits **WAT grammar** floats (`±inf`/`nan` syntax, `f32.const`/`f64.const`). Its own bit-exact formatter. |
 
 If you are about to write `std::stod`, `std::to_string(double)`,
 `std::ostringstream` with `precision(17)`, `printf("%.17g", …)`, or
-`printf("%f", …)` in SymIR code — **stop and use the canonical pair**.
+`printf("%f", …)` in RefractIR code — **stop and use the canonical pair**.
 
 The interpreter emits its `Result:` line via `printf("%a", …)` (hex
 float). Hex-float form is parseable by `strtod` and bit-exact by
@@ -254,7 +254,7 @@ for results.
 ## 10. SMT encoding (spec §9, §2.9)
 
 All FP reasoning happens in **QF_FP** (CVC5, Z3, Bitwuzla all support
-this; SymIR does not require any solver-specific extension).
+this; RefractIR does not require any solver-specific extension).
 
 - Sorts: `(_ FloatingPoint 8 24)` and `(_ FloatingPoint 11 53)`.
 - A single `roundNearestTiesToEven` rounding-mode constant is created
@@ -291,7 +291,7 @@ The bit-exactness goal partitions into three responsibilities.
   rounding" theorem: if the intermediate precision satisfies `q ≥
   2p + 1` where `p` is the target precision, computing in `q` then
   rounding to `p` matches single-rounded precision-`p` arithmetic
-  for every RNE-rounded binary op among `+ - × ÷ √`. SymIR uses
+  for every RNE-rounded binary op among `+ - × ÷ √`. RefractIR uses
   `p = 24` (f32), `q = 53` (f64), so `53 ≥ 49` ✓
   (Boldo & Melquiond, *When Double Rounding is Odd*, 2005).
 - Parameter binding rounds f32 args to f32 precision before the body
@@ -326,10 +326,10 @@ The bit-exactness goal partitions into three responsibilities.
   three guards:
   ```c
   #if !defined(__STDC_IEC_559__) || __STDC_IEC_559__ != 1
-  # error "SymIR-lowered C requires an IEC 60559 / IEEE 754 conforming implementation"
+  # error "RefractIR-lowered C requires an IEC 60559 / IEEE 754 conforming implementation"
   #endif
   #if !defined(FLT_EVAL_METHOD) || FLT_EVAL_METHOD != 0
-  # error "SymIR-lowered C requires an implementation with FLT_EVAL_METHOD == 0"
+  # error "RefractIR-lowered C requires an implementation with FLT_EVAL_METHOD == 0"
   #endif
   #pragma STDC FP_CONTRACT OFF
   ```

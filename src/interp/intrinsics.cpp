@@ -1,7 +1,7 @@
 // [v0.2.2] Interpreter-side built-in intrinsic dispatch.
 //
 // This file is the single source of truth for every intrinsic
-// supported by the SymIR interpreter. To add a new intrinsic:
+// supported by the RefractIR interpreter. To add a new intrinsic:
 //   1. Add its IntrinsicKind to include/analysis/intrinsics.hpp.
 //   2. Implement a subclass of InterpreterIntrinsic and register it below.
 //
@@ -27,7 +27,7 @@
 #include "analysis/type_utils.hpp"
 #include "error.hpp"
 
-namespace symir {
+namespace refractir {
 
   namespace {
 
@@ -595,7 +595,7 @@ namespace symir {
 
     /**
      * @brief @wrapping_shr(x, n) — arithmetic right-shift mod 2^N.  UB if
-     * `n < 0` or `n >= N`.  Sign bit is preserved (matches SymIR's signed
+     * `n < 0` or `n >= N`.  Sign bit is preserved (matches RefractIR's signed
      * convention; `LShr` is the OpAtom path for logical shift).
      */
     class WrappingShrIntrinsic final : public InterpreterIntrinsic {
@@ -778,7 +778,7 @@ namespace symir {
 
     /**
      * @brief @fabs(x) = |x|. Clears the IEEE 754 sign bit; never UB on the
-     * SymIR finite-only domain.
+     * RefractIR finite-only domain.
      */
     class FabsIntrinsic final : public InterpreterIntrinsic {
     public:
@@ -823,7 +823,7 @@ namespace symir {
     /**
      * @brief @fmin / @fmax — IEEE 754-2008 minNum/maxNum semantics, aligned
      * with WASM `fN.min` / `fN.max` (the §12.6 D.3 reference target).  Under
-     * SymIR's finite-only domain the inputs are always finite, so the only
+     * RefractIR's finite-only domain the inputs are always finite, so the only
      * subtle case is signed zero: fmin returns -0 if either operand is -0,
      * fmax returns +0 if either operand is +0.  glibc's `std::fmin` /
      * `std::fmax` are *implementation-defined* on signed-zero pairs (and in
@@ -882,7 +882,7 @@ namespace symir {
 
     /**
      * @brief @is_normal(x) — 1 if x is a normal IEEE 754 value (biased
-     * exponent in [1, max-1]), else 0.  Inside SymIR's finite-only
+     * exponent in [1, max-1]), else 0.  Inside RefractIR's finite-only
      * domain the false set is {±0, subnormals}.
      */
     class IsNormalIntrinsic final : public InterpreterIntrinsic {
@@ -1140,4 +1140,4 @@ namespace symir {
     throw std::runtime_error("Unknown intrinsic: " + intr.name.name);
   }
 
-} // namespace symir
+} // namespace refractir

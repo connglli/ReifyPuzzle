@@ -9,7 +9,7 @@
 #include "analysis/intrinsics.hpp"
 #include "reify/intrinsic_whitelist.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   // ---------------------------------------------------------------------------
   // Internal helpers
@@ -461,4 +461,4 @@ namespace symir::reify {
     return FuncGenResult{std::move(prog), std::move(pathLabels)};
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

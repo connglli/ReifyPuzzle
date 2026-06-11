@@ -23,9 +23,9 @@ Reify separates *leaf function generation* (compact functions with no calls) fro
 ```
 S1. CFG Generation   — random control-flow skeleton
 S2. Path Sampling    — random entry-to-exit walk through the CFG
-S3. Program Seeding  — populate all blocks with typed statements using SymIR
+S3. Program Seeding  — populate all blocks with typed statements using RefractIR
 S4. Concretization   — solve symbolic variables along the EP via SMT
-S5. Lowering         — emit concrete SymIR, then lower to C / WASM
+S5. Lowering         — emit concrete RefractIR, then lower to C / WASM
 S6. Validation       — compile and execute; compare output to expected
 ```
 
@@ -48,7 +48,7 @@ The same CFG can yield many distinct paths with different loop iteration counts.
 
 ### S3: Program Seeding
 
-This is the core generation step. Every block in the CFG is populated with typed statements using SymIR. The generation distinguishes two roles:
+This is the core generation step. Every block in the CFG is populated with typed statements using RefractIR. The generation distinguishes two roles:
 
 **On-path blocks** (those appearing in $\pi$): statements use *symbolic variables* whose values will be determined by the SMT solver. Symbols are declared with domains and kind annotations (`coef`, `value`, `index`). Interest constraints — `require` statements that exclude trivial values like 0, 1, −1 from coefficients — push the solver toward diverse, non-degenerate programs.
 
@@ -58,7 +58,7 @@ Because off-path volume costs the solver nothing, the volume knobs (`--n-stmts`,
 
 #### Type system
 
-Reify uses the full SymIR type lattice. Each variable independently draws its type from:
+Reify uses the full RefractIR type lattice. Each variable independently draws its type from:
 
 | Category | Types |
 |---|---|
@@ -173,7 +173,7 @@ Each chosen leaf function brings its own solved realization (one of the `--n-ini
 
 ## Tool: rysmith
 
-`rysmith` implements S1–S5 in a single in-process C++ binary. It builds SymIR program ASTs directly in memory, calls `SymbolicExecutor` in-process (no subprocess), and emits concrete `.sir` files via `SIRPrinter`. It can optionally invoke `symiri` for S6 validation. The main focus is function generation. It does not test the compilers directly.
+`rysmith` implements S1–S5 in a single in-process C++ binary. It builds RefractIR program ASTs directly in memory, calls `SymbolicExecutor` in-process (no subprocess), and emits concrete `.sir` files via `SIRPrinter`. It can optionally invoke `symiri` for S6 validation. The main focus is function generation. It does not test the compilers directly.
 
 ### Usage
 
@@ -255,7 +255,7 @@ rysmith -n 30 --seed 42 -o out/
 
 ### Output format
 
-Each concrete `.sir` file is a valid SymIR program containing one function `@funcN`. All variables are initialized to concrete integer or float values. The `^exit` block folds **every** scalar leaf of every let-init local and every parameter — recursing through nested arrays, structs, and vector lanes — into a running CRC32 state and returns it:
+Each concrete `.sir` file is a valid RefractIR program containing one function `@funcN`. All variables are initialized to concrete integer or float values. The `^exit` block folds **every** scalar leaf of every let-init local and every parameter — recursing through nested arrays, structs, and vector lanes — into a running CRC32 state and returns it:
 
 ```sir
 intrinsic @crc32_update(%state: i32, %val: i32) : i32;
@@ -315,7 +315,7 @@ Each program lives in its own subdirectory:
 ```
 rylink_out/
   prog_<id>_0/
-    program.sir        # bundled SymIR (header comments: ENTRY, CG, PARAMS, RETURN)
+    program.sir        # bundled RefractIR (header comments: ENTRY, CG, PARAMS, RETURN)
     common.h           # symirc --split-by-source artefacts (when --target c)
     program.c
   prog_<id>_1/

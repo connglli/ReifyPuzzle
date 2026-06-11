@@ -3,7 +3,7 @@
 #include <unordered_map>
 #include "analysis/pass_manager.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
    * Represents the result of type inference for an expression or atom.
@@ -76,17 +76,17 @@ namespace symir {
   };
 
   /**
-   * Performs bitwidth-aware type checking on the SymIR AST.
+   * Performs bitwidth-aware type checking on the RefractIR AST.
    * Ensures that bitwidths match across assignments and operations.
    */
-  class TypeChecker : public symir::ModulePass {
+  class TypeChecker : public refractir::ModulePass {
   public:
     std::string name() const override { return "TypeChecker"; }
 
     /**
      * Executes the type checker on the program.
      */
-    symir::PassResult run(Program &prog, DiagBag &diags) override;
+    refractir::PassResult run(Program &prog, DiagBag &diags) override;
 
   private:
     struct StructInfo {
@@ -186,4 +186,4 @@ namespace symir {
     void checkLiteralRange(int64_t val, std::uint32_t bits, SourceSpan sp, DiagBag &diags);
   };
 
-} // namespace symir
+} // namespace refractir

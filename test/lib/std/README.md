@@ -1,6 +1,6 @@
-# SymIR Standard Library (test/lib/std)
+# RefractIR Standard Library (test/lib/std)
 
-Reference implementations of common operations expressible in v0.2.2 SymIR.
+Reference implementations of common operations expressible in v0.2.2 RefractIR.
 Each `.sir` file is a self-contained, runnable test (`EXPECT: PASS`) with
 `require` clauses that act as the unit-test assertions for the library
 function it demonstrates.

@@ -10,7 +10,7 @@
 //   i32 -- floor-toward-zero average of a and b.
 //
 // Semantics:
-//   Computes the sum a+b at i32 width and divides by 2 with C/SymIR
+//   Computes the sum a+b at i32 width and divides by 2 with C/RefractIR
 //   truncated division (rounds toward zero, not toward -inf).
 //
 // UB:
@@ -36,7 +36,7 @@ fun @avg_naive(%a: i32, %b: i32) : i32 {
 //
 // Semantics:
 //   Bit-twiddling identity (a & b) + ((a ^ b) >> 1) expressed in three
-//   statements because SymIR expressions are flat with no parens.
+//   statements because RefractIR expressions are flat with no parens.
 //   Works for any pair of i32 inputs including INT32_MIN/MAX.
 //
 // UB:

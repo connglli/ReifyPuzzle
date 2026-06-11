@@ -20,9 +20,9 @@
 #include "frontend/typechecker.hpp"
 
 int main(int argc, char **argv) {
-  using namespace symir;
+  using namespace refractir;
 
-  cxxopts::Options options("symirc", "SymIR Compiler");
+  cxxopts::Options options("symirc", "RefractIR Compiler");
 
   // clang-format off
   options.add_options()
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
 
     // 2. Analysis
     DiagBag diags;
-    symir::PassManager pm(diags);
+    refractir::PassManager pm(diags);
     pm.addModulePass(std::make_unique<SemChecker>());
     pm.addModulePass(std::make_unique<TypeChecker>());
     pm.addFunctionPass(std::make_unique<ReachabilityAnalysis>());
@@ -97,7 +97,7 @@ int main(int argc, char **argv) {
     bool werror = result["Werror"].as<bool>();
     bool nowarn = result["w"].as<bool>();
 
-    if (pm.run(prog) == symir::PassResult::Error || (werror && diags.hasWarnings())) {
+    if (pm.run(prog) == refractir::PassResult::Error || (werror && diags.hasWarnings())) {
       std::cerr << "Errors:\n";
       for (const auto &d: diags.diags) {
         if (d.level == DiagLevel::Error || (werror && d.level == DiagLevel::Warning)) {

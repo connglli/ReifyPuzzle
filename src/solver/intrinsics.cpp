@@ -1,7 +1,7 @@
 // [v0.2.2] Solver-side SMT lowering for built-in intrinsics.
 //
 // This file is the single source of truth for every intrinsic
-// supported by the SymIR symbolic executor / SMT constraint generator.
+// supported by the RefractIR symbolic executor / SMT constraint generator.
 // To add a new intrinsic:
 //   1. Add its IntrinsicKind to include/analysis/intrinsics.hpp.
 //   2. Implement a subclass of SolverIntrinsic and register it below.
@@ -22,7 +22,7 @@
 #include "analysis/intrinsics.hpp"
 #include "analysis/type_utils.hpp"
 
-namespace symir {
+namespace refractir {
 
   namespace {
 
@@ -967,7 +967,7 @@ namespace symir {
           smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         // Introduce a fresh BV `b` such that x == ((_ to_fp eb sb) b), then
-        // return `b`. Works because the SymIR finite-only domain guarantees
+        // return `b`. Works because the RefractIR finite-only domain guarantees
         // every valid FP value has a unique IEEE bit pattern.
         uint32_t width = paramBvWidth(intr, 0);
         auto [eb, sb] = fpDims(intr.params[0].type);
@@ -1119,4 +1119,4 @@ namespace symir {
     throw std::runtime_error("Solver: unknown intrinsic " + intr.name.name);
   }
 
-} // namespace symir
+} // namespace refractir

@@ -6,7 +6,7 @@
 #include <vector>
 #include "reify/cfg_gen.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   struct SamplePathParams {
     uint32_t seed = 0;
@@ -21,4 +21,4 @@ namespace symir::reify {
   std::optional<std::vector<std::string>>
   samplePath(const RyCFG &cfg, const SamplePathParams &params);
 
-} // namespace symir::reify
+} // namespace refractir::reify

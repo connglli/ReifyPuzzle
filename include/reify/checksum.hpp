@@ -17,7 +17,7 @@
 #include "ast/ast.hpp"
 #include "solver/solver.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   // ---------------------------------------------------------------------------
   // CRC32 exit-block rewriter
@@ -47,8 +47,9 @@ namespace symir::reify {
   // targetLocal) is NOT loaded: dereferencing it is UB the solver could not
   // see, which the strict interpreter would (rightly) trap on.
   size_t rewriteExitToCrc32Checksum(
-      symir::Program &prog, const std::string &funcName,
-      const std::unordered_map<std::string, symir::SymbolicExecutor::LetExitValue> &letExitValues
+      refractir::Program &prog, const std::string &funcName,
+      const std::unordered_map<std::string, refractir::SymbolicExecutor::LetExitValue>
+          &letExitValues
   );
 
   // ---------------------------------------------------------------------------
@@ -85,9 +86,10 @@ namespace symir::reify {
   //
   // Returns an empty `Program` (no funcs) when the entry function
   // cannot be located in `full`.
-  symir::Program buildMiniCrc32Prog(
-      const symir::Program &full, const std::string &funcName,
-      const std::unordered_map<std::string, symir::SymbolicExecutor::LetExitValue> &letExitValues
+  refractir::Program buildMiniCrc32Prog(
+      const refractir::Program &full, const std::string &funcName,
+      const std::unordered_map<std::string, refractir::SymbolicExecutor::LetExitValue>
+          &letExitValues
   );
 
-} // namespace symir::reify
+} // namespace refractir::reify

@@ -13,7 +13,7 @@
 #include <variant>
 #include <vector>
 
-namespace symir {
+namespace refractir {
 
   /**
    * Represents a location in the source code.
@@ -169,7 +169,7 @@ namespace symir {
   };
 
   /**
-   * Wrapper for all possible types in SymIR.
+   * Wrapper for all possible types in RefractIR.
    */
   struct Type {
     using Variant = std::variant<IntType, FloatType, StructType, ArrayType, PtrType, VecType>;
@@ -635,7 +635,7 @@ namespace symir {
     // when --split-by-source is enabled.
     std::string sourceStem;
 
-    // [v0.2.3] Backend-facing hints. These are not part of the SymIR
+    // [v0.2.3] Backend-facing hints. These are not part of the RefractIR
     // surface syntax — the parser does not currently emit them. They
     // are set by upstream tooling (e.g. reify's --p-noinline-callees
     // and --p-noclone-callees randomly mark generated callees) and
@@ -717,7 +717,7 @@ namespace symir {
   };
 
   /**
-   * Represents a complete SymIR program.
+   * Represents a complete RefractIR program.
    */
   struct Program {
     std::vector<StructDecl> structs;
@@ -759,7 +759,7 @@ namespace symir {
   // parseFloatLiteral below: every formatDouble(d) string parses back
   // to exactly d, including subnormals and signed zero.
   //
-  // SymIR's finite-only FP model (±inf / NaN are UB) means we never
+  // RefractIR's finite-only FP model (±inf / NaN are UB) means we never
   // emit "inf" or "nan" here; if they ever leak through this still
   // produces a strtod-parseable string ("inf" / "-inf" / "nan").
   //
@@ -821,4 +821,4 @@ namespace symir {
     }
     return parseIntegerLiteral(s);
   }
-} // namespace symir
+} // namespace refractir

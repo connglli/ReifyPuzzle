@@ -6,7 +6,7 @@ import tempfile
 from test.lib.framework import TestResult, run_command, run_test_suite
 
 
-def run_example_test(symirsolve_path, symiri_path):
+def run_example_test(refractirsolve_path, refractiri_path):
   def test_func(file_path, expectation, args, skips):
     with open(file_path, "r") as fd:
       content = fd.read()
@@ -52,7 +52,7 @@ def run_example_test(symirsolve_path, symiri_path):
 
     try:
       # 1. Run symirsolve
-      cmd = [symirsolve_path, file_path, "-o", tmp_path] + processed_args
+      cmd = [refractirsolve_path, file_path, "-o", tmp_path] + processed_args
       result, err = run_command(cmd, timeout=30)
 
       if err == "TIMEOUT":
@@ -80,7 +80,7 @@ def run_example_test(symirsolve_path, symiri_path):
         idx = processed_args.index("--main")
         interp_main_args = ["--main", processed_args[idx + 1]]
 
-      interp_cmd = [symiri_path] + interp_main_args + [tmp_path]
+      interp_cmd = [refractiri_path] + interp_main_args + [tmp_path]
       interp_res, interp_err = run_command(interp_cmd, timeout=5)
 
       if interp_err == "TIMEOUT":
@@ -104,7 +104,7 @@ def run_example_test(symirsolve_path, symiri_path):
 if __name__ == "__main__":
   if len(sys.argv) < 4:
     print(
-      "Usage: python3 -m test.lib.run_example_tests <examples_dir> <symirsolve_path> <symiri_path>"
+      "Usage: python3 -m test.lib.run_example_tests <examples_dir> <refractirsolve_path> <refractiri_path>"
     )
     sys.exit(1)
 

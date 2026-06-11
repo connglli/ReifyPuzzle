@@ -9,7 +9,7 @@ struct @NewtonContext {
 
 fun @main() : f64 {
   // =========================================================================================
-  // SymIR Newton-Raphson Root Finder (Floating Point Version)
+  // RefractIR Newton-Raphson Root Finder (Floating Point Version)
   //
   // This program implements Newton's method to find the root of f(x) = x^2 - 2.
   //   Formula: x_{n+1} = x_n - f(x_n) / f'(x_n)

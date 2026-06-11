@@ -4,7 +4,7 @@
 
 namespace fs = std::filesystem;
 
-namespace symir::reify {
+namespace refractir::reify {
 
   FuncPool loadFuncPool(const fs::path &dir) {
     FuncPool pool;
@@ -52,4 +52,4 @@ namespace symir::reify {
     return pool;
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

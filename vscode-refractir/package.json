@@ -1,11 +1,11 @@
 {
-    "name": "symlang-syntax",
+    "name": "refractir-syntax",
     "repository": {
         "type": "git",
-        "url": "https://github.com/connglli/symlang"
+        "url": "https://github.com/connglli/refractir"
     },
-    "displayName": "SymLang Syntax Highlighting",
-    "description": "Syntax highlighting for SymLang (.sir) files",
+    "displayName": "RefractIR Syntax Highlighting",
+    "description": "Syntax highlighting for RefractIR (.sir) files",
     "version": "0.2.2",
     "engines": {
         "vscode": "^1.75.0"
@@ -16,12 +16,10 @@
     "contributes": {
         "languages": [
             {
-                "id": "symlang",
+                "id": "refractir",
                 "aliases": [
-                    "SymLang",
-                    "symlang",
-                    "SymIR",
-                    "symir"
+                    "RefractIR",
+                    "refractir"
                 ],
                 "extensions": [
                     ".sir"
@@ -31,9 +29,9 @@
         ],
         "grammars": [
             {
-                "language": "symlang",
-                "scopeName": "source.symlang",
-                "path": "./syntaxes/symlang.tmLanguage.json"
+                "language": "refractir",
+                "scopeName": "source.refractir",
+                "path": "./syntaxes/refractir.tmLanguage.json"
             }
         ]
     }

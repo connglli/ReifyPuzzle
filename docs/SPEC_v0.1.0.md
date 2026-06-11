@@ -1,8 +1,8 @@
-# SymIR v0.1.0 Specification
+# RefractIR v0.1.0 Specification
 
 **Status:** v0.1.0
 
-SymIR is a CFG-based symbolic IR for **program templates**. A SymIR function contains **symbols** (unknowns) that are solved by an SMT solver under constraints derived from:
+RefractIR is a CFG-based symbolic IR for **program templates**. A RefractIR function contains **symbols** (unknowns) that are solved by an SMT solver under constraints derived from:
 
 1) a **specific execution path** (a sequence of basic blocks / edges, potentially with repeats), and
 2) user-specified **properties** that must hold on that path.
@@ -14,7 +14,7 @@ This v0.1.0 surface syntax adopts LLVM-style annotations and branching, while re
 
 ## 1. Notation and identifier classes
 
-SymIR uses sigils to make identifier categories immediately recognizable:
+RefractIR uses sigils to make identifier categories immediately recognizable:
 
 - `@name` — global identifiers (functions; global type names if desired).
 - `%name` — local identifiers (parameters, locals).
@@ -28,7 +28,7 @@ SymIR uses sigils to make identifier categories immediately recognizable:
 ## 2. Key semantic commitments (v0.1.0)
 
 ### 2.1 Non-SSA and mutable store
-SymIR is not SSA. Locals declared with `let mut` denote **mutable storage cells**. Assignments update the store at the given lvalue location.
+RefractIR is not SSA. Locals declared with `let mut` denote **mutable storage cells**. Assignments update the store at the given lvalue location.
 
 ### 2.2 Path-based execution
 Given a user-chosen path `π` (e.g., `^entry -> ^b1 -> ^b3 -> ^b1 -> ^exit`), the tool executes blocks along `π` in order. Only statements and terminators encountered on `π` contribute constraints.
@@ -46,7 +46,7 @@ Given a user-chosen path `π` (e.g., `^entry -> ^b1 -> ^b3 -> ^b1 -> ^exit`), th
 Integer division and modulo round toward 0 (C-like truncation semantics).
 
 ### 2.6 Strict undefined behavior (UB)
-SymIR uses **strict UB** on the chosen path:
+RefractIR uses **strict UB** on the chosen path:
 - If UB occurs during evaluation of any statement/condition on `π`, the path becomes **infeasible** and is pruned.
 
 ### 2.7 `select` expression (lazy)
@@ -58,9 +58,9 @@ SymIR uses **strict UB** on the chosen path:
 
 ### 2.8 Floating-point value model
 
-SymIR uses **finite IEEE 754-2008 semantics** for floating-point:
+RefractIR uses **finite IEEE 754-2008 semantics** for floating-point:
 
-- **Domain**: the only valid floating-point values are **finite** IEEE 754 values. ±∞ and NaN are **not** SymIR values. Any operation whose IEEE 754 result would be ±∞ or NaN is UB (see §7.4).
+- **Domain**: the only valid floating-point values are **finite** IEEE 754 values. ±∞ and NaN are **not** RefractIR values. Any operation whose IEEE 754 result would be ±∞ or NaN is UB (see §7.4).
 - **Signed zeros**: `+0.0` and `-0.0` are distinct bit patterns and both are valid values. They compare equal (`+0.0 == -0.0` is `true`). Negating `+0.0` yields `-0.0` and vice versa. Writing `-0.0` as a literal is valid.
 - **Subnormals**: subnormal (denormal) values are regular finite values. There is no flush-to-zero behavior.
 - **Rounding mode**: all operations use a single fixed mode — **RNE (Round to Nearest, Ties to Even)**. There are no dynamic rounding modes and no per-operation rounding specifiers.
@@ -330,7 +330,7 @@ See §2.8 for the full floating-point value model. Key points:
 
 ## 8. Division and modulo (round toward 0)
 
-SymIR uses **truncation toward zero** for both integer and floating-point `%`, so the sign of the result always matches the sign of the dividend.
+RefractIR uses **truncation toward zero** for both integer and floating-point `%`, so the sign of the result always matches the sign of the dividend.
 
 ### 8.1 Integer division and modulo
 
@@ -354,7 +354,7 @@ For finite floats `A` and `B` with `B != ±0.0`:
 
 This matches C's `fmod`, **not** IEEE 754 `remainder` (`fp.rem`).
 
-| Expression | `fmod` (SymIR `%`) | `fp.rem` (IEEE remainder) |
+| Expression | `fmod` (RefractIR `%`) | `fp.rem` (IEEE remainder) |
 |---|---|---|
 | `1.5 % 1.0` | `0.5` | `-0.5` |
 | `-1.5 % 1.0` | `-0.5` | `0.5` |
@@ -397,7 +397,7 @@ A satisfying model yields concrete values for `@?` / `%?` symbols (and any other
 
 ## 10. Examples
 
-This section provides additional examples of common patterns and “classical” problems expressed in SymIR v0.1.0. All examples follow v0.1.0 constraints:
+This section provides additional examples of common patterns and “classical” problems expressed in RefractIR v0.1.0. All examples follow v0.1.0 constraints:
 - no parentheses in expressions (left-to-right evaluation),
 - strict UB,
 - `div`/`mod` round toward 0,

@@ -32,9 +32,9 @@
 #include "interp/interpreter.hpp"
 
 namespace fs = std::filesystem;
-using namespace symir;
+using namespace refractir;
 
-namespace symir::reify {
+namespace refractir::reify {
 
   bool runAnalysisPasses(Program &prog, bool verbose) {
     DiagBag diags;
@@ -213,4 +213,4 @@ namespace symir::reify {
     }
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

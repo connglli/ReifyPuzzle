@@ -1,6 +1,6 @@
-# SymIR Fuzzer (`symirfuzz`)
+# RefractIR Fuzzer (`symirfuzz`)
 
-`symirfuzz` is a Python-based black-box generation fuzzer for the SymIR toolchain. It generates SymIR programs to test the correctness, robustness, and consistency of the Interpreter (`symiri`), Compiler (`symirc`), and Solver (`symirsolve`).
+`symirfuzz` is a Python-based black-box generation fuzzer for the RefractIR toolchain. It generates RefractIR programs to test the correctness, robustness, and consistency of the Interpreter (`symiri`), Compiler (`symirc`), and Solver (`symirsolve`).
 
 ## Usage
 

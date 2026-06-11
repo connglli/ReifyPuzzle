@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace symir::reify {
+namespace refractir::reify {
 
   struct RyCFGBlock {
     std::string label;
@@ -41,4 +41,4 @@ namespace symir::reify {
 
   RyCFG genCFG(const GenCFGParams &params);
 
-} // namespace symir::reify
+} // namespace refractir::reify

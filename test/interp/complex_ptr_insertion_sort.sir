@@ -4,7 +4,7 @@
 // Mirrors the classic C idiom: advance outer pointer, shift elements right via
 // an inner pointer to make room for the key.
 // When the inner pointer reaches the base we use a direct store to avoid
-// decrementing past the allocation start (which would be UB in SymIR).
+// decrementing past the allocation start (which would be UB in RefractIR).
 fun @main() : i32 {
   let mut %arr: [6] i32 = {5, 2, 8, 1, 9, 3};
   let mut %p: ptr i32 = null;

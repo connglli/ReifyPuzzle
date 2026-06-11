@@ -8,7 +8,7 @@
 // formatFloatLit appends ".0" when the printed form lacks a
 // decimal/exponent so the C lexer treats the constant as a double.
 // (This is purely a test of the FLOAT literal emitter — there is no path
-// in SymIR where a FloatLit becomes an integer-typed C literal at runtime
+// in RefractIR where a FloatLit becomes an integer-typed C literal at runtime
 // once the AST is correct, but having the .0 suffix makes the emitted C
 // self-documenting and survives future refactors.)
 fun @main() : i32 {

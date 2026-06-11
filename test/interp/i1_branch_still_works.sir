@@ -3,7 +3,7 @@
 // "non-zero is true".  Verify that flipping the storage to {0, -1}
 // still routes `br <cond>` to the correct successor for both
 // values.  We branch on `%cond != 0`, which is the canonical way
-// SymIR forms a boolean condition (the i1 holds 0 or -1; `!= 0`
+// RefractIR forms a boolean condition (the i1 holds 0 or -1; `!= 0`
 // is true on -1 and false on 0).
 intrinsic @signbit(%x: f64) : i1;
 fun @main() : i32 {

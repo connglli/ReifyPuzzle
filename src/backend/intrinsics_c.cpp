@@ -1,7 +1,7 @@
 // [v0.2.2] C backend intrinsic helper emission.
 //
 // This file is the single source of truth for the C code emitted for
-// every built-in SymIR intrinsic. The helpers use a widening-and-mask
+// every built-in RefractIR intrinsic. The helpers use a widening-and-mask
 // strategy: each iN operation is widened to the next machine integer
 // width (8/16/32/64), performed there, then sign-masked back to N bits.
 // UB-preconditions abort via __builtin_trap.
@@ -27,11 +27,11 @@
 #include "analysis/intrinsics.hpp"
 #include "analysis/type_utils.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
    * @brief Abstract base class for C code-generation of intrinsics.
-   * Subclasses generate C function bodies to emulate SymIR standard intrinsics.
+   * Subclasses generate C function bodies to emulate RefractIR standard intrinsics.
    */
   class CIntrinsic {
   public:
@@ -242,7 +242,7 @@ namespace symir {
       ) const override {
         // Compute the subtraction in a strictly wider signed type so signed
         // overflow cannot occur, then check |s| fits in signed iN. No
-        // reinterpretation as unsigned — SymIR has no unsigned types.
+        // reinterpretation as unsigned — RefractIR has no unsigned types.
         int64_t maxN = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
         if (N < 64) {
           out(backend) << "  int64_t s = (int64_t)a0 - (int64_t)a1;\n";
@@ -265,7 +265,7 @@ namespace symir {
           CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
           const std::string &uty
       ) const override {
-        // Predicate: return type is i1 (N=1, W=8). SymIR's i1 convention
+        // Predicate: return type is i1 (N=1, W=8). RefractIR's i1 convention
         // stores the boolean as the literal 0 or 1 (matching `cmp` lowering),
         // not sign-extended — so no final sextN is applied.
         if (N == 1) {
@@ -302,7 +302,7 @@ namespace symir {
           out(backend) << "  " << sty << " r = (" << sty << ")(s / 2);\n";
           out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
         } else {
-          // i64 midpoint via __int128 (GCC/Clang only — required by SymIR
+          // i64 midpoint via __int128 (GCC/Clang only — required by RefractIR
           // toolchain in this build).
           out(backend) << "  __int128 s = (__int128)a0 + (__int128)a1;\n";
           out(backend) << "  " << sty << " r = (" << sty << ")(s / 2);\n";
@@ -320,7 +320,7 @@ namespace symir {
           const std::string &sty, const std::string &uty
       ) const override {
         // Predicate: return type is i1 (N=1, W=8). Read the input at the
-        // *parameter's* own width, not the return's. SymIR's i1 convention
+        // *parameter's* own width, not the return's. RefractIR's i1 convention
         // stores the boolean as the literal 0 or 1 (matching `cmp` lowering),
         // not sign-extended — so no final sextN is applied.
         (void) N;
@@ -411,7 +411,7 @@ namespace symir {
           CBackend &backend, const IntrinsicDecl &intr, uint32_t N, uint32_t W,
           const std::string &sty, const std::string &uty
       ) const override {
-        // Predicate: return i1 stored as literal 0 / 1 (SymIR convention,
+        // Predicate: return i1 stored as literal 0 / 1 (RefractIR convention,
         // matches `cmp` lowering). No final sextN.
         (void) N;
         (void) W;
@@ -732,7 +732,7 @@ namespace symir {
     public:
       void emit(CBackend &backend, const IntrinsicDecl &) const override {
         // Plain unary negation flips the sign bit without rounding; this is
-        // the SymIR @fneg contract (no fmul -1.0).
+        // the RefractIR @fneg contract (no fmul -1.0).
         out(backend) << "  return -a0;\n";
       }
     };
@@ -989,7 +989,7 @@ namespace symir {
     std::string base = intrName;
     if (!base.empty() && base[0] == '@')
       base.erase(0, 1);
-    return "_symir_" + base + "_i" + std::to_string(bits);
+    return "_refractir_" + base + "_i" + std::to_string(bits);
   }
 
   // FP-aware overload (v0.2.2 extra D.1): mangle FP-touching intrinsics by
@@ -1006,10 +1006,10 @@ namespace symir {
     if (paramFp || retFp) {
       auto t = !intr.params.empty() ? intr.params[0].type : intr.retType;
       if (auto fp = std::get_if<FloatType>(&t->v))
-        return "_symir_" + base + "_f" + (fp->kind == FloatType::Kind::F32 ? "32" : "64");
+        return "_refractir_" + base + "_f" + (fp->kind == FloatType::Kind::F32 ? "32" : "64");
       if (auto it = std::get_if<IntType>(&t->v)) {
         uint32_t b = it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
-        return "_symir_" + base + "_i" + std::to_string(b);
+        return "_refractir_" + base + "_i" + std::to_string(b);
       }
     }
     // For integer intrinsics whose parameter widths differ from the
@@ -1020,14 +1020,14 @@ namespace symir {
     for (const auto &p: intr.params) {
       auto pb = TypeUtils::getIntBitWidth(p.type);
       if (pb && rb && *pb != *rb)
-        return "_symir_" + base + "_i" + std::to_string(*pb);
+        return "_refractir_" + base + "_i" + std::to_string(*pb);
     }
-    return "_symir_" + base + "_i" + std::to_string(rb.value_or(32));
+    return "_refractir_" + base + "_i" + std::to_string(rb.value_or(32));
   }
 
   // ── emission ─────────────────────────────────────────────────────────────
 
-  // Return the C type-name corresponding to a SymIR scalar type:
+  // Return the C type-name corresponding to a RefractIR scalar type:
   // - IntType iN → "int<W>_t" where W is the smallest machine width fitting N
   // - FloatType f32/f64 → "float"/"double"
   // Used by the helper-signature emitter for batches that mix int and FP.
@@ -1045,7 +1045,7 @@ namespace symir {
   void CBackend::emitIntrinsicHelper(const IntrinsicDecl &intr) {
     // Detect FP-touching intrinsics: dispatched to the FP registry instead
     // of the legacy integer-only one. Helper-signature param types follow
-    // the declared SymIR types directly (no widening for FP).
+    // the declared RefractIR types directly (no widening for FP).
     bool anyFp = (intr.retType && std::holds_alternative<FloatType>(intr.retType->v));
     for (const auto &p: intr.params)
       anyFp = anyFp || (p.type && std::holds_alternative<FloatType>(p.type->v));
@@ -1124,4 +1124,4 @@ namespace symir {
     out_ << "}\n\n";
   }
 
-} // namespace symir
+} // namespace refractir

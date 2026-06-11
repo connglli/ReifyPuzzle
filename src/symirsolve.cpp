@@ -21,7 +21,7 @@
 #include "solver/bitwuzla_impl.hpp"
 #endif
 
-using namespace symir;
+using namespace refractir;
 
 std::vector<std::string> split(const std::string &s, char delimiter) {
   std::vector<std::string> tokens;
@@ -34,7 +34,7 @@ std::vector<std::string> split(const std::string &s, char delimiter) {
 }
 
 int main(int argc, char **argv) {
-  cxxopts::Options options("symirsolve", "SymIR SMT-based Concretizer");
+  cxxopts::Options options("symirsolve", "RefractIR SMT-based Concretizer");
 
   // clang-format off
   options.add_options()
@@ -145,13 +145,13 @@ int main(int argc, char **argv) {
 #endif
 
     auto solverFactory =
-        [](const SymbolicExecutor::Config &cfg) -> std::unique_ptr<symir::smt::ISolver> {
+        [](const SymbolicExecutor::Config &cfg) -> std::unique_ptr<refractir::smt::ISolver> {
 #if defined(USE_ALIVESMT)
-      return std::make_unique<symir::solver::AliveSolver>(
+      return std::make_unique<refractir::solver::AliveSolver>(
           cfg.timeout_ms, cfg.seed, cfg.num_smt_threads
       );
 #elif defined(USE_BITWUZLA)
-      return std::make_unique<symir::solver::BitwuzlaSolver>(
+      return std::make_unique<refractir::solver::BitwuzlaSolver>(
           cfg.timeout_ms, cfg.seed, cfg.num_smt_threads
       );
 #else
@@ -186,10 +186,10 @@ int main(int argc, char **argv) {
           if (std::holds_alternative<int64_t>(val))
             mfs << std::get<int64_t>(val);
           else
-            // Bit-exact serialization — see symir::formatDouble in
+            // Bit-exact serialization — see refractir::formatDouble in
             // ast.hpp. Default `<<` would silently truncate to ~6
             // significant digits and lose the model's exact bits.
-            mfs << symir::formatDouble(std::get<double>(val));
+            mfs << refractir::formatDouble(std::get<double>(val));
           first = false;
         }
         mfs << "\n  }\n";
@@ -227,7 +227,7 @@ int main(int argc, char **argv) {
           // comment in ast.hpp for why this matters (round-trip
           // through parseFloatLiteral, no int/float dispatch ambiguity,
           // signed zero preserved, subnormals safe).
-          return symir::formatDouble(std::get<double>(v));
+          return refractir::formatDouble(std::get<double>(v));
         };
         if (!res.paramModel.empty() || res.retModel.has_value()) {
           ofs << "// SOLVED:";

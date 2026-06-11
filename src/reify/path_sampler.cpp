@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace symir::reify {
+namespace refractir::reify {
 
   static std::optional<std::vector<std::string>>
   shortestToExit(const RyCFG &cfg, const std::string &start) {
@@ -165,4 +165,4 @@ namespace symir::reify {
     return path;
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

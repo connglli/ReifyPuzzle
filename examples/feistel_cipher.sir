@@ -8,7 +8,7 @@ struct @FeistelContext {
 
 fun @main() : i32 {
   // =========================================================================================
-  // SymIR Iterative Feistel Cipher (Loop-based Bitwise Logic)
+  // RefractIR Iterative Feistel Cipher (Loop-based Bitwise Logic)
   //
   // This program implements a 4-round Feistel network using a loop.
   // It demonstrates:

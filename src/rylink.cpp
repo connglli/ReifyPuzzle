@@ -57,8 +57,8 @@
 #include "reify/rewrite.hpp"
 
 namespace fs = std::filesystem;
-using namespace symir;
-using namespace symir::reify;
+using namespace refractir;
+using namespace refractir::reify;
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -484,7 +484,7 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
 // ---------------------------------------------------------------------------
 
 int main(int argc, char **argv) {
-  cxxopts::Options opts("rylink", "rylink — whole-program generator for SymIR");
+  cxxopts::Options opts("rylink", "rylink — whole-program generator for RefractIR");
   // clang-format off
   opts.add_options()
     ("n,n-progs", "Number of whole programs to generate",

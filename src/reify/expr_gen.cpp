@@ -7,7 +7,7 @@
 #include "reify/hyperparameters.hpp"
 #include "reify/intrinsic_whitelist.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   // ---------------------------------------------------------------------------
   // Internal helpers — AST factories
@@ -525,7 +525,7 @@ namespace symir::reify {
       // Shift: index_sym << rval  (coef=index sym, rval=variable being shifted)
       // Per the existing pattern: index sym is the VALUE being shifted, rval is shift amount
       // But shift amount must be i32 — we need an i32 rval for the shift amount
-      // Actually in SymIR: OpAtom{Shl, coef, rval} = coef SHL rval
+      // Actually in RefractIR: OpAtom{Shl, coef, rval} = coef SHL rval
       // coef is the value to shift, rval is the shift amount
       // For proper typing: coef must match targetType, rval (shift amount) must be i32
       // So we need an i32 var as rval for shift amount, and use an index sym as the coef
@@ -547,7 +547,7 @@ namespace symir::reify {
         } else {
           // Non-i32 target: use coef sym of targetType << i32 literal for shift amount
           // But OpAtom{Shl, coef, rval}: coef must be targetType, rval must be...
-          // In SymIR, shift amount is the rval. For i64 << i32, the rval should be i32.
+          // In RefractIR, shift amount is the rval. For i64 << i32, the rval should be i32.
           // Use a concrete integer rval instead:
           (void) idxSym; // index sym was consumed, drop it
           // Just fall through to coef standalone
@@ -1519,7 +1519,7 @@ namespace symir::reify {
     auto scalars = vars.allScalars();
     TypePtr condType = makeI32(); // default
     if (!scalars.empty()) {
-      // Filter to int types only (can't compare floats with relational ops in SymIR)
+      // Filter to int types only (can't compare floats with relational ops in RefractIR)
       std::vector<const VarEntry *> intScalars;
       for (auto *v: scalars)
         if (isIntType(v->type))
@@ -1580,7 +1580,7 @@ namespace symir::reify {
     // Splice a single StoreInstr (plus its safety requires) into `result`.
     // Returns false when no usable ptr exists or the chosen pointee type
     // is one we don't store through (aggregate pointees aren't supported
-    // by the SymIR `store` form). The Bernoulli chain below stops rolling
+    // by the RefractIR `store` form). The Bernoulli chain below stops rolling
     // on the first false to avoid burning the rng on no-ops.
     auto tryEmitStore = [&]() -> bool {
       if (ptrVars.empty())
@@ -1785,4 +1785,4 @@ namespace symir::reify {
     return result;
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

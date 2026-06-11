@@ -3,10 +3,10 @@
 #include <stdexcept>
 #include <string>
 
-namespace symir {
+namespace refractir {
 
   /**
-   * Exit codes returned by all SymIR tools (symiri, symirc, symirsolve).
+   * Exit codes returned by all RefractIR tools (symiri, symirc, symirsolve).
    * Specific exit codes let the test framework (and callers) distinguish
    * *why* a run failed without parsing stderr text.
    */
@@ -36,4 +36,4 @@ namespace symir {
     explicit RequireViolationError(const std::string &msg) : std::runtime_error(msg) {}
   };
 
-} // namespace symir
+} // namespace refractir

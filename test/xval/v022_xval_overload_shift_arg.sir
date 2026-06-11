@@ -1,7 +1,7 @@
 // EXPECT: PASS
 // EXPECT_RC: 0
 // [v0.2.2] Pass the result of a shift expression as the first argument to
-// an overloaded intrinsic. SymIR OpAtom requires both operands to share a
+// an overloaded intrinsic. RefractIR OpAtom requires both operands to share a
 // bitwidth, so the shift result type is determined by the operand width
 // (here: i64). The type checker must pick the i64 overload of @popcount.
 

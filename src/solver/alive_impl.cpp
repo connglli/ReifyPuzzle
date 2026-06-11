@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <z3.h>
 
-namespace symir::solver {
+namespace refractir::solver {
 
   // Global mutex to protect Z3 operations.
   // Z3's reference counting and global context are NOT thread-safe,
@@ -433,4 +433,4 @@ namespace symir::solver {
     throw std::runtime_error("get_fp_value_string failed to convert to bits");
   }
 
-} // namespace symir::solver
+} // namespace refractir::solver

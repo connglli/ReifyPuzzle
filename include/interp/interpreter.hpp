@@ -8,11 +8,11 @@
 #include <vector>
 #include "ast/ast.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
-   * A concrete interpreter for the SymIR language.
-   * Executes SymIR programs by evaluating expressions and instructions
+   * A concrete interpreter for the RefractIR language.
+   * Executes RefractIR programs by evaluating expressions and instructions
    * against concrete values for symbolic variables.
    */
   class Interpreter {
@@ -181,4 +181,4 @@ namespace symir {
     bool evalCond(const Cond &c, const Store &store);
   };
 
-} // namespace symir
+} // namespace refractir

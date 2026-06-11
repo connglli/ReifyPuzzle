@@ -1,6 +1,6 @@
-# symirc — SymIR Translator
+# symirc — RefractIR Translator
 
-`symirc` translates SymIR (`.sir`) programs into **C** or **WebAssembly**.
+`symirc` translates RefractIR (`.sir`) programs into **C** or **WebAssembly**.
 
 It supports both:
 - **concrete programs**, and
@@ -12,7 +12,7 @@ It supports both:
 ## Goals
 
 - Provide first-class translation to C and WebAssembly
-- Preserve precise SymIR semantics
+- Preserve precise RefractIR semantics
 - Allow symbolic programs to be linked with external providers of symbol values
 - Act as a backend-independent lowering stage for future targets
 
@@ -72,7 +72,7 @@ Symbol references become:
 
 ### Name Mangling
 
-SymIR symbols may appear as global symbols (`@?name`) or local symbols (`%?name`). For translation targets,
+RefractIR symbols may appear as global symbols (`@?name`) or local symbols (`%?name`). For translation targets,
 **both are treated as external providers**. The naming scheme is stable and deterministic:
 
 - Format: `<func>__<sym>`
@@ -109,17 +109,17 @@ Examples:
 
 ## Refinement and Undefined Behavior Semantics
 
-The compilers perform **semantic refinement** over the input SymIR program. Under refinement:
+The compilers perform **semantic refinement** over the input RefractIR program. Under refinement:
 - The compiled target program (C or WebAssembly) must not exhibit any observable behavior that was not allowed by the original source program.
 - This semantic equivalence is guaranteed only when the input program is **UB-free** (free of Undefined Behavior).
-- If the input program executes a path containing Undefined Behavior (such as signed integer overflow, division/modulo by zero, or invalid pointer navigation/comparison), the behavior of the target program is **not guaranteed** and may deviate from strict SymIR interpreter/solver checks (which model UB as a fatal execution constraint).
+- If the input program executes a path containing Undefined Behavior (such as signed integer overflow, division/modulo by zero, or invalid pointer navigation/comparison), the behavior of the target program is **not guaranteed** and may deviate from strict RefractIR interpreter/solver checks (which model UB as a fatal execution constraint).
 - **C Target vs. WASM Target**:
-  - For the **C target**, we try our best to preserve the trapping semantics of SymIR undefined behaviors. Because many of SymIR's undefined behaviors map cleanly to native C undefined behaviors, compiling the output C code with GCC and enabling sanitizers (e.g., `-fsanitize=address,undefined,float-cast-overflow,pointer-compare,pointer-subtract`) allows the runtime to catch and trap these events.
-  - However, **this effort is not put on the WebAssembly (WASM) target**. The WASM backend lowers SymIR constructs to clean, native WASM instructions without inserting safety checks or runtime sanitizer assertions. Any executed undefined behavior on WASM will follow standard WASM instruction behavior (e.g. wrapping on signed overflow, returning 0 on modulo overflow, or ignoring relational pointer provenance).
+  - For the **C target**, we try our best to preserve the trapping semantics of RefractIR undefined behaviors. Because many of RefractIR's undefined behaviors map cleanly to native C undefined behaviors, compiling the output C code with GCC and enabling sanitizers (e.g., `-fsanitize=address,undefined,float-cast-overflow,pointer-compare,pointer-subtract`) allows the runtime to catch and trap these events.
+  - However, **this effort is not put on the WebAssembly (WASM) target**. The WASM backend lowers RefractIR constructs to clean, native WASM instructions without inserting safety checks or runtime sanitizer assertions. Any executed undefined behavior on WASM will follow standard WASM instruction behavior (e.g. wrapping on signed overflow, returning 0 on modulo overflow, or ignoring relational pointer provenance).
 
 ### Minimal WebAssembly Example (Signed Modulo Overflow)
 
-Consider the following SymIR program:
+Consider the following RefractIR program:
 
 ```sir
 fun @main() : i32 {
@@ -133,7 +133,7 @@ fun @main() : i32 {
 }
 ```
 
-- **SymIR Semantics**: Since this operation triggers signed overflow, a strict SymIR symbolic execution path or interpreter execution will trap/fail immediately, treating the execution as invalid.
+- **RefractIR Semantics**: Since this operation triggers signed overflow, a strict RefractIR symbolic execution path or interpreter execution will trap/fail immediately, treating the execution as invalid.
 - **WebAssembly compilation**: When translated to WebAssembly, the modulo instruction is compiled directly to WASM's native signed remainder instruction:
   ```wat
   local.get $min

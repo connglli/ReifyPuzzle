@@ -11,7 +11,7 @@
 #include "reify/type_gen.hpp"
 #include "reify/var_catalogue.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   // Key for tracking which (intrinsic, bitwidth) pairs have been used.
   // Now that the toolchain supports same-name intrinsics with different
@@ -127,4 +127,4 @@ namespace symir::reify {
       const VarCatalogue &vars, int nStmts, bool onPath, const ExprGenConfig &cfg
   );
 
-} // namespace symir::reify
+} // namespace refractir::reify

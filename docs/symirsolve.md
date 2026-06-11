@@ -1,6 +1,6 @@
-# symirsolve — SymIR Concretizer (SMT-based)
+# symirsolve — RefractIR Concretizer (SMT-based)
 
-`symirsolve` concretizes a **symbolic** SymIR (`.sir`) program into a **concrete** SymIR program by solving
+`symirsolve` concretizes a **symbolic** RefractIR (`.sir`) program into a **concrete** RefractIR program by solving
 constraints with an SMT solver over **bit-vectors (BV)**.
 
 Concretization means:
@@ -13,12 +13,12 @@ Concretization means:
 
 ## Goals
 
-- Concretize symbolic templates into concrete SymIR programs
+- Concretize symbolic templates into concrete RefractIR programs
 - Support path-based constraint extraction (symbolic execution along a user-specified path)
 - Provide deterministic, reproducible models (optional: seed / model selection policy)
 - Produce outputs that can be:
   - interpreted by `symiri`, or
-  - translated by `symirsolvec`
+  - translated by `refractirsolvec`
 
 
 ## Usage
@@ -206,7 +206,7 @@ The solver encodes pointers as **64-bit BV tags** identifying the addressed loca
 * Pointer-to-pointer chains (`ptr ptr T`).
 * Pointer equality and inequality (`==`, `!=`) — these are plain BV equality on the 64-bit tags.
 
-**Not yet supported in the solver** (these are valid SymIR programs accepted by the interpreter and the C/WASM backends, but `symirsolve` will raise an error or return a model that ignores them):
+**Not yet supported in the solver** (these are valid RefractIR programs accepted by the interpreter and the C/WASM backends, but `symirsolve` will raise an error or return a model that ignores them):
 
 * `addr %arr[i]` and `addr %st.f` — array-element and struct-field addressing. These need the full spec §9.4 array-theory memory model (abstract address constants + `Mem[T]` SMT arrays).
 * Pointer arithmetic (`ptr + iN`, `ptr - iN`, `ptr - ptr`). Requires the same address model so the solver can reason about offsets.

@@ -1,7 +1,7 @@
 /**
- * rysmith — C++ random SymIR leaf-function generator (v2).
+ * rysmith — C++ random RefractIR leaf-function generator (v2).
  *
- * Builds SymIR Programs directly in memory (no text generation/parsing),
+ * Builds RefractIR Programs directly in memory (no text generation/parsing),
  * then calls SymbolicExecutor in-process (no subprocess) to concretize them.
  *
  * Pipeline per leaf function:
@@ -51,8 +51,8 @@
 #endif
 
 namespace fs = std::filesystem;
-using namespace symir;
-using namespace symir::reify;
+using namespace refractir;
+using namespace refractir::reify;
 
 // Parse "[lo, hi]" domain string
 static std::pair<int64_t, int64_t> parseDomain(const std::string &s) {
@@ -72,7 +72,7 @@ static std::pair<int64_t, int64_t> parseDomain(const std::string &s) {
 }
 
 // Format a solved model value as the canonical descriptor / SOLVED-
-// header string. Floats go through symir::formatDouble for bit-exact
+// header string. Floats go through refractir::formatDouble for bit-exact
 // round-trip — see its comment in ast.hpp for the rationale (signed
 // zero preservation, no int/float dispatch ambiguity, subnormal
 // safety).
@@ -502,7 +502,7 @@ static GenerateResult generateLeaf(
 }
 
 int main(int argc, char **argv) {
-  cxxopts::Options opts("rysmith", "rysmith — C++ random SymIR leaf-function generator");
+  cxxopts::Options opts("rysmith", "rysmith — C++ random RefractIR leaf-function generator");
 
   // clang-format off
   opts.add_options()

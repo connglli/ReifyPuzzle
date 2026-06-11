@@ -317,7 +317,7 @@ def test_rewrite_introduces_call(rylink, rysmith):
 def test_rewrite_offset_in_range(rylink, rysmith, symirc):
   """The rewrite engine declines splices whose `offset = c - ret`
   doesn't fit the let's signed range — otherwise the C lowering of
-  `call_result + offset` trips signed-overflow UB even though SymIR
+  `call_result + offset` trips signed-overflow UB even though RefractIR
   semantics wrap cleanly. Drive a batch through `symirc --target c`
   with UBSan flags wired in by lowering to clang; any splice that
   slipped through the range check would surface as a runtime trap.

@@ -10,7 +10,7 @@
 #include "reify/var_catalogue.hpp"
 #include "solver/solver.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   struct FuncGenConfig {
     std::string funcName = "func";
@@ -44,7 +44,7 @@ namespace symir::reify {
   };
 
   struct FuncGenResult {
-    symir::Program prog;
+    refractir::Program prog;
     std::vector<std::string> pathLabels; // ["^entry", "^b0", ...]
   };
 
@@ -53,4 +53,4 @@ namespace symir::reify {
       const FuncGenConfig &fcfg
   );
 
-} // namespace symir::reify
+} // namespace refractir::reify

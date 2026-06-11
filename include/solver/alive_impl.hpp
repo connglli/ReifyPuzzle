@@ -5,7 +5,7 @@
 #include "alivesmt/solver.h"
 #include "solver/smt.hpp"
 
-namespace symir::solver {
+namespace refractir::solver {
 
   class AliveSolver : public smt::ISolver {
   public:
@@ -68,4 +68,4 @@ namespace symir::solver {
     ::alivesmt::expr map_rm(smt::RoundingMode rm) const;
   };
 
-} // namespace symir::solver
+} // namespace refractir::solver

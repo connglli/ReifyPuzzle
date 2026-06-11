@@ -47,7 +47,7 @@ def check(name, ok, detail=""):
   print(f"  [{color}{tag}{NC}] {name}" + (f" — {detail}" if detail and not ok else ""))
 
 
-def test_symiri_positional(symiri):
+def test_refractiri_positional(symiri):
   """symiri --main @f input.sir -- a b c"""
   src = """fun @add(%a: i32, %b: i32) : i32 {
   let mut %r: i32 = 0;
@@ -71,7 +71,7 @@ def test_symiri_positional(symiri):
     os.unlink(path)
 
 
-def test_symirsolve_solved_header(symirsolve, symiri):
+def test_refractirsolve_solved_header(symirsolve, symiri):
   """symirsolve writes // SOLVED: header; symiri round-trips it."""
   src = """fun @f(%a: i32, %b: i32) : i32 {
   let mut %r: i32 = 0;
@@ -127,7 +127,7 @@ def test_symirsolve_solved_header(symirsolve, symiri):
       )
 
 
-def test_symirc_split_by_source(symirc):
+def test_refractirc_split_by_source(symirc):
   """symirc --split-by-source writes <stem>.c per source + common.h."""
   src = """decl @clamp(%x: i32, %lo: i32, %hi: i32) : i32;
 fun @main(%a: i32) : i32 {
@@ -191,11 +191,11 @@ def main():
   symiri, symirc, symirsolve = sys.argv[1:4]
 
   print("=== symiri positional args ===")
-  test_symiri_positional(symiri)
+  test_refractiri_positional(symiri)
   print("=== symirsolve SOLVED header ===")
-  test_symirsolve_solved_header(symirsolve, symiri)
+  test_refractirsolve_solved_header(symirsolve, symiri)
   print("=== symirc --split-by-source ===")
-  test_symirc_split_by_source(symirc)
+  test_refractirc_split_by_source(symirc)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

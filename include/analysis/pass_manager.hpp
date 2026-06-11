@@ -7,7 +7,7 @@
 #include "ast/ast.hpp"
 #include "frontend/diagnostics.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
    * Represents the outcome of a compiler pass.
@@ -27,7 +27,7 @@ namespace symir {
   };
 
   /**
-   * A pass that operates on the entire SymIR module (Program).
+   * A pass that operates on the entire RefractIR module (Program).
    */
   class ModulePass : public Pass {
   public:
@@ -72,4 +72,4 @@ namespace symir {
     std::vector<std::unique_ptr<ModulePass>> modulePasses_;
   };
 
-} // namespace symir
+} // namespace refractir

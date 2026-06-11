@@ -4,17 +4,17 @@
 #include "ast/ast.hpp"
 #include "frontend/lexer.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
-   * Recursive-descent parser for the SymIR language.
+   * Recursive-descent parser for the RefractIR language.
    * Transforms a sequence of tokens into a structured AST (Program).
    */
   class Parser {
   public:
     explicit Parser(std::vector<Token> toks);
     /**
-     * Entry point for parsing a complete SymIR program.
+     * Entry point for parsing a complete RefractIR program.
      */
     Program parseProgram();
 
@@ -83,4 +83,4 @@ namespace symir {
     SelectVal parseSelectVal();
   };
 
-} // namespace symir
+} // namespace refractir

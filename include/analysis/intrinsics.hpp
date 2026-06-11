@@ -3,7 +3,7 @@
 #include <optional>
 #include <string>
 
-namespace symir {
+namespace refractir {
 
   /**
    * Represents the kind of standard built-in intrinsic.
@@ -24,7 +24,7 @@ namespace symir {
    * v0.2.2 extra D.2 — floating-point classification predicates (§12.6):
    *   IsNormal, IsSubnormal.
    *
-   * Note: there is no @umin / @umax — SymIR has no unsigned integer types
+   * Note: there is no @umin / @umax — RefractIR has no unsigned integer types
    * and the toolchain does not implicitly reinterpret iN bits as uN.
    * The tuple-returning members of the overflow family (`@checked_*`,
    * `@overflowing_*`) and the cross-width `@widening_mul` are deferred
@@ -187,4 +187,4 @@ namespace symir {
     return std::nullopt;
   }
 
-} // namespace symir
+} // namespace refractir

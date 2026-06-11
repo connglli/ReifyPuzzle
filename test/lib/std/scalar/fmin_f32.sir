@@ -10,7 +10,7 @@
 // Semantics:
 //   The @min intrinsic is integer-only in v0.2.2, so for floats we
 //   reify the comparison with `select` (lazy). Both operands must be
-//   finite (NaN / ±∞ are UB in SymIR's float model).
+//   finite (NaN / ±∞ are UB in RefractIR's float model).
 fun @fmin_f32(%a: f32, %b: f32) : f32 {
 ^entry:
   ret select %a < %b, %a, %b;

@@ -20,7 +20,7 @@
 //
 // Editing a value here changes behaviour for all rysmith runs without
 // touching any CLI default.
-namespace symir::reify::rysmith::hp {
+namespace refractir::reify::rysmith::hp {
 
   // ===========================================================================
   // Atom-kind slot tables for genIntAtomOnPath / OffPath and genFloatAtomOnPath.
@@ -259,7 +259,7 @@ namespace symir::reify::rysmith::hp {
   // SAFETY-CRITICAL — DO NOT REPLACE WITH uniform_real_distribution.
   //
   // reify's output is differentially tested against compiled C/WASM. If a
-  // generated FP expression isn't bitwise-deterministic across the SymIR
+  // generated FP expression isn't bitwise-deterministic across the RefractIR
   // interpreter, GCC (with/without FMA contraction), and WASM, we'd flag
   // legitimate rounding non-determinism as a compiler bug.
   //
@@ -273,7 +273,7 @@ namespace symir::reify::rysmith::hp {
   // Bare-literal float Coef pool (genConcreteFloatAtom).
   // Extended with non-power-of-2 dyadic rationals (1.5 = 3/2,
   // 2.5 = 5/2, 3.75 = 15/4, 1.125 = 9/8, 0.375 = 3/8, 1.75 = 7/4,
-  // 0.625 = 5/8). Each is bit-exact across SymIR / GCC / WASM and
+  // 0.625 = 5/8). Each is bit-exact across RefractIR / GCC / WASM and
   // composes cleanly with the existing power-of-2 entries; the extension
   // breaks the previous pure-power-of-2 pattern that the compiler could
   // recognise as `pow2 * var`-style strength-reduce candidates.
@@ -330,7 +330,7 @@ namespace symir::reify::rysmith::hp {
   inline constexpr const char *kFuncPrefix = "func";
   inline constexpr const char *kSymInfix = "_sym";
 
-} // namespace symir::reify::rysmith::hp
+} // namespace refractir::reify::rysmith::hp
 
 // Central place to manage rylink's *code-level* tunable hyperparameters.
 //
@@ -346,7 +346,7 @@ namespace symir::reify::rysmith::hp {
 //
 // Editing a value here changes behaviour for all rylink runs without
 // touching any CLI default.
-namespace symir::reify::rylink::hp {
+namespace refractir::reify::rylink::hp {
 
   // ===========================================================================
   // Call-graph shape
@@ -414,4 +414,4 @@ namespace symir::reify::rylink::hp {
   inline constexpr const char *kProgPrefix = "prog";
   inline constexpr const char *kEntrySirName = "program.sir";
 
-} // namespace symir::reify::rylink::hp
+} // namespace refractir::reify::rylink::hp

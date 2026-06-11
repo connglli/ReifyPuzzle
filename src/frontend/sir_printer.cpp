@@ -2,7 +2,7 @@
 
 #include <sstream>
 
-namespace symir {
+namespace refractir {
 
   std::string SIRPrinter::typeToString(const TypePtr &t) {
     std::ostringstream os;
@@ -25,7 +25,7 @@ namespace symir {
     return symName;
   }
 
-  // Bit-exact float printing for SymIR source. Delegates to the shared
+  // Bit-exact float printing for RefractIR source. Delegates to the shared
   // formatDouble helper (shortest round-trippable decimal); previously
   // we used std::to_string, which truncates to 6 digits after the
   // decimal point and silently loses precision when the SIRPrinter
@@ -584,4 +584,4 @@ namespace symir {
     return "?";
   }
 
-} // namespace symir
+} // namespace refractir

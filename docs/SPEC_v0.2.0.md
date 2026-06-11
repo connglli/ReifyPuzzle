@@ -1,8 +1,8 @@
-# SymIR v0.2.0 Specification
+# RefractIR v0.2.0 Specification
 
 **Status:** v0.2.0
 
-This document is the complete, standalone specification for SymIR v0.2.0. It supersedes v0.1.0. Sections and rules that are unchanged from v0.1.0 are included verbatim for self-containedness. All additions and changes are marked **[New in v0.2.0]**.
+This document is the complete, standalone specification for RefractIR v0.2.0. It supersedes v0.1.0. Sections and rules that are unchanged from v0.1.0 are included verbatim for self-containedness. All additions and changes are marked **[New in v0.2.0]**.
 
 
 ## What's new in v0.2.0
@@ -23,7 +23,7 @@ Heap allocation remains a non-goal. All addressable storage is stack-resident (l
 
 ## 1. Notation and identifier classes
 
-SymIR uses sigils to make identifier categories immediately recognizable:
+RefractIR uses sigils to make identifier categories immediately recognizable:
 
 - `@name` — global identifiers (functions; global type names if desired).
 - `%name` — local identifiers (parameters, locals).
@@ -37,7 +37,7 @@ SymIR uses sigils to make identifier categories immediately recognizable:
 ## 2. Key semantic commitments (v0.2.0)
 
 ### 2.1 Non-SSA and mutable store
-SymIR is not SSA. Locals declared with `let mut` denote **mutable storage cells**. Assignments update the store at the given lvalue location.
+RefractIR is not SSA. Locals declared with `let mut` denote **mutable storage cells**. Assignments update the store at the given lvalue location.
 
 ### 2.2 Path-based execution
 Given a user-chosen path `π` (e.g., `^entry -> ^b1 -> ^b3 -> ^b1 -> ^exit`), the tool executes blocks along `π` in order. Only statements and terminators encountered on `π` contribute constraints.
@@ -55,7 +55,7 @@ Given a user-chosen path `π` (e.g., `^entry -> ^b1 -> ^b3 -> ^b1 -> ^exit`), th
 Both integer and floating-point division and modulo round toward 0 (C-like truncation semantics). For floats, `%` is `fmod`, not IEEE `remainder`. See §8.
 
 ### 2.6 Strict undefined behavior (UB)
-SymIR uses **strict UB** on the chosen path: if UB occurs during evaluation of any statement or condition on `π`, the path becomes **infeasible** and is pruned.
+RefractIR uses **strict UB** on the chosen path: if UB occurs during evaluation of any statement or condition on `π`, the path becomes **infeasible** and is pruned.
 
 ### 2.7 `select` expression (lazy)
 `select` is supported as an atom:
@@ -74,9 +74,9 @@ v0.2.0 introduces a typed, stack-only memory:
 
 ### 2.9 Floating-point value model
 
-SymIR uses **finite IEEE 754-2008 semantics** for floating-point:
+RefractIR uses **finite IEEE 754-2008 semantics** for floating-point:
 
-- **Domain**: the only valid floating-point values are **finite** IEEE 754 values. ±∞ and NaN are **not** SymIR values. Any operation whose IEEE 754 result would be ±∞ or NaN is UB (see §7.4).
+- **Domain**: the only valid floating-point values are **finite** IEEE 754 values. ±∞ and NaN are **not** RefractIR values. Any operation whose IEEE 754 result would be ±∞ or NaN is UB (see §7.4).
 - **Signed zeros**: `+0.0` and `-0.0` are distinct bit patterns and both are valid values. They compare equal (`+0.0 == -0.0` is `true`). Negating `+0.0` yields `-0.0` and vice versa. Writing `-0.0` as a literal is valid.
 - **Subnormals**: subnormal (denormal) values are regular finite values. There is no flush-to-zero behavior.
 - **Rounding mode**: all operations use a single fixed mode — **RNE (Round to Nearest, Ties to Even)**. There are no dynamic rounding modes and no per-operation rounding specifiers.
@@ -420,7 +420,7 @@ UB is checked during symbolic execution along the chosen path. Any UB makes the 
 1. **Integer division/modulo by zero**: in `k / x` or `k % x` where `k` and `x` are integers, UB if `x == 0`. (For floating-point, see §7.4 rules 6–7.)
 2. **Out-of-bounds array access**: for `a[i]` where `a : [N] T`, UB if `i < 0` or `i >= N`.
 3. **Reading `undef`**: reading a location whose stored value is `undef` is UB.
-4. **Signed integer overflow**: `+`, `-`, `*`, `<<` that produce a value outside the representable range of the target bit-width. Also: `INT_MIN / -1`. For `<<` specifically: UB if the result `x * 2^n` is not representable in `width(x)` signed bits, OR if `x < 0`. SymIR treats `<<` as signed integer arithmetic (aligning with `+`/`-`/`*`), not as a bit-vector shift — this keeps the overflow story consistent across all integer arithmetic operators.
+4. **Signed integer overflow**: `+`, `-`, `*`, `<<` that produce a value outside the representable range of the target bit-width. Also: `INT_MIN / -1`. For `<<` specifically: UB if the result `x * 2^n` is not representable in `width(x)` signed bits, OR if `x < 0`. RefractIR treats `<<` as signed integer arithmetic (aligning with `+`/`-`/`*`), not as a bit-vector shift — this keeps the overflow story consistent across all integer arithmetic operators.
 5. **Overshift**: in `x << n`, `x >> n`, `x >>> n`, UB if `n < 0` or `n >= width(x)`. (Separate from rule 4 — overshift is about the shift *amount*, not the shifted result.)
 
 ### 7.2 `select` and strict UB (lazy)
@@ -469,7 +469,7 @@ See §2.9 for the full floating-point value model. Key points:
 
 ## 8. Division and modulo (round toward 0)
 
-SymIR uses **truncation toward zero** for both integer and floating-point `%`, so the result sign always matches the sign of the dividend.
+RefractIR uses **truncation toward zero** for both integer and floating-point `%`, so the result sign always matches the sign of the dividend.
 
 ### 8.1 Integer division and modulo
 
@@ -487,7 +487,7 @@ For finite floats `A` and `B` with `B != ±0.0`:
 
 This matches C's `fmod`, **not** IEEE 754 `remainder` (`fp.rem`).
 
-| Expression | `fmod` (SymIR `%`) | `fp.rem` (IEEE remainder) |
+| Expression | `fmod` (RefractIR `%`) | `fp.rem` (IEEE remainder) |
 |---|---|---|
 | `1.5 % 1.0` | `0.5` | `-0.5` |
 | `-1.5 % 1.0` | `-0.5` | `0.5` |
@@ -752,7 +752,7 @@ The solver finds the index `%?off` such that `%arr[%?off] == %target` on the cho
 - **`sym` of pointer type**. Pointer symbols require a richer address domain theory.
 - **Pointer/integer casts** (`ptr T as iN`, `iN as ptr T`).
 - **Aliasing between distinct locals** (deliberately UB in v0.2.0; explicit alias modeling deferred).
-- **SIMD / vector types**. Fixed-width vector types (e.g., `<4 x i32>`, `<8 x f32>`) and lane-wise operations are not supported. SymIR is scalar-only; vectorization is left to the lowering target (C compiler, WASM engine).
+- **SIMD / vector types**. Fixed-width vector types (e.g., `<4 x i32>`, `<8 x f32>`) and lane-wise operations are not supported. RefractIR is scalar-only; vectorization is left to the lowering target (C compiler, WASM engine).
 - **Struct layout (padding and alignment)**. Struct field layout rules (padding, natural alignment, ABI compatibility) are unspecified in v0.2.0. Since `ptr @S` is not supported, `sizeof(@S)` is never required. When `ptr @S` is introduced in v0.2.1, structs will use **packed layout** (no padding): `sizeof(@S) = Σ sizeof(field_i)`. C-like alignment padding or ABI-compatible layout is not a goal.
 - **Parentheses and general expression trees**.
 - **SSA / phi nodes**.

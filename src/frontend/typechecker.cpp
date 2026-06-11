@@ -4,9 +4,9 @@
 #include "analysis/cfg.hpp"
 #include "analysis/type_utils.hpp"
 
-namespace symir {
+namespace refractir {
 
-  symir::PassResult TypeChecker::run(Program &prog, DiagBag &diags) {
+  refractir::PassResult TypeChecker::run(Program &prog, DiagBag &diags) {
     collectStructs(prog, diags);
     collectCallees(prog, diags);
     for (const auto &f: prog.funs) {
@@ -21,7 +21,7 @@ namespace symir {
       }
     }
     checkNoRecursion(prog, diags);
-    return diags.hasErrors() ? symir::PassResult::Error : symir::PassResult::Success;
+    return diags.hasErrors() ? refractir::PassResult::Error : refractir::PassResult::Success;
   }
 
   // [v0.2.1] Recursive well-formedness check on type usages. Catches the
@@ -1627,4 +1627,4 @@ namespace symir {
       diags.error("Pointer comparison requires same pointee type", c.span);
   }
 
-} // namespace symir
+} // namespace refractir

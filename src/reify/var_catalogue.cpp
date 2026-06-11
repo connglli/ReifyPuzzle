@@ -4,7 +4,7 @@
 #include <cassert>
 #include "reify/hyperparameters.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   // ---------------------------------------------------------------------------
   // VarCatalogue accessors
@@ -321,4 +321,4 @@ namespace symir::reify {
     return cat;
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

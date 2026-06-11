@@ -1,7 +1,7 @@
 // EXPECT: PASS
 //
 // =========================================================================
-// SymIR Mini-Cipher — v0.2.2 showcase
+// RefractIR Mini-Cipher — v0.2.2 showcase
 //
 // A 4-round substitution-permutation cipher operating on a 4-byte block.
 // Demonstrates the full v0.2.2 surface area:

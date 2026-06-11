@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace symir::smt {
+namespace refractir::smt {
 
   // Opaque handles for Sort and Term
   // Implementations should cast these to their concrete types.
@@ -176,4 +176,4 @@ namespace symir::smt {
     virtual std::string get_fp_value_string(Term t) = 0; // IEEE 754 binary representation
   };
 
-} // namespace symir::smt
+} // namespace refractir::smt

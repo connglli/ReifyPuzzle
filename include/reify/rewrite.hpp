@@ -20,7 +20,7 @@
 #include "ast/ast.hpp"
 #include "reify/func_desc.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   // A candidate location inside a FunDecl where a rewrite could fire.
   // Opaque to the engine — only the rule that produced it knows how to
@@ -91,7 +91,7 @@ namespace symir::reify {
     // Composition safety: each rule is individually UB-free (the call
     // expression evaluates to the original literal under BV arithmetic),
     // but *stacking* rewrites on the same site is not — consecutive
-    // sub-expressions evaluate left-to-right in SymIR, so e.g. composing
+    // sub-expressions evaluate left-to-right in RefractIR, so e.g. composing
     // `c → f1() + (c - r1)` with a later rewrite of the literal `(c - r1)`
     // into `f2() + ((c - r1) - r2)` produces `f1() + f2() + …` and that
     // left-prefix sum can wrap in unintended ways. The engine therefore
@@ -119,4 +119,4 @@ namespace symir::reify {
     std::set<std::pair<const FunDecl *, int>> consumed_;
   };
 
-} // namespace symir::reify
+} // namespace refractir::reify

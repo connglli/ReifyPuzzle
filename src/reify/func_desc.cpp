@@ -6,7 +6,7 @@
 
 #include "ast/sir_printer.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -96,11 +96,11 @@ namespace symir::reify {
   }
 
   bool writeFuncDescriptorFromProgram(
-      const std::filesystem::path &outPath, const std::string &funcName, const symir::Program &prog,
-      const std::vector<std::string> &pathLabels,
+      const std::filesystem::path &outPath, const std::string &funcName,
+      const refractir::Program &prog, const std::vector<std::string> &pathLabels,
       const std::vector<FuncDescriptor::Realization> &realizations, const std::string &genId
   ) {
-    const symir::FunDecl *fn = nullptr;
+    const refractir::FunDecl *fn = nullptr;
     const std::string mangled = "@" + funcName;
     for (const auto &f: prog.funs)
       if (f.name.name == mangled) {
@@ -458,4 +458,4 @@ namespace symir::reify {
     return parseFuncDescriptor(ss.str());
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

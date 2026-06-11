@@ -4,7 +4,7 @@
 #include <random>
 #include "ast/ast.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   struct TypeGenConfig {
     bool enableFp = true;     // --no-fp disables f32/f64
@@ -44,4 +44,4 @@ namespace symir::reify {
   // Two types are "assignment compatible" (same kind and width/structure)
   bool typeEquals(const TypePtr &a, const TypePtr &b);
 
-} // namespace symir::reify
+} // namespace refractir::reify

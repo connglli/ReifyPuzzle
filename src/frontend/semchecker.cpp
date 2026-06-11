@@ -3,9 +3,9 @@
 #include "analysis/intrinsics.hpp"
 #include "analysis/type_utils.hpp"
 
-namespace symir {
+namespace refractir {
 
-  symir::PassResult SemChecker::run(Program &prog, DiagBag &diags) {
+  refractir::PassResult SemChecker::run(Program &prog, DiagBag &diags) {
     std::unordered_set<std::string> globalNames;
 
     for (const auto &s: prog.structs) {
@@ -75,7 +75,7 @@ namespace symir {
     }
     for (const auto &name: intrinsicNames)
       globalNames.insert(name);
-    return diags.hasErrors() ? symir::PassResult::Error : symir::PassResult::Success;
+    return diags.hasErrors() ? refractir::PassResult::Error : refractir::PassResult::Success;
   }
 
   void SemChecker::checkStruct(const StructDecl &s, DiagBag &diags) {
@@ -488,4 +488,4 @@ namespace symir {
     }
   }
 
-} // namespace symir
+} // namespace refractir

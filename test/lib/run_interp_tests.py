@@ -12,7 +12,7 @@ FAIL_EXIT_CODES = {
 }
 
 
-def run_symiri_test(binary_cmd_parts):
+def run_refractiri_test(binary_cmd_parts):
   def test_func(file_path, expectation, args, skips):
     if "ALL" in skips:
       return TestResult.SKIP, "Skipped by ALL tag (library file)"
@@ -55,4 +55,4 @@ if __name__ == "__main__":
   test_dir = sys.argv[1]
   binary_cmd_parts = sys.argv[2:]
 
-  run_test_suite("interp_tests", test_dir, run_symiri_test(binary_cmd_parts))
+  run_test_suite("interp_tests", test_dir, run_refractiri_test(binary_cmd_parts))

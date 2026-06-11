@@ -13,7 +13,7 @@
 #include <sstream>
 #include "backend/vec_lowering.hpp"
 
-namespace symir {
+namespace refractir {
 
   namespace {
 
@@ -159,4 +159,4 @@ namespace symir {
     return nullptr;
   }
 
-} // namespace symir
+} // namespace refractir

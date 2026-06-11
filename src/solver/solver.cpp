@@ -12,7 +12,7 @@
 #include "analysis/cfg.hpp"
 #include "analysis/type_utils.hpp"
 
-namespace symir {
+namespace refractir {
 
   thread_local const FunDecl *SymbolicExecutor::currentFun_ = nullptr;
 
@@ -91,7 +91,7 @@ namespace symir {
     return off;
   }
 
-  // Compare SymIR types for structural equality at the level we care about
+  // Compare RefractIR types for structural equality at the level we care about
   // (matters when enumerating candidate ptr targets in load/store dispatch).
   static bool typeMatch(const TypePtr &a, const TypePtr &b) {
     if (!a || !b)
@@ -3584,4 +3584,4 @@ namespace symir {
     return nullptr;
   }
 
-} // namespace symir
+} // namespace refractir

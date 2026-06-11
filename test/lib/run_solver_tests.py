@@ -5,7 +5,7 @@ import tempfile
 from test.lib.framework import TestResult, run_command, run_test_suite
 
 
-def run_symirsolve_test(symirsolve_path, symiri_path=None):
+def run_refractirsolve_test(refractirsolve_path, refractiri_path=None):
   def test_func(file_path, expectation, args, skips):
     if "ALL" in skips:
       return TestResult.SKIP, "Skipped by ALL tag (library file)"
@@ -16,12 +16,12 @@ def run_symirsolve_test(symirsolve_path, symiri_path=None):
     solver_args = args["SOLVER_ARGS"]
 
     tmp_path = None
-    if symiri_path and expectation == "PASS":
+    if refractiri_path and expectation == "PASS":
       with tempfile.NamedTemporaryFile(suffix=".sir", delete=False) as tmp:
         tmp_path = tmp.name
-      cmd = [symirsolve_path, file_path, "-o", tmp_path] + solver_args
+      cmd = [refractirsolve_path, file_path, "-o", tmp_path] + solver_args
     else:
-      cmd = [symirsolve_path, file_path] + solver_args
+      cmd = [refractirsolve_path, file_path] + solver_args
 
     try:
       result, err = run_command(cmd, timeout=30)
@@ -38,7 +38,7 @@ def run_symirsolve_test(symirsolve_path, symiri_path=None):
           # SKIP: INTERPRETER lets contract-form decl tests pass without
           # running interp on a program the interpreter cannot execute.
           if (
-            symiri_path
+            refractiri_path
             and "INTERPRETER" not in skips
             and tmp_path
             and os.path.exists(tmp_path)
@@ -52,7 +52,7 @@ def run_symirsolve_test(symirsolve_path, symiri_path=None):
             except (ValueError, IndexError):
               pass
 
-            interp_cmd = [symiri_path] + interp_main_args + [tmp_path]
+            interp_cmd = [refractiri_path] + interp_main_args + [tmp_path]
             interp_res, interp_err = run_command(interp_cmd, timeout=5)
             if interp_err == "TIMEOUT":
               return TestResult.TIMEOUT, "Interpreter timeout on concretized program"
@@ -82,14 +82,16 @@ def run_symirsolve_test(symirsolve_path, symiri_path=None):
 if __name__ == "__main__":
   if len(sys.argv) < 3:
     print(
-      "Usage: python3 -m test.lib.run_solver_tests <test_dir> <symirsolve_path> [symiri_path]"
+      "Usage: python3 -m test.lib.run_solver_tests <test_dir> <refractirsolve_path> [refractiri_path]"
     )
     sys.exit(1)
 
   test_dir = sys.argv[1]
-  symirsolve_path = sys.argv[2]
-  symiri_path = sys.argv[3] if len(sys.argv) > 3 else None
+  refractirsolve_path = sys.argv[2]
+  refractiri_path = sys.argv[3] if len(sys.argv) > 3 else None
 
   run_test_suite(
-    "solver_tests", test_dir, run_symirsolve_test(symirsolve_path, symiri_path)
+    "solver_tests",
+    test_dir,
+    run_refractirsolve_test(refractirsolve_path, refractiri_path),
   )

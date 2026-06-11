@@ -97,7 +97,7 @@ def extract_sir_info(file_path, entry_func="main"):
   return info
 
 
-def run_symirc_test(symirc_path, target="c"):
+def run_refractirc_test(refractirc_path, target="c"):
   temp_dir = "build/test_tmp"
   os.makedirs(temp_dir, exist_ok=True)
 
@@ -127,7 +127,7 @@ def run_symirc_test(symirc_path, target="c"):
     exe_out = os.path.join(temp_dir, base_name + ".exe")
 
     # 1. Run symirc
-    cmd = [symirc_path, file_path, "--target", target, "-o", gen_out, "-w"]
+    cmd = [refractirc_path, file_path, "--target", target, "-o", gen_out, "-w"]
     if target == "wasm":
       cmd.append("--no-module-tags")
     # [v0.2.2] Pass through -I include paths from COMPILER_ARGS so tests
@@ -206,7 +206,7 @@ def run_symirc_test(symirc_path, target="c"):
         if unbound_syms or unbound_vec:
           return TestResult.PASS, ""
 
-      # Map SymIR elem type → (C type, byte size). Used both by scalar
+      # Map RefractIR elem type → (C type, byte size). Used both by scalar
       # and vec sym stubs.
       _CTYPE = {
         "i1": ("int8_t", 1),  # vecext can't have 1-bit lanes; lower as i8
@@ -285,7 +285,7 @@ def run_symirc_test(symirc_path, target="c"):
         elif sir_info["main_ret"] == "f64":
           main_ret_c = "double"
 
-        entry_c_name = "symir_" + entry_func
+        entry_c_name = "refractir_" + entry_func
         f.write(f"\nextern {main_ret_c} {entry_c_name}(void);\n")
         f.write(f"int main(void) {{\n  {entry_c_name}();\n  return 0;\n}}\n")
 
@@ -466,11 +466,11 @@ if __name__ == "__main__":
 
   parser = argparse.ArgumentParser()
   parser.add_argument("test_dir")
-  parser.add_argument("symirc_path")
+  parser.add_argument("refractirc_path")
   parser.add_argument("--target", choices=["c", "wasm"], default="c")
   args = parser.parse_args()
 
-  test_func, temp_dir = run_symirc_test(args.symirc_path, args.target)
+  test_func, temp_dir = run_refractirc_test(args.refractirc_path, args.target)
   try:
     run_test_suite("compiler_tests", args.test_dir, test_func)
   finally:

@@ -7,7 +7,7 @@
 // wrapping_add_i32(a, b) -- a + b reduced mod 2^32 in two's complement.
 //
 // Semantics:
-//   SymIR i32 `+` is UB on signed overflow, so we cannot just write
+//   RefractIR i32 `+` is UB on signed overflow, so we cannot just write
 //   `a + b` and "let it wrap". Widening both operands to i64 (which
 //   never overflows for two 32-bit summands) and truncating back via
 //   `as i32` yields the standard 2's-complement wrap.

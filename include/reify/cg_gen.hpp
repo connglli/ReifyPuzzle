@@ -10,7 +10,7 @@
 #include <random>
 #include <vector>
 
-namespace symir::reify {
+namespace refractir::reify {
 
   struct RyCG {
     int nNodes = 0;
@@ -29,4 +29,4 @@ namespace symir::reify {
 
   RyCG genCallGraph(std::mt19937 &rng, const CGGenConfig &cfg);
 
-} // namespace symir::reify
+} // namespace refractir::reify

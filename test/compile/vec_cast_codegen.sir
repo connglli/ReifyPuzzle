@@ -1,7 +1,7 @@
 // EXPECT: PASS
 
 // Lane-wise cast lowers to per-lane scalar cast in C.
-// SymIR has no parentheses (§2.4); cast atoms compose in an Expr's
+// RefractIR has no parentheses (§2.4); cast atoms compose in an Expr's
 // flat +/- chain. `%f[2] as i32 + %b[3] as i32` parses as
 // `CastAtom + CastAtom`.
 fun @main() : i32 {

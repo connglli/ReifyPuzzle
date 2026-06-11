@@ -1,8 +1,8 @@
-# SymIR Strict Undefined Behavior (UB)
+# RefractIR Strict Undefined Behavior (UB)
 
 This document is a per-rule companion to the formal spec (§7 of `SPEC_v0.2.2.md`). Each section names the rule, the spec reference, and how each of `symiri` (interpreter), `symirc` (compiler), and `symirsolve` (solver) enforces it.
 
-SymIR uses **strict UB**: if any operation on the executed path triggers UB, the entire path is **infeasible**.
+RefractIR uses **strict UB**: if any operation on the executed path triggers UB, the entire path is **infeasible**.
 
 - `symiri` aborts on UB (immediate termination, non-zero exit).
 - `symirc`-emitted C runs under UBSan with `-fno-sanitize-recover=all`, so UB traps the executable.
@@ -38,7 +38,7 @@ Reading any leaf whose stored value is `undef` is UB. This subsumes uses of unin
 Also enforced statically by `DefiniteInitAnalysis` (warning-level, conservative).
 
 ### Rule 4 — Signed integer overflow
-`+`, `-`, `*`, `<<` whose result is outside the signed range of the target width is UB. Also `INT_MIN / -1`. SymIR treats `<<` as signed arithmetic (not BV wrap), so `x << n` is UB if `x * 2^n` doesn't fit OR if `x < 0`.
+`+`, `-`, `*`, `<<` whose result is outside the signed range of the target width is UB. Also `INT_MIN / -1`. RefractIR treats `<<` as signed arithmetic (not BV wrap), so `x << n` is UB if `x * 2^n` doesn't fit OR if `x < 0`.
 
 - **symiri:** checks via per-op signed-overflow predicate.
 - **symirc:** UBSan `-fsanitize=signed-integer-overflow,shift`.
@@ -251,9 +251,9 @@ Intrinsics not listed (e.g., `@min`, `@max`, `@signum`, `@midpoint`, `@parity`, 
 
 ---
 
-## What's *not* UB in SymIR
+## What's *not* UB in RefractIR
 
-For completeness, a few choices SymIR deliberately makes well-defined where other languages don't:
+For completeness, a few choices RefractIR deliberately makes well-defined where other languages don't:
 
 - **Equality across objects.** `==`/`!=` between pointers of different originating objects is always well-defined (and always `false`/`true`). Only relational compare is UB (rule 14).
 - **One-past-the-end address.** Valid for arithmetic and equality. UB only when dereferenced (rule 11) or navigated through (rule 19).

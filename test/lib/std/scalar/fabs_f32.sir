@@ -8,7 +8,7 @@
 // fabs_f32(x) -- |x| for any finite f32 x.
 //
 // Semantics:
-//   `select x < 0, -x, x`. SymIR rejects ±∞ / NaN as input domain so
+//   `select x < 0, -x, x`. RefractIR rejects ±∞ / NaN as input domain so
 //   negation cannot overflow (finite-only model, §2.9).
 fun @fabs_f32(%x: f32) : f32 {
   let %zero: f32 = 0.0;

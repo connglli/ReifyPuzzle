@@ -1,15 +1,15 @@
-# SymIR Testing Infrastructure
+# RefractIR Testing Infrastructure
 
-This directory contains the regression test suite for the SymIR frontend, analysis pipeline, reference interpreter, and C compiler.
+This directory contains the regression test suite for the RefractIR frontend, analysis pipeline, reference interpreter, and C compiler.
 
 ## Unified Testing Framework
 
-The SymIR test suite is managed by a unified Python-based testing framework located in `test/lib/`. It orchestrates the following tools:
+The RefractIR test suite is managed by a unified Python-based testing framework located in `test/lib/`. It orchestrates the following tools:
 
 - **`symiri --check`**: Validates static semantics (lexing, parsing, duplicate checks, type checking, and dataflow analysis).
-- **`symiri`**: Executes SymIR programs using the reference interpreter.
-- **`symirc`**: Compiles SymIR programs to C and verifies them by linking with a test harness.
-- **`symirsolve`**: Solves symbolic SymIR programs into concrete SymIR programs given a path.
+- **`symiri`**: Executes RefractIR programs using the reference interpreter.
+- **`symirc`**: Compiles RefractIR programs to C and verifies them by linking with a test harness.
+- **`symirsolve`**: Solves symbolic RefractIR programs into concrete RefractIR programs given a path.
 
 ### Framework Features
 - **Automatic Discovery**: Recursively finds all `.sir` files in a given directory.

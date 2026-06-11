@@ -10,7 +10,7 @@ struct @BFContext {
 
 fun @main() : i32 {
   // =========================================================================================
-  // SymIR Brainfuck Interpreter
+  // RefractIR Brainfuck Interpreter
   //
   // This program implements a simple Brainfuck interpreter.
   // It executes a hardcoded Brainfuck program stored in the %code array.

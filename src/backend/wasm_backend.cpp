@@ -6,7 +6,7 @@
 #include <sstream>
 #include "analysis/type_utils.hpp"
 
-namespace symir {
+namespace refractir {
 
   // Format a double literal with enough precision to round-trip exactly.
   // Default operator<< uses 6 digits which silently truncates large floats
@@ -14,7 +14,7 @@ namespace symir {
   // for double per IEEE-754; the WAT parser accepts both fixed and
   // exponent forms.
   //
-  // Note: SymIR's shared formatter `symir::formatDouble` (ast.hpp) lives
+  // Note: RefractIR's shared formatter `refractir::formatDouble` (ast.hpp) lives
   // separately because it emits SIR-shaped strings, not WAT — the WAT
   // float grammar has its own rules. The two are allowed to diverge.
   static std::string formatFloatLit(double v) {
@@ -240,7 +240,7 @@ namespace symir {
               auto const &li = locals_.at(arg.rval.base.name);
               // Walk accesses to determine the actual loaded type, not the base
               // local's type (e.g. %s.tag where tag is i64 inside an aggregate %s).
-              TypePtr srcType = li.symirType;
+              TypePtr srcType = li.refractirType;
               for (const auto &acc: arg.rval.accesses) {
                 if (std::get_if<AccessIndex>(&acc)) {
                   if (auto at = std::get_if<ArrayType>(&srcType->v))
@@ -284,7 +284,7 @@ namespace symir {
               emitLValue(arg.rval, false);
               if (locals_.count(arg.rval.base.name)) {
                 auto const &li = locals_.at(arg.rval.base.name);
-                if (std::holds_alternative<FloatType>(li.symirType->v)) {
+                if (std::holds_alternative<FloatType>(li.refractirType->v)) {
                   if (li.bitwidth == 32 && targetWidth == 64) {
                     indent();
                     out_ << "f64.promote_f32\n";
@@ -302,7 +302,7 @@ namespace symir {
                   emitLValue(arg.rval, false);
                   if (locals_.count(arg.rval.base.name)) {
                     auto const &li = locals_.at(arg.rval.base.name);
-                    if (std::holds_alternative<FloatType>(li.symirType->v)) {
+                    if (std::holds_alternative<FloatType>(li.refractirType->v)) {
                       if (li.bitwidth == 32 && targetWidth == 64) {
                         indent();
                         out_ << "f64.promote_f32\n";
@@ -389,7 +389,7 @@ namespace symir {
               emitCoef(arg.coef, targetWidth, isFloat);
               emitLValue(arg.rval, false);
               if (locals_.count(arg.rval.base.name)) {
-                std::uint32_t rWidth = getIntWidth(locals_.at(arg.rval.base.name).symirType);
+                std::uint32_t rWidth = getIntWidth(locals_.at(arg.rval.base.name).refractirType);
                 if (rWidth <= 32 && targetWidth > 32) {
                   indent();
                   out_ << "i64.extend_i32_s\n";
@@ -725,7 +725,7 @@ namespace symir {
               out_ << (targetWidth <= 32 ? "f32.neg\n" : "f64.neg\n");
             } else {
               if (locals_.count(arg.rval.base.name)) {
-                std::uint32_t srcWidth = getIntWidth(locals_.at(arg.rval.base.name).symirType);
+                std::uint32_t srcWidth = getIntWidth(locals_.at(arg.rval.base.name).refractirType);
                 if (srcWidth <= 32 && targetWidth > 32) {
                   indent();
                   out_ << "i64.extend_i32_s\n";
@@ -791,7 +791,7 @@ namespace symir {
             bool loadIsFloat = isFloat;
             if (locals_.count(pname)) {
               const auto &info = locals_.at(pname);
-              if (auto pt = std::get_if<PtrType>(&info.symirType->v)) {
+              if (auto pt = std::get_if<PtrType>(&info.refractirType->v)) {
                 if (auto bits = TypeUtils::getIntBitWidth(pt->pointee)) {
                   loadWidth = *bits;
                   loadIsFloat = false;
@@ -853,7 +853,7 @@ namespace symir {
                       auto const &li = locals_.at(src.base.name);
                       // Walk accesses so cast-from-field uses the field's
                       // type, not the base local's (e.g. %s.tag where tag is i64).
-                      TypePtr at_type = li.symirType;
+                      TypePtr at_type = li.refractirType;
                       for (const auto &acc: src.accesses) {
                         if (std::get_if<AccessIndex>(&acc)) {
                           if (auto at = std::get_if<ArrayType>(&at_type->v))
@@ -953,9 +953,9 @@ namespace symir {
           auto &lv = std::get<RValueAtom>(a.v).rval;
           if (locals_.count(lv.base.name)) {
             auto const &li = locals_.at(lv.base.name);
-            if (std::holds_alternative<FloatType>(li.symirType->v)) {
+            if (std::holds_alternative<FloatType>(li.refractirType->v)) {
               isFloat = true;
-              if (std::get<FloatType>(li.symirType->v).kind == FloatType::Kind::F64)
+              if (std::get<FloatType>(li.refractirType->v).kind == FloatType::Kind::F64)
                 return true;
             }
             if (li.bitwidth > 32)
@@ -972,9 +972,9 @@ namespace symir {
             auto name = std::visit([](auto &&v) { return v.name; }, id);
             if (locals_.count(name)) {
               auto const &li = locals_.at(name);
-              if (std::holds_alternative<FloatType>(li.symirType->v)) {
+              if (std::holds_alternative<FloatType>(li.refractirType->v)) {
                 isFloat = true;
-                if (std::get<FloatType>(li.symirType->v).kind == FloatType::Kind::F64)
+                if (std::get<FloatType>(li.refractirType->v).kind == FloatType::Kind::F64)
                   return true;
               }
               if (li.bitwidth > 32)
@@ -1118,7 +1118,7 @@ namespace symir {
       out_ << "i32.sub\n";
     }
 
-    TypePtr curType = info.symirType;
+    TypePtr curType = info.refractirType;
     for (const auto &acc: lv.accesses) {
       if (auto ai = std::get_if<AccessIndex>(&acc)) {
         if (auto at = std::get_if<ArrayType>(&curType->v)) {
@@ -1168,7 +1168,7 @@ namespace symir {
       if (!isStore) {
         emitAddress(lv);
         indent();
-        TypePtr curType = info.symirType;
+        TypePtr curType = info.refractirType;
         for (const auto &acc: lv.accesses) {
           if (std::get_if<AccessIndex>(&acc)) {
             if (auto at = std::get_if<ArrayType>(&curType->v))
@@ -1270,7 +1270,7 @@ namespace symir {
                     if (locals_.count(id.name)) {
                       auto const &li = locals_.at(id.name);
                       std::uint32_t srcWidth = li.bitwidth;
-                      if (std::holds_alternative<FloatType>(li.symirType->v)) {
+                      if (std::holds_alternative<FloatType>(li.refractirType->v)) {
                         if (srcWidth == 32 && targetWidth == 64) {
                           indent();
                           out_ << "f64.promote_f32\n";
@@ -1357,7 +1357,7 @@ namespace symir {
                     indent();
                     out_ << "local.get " << mangleName(id.name) << "\n";
                     if (locals_.count(id.name)) {
-                      std::uint32_t srcWidth = getIntWidth(locals_.at(id.name).symirType);
+                      std::uint32_t srcWidth = getIntWidth(locals_.at(id.name).refractirType);
                       if (srcWidth > 32) {
                         indent();
                         out_ << "i32.wrap_i64\n";
@@ -1979,7 +1979,7 @@ namespace symir {
       out_ << "local.set $__pc\n";
 
       indent();
-      out_ << "(loop $__symir_dispatch_loop\n";
+      out_ << "(loop $__refractir_dispatch_loop\n";
       indent_level_++;
 
       for (size_t i = 0; i < f.blocks.size(); ++i) {
@@ -2040,7 +2040,7 @@ namespace symir {
                       }
                     } else if (info.isAggregate || !arg.lhs.accesses.empty()) {
                       emitAddress(arg.lhs);
-                      TypePtr curType = info.symirType;
+                      TypePtr curType = info.refractirType;
                       for (const auto &acc: arg.lhs.accesses) {
                         if (std::holds_alternative<AccessIndex>(acc)) {
                           if (auto at = std::get_if<ArrayType>(&curType->v))
@@ -2084,10 +2084,10 @@ namespace symir {
                           out_ << "i64.store\n";
                       }
                     } else {
-                      bool isFloat = std::holds_alternative<FloatType>(info.symirType->v);
-                      bool isPtr = std::holds_alternative<PtrType>(info.symirType->v);
+                      bool isFloat = std::holds_alternative<FloatType>(info.refractirType->v);
+                      bool isPtr = std::holds_alternative<PtrType>(info.refractirType->v);
                       if (isPtr) {
-                        emitPtrExpr(arg.rhs, info.symirType);
+                        emitPtrExpr(arg.rhs, info.refractirType);
                       } else if (isPtrDiff(arg.rhs)) {
                         // ptr - ptr → i64 element distance. Emit byte diff, then /sizeof.
                         emitPtrDiff(arg.rhs);
@@ -2120,7 +2120,7 @@ namespace symir {
                   if (auto rva = std::get_if<RValueAtom>(&arg.ptr.first.v)) {
                     if (locals_.count(rva->rval.base.name)) {
                       const auto &pinfo = locals_.at(rva->rval.base.name);
-                      if (auto pt = std::get_if<PtrType>(&pinfo.symirType->v)) {
+                      if (auto pt = std::get_if<PtrType>(&pinfo.refractirType->v)) {
                         if (auto bits = TypeUtils::getIntBitWidth(pt->pointee)) {
                           storeWidth = *bits;
                         } else if (pt->pointee &&
@@ -2200,7 +2200,7 @@ namespace symir {
                   indent();
                   out_ << "end\n";
                   indent();
-                  out_ << "br $__symir_dispatch_loop\n";
+                  out_ << "br $__refractir_dispatch_loop\n";
                 } else {
                   int destIdx = -1;
                   for (size_t j = 0; j < f_blocks.size(); ++j)
@@ -2211,7 +2211,7 @@ namespace symir {
                   indent();
                   out_ << "local.set $__pc\n";
                   indent();
-                  out_ << "br $__symir_dispatch_loop\n";
+                  out_ << "br $__refractir_dispatch_loop\n";
                 }
               } else if constexpr (std::is_same_v<T, RetTerm>) {
                 if (arg.value) {
@@ -2258,7 +2258,7 @@ namespace symir {
         if (noMainMangle_) {
           out_ << "(export \"main\" (func " << mangleName(f.name.name) << "))\n";
         } else {
-          out_ << "(export \"symir_main\" (func " << mangleName(f.name.name) << "))\n";
+          out_ << "(export \"refractir_main\" (func " << mangleName(f.name.name) << "))\n";
         }
       } else {
         out_ << "(export \"" << exportedName << "\" (func " << mangleName(f.name.name) << "))\n";
@@ -2308,8 +2308,8 @@ namespace symir {
     auto secondIt = locals_.find(secondRv->rval.base.name);
     if (firstIt == locals_.end() || secondIt == locals_.end())
       return false;
-    return std::holds_alternative<PtrType>(firstIt->second.symirType->v) &&
-           std::holds_alternative<PtrType>(secondIt->second.symirType->v);
+    return std::holds_alternative<PtrType>(firstIt->second.refractirType->v) &&
+           std::holds_alternative<PtrType>(secondIt->second.refractirType->v);
   }
 
   void WasmBackend::emitPtrDiff(const Expr &expr) {
@@ -2317,7 +2317,7 @@ namespace symir {
     // Result is left on the stack as i64 (spec §6.8.6: ptr T - ptr T → i64).
     auto firstRv = std::get<RValueAtom>(expr.first.v);
     const auto &firstInfo = locals_.at(firstRv.rval.base.name);
-    const auto &pt = std::get<PtrType>(firstInfo.symirType->v);
+    const auto &pt = std::get<PtrType>(firstInfo.refractirType->v);
     uint32_t elemSize = getTypeSize(pt.pointee);
 
     emitAtom(expr.first, 32, false);
@@ -2338,7 +2338,7 @@ namespace symir {
     if (!locals_.count(lv.base.name))
       return nullptr;
     const auto &info = locals_.at(lv.base.name);
-    TypePtr curType = info.symirType;
+    TypePtr curType = info.refractirType;
     for (const auto &acc: lv.accesses) {
       if (std::get_if<AccessIndex>(&acc)) {
         if (auto at = std::get_if<ArrayType>(&curType->v))
@@ -2380,7 +2380,7 @@ namespace symir {
                         return syms_.at(id.name);
                     } else {
                       if (locals_.count(id.name))
-                        return locals_.at(id.name).symirType;
+                        return locals_.at(id.name).refractirType;
                     }
                     return nullptr;
                   },
@@ -2398,7 +2398,7 @@ namespace symir {
         [this](auto &&arg) -> TypePtr {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, IntLit>) {
-            // Int literals are polymorphic in SymIR; we return I32/I64
+            // Int literals are polymorphic in RefractIR; we return I32/I64
             // based on the literal value for overload resolution.
             auto t = std::make_shared<Type>();
             if (arg.value > 2147483647LL || arg.value < -2147483648LL) {
@@ -2424,7 +2424,7 @@ namespace symir {
                       return syms_.at(id.name);
                   } else {
                     if (locals_.count(id.name))
-                      return locals_.at(id.name).symirType;
+                      return locals_.at(id.name).refractirType;
                   }
                   return nullptr;
                 },
@@ -2987,7 +2987,7 @@ namespace symir {
     }
 
     TypePtr elemTy = vt.elem;
-    if (auto localVt = std::get_if<VecType>(&info.symirType->v)) {
+    if (auto localVt = std::get_if<VecType>(&info.refractirType->v)) {
       elemTy = localVt->elem;
     }
     std::uint32_t elemSize = getTypeSize(elemTy);
@@ -3041,4 +3041,4 @@ namespace symir {
     }
   }
 
-} // namespace symir
+} // namespace refractir

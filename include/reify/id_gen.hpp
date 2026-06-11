@@ -13,7 +13,7 @@
 #include <random>
 #include <string>
 
-namespace symir::reify {
+namespace refractir::reify {
 
   // Returns a freshly-generated 6-character lowercase-hex string drawn
   // from `rng`. Format matches `%06x` of a 24-bit unsigned value.
@@ -24,4 +24,4 @@ namespace symir::reify {
     return std::string(buf);
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

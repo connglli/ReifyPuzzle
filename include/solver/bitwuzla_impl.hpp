@@ -3,7 +3,7 @@
 #include <bitwuzla/cpp/bitwuzla.h>
 #include "solver/smt.hpp"
 
-namespace symir::solver {
+namespace refractir::solver {
 
   class BitwuzlaSolver : public smt::ISolver {
   public:
@@ -68,4 +68,4 @@ namespace symir::solver {
     bitwuzla::RoundingMode map_rm(smt::RoundingMode rm) const;
   };
 
-} // namespace symir::solver
+} // namespace refractir::solver

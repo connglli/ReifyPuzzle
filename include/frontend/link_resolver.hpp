@@ -16,7 +16,7 @@
 #include "frontend/lexer.hpp"
 #include "frontend/parser.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
    * Load every `.sir` file under each `-I` directory (recursively) and
@@ -284,4 +284,4 @@ namespace symir {
     }
   }
 
-} // namespace symir
+} // namespace refractir

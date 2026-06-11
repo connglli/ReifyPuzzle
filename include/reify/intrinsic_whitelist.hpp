@@ -3,7 +3,7 @@
 #include <vector>
 #include "analysis/intrinsics.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   /**
    * Metadata for a solver-friendly intrinsic that rysmith is allowed to generate.
@@ -58,4 +58,4 @@ namespace symir::reify {
     return list;
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

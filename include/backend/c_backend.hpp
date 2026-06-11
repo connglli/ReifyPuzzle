@@ -7,16 +7,16 @@
 #include "ast/ast.hpp"
 #include "backend/vec_lowering.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
-   * Generates C code from a SymIR program.
-   * Maps SymIR constructs to their C equivalents, handling bitwidths
+   * Generates C code from a RefractIR program.
+   * Maps RefractIR constructs to their C equivalents, handling bitwidths
    * and symbolic variables (as externs).
    *
    * Note on Undefined Behavior: For the C target, we attempt to preserve
-   * SymIR's undefined behavior semantics as closely as possible, leveraging
-   * the fact that many SymIR UBs match native C UBs, which can be trapped
+   * RefractIR's undefined behavior semantics as closely as possible, leveraging
+   * the fact that many RefractIR UBs match native C UBs, which can be trapped
    * at runtime using sanitizers (ASan, UBSan, pointer-compare, etc.).
    */
   class CBackend {
@@ -100,7 +100,7 @@ namespace symir {
     // --- Type query helpers ---
     // Resolve the static type of an lvalue / atom / expression. Used to
     // decide whether float-literal emission needs the ``f`` suffix. For
-    // expressions, only the first atom is examined: SymIR requires every
+    // expressions, only the first atom is examined: RefractIR requires every
     // operand in an Expr to share a single type, so this is sound.
     //
     // NOTE on impurity: ``getCoefType`` returns a type for a bare float
@@ -147,4 +147,4 @@ namespace symir {
     std::string stripSigil(const std::string &name);
   };
 
-} // namespace symir
+} // namespace refractir

@@ -19,7 +19,7 @@ intrinsic @popcount(%x: i32) : i32;
 //     (b) ask the @popcount intrinsic and accept iff the popcount is 1.
 //   Equivalent to `x > 0 && (x & (x - 1)) == 0`, but using popcount
 //   avoids the awkward two-statement form needed to express
-//   `x & (x - 1)` in SymIR's flat expression grammar.
+//   `x & (x - 1)` in RefractIR's flat expression grammar.
 //
 // UB: none.
 fun @is_pow2(%x: i32) : i32 {

@@ -9,7 +9,7 @@ struct @Vector2 {
 
 fun @main() : i32 {
   // =========================================================================================
-  // SymIR Matrix Transformation (Multidimensional Array Version)
+  // RefractIR Matrix Transformation (Multidimensional Array Version)
   //
   // This program performs a 2x2 matrix-vector multiplication: y = M * x
   //   [ y0 ]   [ m00 m01 ] [ x0 ]
@@ -19,7 +19,7 @@ fun @main() : i32 {
   // 1. Multidimensional Arrays: [2][2] i8 matrix and [2] i8 vectors.
   // 2. Linear Algebra Synthesis: Finding a matrix that performs a specific transformation.
   //
-  // IMPORTANT: SymIR v0 expression syntax: <Coef> <Op> <RValue>.
+  // IMPORTANT: RefractIR v0 expression syntax: <Coef> <Op> <RValue>.
   // - Casts: <LocalVar> as <Type> (no indexing allowed in source).
   //
   // Interpret (with Rotation Matrix):

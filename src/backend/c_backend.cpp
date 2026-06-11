@@ -12,7 +12,7 @@
 #include <sstream>
 #include "analysis/type_utils.hpp"
 
-namespace symir {
+namespace refractir {
 
   // Format a double literal with enough precision to round-trip exactly,
   // i.e. `static_cast<double>(parseDouble(emitFloat(v))) == v` for every
@@ -21,8 +21,8 @@ namespace symir {
   // `16777216.0` into `1.67772e+07` (= 16777200), changing the program's
   // observable behavior.
   //
-  // Note: SymIR has its own shared bit-exact formatter
-  // `symir::formatDouble` in ast.hpp (used by SIRPrinter, rysmith,
+  // Note: RefractIR has its own shared bit-exact formatter
+  // `refractir::formatDouble` in ast.hpp (used by SIRPrinter, rysmith,
   // symirsolve). We deliberately keep a separate formatter here because
   // the C backend emits *C* literals — distinct lexical rules
   // (`f`/`F` suffix for float, no `nan`/`inf` accepted by strict C, …)
@@ -91,8 +91,8 @@ namespace symir {
       if (name.size() > 1 && name[1] == '?')
         start = 2;
     }
-    // Prefix with symir_ to avoid C keywords and collisions for internal identifiers
-    return "symir_" + name.substr(start);
+    // Prefix with refractir_ to avoid C keywords and collisions for internal identifiers
+    return "refractir_" + name.substr(start);
   }
 
   std::string CBackend::stripSigil(const std::string &name) {
@@ -148,7 +148,7 @@ namespace symir {
   }
 
   // [v0.2.2] Generate a stable, C-identifier-safe typedef name for an
-  // `ArrayType` used as a SymIR pointer pointee.  The shape is encoded
+  // `ArrayType` used as a RefractIR pointer pointee.  The shape is encoded
   // outer-to-inner with `x` between dimensions, and the leaf is one of
   // `iN`, `fN`, `S_<name>`.  Examples:
   //   [3] i8         → _sym_arr_3_i8
@@ -376,7 +376,7 @@ namespace symir {
       hdr.noRequire_ = noRequire_;
       hdr.noMainMangle_ = noMainMangle_;
       hdr.vecLowering_ = makeVecLowering(vecLowering_ ? vecLowering_->name() : "vecext");
-      hdr.emitOnlySourceStem_ = "__symir_no_fun_bodies__";
+      hdr.emitOnlySourceStem_ = "__refractir_no_fun_bodies__";
       hdr.emit(prog);
       written.push_back(commonPath);
     }
@@ -406,7 +406,7 @@ namespace symir {
       // sourceStem is empty (the primary's own funs). Use a magic
       // marker the filter understands as "match empty stem".
       if (stem == primaryStem)
-        body.emitOnlySourceStem_ = "__symir_primary__";
+        body.emitOnlySourceStem_ = "__refractir_primary__";
       body.emit(prog);
       written.push_back(p);
     }
@@ -453,17 +453,17 @@ namespace symir {
       // SPEC §2.9 conformance. C doesn't mandate IEEE 754 — the implementation
       // declares conformance by predefining __STDC_IEC_559__ (C99 §F.1). We
       // cannot define it ourselves; we MUST refuse to compile on a platform
-      // that doesn't conform, because SymIR's FP semantics (RNE rounding,
+      // that doesn't conform, because RefractIR's FP semantics (RNE rounding,
       // finite-only domain, deterministic NaN/inf handling) all rest on
       // IEC 60559 / IEEE 754. Also disable FP contraction — without this,
       // GCC may fuse `a*b + c` into a single-rounding `fma`, which violates
       // §2.9 "no contraction" and would diverge from the interpreter and WASM.
       out_ << "#if !defined(__STDC_IEC_559__) || __STDC_IEC_559__ != 1\n";
-      out_ << "# error \"SymIR-lowered C requires an IEC 60559 / IEEE 754 conforming \"\\\n";
+      out_ << "# error \"RefractIR-lowered C requires an IEC 60559 / IEEE 754 conforming \"\\\n";
       out_ << "          \"implementation (compiler must predefine __STDC_IEC_559__ to 1)\"\n";
       out_ << "#endif\n";
       out_ << "#if !defined(FLT_EVAL_METHOD) || FLT_EVAL_METHOD != 0\n";
-      out_ << "# error \"SymIR-lowered C requires an implementation with FLT_EVAL_METHOD == 0, "
+      out_ << "# error \"RefractIR-lowered C requires an implementation with FLT_EVAL_METHOD == 0, "
               "\"\\\n";
       out_
           << "          \"i.e., do not promote float into double or long double for evaluation\"\n";
@@ -635,12 +635,12 @@ namespace symir {
     for (const auto &f: prog.funs) {
       // [v0.2.2] In --split-by-source mode emit only funs whose
       // sourceStem matches this output file's stem. Two sentinel
-      // values: "__symir_no_fun_bodies__" skips every fun (used when
-      // writing common.h); "__symir_primary__" matches funs with an
+      // values: "__refractir_no_fun_bodies__" skips every fun (used when
+      // writing common.h); "__refractir_primary__" matches funs with an
       // empty sourceStem (i.e. those that came from the primary file).
-      if (emitOnlySourceStem_ == "__symir_no_fun_bodies__")
+      if (emitOnlySourceStem_ == "__refractir_no_fun_bodies__")
         continue;
-      if (emitOnlySourceStem_ == "__symir_primary__") {
+      if (emitOnlySourceStem_ == "__refractir_primary__") {
         if (!f.sourceStem.empty())
           continue;
       } else if (!emitOnlySourceStem_.empty() && f.sourceStem != emitOnlySourceStem_) {
@@ -1075,8 +1075,8 @@ namespace symir {
               // LShr is the logical (unsigned) right shift. C's signed `>>`
               // is implementation-defined for negative LHS, so we cast through
               // unsigned to get well-defined zero-fill semantics matching the
-              // SymIR interpreter. (Shl/Shr deliberately use raw signed shifts:
-              // SymIR spec §7.1 rule 4 treats SHL result overflow as UB, so
+              // RefractIR interpreter. (Shl/Shr deliberately use raw signed shifts:
+              // RefractIR spec §7.1 rule 4 treats SHL result overflow as UB, so
               // any program reaching here with overflowing SHL is on an
               // infeasible path — UBSan-trap is the correct surfacing.)
               std::uint32_t bits = 32;
@@ -1107,9 +1107,9 @@ namespace symir {
               out_ << ")";
             } else if (arg.op == AtomOpKind::Mod) {
               // C fmod (truncated quotient): same semantics as integer %, consistent
-              // with SymIR spec which aligns float % with integer % (truncate-toward-zero).
+              // with RefractIR spec which aligns float % with integer % (truncate-toward-zero).
               // Detect float operand via coef type; for a literal coef, the rval
-              // pins f32 vs f64 (operands share a type in SymIR).
+              // pins f32 vs f64 (operands share a type in RefractIR).
               auto floatKindOf = [this](const TypePtr &t) -> FloatType::Kind * {
                 if (!t)
                   return nullptr;
@@ -1263,7 +1263,7 @@ namespace symir {
             // [v0.2.2] The source pointer's C type is now `Elem (*)[N]…`
             // (typedef'd, see `arrayPtrTypedefName`).  Dereferencing
             // once gives the array, which decays to a pointer-to-
-            // inner-element on `+ i`; the stride matches SymIR's
+            // inner-element on `+ i`; the stride matches RefractIR's
             // ptrindex semantics naturally.
             uint64_t arrSize = 0;
             auto rvTy = getLValueType(arg.rval);
@@ -1789,7 +1789,7 @@ namespace symir {
   }
 
   void CBackend::emitCond(const Cond &cond) {
-    // Take the type from either operand: SymIR requires lhs and rhs to share
+    // Take the type from either operand: RefractIR requires lhs and rhs to share
     // a type, so the disjunction is just defensive against missing lookups.
     CtxGuard ctx(
         isDoubleCtx_,
@@ -2044,7 +2044,7 @@ namespace symir {
         [this](auto &&arg) -> TypePtr {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, IntLit>) {
-            // Int literals are polymorphic in SymIR; we return I32/I64
+            // Int literals are polymorphic in RefractIR; we return I32/I64
             // based on the literal value for overload resolution.
             auto t = std::make_shared<Type>();
             if (arg.value > 2147483647LL || arg.value < -2147483648LL) {
@@ -2195,7 +2195,7 @@ namespace symir {
     );
   }
 
-  // SymIR requires every atom in an Expr to share a single type, so the
+  // RefractIR requires every atom in an Expr to share a single type, so the
   // first atom's type is the whole expression's type.
   TypePtr CBackend::getExprType(const Expr &expr) { return getAtomType(expr.first); }
 
@@ -2227,4 +2227,4 @@ namespace symir {
     }
   }
 
-} // namespace symir
+} // namespace refractir

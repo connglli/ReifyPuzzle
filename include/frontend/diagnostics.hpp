@@ -4,7 +4,7 @@
 #include <vector>
 #include "ast/ast.hpp"
 
-namespace symir {
+namespace refractir {
 
   enum class DiagLevel { Error, Warning, Note };
 
@@ -49,4 +49,4 @@ namespace symir {
       DiagLevel level = DiagLevel::Error
   );
 
-} // namespace symir
+} // namespace refractir

@@ -1,6 +1,6 @@
-# symiri — SymIR Interpreter
+# symiri — RefractIR Interpreter
 
-`symiri` is the **reference interpreter** for SymIR programs.
+`symiri` is the **reference interpreter** for RefractIR programs.
 
 It executes programs directly from `.sir`, enforcing:
 - strict evaluation order
@@ -10,7 +10,7 @@ It executes programs directly from `.sir`, enforcing:
 
 ## Goals
 
-- Provide a semantic oracle for SymIR
+- Provide a semantic oracle for RefractIR
 - Enable fast debugging and validation
 - Serve as a correctness baseline for code generation and synthesis
 

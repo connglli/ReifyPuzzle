@@ -3,7 +3,7 @@
 #include <vector>
 #include "analysis/cfg.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
    * Generic interface for a Forward Dataflow Problem.
@@ -86,4 +86,4 @@ namespace symir {
     }
   };
 
-} // namespace symir
+} // namespace refractir

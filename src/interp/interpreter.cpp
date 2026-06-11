@@ -14,7 +14,7 @@
 #include "error.hpp"
 #include "frontend/diagnostics.hpp"
 
-namespace symir {
+namespace refractir {
 
   // Enforce IEEE 754 finite-only semantics (spec §7.4 rules 6–7):
   // truncate to f32 if needed, then reject infinity or NaN.
@@ -135,7 +135,7 @@ namespace symir {
         [this](auto &&arg) -> TypePtr {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, IntLit>) {
-            // Int literals are polymorphic in SymIR; we return I32/I64
+            // Int literals are polymorphic in RefractIR; we return I32/I64
             // based on the literal value for overload resolution.
             auto t = std::make_shared<Type>();
             if (arg.value > 2147483647LL || arg.value < -2147483648LL) {
@@ -2790,4 +2790,4 @@ namespace symir {
     throw std::runtime_error("Cond operands must be same scalar kind");
   }
 
-} // namespace symir
+} // namespace refractir

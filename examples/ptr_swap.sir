@@ -8,7 +8,7 @@ struct @SwapState {
 
 fun @main() : i32 {
   // =========================================================================================
-  // SymIR Pointer Swap (v0.2.0)
+  // RefractIR Pointer Swap (v0.2.0)
   //
   // Demonstrates the classic 3-step swap implemented through `ptr i32` aliases of two
   // mutable locals. The loop iterates twice, swapping each pair (a,b) once per round,

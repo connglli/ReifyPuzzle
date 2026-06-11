@@ -14,7 +14,7 @@
 #include <stdexcept>
 #include "backend/vec_lowering.hpp"
 
-namespace symir {
+namespace refractir {
 
   namespace {
 
@@ -124,4 +124,4 @@ namespace symir {
 
   std::unique_ptr<VecLowering> makeScalarsLowering() { return std::make_unique<ScalarsLowering>(); }
 
-} // namespace symir
+} // namespace refractir

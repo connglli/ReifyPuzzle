@@ -1,6 +1,6 @@
 #include "analysis/pass_manager.hpp"
 
-namespace symir {
+namespace refractir {
 
   class FunctionPassWrapper : public ModulePass {
   public:
@@ -35,4 +35,4 @@ namespace symir {
     return PassResult::Success;
   }
 
-} // namespace symir
+} // namespace refractir

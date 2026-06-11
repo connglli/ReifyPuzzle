@@ -13,7 +13,7 @@
 #include "ast/sir_printer.hpp"
 #include "reify/hyperparameters.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   // ---------------------------------------------------------------------------
   // Descriptor-value parsing
@@ -37,7 +37,7 @@ namespace symir::reify {
   }
 
   static std::optional<double> parseF64(const std::string &s) {
-    // Delegate to the canonical SymIR float parser so descriptor values
+    // Delegate to the canonical RefractIR float parser so descriptor values
     // round-trip identically to lexed float literals — same subnormal
     // handling, same signed-zero behaviour, same overflow rule.
     try {
@@ -552,7 +552,7 @@ namespace symir::reify {
         Atom callAtom;
         callAtom.v = std::move(ca);
 
-        // Offset literal: `c - ret` under bitvector arithmetic. SymIR
+        // Offset literal: `c - ret` under bitvector arithmetic. RefractIR
         // `T + lit` truncates with wraparound (§6.5), so the BV-side
         // math always reproduces `c`. The C backend, however, emits
         // the call site as a signed-int addition, and UBSan trips
@@ -1082,4 +1082,4 @@ namespace symir::reify {
     return res;
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

@@ -17,7 +17,7 @@ struct @NavContext {
 
 fun @main() : i32 {
   // =========================================================================================
-  // SymIR Robot Path Navigator (Spatial Reasoning & Sequence Synthesis)
+  // RefractIR Robot Path Navigator (Spatial Reasoning & Sequence Synthesis)
   //
   // This program simulates a robot moving on a 2D grid with obstacles.
   // It demonstrates:

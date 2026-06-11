@@ -7,7 +7,7 @@
 #include "ast/ast.hpp"
 #include "reify/type_gen.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   struct VarEntry {
     std::string name; // "%v0", "%a0", "%t0", "%p0", "%pa0" (param)
@@ -72,4 +72,4 @@ namespace symir::reify {
   // vars), then ptr-ptr vars. This ensures valid ptr→target relationships.
   VarCatalogue genVarCatalogue(std::mt19937 &rng, const VarGenConfig &cfg);
 
-} // namespace symir::reify
+} // namespace refractir::reify

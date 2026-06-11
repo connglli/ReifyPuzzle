@@ -1,6 +1,6 @@
 #include "analysis/type_utils.hpp"
 
-namespace symir {
+namespace refractir {
 
   std::optional<std::uint32_t> TypeUtils::getIntBitWidth(const TypePtr &t) {
     if (!t)
@@ -111,4 +111,4 @@ namespace symir {
 
   bool TypeUtils::isVec(const TypePtr &t) { return t && std::holds_alternative<VecType>(t->v); }
 
-} // namespace symir
+} // namespace refractir

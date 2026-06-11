@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <random>
 
-namespace symir::reify {
+namespace refractir::reify {
 
   RyCFGBlock *RyCFG::get(const std::string &label) {
     auto it = blockIndex.find(label);
@@ -87,7 +87,7 @@ namespace symir::reify {
         continue;
       if (prob(rng) < params.pBackedge) {
         auto it = std::find(labels.begin(), labels.end(), lbl);
-        std::size_t idx = (std::size_t)(it - labels.begin());
+        std::size_t idx = (std::size_t) (it - labels.begin());
         std::vector<std::string> cands(labels.begin(), labels.begin() + idx);
         if (!cands.empty()) {
           std::uniform_int_distribution<int> pick(0, (int) cands.size() - 1);
@@ -100,4 +100,4 @@ namespace symir::reify {
     return cfg;
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

@@ -1,6 +1,6 @@
 #include "ast/ast_dumper.hpp"
 
-namespace symir {
+namespace refractir {
 
   void ASTDumper::indent() {
     for (int i = 0; i < indent_level_; ++i)
@@ -522,4 +522,4 @@ namespace symir {
     return "?";
   }
 
-} // namespace symir
+} // namespace refractir

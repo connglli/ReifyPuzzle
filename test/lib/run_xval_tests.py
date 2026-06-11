@@ -1,4 +1,4 @@
-"""Cross-validation tests: run a SymIR program through the interpreter and
+"""Cross-validation tests: run a RefractIR program through the interpreter and
 through the compiled C lowering, then compare bit-exact outputs.
 
 For integer returns we compare decimal string equality. For floating-point
@@ -24,7 +24,7 @@ _FUN_RE = re.compile(r"fun\s+@([a-zA-Z0-9_]+)\(\)\s*:\s*(i[0-9]+|f32|f64)")
 _RESULT_RE = re.compile(r"Result:\s*(\S+)")
 _EXPECT_RC_RE = re.compile(r"//\s*EXPECT_RC:\s*(\S+)")
 
-# Per-SymIR-type C harness format: (C return type, printf format, value cast).
+# Per-RefractIR-type C harness format: (C return type, printf format, value cast).
 _CRET = {
   "i8": ("int8_t", "%lld", "(long long)"),
   "i16": ("int16_t", "%lld", "(long long)"),
@@ -53,7 +53,7 @@ def _parse_expect_rc(sir_path):
   return None
 
 
-def run_xval_test(symiri_path, symirc_path, gcc_path, symirc_extra=None):
+def run_xval_test(refractiri_path, refractirc_path, gcc_path, refractirc_extra=None):
   def test_func(file_path, expectation, args, skips):
     if "ALL" in skips:
       return TestResult.SKIP, "Skipped by ALL tag (library file)"
@@ -71,7 +71,9 @@ def run_xval_test(symiri_path, symirc_path, gcc_path, symirc_extra=None):
 
     # 1. Interpreter side: run symiri and capture the `Result:` line.
     interp_cmd = (
-      [symiri_path, "--main", f"@{fname}"] + args.get("INTERP_ARGS", []) + [file_path]
+      [refractiri_path, "--main", f"@{fname}"]
+      + args.get("INTERP_ARGS", [])
+      + [file_path]
     )
     result, err = run_command(interp_cmd, timeout=10)
     if err == "TIMEOUT":
@@ -92,15 +94,15 @@ def run_xval_test(symiri_path, symirc_path, gcc_path, symirc_extra=None):
       main_c = os.path.join(td, "main.c")
       exe = os.path.join(td, "exe")
 
-      symirc_cmd = (
-        [symirc_path]
+      refractirc_cmd = (
+        [refractirc_path]
         + args.get("COMPILER_ARGS", [])
         + [file_path, "--target", "c", "-o", c_out]
       )
-      if symirc_extra:
-        symirc_cmd.extend(symirc_extra)
+      if refractirc_extra:
+        refractirc_cmd.extend(refractirc_extra)
       r = subprocess.run(
-        symirc_cmd,
+        refractirc_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -112,9 +114,9 @@ def run_xval_test(symiri_path, symirc_path, gcc_path, symirc_extra=None):
         f.write(
           "#include <stdint.h>\n"
           "#include <stdio.h>\n"
-          f"extern {cret} symir_{fname}(void);\n"
+          f"extern {cret} refractir_{fname}(void);\n"
           "int main(void) {\n"
-          f"  {cret} r = symir_{fname}();\n"
+          f"  {cret} r = refractir_{fname}();\n"
           f'  printf("Result: {fmt}\\n", {cast}r);\n'
           "  return 0;\n"
           "}\n"
@@ -163,12 +165,12 @@ def run_xval_test(symiri_path, symirc_path, gcc_path, symirc_extra=None):
 if __name__ == "__main__":
   # Pull --symirc-extra=... out of argv (one flag, value is the extra
   # arg string passed verbatim to symirc, e.g. `--vec-lowering=array`).
-  symirc_extra = []
+  refractirc_extra = []
   argv = list(sys.argv)
   i = 1
   while i < len(argv):
     if argv[i].startswith("--symirc-extra="):
-      symirc_extra = argv[i].split("=", 1)[1].split()
+      refractirc_extra = argv[i].split("=", 1)[1].split()
       del argv[i]
     else:
       i += 1
@@ -183,5 +185,5 @@ if __name__ == "__main__":
   symirc = argv[3]
   gcc = argv[4] if len(argv) > 4 else "gcc"
   run_test_suite(
-    "xval_tests", test_dir, run_xval_test(symiri, symirc, gcc, symirc_extra)
+    "xval_tests", test_dir, run_xval_test(symiri, symirc, gcc, refractirc_extra)
   )

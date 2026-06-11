@@ -14,7 +14,7 @@
 #include <vector>
 #include "ast/ast.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   /**
    * Resolve a `--vec-lowering` CLI choice into a concrete strategy
@@ -150,11 +150,11 @@ namespace symir::reify {
       // step couldn't fill in).
       //
       // The check is gated on an integer-returning entry: @check_chksum
-      // is i32-typed and SymIR has no implicit FP↔int cast at call
+      // is i32-typed and RefractIR has no implicit FP↔int cast at call
       // boundaries. Float-returning entries skip the check; we
       // intentionally don't synthesise a hash-of-bits comparison here
       // because reify's float oracles already go through the
-      // sum/CRC32 path on the SymIR-side checksum machinery.
+      // sum/CRC32 path on the RefractIR-side checksum machinery.
       if (!call.retValue.empty() && entryFn.retType &&
           std::holds_alternative<IntType>(entryFn.retType->v)) {
         CallAtom check;
@@ -208,7 +208,7 @@ namespace symir::reify {
   // ---------------------------------------------------------------------------
 
   // Run frontend and analysis passes on prog. Returns true if well-formed.
-  bool runAnalysisPasses(symir::Program &prog, bool verbose);
+  bool runAnalysisPasses(refractir::Program &prog, bool verbose);
 
   // Run symiri on `sirPath` with `--main <funcName>` and capture its
   // `Result: <value>` output line. Returns the trimmed value string on
@@ -228,15 +228,15 @@ namespace symir::reify {
 
   // Compile a Program to C (in-process).
   bool emitCInProcess(
-      symir::Program &prog, const std::filesystem::path &outDir, const std::string &primaryStem,
+      refractir::Program &prog, const std::filesystem::path &outDir, const std::string &primaryStem,
       bool keepRequire, const std::string &vecLowering, bool emitMain, bool splitBySource,
       bool verbose
   );
 
   // Compile a Program to WASM (in-process).
   bool emitWasmInProcess(
-      symir::Program &prog, const std::filesystem::path &outFile, bool keepRequire, bool emitMain,
-      bool verbose
+      refractir::Program &prog, const std::filesystem::path &outFile, bool keepRequire,
+      bool emitMain, bool verbose
   );
 
   // Parse a .sir file and compile it using CBackend or WasmBackend.
@@ -247,4 +247,4 @@ namespace symir::reify {
       bool emitMain, bool verbose
   );
 
-} // namespace symir::reify
+} // namespace refractir::reify

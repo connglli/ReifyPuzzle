@@ -8,7 +8,7 @@ struct @VMContext {
 
 fun @main() : i32 {
   // =========================================================================================
-  // SymIR Stack-based Virtual Machine (Symbolic Synthesis Version)
+  // RefractIR Stack-based Virtual Machine (Symbolic Synthesis Version)
   //
   // This program implements a small virtual machine that operates on an integer stack.
   // It demonstrates:

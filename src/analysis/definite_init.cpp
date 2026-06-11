@@ -1,16 +1,16 @@
 #include "analysis/definite_init.hpp"
 
-namespace symir {
+namespace refractir {
 
-  symir::PassResult DefiniteInitAnalysis::run(FunDecl &f, DiagBag &diags) {
+  refractir::PassResult DefiniteInitAnalysis::run(FunDecl &f, DiagBag &diags) {
     CFG cfg = CFG::build(f, diags);
     if (diags.hasErrors())
-      return symir::PassResult::Error;
+      return refractir::PassResult::Error;
 
     Problem p(f, diags);
-    symir::DataflowSolver<InitSet>::solve(f, cfg, p);
+    refractir::DataflowSolver<InitSet>::solve(f, cfg, p);
 
-    return diags.hasErrors() ? symir::PassResult::Error : symir::PassResult::Success;
+    return diags.hasErrors() ? refractir::PassResult::Error : refractir::PassResult::Success;
   }
 
   DefiniteInitAnalysis::Problem::Problem(const FunDecl &f, DiagBag &diags) : f_(f), diags_(diags) {}
@@ -184,4 +184,4 @@ namespace symir {
     return state;
   }
 
-} // namespace symir
+} // namespace refractir

@@ -8,7 +8,7 @@
 //
 // Caller obligations:
 //   - lo <= hi. Otherwise the result has no clean interpretation.
-//   - All three inputs are finite (SymIR's finite-only float domain).
+//   - All three inputs are finite (RefractIR's finite-only float domain).
 fun @clamp_f32(%x: f32, %lo: f32, %hi: f32) : f32 {
   let mut %low_bound: f32 = 0.0;
 ^entry:

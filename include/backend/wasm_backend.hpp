@@ -7,13 +7,13 @@
 #include <vector>
 #include "ast/ast.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
-   * Generates WebAssembly Text Format (.wat) from a SymIR program.
+   * Generates WebAssembly Text Format (.wat) from a RefractIR program.
    *
    * Note on Undefined Behavior: Unlike the C target (which leverages C's native
-   * UB similarities and GCC sanitizers to catch and trap SymIR UBs at runtime),
+   * UB similarities and GCC sanitizers to catch and trap RefractIR UBs at runtime),
    * the WASM backend does not instrument generated WAT with check logic to detect
    * or trap undefined behavior. In compliance with the compiler's semantic refinement
    * model, behavior is only guaranteed for UB-free inputs.
@@ -51,7 +51,7 @@ namespace symir {
       std::uint32_t bitwidth = 32;
       bool isAggregate = false;
       std::uint32_t offset = 0; // offset from stack pointer if aggregate
-      TypePtr symirType;
+      TypePtr refractirType;
     };
 
     std::unordered_map<std::string, LocalInfo> locals_;
@@ -140,4 +140,4 @@ namespace symir {
     void emitSignExtend(std::uint32_t bitwidth, std::uint32_t wasmWidth);
   };
 
-} // namespace symir
+} // namespace refractir

@@ -6,7 +6,7 @@
 #include "ast/ast.hpp"
 #include "frontend/diagnostics.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
    * Represents the Control Flow Graph of a function.
@@ -51,4 +51,4 @@ namespace symir {
     std::unordered_map<std::size_t, std::size_t> shortestPathToRet(const FunDecl &f) const;
   };
 
-} // namespace symir
+} // namespace refractir

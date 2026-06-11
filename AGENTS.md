@@ -1,4 +1,4 @@
-# SymLang (SymIR): Agent Guideline
+# RefractIR: Agent Guideline
 
 + Knowledge Background: Optimizing Compilers, Program Analysis, Symbolic Execution, SMT (Bit-Vector Theory)
 + Implementation Language: C++ 20
@@ -7,13 +7,13 @@
 
 ## Project Overview
 
-SymLang (internally called **SymIR**) is a **CFG-based symbolic intermediate representation** designed for:
+RefractIR (internally called SymIR) is a **CFG-based symbolic intermediate representation** designed for:
 
 - **Program synthesis**
 - **Symbolic execution**
 - **Constraint generation for SMT solvers (Bit-Vector logic)**
 
-A SymIR program is a **template**, not a fully concrete program. It may contain **symbols** (unknowns, marked with `?`) whose values are solved later by an SMT solver under constraints derived from:
+A RefractIR program is a **template**, not a fully concrete program. It may contain **symbols** (unknowns, marked with `?`) whose values are solved later by an SMT solver under constraints derived from:
 
 1. A **specific execution path** through the CFG
 2. Explicit **properties** (e.g., `require` and/or other user-provided properties) that must hold on that path
@@ -25,7 +25,7 @@ The key design goals are:
 - Explicit control-flow (CFG, no SSA, user-friendly)
 - Simplicity and analyzability over expressiveness
 
-SymIR deliberately restricts expressions (flat, left-to-right, no parentheses) and uses **LLVM-style syntax** (`@`, `%`, `br`, basic blocks) while remaining language-agnostic.
+RefractIR deliberately restricts expressions (flat, left-to-right, no parentheses) and uses **LLVM-style syntax** (`@`, `%`, `br`, basic blocks) while remaining language-agnostic.
 
 The current formal specification is **[./docs/SPEC_v0.2.1.md](./docs/SPEC_v0.2.1.md)** (adds aggregate pointers: `ptr [N] T`, `ptr @S`, `ptrindex`, `ptrfield`; SIMD vector types `<N> T` with lane-wise arithmetic and `cmp`; floating-point value model; mask-based `select`). The v0.2.0 pointer baseline is preserved at [./docs/SPEC_v0.2.0.md](./docs/SPEC_v0.2.0.md) and the pre-pointer baseline at [./docs/SPEC_v0.1.0.md](./docs/SPEC_v0.1.0.md) for reference.
 
@@ -157,7 +157,7 @@ Concrete .sir
 - Forms the backbone for all dataflow analyses
 
 ### 4. TypeChecker (BV-aware)
-- Maps SymIR integer types to **SMT bit-vectors**
+- Maps RefractIR integer types to **SMT bit-vectors**
   - `i32` → `(_ BitVec 32)`
   - `i64` → `(_ BitVec 64)`
   - `iN`  → `(_ BitVec N)`
@@ -259,24 +259,24 @@ ALWAYS follow a strict Test-Driven Development discipline.
 
 ## Floating-point serialization invariant (MANDATORY)
 
-SymIR carries `f32`/`f64` values bit-exactly across **every** boundary
+RefractIR carries `f32`/`f64` values bit-exactly across **every** boundary
 that involves text — `.sir` source, descriptor JSON, SOLVED/PARAMS/RETURN
 headers, model-dump files, and CLI positional args. The invariant is:
 
 > **One canonical bit-exact format. One canonical parser. Used everywhere
-> SymIR text crosses a process or file boundary.**
+> RefractIR text crosses a process or file boundary.**
 
 ### The two canonical entry points
 
-- **`symir::formatDouble(double)`** (`include/ast/ast.hpp`) — emits the
+- **`refractir::formatDouble(double)`** (`include/ast/ast.hpp`) — emits the
   shortest decimal string that round-trips via `std::to_chars(…,
   std::chars_format::shortest)`, with `.0` appended if neither `.` nor
   exponent is present so int/float dispatch on the resulting string is
   unambiguous and signed zero survives.
-- **`symir::parseFloatLiteral(std::string)`** (`include/ast/ast.hpp`) —
+- **`refractir::parseFloatLiteral(std::string)`** (`include/ast/ast.hpp`) —
   uses `std::strtod` directly. Subnormals (returned values < `DBL_MIN`)
   are accepted; only true overflow to `±HUGE_VAL` raises. **Never call
-  `std::stod`** anywhere in SymIR — libstdc++ throws `out_of_range` on
+  `std::stod`** anywhere in RefractIR — libstdc++ throws `out_of_range` on
   any `ERANGE`, including valid subnormals, and a perfectly representable
   denormal would abort the interpreter.
 
@@ -297,7 +297,7 @@ All of these MUST go through the canonical pair:
 - `src/backend/c_backend.cpp` and `src/backend/wasm_backend.cpp` emit
   literals in **C** and **WAT** grammar respectively (suffixes, infinity
   syntax, etc.), so each backend has its own bit-exact formatter. Each
-  carries a comment pointing back to `symir::formatDouble` to flag the
+  carries a comment pointing back to `refractir::formatDouble` to flag the
   divergence as intentional.
 
 ### When you add a new producer or consumer
@@ -353,5 +353,5 @@ ALWAYS:
 * Body explains intent and design impact
 
 **Remember:**
-SymIR prioritizes *clarity, analyzability, and solver-friendliness* over surface-level convenience.
+RefractIR prioritizes *clarity, analyzability, and solver-friendliness* over surface-level convenience.
 Preserve these properties in every change.

@@ -9,7 +9,7 @@ struct @SortContext {
 
 fun @main() : i32 {
   // =========================================================================================
-  // SymIR Bubble Sort (Iterative Loop Version)
+  // RefractIR Bubble Sort (Iterative Loop Version)
   //
   // This program implements a standard Bubble Sort using nested loops.
   // It demonstrates:

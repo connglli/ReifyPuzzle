@@ -3,12 +3,12 @@
 #include <unordered_set>
 #include "analysis/cfg.hpp"
 
-namespace symir {
+namespace refractir {
 
-  symir::PassResult ReachabilityAnalysis::run(FunDecl &f, DiagBag &diags) {
+  refractir::PassResult ReachabilityAnalysis::run(FunDecl &f, DiagBag &diags) {
     CFG cfg = CFG::build(f, diags);
     if (diags.hasErrors())
-      return symir::PassResult::Error;
+      return refractir::PassResult::Error;
 
     std::unordered_set<size_t> visited;
     std::queue<size_t> worklist;
@@ -36,7 +36,7 @@ namespace symir {
       }
     }
 
-    return symir::PassResult::Success;
+    return refractir::PassResult::Success;
   }
 
-} // namespace symir
+} // namespace refractir

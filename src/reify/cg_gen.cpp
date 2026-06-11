@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace symir::reify {
+namespace refractir::reify {
 
   RyCG genCallGraph(std::mt19937 &rng, const CGGenConfig &cfg) {
     RyCG g;
@@ -60,4 +60,4 @@ namespace symir::reify {
     return g;
   }
 
-} // namespace symir::reify
+} // namespace refractir::reify

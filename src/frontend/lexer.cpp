@@ -2,7 +2,7 @@
 #include <cctype>
 #include <stdexcept>
 
-namespace symir {
+namespace refractir {
 
   Lexer::Lexer(std::string_view src) : src_(src) {}
 
@@ -479,4 +479,4 @@ namespace symir {
     }
   }
 
-} // namespace symir
+} // namespace refractir

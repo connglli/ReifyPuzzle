@@ -1,7 +1,7 @@
 // [v0.2.2] WASM backend intrinsic helper emission.
 //
 // This file is the single source of truth for the WebAssembly Text Format
-// (WAT) code emitted for every built-in SymIR intrinsic. The helpers use
+// (WAT) code emitted for every built-in RefractIR intrinsic. The helpers use
 // a widening-and-mask strategy: each iN operation is widened to the next
 // WASM native width (i32 or i64), performed there, then sign-masked back
 // to N bits. UB-preconditions abort via `unreachable`.
@@ -13,8 +13,8 @@
 //     types are emitted in the helper signature by emitIntrinsicHelper;
 //     impls that touch param widths read them via `intr`.
 //
-// SymIR has no unsigned integer types. This file uses only:
-//   - signed comparisons at the SymIR level (iW.lt_s / iW.gt_s / iW.eq...)
+// RefractIR has no unsigned integer types. This file uses only:
+//   - signed comparisons at the RefractIR level (iW.lt_s / iW.gt_s / iW.eq...)
 //   - bit-level operations (iW.shl, iW.shr_u, iW.and, iW.or, iW.xor,
 //     iW.popcnt, iW.clz, iW.ctz) which act on bit patterns, not as
 //     unsigned-integer numerics.
@@ -26,7 +26,7 @@
 //   1. Add its IntrinsicKind to include/analysis/intrinsics.hpp.
 //   2. Implement a subclass of WasmIntrinsic and register it below.
 //
-// Note: float literal format intentionally diverges from symir::formatDouble.
+// Note: float literal format intentionally diverges from refractir::formatDouble.
 // WAT has its own grammar rules. See AGENTS.md §FP-serialization-invariant.
 
 #include "backend/wasm_backend.hpp"
@@ -39,7 +39,7 @@
 #include "analysis/intrinsics.hpp"
 #include "analysis/type_utils.hpp"
 
-namespace symir {
+namespace refractir {
 
   class WasmIntrinsic {
   public:
@@ -610,7 +610,7 @@ namespace symir {
         out(backend) << ity << ".const 1\n";
         indent(backend);
         out(backend) << ity << ".and\n";
-        // No sextN: SymIR i1 is stored as the literal 0 / 1 (matches `cmp`),
+        // No sextN: RefractIR i1 is stored as the literal 0 / 1 (matches `cmp`),
         // not sign-extended.
       }
     };
@@ -1679,7 +1679,7 @@ namespace symir {
     }
 
     // [v0.2.2] i1-returning FP predicates produce an i32 0/1 from a WASM
-    // comparison. Convert to the SymIR i1 storage convention (0 / -1) by
+    // comparison. Convert to the RefractIR i1 storage convention (0 / -1) by
     // sign-extending bit 0.
     static void sextI1ToI32(WasmBackend &backend) {
       indent(backend);
@@ -2085,7 +2085,7 @@ namespace symir {
     std::string base = intrName;
     if (!base.empty() && base[0] == '@')
       base.erase(0, 1);
-    return "$_symir_" + base + "_i" + std::to_string(bits);
+    return "$_refractir_" + base + "_i" + std::to_string(bits);
   }
 
   // FP-aware overload (v0.2.2 extra D.1): mirrors the C-backend rule.
@@ -2099,17 +2099,17 @@ namespace symir {
     if (paramFp || retFp) {
       auto t = !intr.params.empty() ? intr.params[0].type : intr.retType;
       if (auto fp = std::get_if<FloatType>(&t->v))
-        return "$_symir_" + base + "_f" + (fp->kind == FloatType::Kind::F32 ? "32" : "64");
+        return "$_refractir_" + base + "_f" + (fp->kind == FloatType::Kind::F32 ? "32" : "64");
       if (auto it = std::get_if<IntType>(&t->v)) {
         uint32_t b = it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
-        return "$_symir_" + base + "_i" + std::to_string(b);
+        return "$_refractir_" + base + "_i" + std::to_string(b);
       }
     }
     auto rb = TypeUtils::getIntBitWidth(intr.retType);
-    return "$_symir_" + base + "_i" + std::to_string(rb.value_or(32));
+    return "$_refractir_" + base + "_i" + std::to_string(rb.value_or(32));
   }
 
-  // Return the WAT scalar type-name for a SymIR type:
+  // Return the WAT scalar type-name for a RefractIR type:
   //   IntType i1..i32 → "i32", i64 → "i64"; FloatType f32 → "f32", f64 → "f64".
   static std::string watTypeOf(const TypePtr &t) {
     if (auto fp = std::get_if<FloatType>(&t->v))
@@ -2210,4 +2210,4 @@ namespace symir {
     out_ << ")\n";
   }
 
-} // namespace symir
+} // namespace refractir

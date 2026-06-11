@@ -9,7 +9,7 @@ struct @MachineLog {
 
 fun @main() : i32 {
   // =========================================================================================
-  // SymIR Pointer-Routed State Machine (v0.2.0)
+  // RefractIR Pointer-Routed State Machine (v0.2.0)
   //
   // A four-state machine where each "state" is a separate `let mut` integer counter.
   // The currently-active state is selected by a `ptr i32` that gets reassigned to a

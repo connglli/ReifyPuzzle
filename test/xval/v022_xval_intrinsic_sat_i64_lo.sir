@@ -11,7 +11,7 @@
 // instead.  Exercise every i64 lower-bound path so the regression
 // sticks.
 //
-// SymIR's parser can't read `-9223372036854775808` as a single integer
+// RefractIR's parser can't read `-9223372036854775808` as a single integer
 // literal either (same lexer pitfall), so the test builds INT_MIN_64
 // at runtime via `%imin = -INT_MAX - 1`.
 

@@ -10,10 +10,10 @@
 #include "ast/ast.hpp"
 #include "solver/smt.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
-   * Performs path-based symbolic execution on the SymIR program.
+   * Performs path-based symbolic execution on the RefractIR program.
    * Generates SMT constraints for a selected path and uses an SMT solver
    * to find concrete values for symbolic variables that satisfy the path.
    */
@@ -35,7 +35,7 @@ namespace symir {
     /**
      * Tree-shaped concrete value extracted from the solver model for
      * an entry-function let at the end of the solved path. The
-     * structure mirrors the SymIR type the let was declared with:
+     * structure mirrors the RefractIR type the let was declared with:
      *   - Scalar Int / Float → `scalar` holds the concrete value.
      *   - Array / Vec        → `elems[i]` holds the i-th element.
      *   - Struct             → `fields[name]` holds each field.
@@ -333,4 +333,4 @@ namespace symir {
     SymbolicStore *outerStore_ = nullptr;
   };
 
-} // namespace symir
+} // namespace refractir

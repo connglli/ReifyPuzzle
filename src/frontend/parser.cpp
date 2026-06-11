@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <iostream>
 
-namespace symir {
+namespace refractir {
 
   Parser::Parser(std::vector<Token> toks) : toks_(std::move(toks)) {}
 
@@ -975,4 +975,4 @@ namespace symir {
     errorHere("Expected select arm value: lvalue, coefficient, or 'null'");
   }
 
-} // namespace symir
+} // namespace refractir

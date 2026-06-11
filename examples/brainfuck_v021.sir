@@ -7,7 +7,7 @@ struct @BFRegs {
 
 fun @main() : i32 {
   // ========================================================================================
-  // SymIR Brainfuck Interpreter — v0.2.1 showcase
+  // RefractIR Brainfuck Interpreter — v0.2.1 showcase
   //
   // Demonstrates v0.2.1 features:
   //   • ptr @S + ptrfield : navigate struct fields as typed pointers.

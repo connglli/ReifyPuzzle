@@ -6,7 +6,7 @@
 #include "ast/ast.hpp"
 #include "solver/solver.hpp"
 
-namespace symir {
+namespace refractir {
 
   class SIRPrinter {
   public:
@@ -65,4 +65,4 @@ namespace symir {
     std::string atomOpToString(AtomOpKind op);
   };
 
-} // namespace symir
+} // namespace refractir

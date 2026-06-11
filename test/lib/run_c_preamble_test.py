@@ -5,7 +5,7 @@ mandate IEEE 754 — the implementation declares conformance by predefining
 __STDC_IEC_559__. We can't *define* that macro ourselves (the standard
 reserves it for the implementation), but we MUST refuse to compile on a
 non-conforming platform and we MUST disable contraction so that operations
-like `a*b + c` match the SymIR interpreter and WASM lowering.
+like `a*b + c` match the RefractIR interpreter and WASM lowering.
 
 This is a single-shot test, not a per-file test suite — it invokes symirc
 on a minimal fixture and greps the emitted preamble. Output format mirrors
@@ -22,7 +22,7 @@ from test.lib.style import bold, green, red
 
 CWD = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Minimal self-contained SymIR input. The preamble is independent of the
+# Minimal self-contained RefractIR input. The preamble is independent of the
 # program body, so any well-typed function works.
 SIR_FIXTURE = """\
 fun @main() : i32 {

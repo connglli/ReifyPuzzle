@@ -14,7 +14,7 @@
 #include <vector>
 #include "ast/ast.hpp"
 
-namespace symir::reify {
+namespace refractir::reify {
 
   struct FuncDescriptor {
     // 6-char hex generation ID this descriptor was emitted under.
@@ -93,8 +93,8 @@ namespace symir::reify {
   // function named `@<funcName>` must exist in `prog.funs`; if it
   // doesn't, nothing is written and `false` is returned.
   bool writeFuncDescriptorFromProgram(
-      const std::filesystem::path &outPath, const std::string &funcName, const symir::Program &prog,
-      const std::vector<std::string> &pathLabels,
+      const std::filesystem::path &outPath, const std::string &funcName,
+      const refractir::Program &prog, const std::vector<std::string> &pathLabels,
       const std::vector<FuncDescriptor::Realization> &realizations, const std::string &genId
   );
 
@@ -105,4 +105,4 @@ namespace symir::reify {
   std::optional<FuncDescriptor> readFuncDescriptor(const std::filesystem::path &path);
   std::optional<FuncDescriptor> parseFuncDescriptor(const std::string &json);
 
-} // namespace symir::reify
+} // namespace refractir::reify

@@ -7,7 +7,7 @@ struct @Counter {
 
 fun @main() : i32 {
   // =========================================================================================
-  // SymIR Pointer Counter (v0.2.0)
+  // RefractIR Pointer Counter (v0.2.0)
   //
   // A counter abstraction encapsulated behind a `ptr i32`. The body of the loop never
   // touches the counter field directly — every increment goes through:

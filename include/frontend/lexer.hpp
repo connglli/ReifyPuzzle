@@ -5,10 +5,10 @@
 #include <vector>
 #include "ast/ast.hpp"
 
-namespace symir {
+namespace refractir {
 
   /**
-   * Enumeration of all token types recognized by the SymIR lexer.
+   * Enumeration of all token types recognized by the RefractIR lexer.
    */
   enum class TokenKind {
     End,
@@ -97,7 +97,7 @@ namespace symir {
   };
 
   /**
-   * Lexical analyzer for the SymIR language.
+   * Lexical analyzer for the RefractIR language.
    * Converts a source string into a sequence of tokens.
    */
   class Lexer {
@@ -126,4 +126,4 @@ namespace symir {
     Token next();
   };
 
-} // namespace symir
+} // namespace refractir
