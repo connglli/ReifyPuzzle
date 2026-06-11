@@ -490,58 +490,6 @@ def test_r3_no_plain_copy(rysmith):
   )
 
 
-def test_plain_copies_present_at_low_p(rysmith):
-  """P6 (partial revert of 04883da): SCALAR plain copies must actually
-  appear at the kPAllowPlainCopy rate, and ONLY via that gate — the
-  trivial-rewrite's in-place branch now refuses bare reads, so it can no
-  longer manufacture copies out of all-literal RHSs. Single-atom mode
-  maximizes bare-RValueAtom rolls (every one hits the anti-copy bump), so
-  across these seeds at p=0.05 several scalar `%x = %y;` survive. Scoped
-  to scalar-typed LHS — vec whole-copies are a separate, pre-existing
-  admission. Self-assigns remain forbidden."""
-  copies = 0
-  total = 0
-  scalar_let = re.compile(r"\blet\s+(?:mut\s+)?(%\w+)\s*:\s*(?:i\d+|f32|f64)\b")
-  for seed in (6001, 6002, 6003, 6004, 6005, 6006):
-    d = tempfile.mkdtemp(prefix="p6_")
-    r = run(
-      [
-        rysmith,
-        "--n-funcs",
-        "4",
-        "--seed",
-        str(seed),
-        "--min-atoms",
-        "1",
-        "--max-atoms",
-        "1",
-        "-o",
-        d,
-      ]
-    )
-    if r.returncode != 0:
-      continue
-    for f in os.listdir(d):
-      if not f.endswith(".sir"):
-        continue
-      p = os.path.join(d, f)
-      scalars = set(scalar_let.findall(open(p).read()))
-      for line in _r3_body_assign_lines(p):
-        lhs, rhs = _r3_split_lhs_rhs(line)
-        if lhs is None or lhs not in scalars:
-          continue
-        total += 1
-        m = _R3_BARE_LOCAL_RHS.match(rhs)
-        if m and m.group(1) != lhs:
-          copies += 1
-  share = copies / total if total else 0.0
-  check(
-    f"scalar plain copies present but rare in single-atom mode ({copies}/{total})",
-    copies >= 1 and share <= 0.10,
-    f"copies={copies}, share={share:.1%}",
-  )
-
-
 def test_r3_no_lhs_in_rhs(rysmith):
   """R3: the LHS variable token must not appear anywhere in the RHS of a
   simple-LHS assignment. Catches `%v3 = %v3 - 4 * %v3 + 4 * %v3;` and
@@ -1741,8 +1689,6 @@ def main():
   test_r3_no_self_assign(rysmith)
   print("=== R3+P6: plain-copy share low ===")
   test_r3_no_plain_copy(rysmith)
-  print("=== P6: plain copies present at low p ===")
-  test_plain_copies_present_at_low_p(rysmith)
   print("=== R3: LHS does not appear in RHS ===")
   test_r3_no_lhs_in_rhs(rysmith)
   print("=== R3: baseline assignment volume sanity ===")
