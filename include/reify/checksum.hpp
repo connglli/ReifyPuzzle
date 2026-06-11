@@ -37,7 +37,19 @@ namespace symir::reify {
   // emitted; 0 means the exit block did not contain a recognisable sum
   // chain and the program was left unchanged. Idempotent: a second call on
   // an already-rewritten program is a no-op and returns 0.
-  size_t rewriteExitToCrc32Checksum(symir::Program &prog, const std::string &funcName);
+  //
+  // The solver-seen SUM checksum deliberately omits pointer-pointee loads
+  // (buildSumChecksum skips ptr leaves), so the solver never constrained
+  // them. When re-adding `load %p` here we must therefore only load
+  // pointers whose exit-time target the solver actually resolved to a live
+  // object — `letExitValues[name]` is a `Ptr` with a non-empty
+  // `targetLocal`. A pointer left at an undef / cross-object value (empty
+  // targetLocal) is NOT loaded: dereferencing it is UB the solver could not
+  // see, which the strict interpreter would (rightly) trap on.
+  size_t rewriteExitToCrc32Checksum(
+      symir::Program &prog, const std::string &funcName,
+      const std::unordered_map<std::string, symir::SymbolicExecutor::LetExitValue> &letExitValues
+  );
 
   // ---------------------------------------------------------------------------
   // Minimal CRC32 oracle builder

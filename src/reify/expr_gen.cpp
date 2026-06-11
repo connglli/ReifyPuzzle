@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <functional>
 #include <optional>
 #include "reify/hyperparameters.hpp"
 #include "reify/intrinsic_whitelist.hpp"
@@ -832,6 +833,39 @@ namespace symir::reify {
       }
     }
 
+    // [P7] addr of a SUB-lvalue rooted at a let-mut aggregate local
+    // (`addr %t.f0`, `addr %a[1]`, and nested paths). Per SPEC §3.4.2 any
+    // sub-lvalue of a `let mut` local is addressable; field/element
+    // provenance is exactly the alias-analysis surface (-O3 SROA / TBAA)
+    // that whole-var addr never reaches. Params (immutable) are excluded.
+    std::function<void(const LValue &, const TypePtr &)> collectSub = [&](const LValue &lv,
+                                                                          const TypePtr &t) {
+      if (typeEquals(t, ptee))
+        options.push_back(Atom{AddrAtom{lv, {}}, {}});
+      if (auto *at = std::get_if<ArrayType>(&t->v)) {
+        for (uint64_t i = 0; i < at->size; i++) {
+          LValue sub = lv;
+          sub.accesses.push_back(AccessIndex{Index{IntLit{(int64_t) i, {}}}, {}});
+          collectSub(sub, at->elem);
+        }
+      } else if (auto *st = std::get_if<StructType>(&t->v)) {
+        for (const auto &sd: vars.structDecls) {
+          if (sd.name.name != st->name.name)
+            continue;
+          for (const auto &f: sd.fields) {
+            LValue sub = lv;
+            sub.accesses.push_back(AccessField{f.name, {}});
+            collectSub(sub, f.type);
+          }
+        }
+      }
+    };
+    for (const auto &v: vars.vars) {
+      if (v.isParam || nameExcluded(v.name) || !isAggType(v.type))
+        continue;
+      collectSub(LValue{LocalId{v.name, {}}, {}, {}}, v.type);
+    }
+
     // copy from an existing ptr T var (same type)
     for (auto *pv: vars.ptrsOf(ptee)) {
       if (nameExcluded(pv->name))
@@ -1553,13 +1587,24 @@ namespace symir::reify {
         return false;
       auto *pv = pickOne(rng, ptrVars);
       TypePtr ptee = pointeeType(pv->type);
-      if (!isIntType(ptee) && !isFpType(ptee))
-        return false;
       Expr ptrExpr = simpleExpr(rvalAtom(localLV(pv->name)));
-      auto [valExpr, reqs] = genExprWithRequires(rng, sym, vars, ptee, onPath, cfg);
-      if (onPath) {
-        for (auto &req: reqs)
-          result.push_back(std::move(req));
+      Expr valExpr;
+      if (isIntType(ptee) || isFpType(ptee)) {
+        auto [ve, reqs] = genExprWithRequires(rng, sym, vars, ptee, onPath, cfg);
+        if (onPath)
+          for (auto &req: reqs)
+            result.push_back(std::move(req));
+        valExpr = std::move(ve);
+      } else if (isPtrType(ptee)) {
+        // [P7] Store a pointer value through a `ptr ptr T` slot. genPtrAtom
+        // yields a single valid pointer atom (addr / ptr-copy / load /
+        // ptrindex / ptrfield); the solver models the stored provenance, so
+        // a later load through the slot reads the right object on-path.
+        valExpr = simpleExpr(genPtrAtom(rng, vars, ptee));
+      } else {
+        // Aggregate pointee — no whole-aggregate store (SPEC: navigate to a
+        // scalar/pointer leaf first).
+        return false;
       }
       StoreInstr st;
       st.ptr = std::move(ptrExpr);

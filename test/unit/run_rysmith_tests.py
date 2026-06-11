@@ -1665,6 +1665,33 @@ def test_offpath_select_cond_nonzero_rhs(rysmith):
   )
 
 
+def test_sublvalue_addr_generated(rysmith):
+  """P7: `addr` of a sub-lvalue (`addr %t.f0`, `addr %a[1]`) is grammar-legal
+  (SPEC: any sub-lvalue rooted at a let-mut local) and exercises field /
+  element provenance — SROA/TBAA territory. Pre-change only whole-var
+  `addr %v` was generated."""
+  text = _collect_sym_text(rysmith, _P7_SEEDS)
+  n = len(re.findall(r"addr %\w+[.\[]", text))
+  check(
+    f"sub-lvalue addr present ({n} found)",
+    n >= 5,
+    f"found={n}",
+  )
+
+
+def test_pointer_store_generated(rysmith):
+  """P7: storing a pointer value through a `ptr ptr T` (`store %pp, addr %x`)
+  — alias-analysis stress. Pre-change `tryEmitStore` restricted the pointee
+  to int/fp, so a store whose VALUE is `addr ...` never appeared."""
+  text = _collect_sym_text(rysmith, _P7_SEEDS)
+  n = len(re.findall(r"store %\w+, addr ", text))
+  check(
+    f"pointer-valued store present ({n} found)",
+    n >= 3,
+    f"found={n}",
+  )
+
+
 def test_custom_int_widths_generated(rysmith):
   """P7: the SPEC admits any `iN` (`IntType := "i" Nat`) and the whole
   toolchain implements iN via widen-and-mask — a surface with zero
@@ -1784,6 +1811,10 @@ def main():
   test_offpath_select_cond_nonzero_rhs(rysmith)
   print("=== P7: custom iN widths ===")
   test_custom_int_widths_generated(rysmith)
+  print("=== P7: sub-lvalue addr ===")
+  test_sublvalue_addr_generated(rysmith)
+  print("=== P7: pointer-valued store ===")
+  test_pointer_store_generated(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

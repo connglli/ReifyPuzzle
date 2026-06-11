@@ -319,7 +319,7 @@ static GenerateResult generateLeaf(
         // pre-rewrite `res.retModel` (the solver's sum) is now stale
         // and is dropped from the SOLVED header so the post-rewrite
         // symiri value can take its place below.
-        size_t crcUpdates = rewriteExitToCrc32Checksum(prog, funcName);
+        size_t crcUpdates = rewriteExitToCrc32Checksum(prog, funcName, res.letExitValues);
         bool rewriteApplied = crcUpdates > 0;
         if (rewriteApplied)
           res.retModel.reset();

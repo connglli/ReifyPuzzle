@@ -117,7 +117,21 @@ namespace symir::reify {
 
   } // namespace
 
-  size_t rewriteExitToCrc32Checksum(symir::Program &prog, const std::string &funcName) {
+  size_t rewriteExitToCrc32Checksum(
+      symir::Program &prog, const std::string &funcName,
+      const std::unordered_map<std::string, symir::SymbolicExecutor::LetExitValue> &letExitValues
+  ) {
+    // A pointer let may be checksummed only if the solver resolved its
+    // exit-time target to a live object (Ptr kind, non-empty targetLocal).
+    // An unresolved target (undef pointer, cross-object arithmetic) means
+    // `load %p` would dereference an address the solver never constrained —
+    // UB the strict interpreter traps on but the SUM never exercised.
+    auto pointerLoadable = [&](const std::string &name) {
+      auto it = letExitValues.find(name);
+      return it != letExitValues.end() &&
+             it->second.kind == symir::SymbolicExecutor::LetExitValue::Kind::Ptr &&
+             !it->second.targetLocal.empty();
+    };
     // 1. Find the entry function.
     FunDecl *entry = nullptr;
     std::string canonical = funcName.empty() || funcName[0] == '@' ? funcName : "@" + funcName;
@@ -229,6 +243,8 @@ namespace symir::reify {
         continue;
       if (!isScalarType(ptee) || isPtrType(ptee))
         continue; // ptr-to-ptr / ptr-to-aggregate: skip
+      if (!pointerLoadable(let.name.name))
+        continue; // exit-time target unresolved (undef / cross-object): unsafe to load
       ptrLets.push_back({let.name.name, ptee});
     }
     for (const auto &pl: ptrLets) {
