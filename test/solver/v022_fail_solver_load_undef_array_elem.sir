@@ -1,11 +1,23 @@
 // EXPECT: FAIL:UndefinedBehavior
 // SOLVER_ARGS: --main @main --path '^entry'
+// SKIP: COMPILER
 // [v0.2.2] Regression: reading an uninitialised aggregate cell is UB (SPEC
 // rule 3). The solver's `load` used to force its result `is_defined = true`,
 // so it would happily concretize a path that loads `%a[0]` (undef) and uses
 // the value — a path the strict interpreter rejects, yielding a solver/interp
 // divergence. The fix propagates the loaded cell's definedness through the
 // load mux; using the undef value then makes the path UNSAT.
+//
+// The COMPILER skip is required because this UB is value-level definedness:
+// a read of an undef cell through a valid, in-bounds, non-null pointer. The
+// compiler is a refinement (docs/symirc.md §"Refinement and Undefined Behavior
+// Semantics"): undef lowers to a concrete 0 and the load reads it cleanly, so
+// the binary exits 0. None of the C target's enabled sanitizers (address,
+// undefined, float-cast-overflow, pointer-compare, pointer-subtract) observe
+// read-of-undef — that needs MemorySanitizer, which is incompatible with the
+// harness's ASan. The solver runner detects this UB via the is_defined path
+// constraint. Same rationale as ub_undef_array / ub_undef_struct /
+// fail_ub_nested_undef_struct.
 fun @main() : i32 {
   let mut %a: [2] i32 = {undef, undef};
   let mut %p: ptr i32 = undef;
