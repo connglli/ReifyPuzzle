@@ -935,6 +935,122 @@ namespace refractir::reify {
   }
 
   // ---------------------------------------------------------------------------
+  // genPtrArithRhs
+  //
+  // Build an in-bounds pointer-arithmetic RHS for reassigning a `ptr F`
+  // (F scalar) local, or return nullopt if no provably-safe source is in
+  // scope. Two shapes, drawn uniformly across every candidate:
+  //
+  //   (array)  `ptrindex %ap, b ± d`   off `%ap : ptr [N] F`
+  //            b and b±d both in [0, N-1] — real elements (§7.5 rule 16),
+  //            so the result stays dereferenceable on any path.
+  //
+  //   (struct) `ptrfield %sp, f_p ± d`  off `%sp : ptr @S`, where f_p and
+  //            f_{p±d} belong to a maximal run of CONSECUTIVE same-type
+  //            (== F) fields. A `ptrfield` result's provenance is the whole
+  //            struct (§7.5 rule 15), so arithmetic may roam its sizeof(@S)
+  //            bytes; the packed layout (no padding) makes the stride
+  //            d·sizeof(F) land exactly on f_{p±d}, an F-typed cell, so the
+  //            eventual load satisfies the typed-access check (rule 15b).
+  //
+  // The offset d is non-zero (genuine arithmetic, including the `- iN` form
+  // a plain navigate never produces) and a literal, and provenance never
+  // leaves the originating aggregate (rule 10 / 15), so no path-dependent UB
+  // can arise — the result is safe to `load` even though we cannot know here
+  // whether a later block will.
+  // ---------------------------------------------------------------------------
+  static std::optional<Expr> genPtrArithRhs(
+      std::mt19937 &rng, const VarCatalogue &vars, const TypePtr &lhsPtee,
+      const std::string &lhsName
+  ) {
+    struct Cand {
+      bool isStruct;
+      std::string src;                    // source pointer var name
+      uint64_t arrayN = 0;                // array shape: element count N
+      std::vector<std::string> runFields; // struct shape: same-type field run
+    };
+
+    std::vector<Cand> cands;
+
+    for (const auto &v: vars.vars) {
+      if (v.name == lhsName || !isPtrType(v.type))
+        continue;
+      auto ptee = pointeeType(v.type);
+      if (!ptee)
+        continue;
+
+      // Array source: `%ap : ptr [N] F` with N >= 2 (so a distinct base and
+      // result index exist).
+      if (auto *at = std::get_if<ArrayType>(&ptee->v)) {
+        if (at->size >= 2 && typeEquals(at->elem, lhsPtee))
+          cands.push_back({false, v.name, at->size, {}});
+        continue;
+      }
+
+      // Struct source: `%sp : ptr @S` with a run of >= 2 consecutive
+      // same-type fields whose type matches F. Emit one candidate per run.
+      if (auto *st = std::get_if<StructType>(&ptee->v)) {
+        const StructDecl *sd = nullptr;
+        for (const auto &d: vars.structDecls)
+          if (d.name.name == st->name.name) {
+            sd = &d;
+            break;
+          }
+        if (!sd)
+          continue;
+        std::size_t i = 0;
+        while (i < sd->fields.size()) {
+          std::size_t j = i;
+          while (j < sd->fields.size() && typeEquals(sd->fields[j].type, sd->fields[i].type))
+            j++;
+          // [i, j) is a maximal run of identically-typed fields.
+          if ((j - i) >= 2 && typeEquals(sd->fields[i].type, lhsPtee)) {
+            std::vector<std::string> run;
+            for (std::size_t k = i; k < j; k++)
+              run.push_back(sd->fields[k].name);
+            cands.push_back({true, v.name, 0, std::move(run)});
+          }
+          i = j;
+        }
+      }
+    }
+
+    if (cands.empty())
+      return std::nullopt;
+
+    const Cand &c = cands[std::uniform_int_distribution<std::size_t>(0, cands.size() - 1)(rng)];
+
+    // Navigable extent M (array elements / run fields), then a base position
+    // b and a DISTINCT result position r within it. Drawing r over [0, M-2]
+    // and bumping it past b yields a uniform pick from [0, M-1] \ {b}, so the
+    // offset d = r - b is always non-zero.
+    int64_t M = c.isStruct ? (int64_t) c.runFields.size() : (int64_t) c.arrayN;
+    int64_t b = std::uniform_int_distribution<int64_t>(0, M - 1)(rng);
+    int64_t r = std::uniform_int_distribution<int64_t>(0, M - 2)(rng);
+    if (r >= b)
+      r++;
+    int64_t d = r - b;
+
+    Atom nav;
+    if (c.isStruct) {
+      PtrFieldAtom pf;
+      pf.rval = localLV(c.src);
+      pf.field = c.runFields[(std::size_t) b];
+      nav = Atom{std::move(pf), {}};
+    } else {
+      PtrIndexAtom pi;
+      pi.rval = localLV(c.src);
+      pi.index = Index{IntLit{b, {}}};
+      nav = Atom{std::move(pi), {}};
+    }
+
+    Expr rhs;
+    rhs.first = std::move(nav);
+    rhs.rest.push_back({d > 0 ? AddOp::Plus : AddOp::Minus, coefAtom(intCoef(d > 0 ? d : -d)), {}});
+    return rhs;
+  }
+
+  // ---------------------------------------------------------------------------
   // Trivial-shape post-check helpers
   //
   // Shared by `genExpr` and `genExprWithRequires`. The two callers used to
@@ -1720,52 +1836,18 @@ namespace refractir::reify {
           // Ptr reassignment: redirect to another target.
           lhs = localLV(lhsVar->name);
 
-          // First try the pointer-arithmetic slot. The only in-bounds
-          // non-zero ptr arithmetic reify can prove safe is
-          // `ptrindex %ap, k + 1` off an aggregate-ptr
-          // `%ap : ptr [N] T_scalar`: that pointer demonstrably has room
-          // for at least one more element. With probability `kPPtrArith`
-          // and a matching agg-ptr source in scope, emit
-          // `ptrindex %ap, k + 1` with `k ∈ [0, N - 2]` so the result is
-          // `&%ap[k+1]`, inside the same array object — safe to `load`
-          // later without provenance UB regardless of the execution path.
+          // First try the pointer-arithmetic slot: an in-bounds element step
+          // off an aggregate the LHS pointee lives in. genPtrArithRhs covers
+          // both `ptrindex %ap, b ± d` (array element) and
+          // `ptrfield %sp, f ± d` (consecutive same-type struct fields),
+          // each provably load-safe on any path. It falls through (nullopt)
+          // when no such source is in scope.
           TypePtr lhsPtee = pointeeType(lhsVar->type);
           std::uniform_real_distribution<double> ptrArithCoin(0.0, 1.0);
           bool emittedPtrArith = false;
           if (lhsPtee && isScalarType(lhsPtee) && ptrArithCoin(rng) < rysmith::hp::kPPtrArith) {
-            struct AggSrc {
-              std::string name;
-              uint64_t size;
-            };
-
-            std::vector<AggSrc> candidates;
-            for (const auto &v: vars.vars) {
-              if (v.name == lhsVar->name)
-                continue;
-              if (!isPtrType(v.type))
-                continue;
-              auto innerPtee = pointeeType(v.type);
-              if (!innerPtee || !std::holds_alternative<ArrayType>(innerPtee->v))
-                continue;
-              const auto &at = std::get<ArrayType>(innerPtee->v);
-              if (!typeEquals(at.elem, lhsPtee))
-                continue;
-              if (at.size < 2) // need both k and k+1 in bounds
-                continue;
-              candidates.push_back({v.name, at.size});
-            }
-            if (!candidates.empty()) {
-              const auto &src = candidates
-                  [std::uniform_int_distribution<std::size_t>(0, candidates.size() - 1)(rng)];
-              std::uniform_int_distribution<int64_t> idxd(0, (int64_t) src.size - 2);
-              int64_t k = idxd(rng);
-              PtrIndexAtom pi;
-              pi.rval = localLV(src.name);
-              pi.index = Index{IntLit{k, {}}};
-              Expr rhs;
-              rhs.first = Atom{std::move(pi), {}};
-              rhs.rest.push_back({AddOp::Plus, coefAtom(intCoef(1)), {}});
-              result.push_back(Instr{AssignInstr{std::move(lhs), std::move(rhs), {}}});
+            if (auto rhs = genPtrArithRhs(rng, vars, lhsPtee, lhsVar->name)) {
+              result.push_back(Instr{AssignInstr{std::move(lhs), std::move(*rhs), {}}});
               assignEmitted = true;
               emittedPtrArith = true;
             }

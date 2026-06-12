@@ -1640,21 +1640,33 @@ def test_pointer_store_generated(rysmith):
   )
 
 
-# Pointer arithmetic. A `ptr T_scalar` reassign can emit in-bounds
-# `ptrindex %ap, k + 1` off an aggregate-ptr `%ap : ptr [N] T_scalar`
-# (k bounded to [0, N-2], so &%ap[k+1] stays inside the array and is
-# load-safe). This shape needs an array-ptr and a matching scalar-ptr to
-# coexist in one function, which is sparse at the default --n-vars; the
-# collector below widens vars/statements so the precondition is reliably
-# met across the band (rather than concentrating in one lucky seed).
+# Pointer arithmetic. A `ptr T_scalar` reassign can emit two in-bounds
+# pointer-arithmetic shapes:
+#   - array:  `ptrindex %ap, b ± d` off `%ap : ptr [N] T_scalar`, b and
+#             b±d in [0, N-1] (real, loadable elements);
+#   - struct: `ptrfield %sp, f ± d` off `%sp : ptr @S`, stepping across a
+#             run of consecutive same-type fields so the result lands on a
+#             same-typed (loadable) field cell.
+# Both need an aggregate source and a matching scalar-ptr to coexist in one
+# function, which is sparse at the default sizing; the collector widens
+# vars/statements/agg-elems so the precondition is reliably met across the
+# band rather than concentrating in one lucky seed.
 _PTR_ARITH_SEEDS = (9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008)
+# Array element step, e.g. `ptrindex %ap, 2 + 1` or `ptrindex %ap, 2 - 1`.
 _PTR_ARITH_RE = re.compile(r"ptrindex %\w+,\s*-?\d+\s*[+-]\s*\d+")
+# The `ptr - iN` (negative-offset) form specifically — never emitted before
+# the offset was generalized away from a constant `+ 1`.
+_PTR_ARITH_NEG_RE = re.compile(r"ptrindex %\w+,\s*-?\d+\s*-\s*\d+")
+# Struct field step, e.g. `ptrfield %sp, f1 + 1` or `ptrfield %sp, f2 - 1`.
+_PTR_FIELD_ARITH_RE = re.compile(r"ptrfield %\w+,\s*\w+\s*[+-]\s*\d+")
 
 
 def _collect_ptr_arith_text(rysmith, seeds):
   """Concatenated symbolic-dump text across seeds, generated dense enough
-  (more vars + statements per function) that array-ptr and scalar-ptr vars
-  reliably coexist — the precondition for a ptr-arithmetic reassign."""
+  (more vars + statements, and wider structs/arrays via --max-agg-elems)
+  that aggregate sources and a matching scalar-ptr reliably coexist — the
+  precondition for a ptr-arithmetic reassign, including the struct shape
+  which additionally needs a same-type field run."""
   chunks = []
   for seed in seeds:
     d = tempfile.mkdtemp(prefix="ptrarith_")
@@ -1665,6 +1677,8 @@ def _collect_ptr_arith_text(rysmith, seeds):
       "--n-vars",
       "20",
       "--n-stmts",
+      "6",
+      "--max-agg-elems",
       "6",
       "--seed",
       str(seed),
@@ -1682,20 +1696,36 @@ def _collect_ptr_arith_text(rysmith, seeds):
 
 
 def test_ptr_arith_reassign_generated(rysmith):
-  """A `ptr T_scalar` reassignment can emit in-bounds pointer arithmetic
-  `%p = ptrindex %ap, k + 1;` off an aggregate-ptr `%ap : ptr [N] T_scalar`
-  (k ∈ [0, N-2], so the result &%ap[k+1] stays inside the array object and
-  is load-safe regardless of the execution path). Pre-change ptr reassigns
-  were single-atom only (`simpleExpr(genPtrAtom(...))`), so a `ptrindex
-  ... + N` tail could never appear. Also depends on the var_catalogue
-  allAddressable() fix, which lets whole-aggregate `addr %arr` feed the
-  `ptr [N] T` sources this indexes."""
+  """A `ptr T_scalar` reassignment can emit in-bounds pointer arithmetic.
+  Three behaviours are asserted:
+
+    1. array element step `%p = ptrindex %ap, b ± d;` (b, b±d ∈ [0, N-1]);
+    2. the negative-offset (`ptr - iN`) form — impossible before the offset
+       was generalized away from the original constant `+ 1`;
+    3. struct field step `%p = ptrfield %sp, f ± d;` across a run of
+       consecutive same-type fields (lands on a same-typed, loadable cell
+       per SPEC §7.5 rule 15b).
+
+  Pre-feature ptr reassigns were single-atom only (`genPtrAtom`), so no
+  arithmetic tail could appear at all."""
   text = _collect_ptr_arith_text(rysmith, _PTR_ARITH_SEEDS)
-  n = len(_PTR_ARITH_RE.findall(text))
+  n_arr = len(_PTR_ARITH_RE.findall(text))
+  n_neg = len(_PTR_ARITH_NEG_RE.findall(text))
+  n_field = len(_PTR_FIELD_ARITH_RE.findall(text))
   check(
-    f"in-bounds ptr-arith reassignment present ({n} found)",
-    n >= 3,
-    f"found={n}",
+    f"array ptr-arith reassignment present ({n_arr} found)",
+    n_arr >= 3,
+    f"found={n_arr}",
+  )
+  check(
+    f"negative-offset (ptr - iN) array arith present ({n_neg} found)",
+    n_neg >= 3,
+    f"found={n_neg}",
+  )
+  check(
+    f"struct field ptr-arith reassignment present ({n_field} found)",
+    n_field >= 3,
+    f"found={n_field}",
   )
 
 

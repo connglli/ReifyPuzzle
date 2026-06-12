@@ -140,17 +140,19 @@ namespace refractir::reify::rysmith::hp {
   inline constexpr double kPAllowPlainCopy = 0.05;
 
   // Probability that a `ptr T_scalar` LHS reassign emits a pointer-
-  // arithmetic RHS (`ptrindex %ap, k + 1`) instead of the default
-  // single-atom `genPtrAtom` form. Requires an aggregate-ptr source
-  // var `%ap : ptr [N] T_scalar` whose element type matches the LHS
-  // pointee — otherwise the slot falls through. The offset literal is
-  // constant `1` and the base index `k` is bounded to `[0, N-2]`, so
-  // the result `&%ap[k+1]` is guaranteed in-bounds (and therefore
-  // loadable without provenance UB) regardless of `--validate`'s
-  // execution path. This is the only in-bounds non-zero pointer
-  // arithmetic reify can prove safe, since every default reify scalar
-  // ptr is `addr %scalar` (a single-element object with no room to
-  // step).
+  // arithmetic RHS instead of the default single-atom `genPtrAtom` form.
+  // Two provably in-bounds shapes (see genPtrArithRhs), drawn uniformly
+  // across whatever sources are in scope; the slot falls through when
+  // none exist:
+  //   - array:  `ptrindex %ap, b ± d` off `%ap : ptr [N] T_scalar`, with
+  //             b and b±d in [0, N-1] (real, loadable elements);
+  //   - struct: `ptrfield %sp, f ± d` off `%sp : ptr @S`, stepping across
+  //             a run of consecutive same-type fields so the result lands
+  //             on a same-typed (loadable) field cell.
+  // Both keep provenance inside the originating aggregate and use a
+  // non-zero literal offset (so they also exercise the `ptr - iN` path).
+  // A bare scalar `%p ± d` is NOT emitted: reify's default scalar ptr is
+  // `addr %scalar`, a single-element object with no room to step.
   inline constexpr double kPPtrArith = 0.25;
 
   // How many times `genExpr` / `genExprWithRequires` tries to roll a
