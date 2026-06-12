@@ -139,6 +139,20 @@ namespace refractir::reify::rysmith::hp {
   // excluded from every RHS pool).
   inline constexpr double kPAllowPlainCopy = 0.05;
 
+  // Probability that a `ptr T_scalar` LHS reassign emits a pointer-
+  // arithmetic RHS (`ptrindex %ap, k + 1`) instead of the default
+  // single-atom `genPtrAtom` form. Requires an aggregate-ptr source
+  // var `%ap : ptr [N] T_scalar` whose element type matches the LHS
+  // pointee — otherwise the slot falls through. The offset literal is
+  // constant `1` and the base index `k` is bounded to `[0, N-2]`, so
+  // the result `&%ap[k+1]` is guaranteed in-bounds (and therefore
+  // loadable without provenance UB) regardless of `--validate`'s
+  // execution path. This is the only in-bounds non-zero pointer
+  // arithmetic reify can prove safe, since every default reify scalar
+  // ptr is `addr %scalar` (a single-element object with no room to
+  // step).
+  inline constexpr double kPPtrArith = 0.25;
+
   // How many times `genExpr` / `genExprWithRequires` tries to roll a
   // non-trivial atom before giving up and accepting whatever the gen
   // returns. With the ~40-50% trivial rate of the on/off-path atom

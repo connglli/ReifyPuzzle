@@ -62,8 +62,16 @@ namespace refractir::reify {
 
   std::vector<const VarEntry *> VarCatalogue::allAddressable() const {
     std::vector<const VarEntry *> result;
+    // Per spec §3.5.2 `addr` only requires a `let mut` root — any
+    // non-param, non-vec local qualifies (scalars, ptrs, AND aggregates).
+    // Pre-fix this excluded `isAggType`, so `addr %arr` / `addr %struct`
+    // (whole-aggregate addr-of) was never offered here: a `ptr [N] T` /
+    // `ptr @S` LHS reassign in `genPtrAtom` then had to rely on the P7
+    // sub-lvalue walk alone, and starved out the whole-aggregate target
+    // that pointer-arithmetic sources (`ptr [N] T_scalar`) are built on.
+    // Vectors stay excluded — spec §3 forbids `addr` on vector locals.
     for (const auto &v: vars)
-      if (!v.isParam && !isAggType(v.type)) // scalars and ptr vars are addressable
+      if (!v.isParam && !isVecType(v.type))
         result.push_back(&v);
     return result;
   }

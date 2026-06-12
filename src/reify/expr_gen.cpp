@@ -1717,20 +1717,74 @@ namespace refractir::reify {
             }
           }
         } else if (isPtrType(lhsVar->type)) {
-          // Ptr reassignment: redirect to another target
+          // Ptr reassignment: redirect to another target.
           lhs = localLV(lhsVar->name);
-          // Exclude the LHS ptr from its own RHS pool — `%p = %p;` is
-          // a no-op that SCCP folds; the ptr-copy slot of genPtrAtom picks
-          // from `vars.ptrsOf(ptee)` which would otherwise include %p.
-          // Bare `%p = %q;` (q != p) is intentionally permitted — adding
-          // pointer arithmetic like `%p = %q + 1;` would push %p past
-          // single-element objects (every reify ptr is `addr %scalar`),
-          // making any later `load %p` UB. Aliasing through a plain ptr
-          // copy is a useful, semantically distinct shape from a true
-          // self-assign.
-          Expr rhs = simpleExpr(genPtrAtom(rng, vars, lhsVar->type, lhsVar->name));
-          result.push_back(Instr{AssignInstr{std::move(lhs), std::move(rhs), {}}});
-          assignEmitted = true;
+
+          // First try the pointer-arithmetic slot. The only in-bounds
+          // non-zero ptr arithmetic reify can prove safe is
+          // `ptrindex %ap, k + 1` off an aggregate-ptr
+          // `%ap : ptr [N] T_scalar`: that pointer demonstrably has room
+          // for at least one more element. With probability `kPPtrArith`
+          // and a matching agg-ptr source in scope, emit
+          // `ptrindex %ap, k + 1` with `k ∈ [0, N - 2]` so the result is
+          // `&%ap[k+1]`, inside the same array object — safe to `load`
+          // later without provenance UB regardless of the execution path.
+          TypePtr lhsPtee = pointeeType(lhsVar->type);
+          std::uniform_real_distribution<double> ptrArithCoin(0.0, 1.0);
+          bool emittedPtrArith = false;
+          if (lhsPtee && isScalarType(lhsPtee) && ptrArithCoin(rng) < rysmith::hp::kPPtrArith) {
+            struct AggSrc {
+              std::string name;
+              uint64_t size;
+            };
+
+            std::vector<AggSrc> candidates;
+            for (const auto &v: vars.vars) {
+              if (v.name == lhsVar->name)
+                continue;
+              if (!isPtrType(v.type))
+                continue;
+              auto innerPtee = pointeeType(v.type);
+              if (!innerPtee || !std::holds_alternative<ArrayType>(innerPtee->v))
+                continue;
+              const auto &at = std::get<ArrayType>(innerPtee->v);
+              if (!typeEquals(at.elem, lhsPtee))
+                continue;
+              if (at.size < 2) // need both k and k+1 in bounds
+                continue;
+              candidates.push_back({v.name, at.size});
+            }
+            if (!candidates.empty()) {
+              const auto &src = candidates
+                  [std::uniform_int_distribution<std::size_t>(0, candidates.size() - 1)(rng)];
+              std::uniform_int_distribution<int64_t> idxd(0, (int64_t) src.size - 2);
+              int64_t k = idxd(rng);
+              PtrIndexAtom pi;
+              pi.rval = localLV(src.name);
+              pi.index = Index{IntLit{k, {}}};
+              Expr rhs;
+              rhs.first = Atom{std::move(pi), {}};
+              rhs.rest.push_back({AddOp::Plus, coefAtom(intCoef(1)), {}});
+              result.push_back(Instr{AssignInstr{std::move(lhs), std::move(rhs), {}}});
+              assignEmitted = true;
+              emittedPtrArith = true;
+            }
+          }
+
+          if (!emittedPtrArith) {
+            // Default: single-atom ptr redirect via `genPtrAtom`.
+            // Exclude the LHS ptr from its own RHS pool — `%p = %p;` is
+            // a no-op that SCCP folds; the ptr-copy slot inside
+            // `genPtrAtom` would otherwise include `%p`. Bare `%p = %q;`
+            // (q != p) is intentionally permitted — aliasing through a
+            // plain ptr copy is a useful, semantically distinct shape,
+            // and adding `+ 1` to an arbitrary scalar-ptr source would
+            // step past its single-element `addr %scalar` object and
+            // make any later `load %p` UB.
+            Expr rhs = simpleExpr(genPtrAtom(rng, vars, lhsVar->type, lhsVar->name));
+            result.push_back(Instr{AssignInstr{std::move(lhs), std::move(rhs), {}}});
+            assignEmitted = true;
+          }
           continue;
         } else if (isVecType(lhsVar->type)) {
           // [v0.2.1] Vec assignment: whole-vec only if we have another vec

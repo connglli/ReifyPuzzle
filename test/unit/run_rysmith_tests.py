@@ -1640,6 +1640,65 @@ def test_pointer_store_generated(rysmith):
   )
 
 
+# Pointer arithmetic. A `ptr T_scalar` reassign can emit in-bounds
+# `ptrindex %ap, k + 1` off an aggregate-ptr `%ap : ptr [N] T_scalar`
+# (k bounded to [0, N-2], so &%ap[k+1] stays inside the array and is
+# load-safe). This shape needs an array-ptr and a matching scalar-ptr to
+# coexist in one function, which is sparse at the default --n-vars; the
+# collector below widens vars/statements so the precondition is reliably
+# met across the band (rather than concentrating in one lucky seed).
+_PTR_ARITH_SEEDS = (9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008)
+_PTR_ARITH_RE = re.compile(r"ptrindex %\w+,\s*-?\d+\s*[+-]\s*\d+")
+
+
+def _collect_ptr_arith_text(rysmith, seeds):
+  """Concatenated symbolic-dump text across seeds, generated dense enough
+  (more vars + statements per function) that array-ptr and scalar-ptr vars
+  reliably coexist — the precondition for a ptr-arithmetic reassign."""
+  chunks = []
+  for seed in seeds:
+    d = tempfile.mkdtemp(prefix="ptrarith_")
+    cmd = [
+      rysmith,
+      "--n-funcs",
+      "6",
+      "--n-vars",
+      "20",
+      "--n-stmts",
+      "6",
+      "--seed",
+      str(seed),
+      "--keep-symbolic",
+      "-o",
+      d,
+    ]
+    r = run(cmd)
+    if r.returncode != 0:
+      continue
+    for f in os.listdir(d):
+      if "_sym" in f and f.endswith(".sir"):
+        chunks.append(open(os.path.join(d, f)).read())
+  return re.sub(r"//[^\n]*", "", "\n".join(chunks))
+
+
+def test_ptr_arith_reassign_generated(rysmith):
+  """A `ptr T_scalar` reassignment can emit in-bounds pointer arithmetic
+  `%p = ptrindex %ap, k + 1;` off an aggregate-ptr `%ap : ptr [N] T_scalar`
+  (k ∈ [0, N-2], so the result &%ap[k+1] stays inside the array object and
+  is load-safe regardless of the execution path). Pre-change ptr reassigns
+  were single-atom only (`simpleExpr(genPtrAtom(...))`), so a `ptrindex
+  ... + N` tail could never appear. Also depends on the var_catalogue
+  allAddressable() fix, which lets whole-aggregate `addr %arr` feed the
+  `ptr [N] T` sources this indexes."""
+  text = _collect_ptr_arith_text(rysmith, _PTR_ARITH_SEEDS)
+  n = len(_PTR_ARITH_RE.findall(text))
+  check(
+    f"in-bounds ptr-arith reassignment present ({n} found)",
+    n >= 3,
+    f"found={n}",
+  )
+
+
 def test_custom_int_widths_generated(rysmith):
   """P7: the SPEC admits any `iN` (`IntType := "i" Nat`) and the whole
   toolchain implements iN via widen-and-mask — a surface with zero
@@ -1761,6 +1820,8 @@ def main():
   test_sublvalue_addr_generated(rysmith)
   print("=== P7: pointer-valued store ===")
   test_pointer_store_generated(rysmith)
+  print("=== ptr-arith: in-bounds ptrindex reassignment ===")
+  test_ptr_arith_reassign_generated(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)
