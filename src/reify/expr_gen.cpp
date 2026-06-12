@@ -1845,7 +1845,8 @@ namespace refractir::reify {
           TypePtr lhsPtee = pointeeType(lhsVar->type);
           std::uniform_real_distribution<double> ptrArithCoin(0.0, 1.0);
           bool emittedPtrArith = false;
-          if (lhsPtee && isScalarType(lhsPtee) && ptrArithCoin(rng) < rysmith::hp::kPPtrArith) {
+          if (cfg.enablePtrArith && lhsPtee && isScalarType(lhsPtee) &&
+              ptrArithCoin(rng) < rysmith::hp::kPPtrArith) {
             if (auto rhs = genPtrArithRhs(rng, vars, lhsPtee, lhsVar->name)) {
               result.push_back(Instr{AssignInstr{std::move(lhs), std::move(*rhs), {}}});
               assignEmitted = true;

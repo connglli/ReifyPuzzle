@@ -535,6 +535,7 @@ int main(int argc, char **argv) {
     ("no-divmod",         "Disable integer division and modulo")
     ("no-select",         "Disable select ternary expressions")
     ("no-intrinsics",     "Disable intrinsic call generation")
+    ("no-ptrarith",       "Disable pointer arithmetics")
     // CFG
     ("n-bbls",            "Basic blocks between entry and exit per CFG",
                           cxxopts::value<int>()->default_value("15"))
@@ -668,6 +669,7 @@ int main(int argc, char **argv) {
   exprCfg.enableAllOps = true; // always enable all ops by default
   exprCfg.enableDiv = !result.count("no-divmod");
   exprCfg.enableSelect = !result.count("no-select");
+  exprCfg.enablePtrArith = !result.count("no-ptrarith");
   exprCfg.enableFp = typeCfg.enableFp;
   exprCfg.minAtoms = minAtoms;
   exprCfg.maxAtoms = maxAtoms;

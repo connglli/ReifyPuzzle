@@ -65,6 +65,11 @@ namespace refractir::reify {
     bool enableSelect = true; // select ternary
     bool enableFp = true;
     bool enableIntrinsics = true;
+    // Whether a `ptr T_scalar` reassign may emit an in-bounds pointer-
+    // arithmetic RHS (`ptrindex %ap, b ± d`, `ptrfield %sp, f ± d`, or a
+    // direct `%p = %q ± d`). Off via `--no-ptrarith`: these constraints add
+    // solver work, so callers that don't want the cost can suppress them.
+    bool enablePtrArith = true;
     int minAtoms = 1;
     int maxAtoms = 3;
     // [P3] Set by genCond for its arm expressions: branch/require conditions

@@ -1661,7 +1661,7 @@ _PTR_ARITH_NEG_RE = re.compile(r"ptrindex %\w+,\s*-?\d+\s*-\s*\d+")
 _PTR_FIELD_ARITH_RE = re.compile(r"ptrfield %\w+,\s*\w+\s*[+-]\s*\d+")
 
 
-def _collect_ptr_arith_text(rysmith, seeds):
+def _collect_ptr_arith_text(rysmith, seeds, extra_flags=None):
   """Concatenated symbolic-dump text across seeds, generated dense enough
   (more vars + statements, and wider structs/arrays via --max-agg-elems)
   that aggregate sources and a matching scalar-ptr reliably coexist — the
@@ -1686,6 +1686,8 @@ def _collect_ptr_arith_text(rysmith, seeds):
       "-o",
       d,
     ]
+    if extra_flags:
+      cmd.extend(extra_flags)
     r = run(cmd)
     if r.returncode != 0:
       continue
@@ -1693,6 +1695,32 @@ def _collect_ptr_arith_text(rysmith, seeds):
       if "_sym" in f and f.endswith(".sir"):
         chunks.append(open(os.path.join(d, f)).read())
   return re.sub(r"//[^\n]*", "", "\n".join(chunks))
+
+
+def test_no_ptrarith_flag(rysmith):
+  """`--no-ptrarith` disables every pointer-arithmetic shape — array
+  `ptrindex %ap, b ± d` and struct `ptrfield %sp, f ± d` (and, once added,
+  direct `%p = %q ± d`). The same dense config that emits many such shapes
+  by default must emit zero with the flag set, and generation must still
+  succeed. The explicit exit-0 check guards against a rejected flag
+  silently passing the zero-count assertion."""
+  d = tempfile.mkdtemp(prefix="noptrarith_")
+  r = run([rysmith, "--n-funcs", "2", "--no-ptrarith", "--seed", "9001", "-o", d])
+  check(
+    "--no-ptrarith is accepted (exit 0)",
+    r.returncode == 0,
+    f"rc={r.returncode}, stderr={r.stderr[:200]!r}",
+  )
+  text = _collect_ptr_arith_text(
+    rysmith, _PTR_ARITH_SEEDS, extra_flags=["--no-ptrarith"]
+  )
+  n_arr = len(_PTR_ARITH_RE.findall(text))
+  n_field = len(_PTR_FIELD_ARITH_RE.findall(text))
+  check(
+    f"--no-ptrarith emits zero ptr-arith (array={n_arr}, struct={n_field})",
+    n_arr == 0 and n_field == 0,
+    f"array={n_arr} struct={n_field}",
+  )
 
 
 def test_ptr_arith_reassign_generated(rysmith):
@@ -1852,6 +1880,8 @@ def main():
   test_pointer_store_generated(rysmith)
   print("=== ptr-arith: in-bounds ptrindex reassignment ===")
   test_ptr_arith_reassign_generated(rysmith)
+  print("=== ptr-arith: --no-ptrarith disables it ===")
+  test_no_ptrarith_flag(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)
