@@ -1034,24 +1034,51 @@ namespace refractir::reify {
         cands.push_back({rule.get(), s});
       }
     }
-    res.sitesFound = static_cast<int>(cands.size());
+    // Filter to the candidates whose callee actually matches the site before
+    // rolling any dice. matchCallee is a pure predicate (ret-type
+    // compatibility + a parseable realization value), so doing it up front is
+    // free and stops the accept coin and the apply() work budget below from
+    // being spent on sites that could never be spliced. Iterating sites and
+    // checking the match inline (the previous shape) let kMaxAttemptsPerEdge
+    // and the coin be burned on non-matching sites, so an edge could "fail"
+    // even though a perfect, appliable match sat further down the shuffle.
+    std::vector<Candidate> matched;
+    matched.reserve(cands.size());
+    for (auto &c: cands) {
+      if (c.rule->matchCallee(c.site, callee, fixedRealizationIdx))
+        matched.push_back(c);
+    }
 
-    if (!cands.empty()) {
-      std::shuffle(cands.begin(), cands.end(), rng);
+    res.sitesFound = static_cast<int>(matched.size());
+
+    if (!matched.empty()) {
+      std::shuffle(matched.begin(), matched.end(), rng);
       std::uniform_real_distribution<double> uni(0.0, 1.0);
 
+      // Accept probability is keyed on the match count (pRewriteForMatches) so
+      // the expected number of rewrites per edge stays bounded no matter how
+      // many sites match, while a lone match is always taken. With the per-
+      // edge break removed, several *distinct* sites may be spliced on one
+      // edge — each on a different let-init, never stacking on the same one.
+      const double pAccept = rylink::hp::pRewriteForMatches(matched.size());
+
       int attempts = 0;
-      for (auto &c: cands) {
+      for (auto &c: matched) {
         if (attempts++ >= rylink::hp::kMaxAttemptsPerEdge)
           break;
-        if (uni(rng) >= rylink::hp::kPRewrite)
+        // A site consumed earlier — on a prior edge or earlier in this very
+        // loop — must not be rewritten again: stacking calls on one let-init
+        // builds an `f1()+f2()+…` left-prefix sum that can wrap. See the
+        // RewriteEngine header note. Without break we now re-check here.
+        // A workaround is to introduce new variables and statements first.
+        // A complete solution would land when RefractIR support parentheses.
+        if (consumed_.count({&caller, c.site.letIdx}))
           continue;
-        if (!c.rule->matchCallee(c.site, callee, fixedRealizationIdx))
+        if (uni(rng) >= pAccept)
           continue;
         if (c.rule->apply(caller, callerDesc, c.site, callee, fixedRealizationIdx, rng)) {
           consumed_.insert({&caller, c.site.letIdx});
           ++res.sitesRewritten;
-          break;
         }
       }
     }

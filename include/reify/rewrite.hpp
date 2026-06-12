@@ -77,10 +77,14 @@ namespace refractir::reify {
   public:
     void addRule(std::unique_ptr<RewriteRule> r) { rules_.push_back(std::move(r)); }
 
-    // Try to rewrite at least one site in `caller` that calls into
-    // `callee`. The engine picks rules + sites randomly under `rng` and
-    // stops after the first successful splice OR after exhausting the
-    // configured per-edge attempts cap. Returns counters for telemetry.
+    // Rewrite sites in `caller` that call into `callee`. The engine
+    // filters sites to those whose callee matches, then rolls a
+    // count-keyed acceptance coin (pRewriteForMatches) per match under
+    // `rng`, splicing every accepted+appliable site — possibly several
+    // distinct sites per edge — up to the per-edge attempts cap. Each
+    // site is consumed once (see the composition-safety note below), so a
+    // given let-init is never spliced twice. Returns counters for
+    // telemetry.
     //
     // `fixedRealizationIdx` pins which realization of the callee the
     // rule must use — it has to be the one whose .sir was actually

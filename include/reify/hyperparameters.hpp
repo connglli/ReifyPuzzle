@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bit>
 #include <climits>
 #include <cstddef>
 #include <cstdint>
@@ -366,15 +367,39 @@ namespace refractir::reify::rylink::hp {
   // Rewrite engine
   //
   // Per caller→callee edge, the engine enumerates rewrite *sites* in the
-  // caller AST (literal initializers in v1; unchanged-var uses next) and
-  // tries up to kMaxAttemptsPerEdge (site × callee-realization) pairs before
-  // giving up. kPRewrite gates each individual attempt so most literals
-  // stay literal — without this throttle a caller saturated with matching
-  // literals would degenerate into a long chain of calls and lose all
-  // resemblance to the original synthesised program.
+  // caller AST (literal initializers in v1; unchanged-var uses next),
+  // filters them to the candidates whose callee matches, and then rolls an
+  // acceptance coin per matched candidate. kMaxAttemptsPerEdge bounds the
+  // fallible apply() retries; pRewriteForMatches() supplies the per-match
+  // accept probability, throttled by match count so a caller saturated with
+  // matching literals does not degenerate into a long chain of calls and
+  // lose all resemblance to the original synthesised program.
   // ===========================================================================
   inline constexpr int kMaxAttemptsPerEdge = 32; // hard work budget per edge
-  inline constexpr double kPRewrite = 0.50;      // per-site accept probability
+
+  // Acceptance probability for a single *matched* candidate, keyed on the
+  // number of matched candidates `n` on the edge.
+  //
+  // rewriteEdge filters sites to the matching ones and then rolls this coin
+  // per match (with the per-edge `break` removed, so several distinct sites
+  // can be spliced on one edge). A flat probability would make the expected
+  // number of rewrites grow linearly with the match count and saturate a
+  // caller with calls — the very degeneration the throttle exists to
+  // prevent. Halving the probability per power-of-two bucket keeps the
+  // expectation n·p in [1, 2) for every n, while a lone match (n == 1) is
+  // always taken so an edge never "fails" when a perfect site exists:
+  //
+  //   n = 1      -> 100%      n = 8..15 -> 12.5%
+  //   n = 2..3   -> 50%       n >= 16   -> 1 / 2^floor(log2 n)
+  //   n = 4..7   -> 25%
+  //
+  // std::bit_floor(n) is the largest power of two not exceeding n (and 0 at
+  // n == 0), so 1/bit_floor(n) realizes the curve directly.
+  inline constexpr double pRewriteForMatches(std::size_t n) {
+    if (n == 0)
+      return 0.0;
+    return 1.0 / static_cast<double>(std::bit_floor(n));
+  }
 
   // Per call-argument choice between the two argument modes
   // LiteralToCallRule supports:
