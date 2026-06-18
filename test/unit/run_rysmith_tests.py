@@ -1659,25 +1659,44 @@ _PTR_ARITH_RE = re.compile(r"ptrindex %\w+,\s*-?\d+\s*[+-]\s*\d+")
 _PTR_ARITH_NEG_RE = re.compile(r"ptrindex %\w+,\s*-?\d+\s*-\s*\d+")
 # Struct field step, e.g. `ptrfield %sp, f1 + 1` or `ptrfield %sp, f2 - 1`.
 _PTR_FIELD_ARITH_RE = re.compile(r"ptrfield %\w+,\s*\w+\s*[+-]\s*\d+")
+# Direct pointer-variable arithmetic `%p2 = %p1 ± d;` (both ptr-typed).
+_PTR_DECL_RE = re.compile(r"let\s+mut\s+(%\w+)\s*:\s*ptr\b")
+_VAR_ARITH_RE = re.compile(r"(?m)^\s*(%\w+)\s*=\s*(%\w+)\s*[+-]\s*\d+\s*;")
 
 
-def _collect_ptr_arith_text(rysmith, seeds, extra_flags=None):
+def _count_ptr_var_arith(text):
+  """Count `%p2 = %p1 ± d;` lines where both sides are ptr-typed locals —
+  the (3) direct pointer-variable arithmetic shape. A ptr-typed LHS assigned
+  `%var ± int` can only be pointer arithmetic (the typechecker forbids
+  `ptr = scalar`); requiring a ptr RHS base too excludes scalar
+  `%v = %w ± n`."""
+  ptrs = set(_PTR_DECL_RE.findall(text))
+  return sum(
+    1 for m in _VAR_ARITH_RE.finditer(text) if m.group(1) in ptrs and m.group(2) in ptrs
+  )
+
+
+def _collect_ptr_arith_text(
+  rysmith, seeds, extra_flags=None, n_funcs="6", n_vars="20", n_stmts="6"
+):
   """Concatenated symbolic-dump text across seeds, generated dense enough
   (more vars + statements, and wider structs/arrays via --max-agg-elems)
   that aggregate sources and a matching scalar-ptr reliably coexist — the
   precondition for a ptr-arithmetic reassign, including the struct shape
-  which additionally needs a same-type field run."""
+  which additionally needs a same-type field run. The direct ptr-var shape
+  additionally needs an array source in scope, which is denser at higher
+  --n-vars — hence the override knobs."""
   chunks = []
   for seed in seeds:
     d = tempfile.mkdtemp(prefix="ptrarith_")
     cmd = [
       rysmith,
       "--n-funcs",
-      "6",
+      n_funcs,
       "--n-vars",
-      "20",
+      n_vars,
       "--n-stmts",
-      "6",
+      n_stmts,
       "--max-agg-elems",
       "6",
       "--seed",
@@ -1716,10 +1735,11 @@ def test_no_ptrarith_flag(rysmith):
   )
   n_arr = len(_PTR_ARITH_RE.findall(text))
   n_field = len(_PTR_FIELD_ARITH_RE.findall(text))
+  n_var = _count_ptr_var_arith(text)
   check(
-    f"--no-ptrarith emits zero ptr-arith (array={n_arr}, struct={n_field})",
-    n_arr == 0 and n_field == 0,
-    f"array={n_arr} struct={n_field}",
+    f"--no-ptrarith emits zero ptr-arith (array={n_arr}, struct={n_field}, var={n_var})",
+    n_arr == 0 and n_field == 0 and n_var == 0,
+    f"array={n_arr} struct={n_field} var={n_var}",
   )
 
 
@@ -1754,6 +1774,35 @@ def test_ptr_arith_reassign_generated(rysmith):
     f"struct field ptr-arith reassignment present ({n_field} found)",
     n_field >= 3,
     f"found={n_field}",
+  )
+
+
+# The direct ptr-var shape (3) additionally needs an array source live in the
+# same function as the reassigned scalar-ptr; that coexistence is much denser
+# at higher --n-vars, so this collection widens vars/statements beyond the
+# array/struct band above. Fewer seeds keep the (heavier) generation bounded.
+_PTR_VAR_ARITH_SEEDS = (9001, 9002, 9003, 9004, 9005)
+
+
+def test_ptr_var_arith_generated(rysmith):
+  """(3) direct pointer-variable arithmetic: a coupled
+
+      %p1 = ptrindex %ap, i;
+      %p2 = %p1 ± d;          (i ± d ∈ [0, N-1])
+
+  where the step's left operand is a pointer READ FROM A VARIABLE — the only
+  shape exercising the `ptr_var ± iN` lowering path (the array/struct shapes
+  put a fresh navigation expression on the left). The anchor pins %p1's
+  provenance and literal index in the same block, so the bound holds by local
+  def-use."""
+  text = _collect_ptr_arith_text(
+    rysmith, _PTR_VAR_ARITH_SEEDS, n_funcs="8", n_vars="30", n_stmts="10"
+  )
+  n = _count_ptr_var_arith(text)
+  check(
+    f"direct ptr-var arithmetic present ({n} found)",
+    n >= 3,
+    f"found={n}",
   )
 
 
@@ -1880,6 +1929,8 @@ def main():
   test_pointer_store_generated(rysmith)
   print("=== ptr-arith: in-bounds ptrindex reassignment ===")
   test_ptr_arith_reassign_generated(rysmith)
+  print("=== ptr-arith: direct ptr-var arithmetic ===")
+  test_ptr_var_arith_generated(rysmith)
   print("=== ptr-arith: --no-ptrarith disables it ===")
   test_no_ptrarith_flag(rysmith)
 

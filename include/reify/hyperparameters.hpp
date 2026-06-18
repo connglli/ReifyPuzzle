@@ -155,6 +155,16 @@ namespace refractir::reify::rysmith::hp {
   // `addr %scalar`, a single-element object with no room to step.
   inline constexpr double kPPtrArith = 0.25;
 
+  // Within the ptr-arith slot above, probability of emitting the DIRECT
+  // pointer-variable form (`%p1 = ptrindex %ap, i; %p2 = %p1 ± d;`) rather
+  // than the combined ptrindex/ptrfield expression. The anchor pins %p1's
+  // provenance and index in the same block immediately before the step, so
+  // `i ± d` is bounds-checkable locally (def-use) and the result stays
+  // load-safe. This is the only shape that exercises `ptr_var ± iN` (a
+  // pointer read from a variable, not a fresh navigation); it falls back to
+  // the expression form when no array source is in scope.
+  inline constexpr double kPPtrArithVarShare = 0.40;
+
   // How many times `genExpr` / `genExprWithRequires` tries to roll a
   // non-trivial atom before giving up and accepting whatever the gen
   // returns. With the ~40-50% trivial rate of the on/off-path atom

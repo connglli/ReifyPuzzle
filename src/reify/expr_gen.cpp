@@ -1051,6 +1051,121 @@ namespace refractir::reify {
   }
 
   // ---------------------------------------------------------------------------
+  // tryEmitPtrVarArith
+  //
+  // Emit the DIRECT pointer-variable arithmetic shape for reassigning
+  // `%p2 : ptr F` (F scalar):
+  //
+  //   %p2 = %p1 ± d;             // ptr_var ± iN,  i ± d in [0, N-1]
+  //
+  // The step's left operand is a pointer READ FROM A VARIABLE, so this is
+  // the only shape that exercises the `ptr_var ± iN` lowering path. Rather
+  // than synthesising an anchor, we REUSE a pointer `%p1` already live in
+  // this block whose current value is a known in-bounds array element — its
+  // most-recent assignment is `%p1 = ptrindex %ap, <i>` or
+  // `%p1 = addr %a[<i>]` (literal i; `%ap : ptr [N] F` / `%a : [N] F`,
+  // F == lhsPtee, N ≥ 2) and it has not been reassigned since. Those anchors
+  // are emitted organically by genPtrAtom's ptrindex / sub-lvalue-addr
+  // slots, so `%p1` carries genuine provenance and `%p1 ± d` is real,
+  // non-foldable pointer arithmetic (not a throwaway def the optimizer folds
+  // straight back into a single ptrindex).
+  //
+  // Safety is local def-use: `%p1`'s provenance is the array it was indexed
+  // from (§7.5 rule 15) and its index `i` is a literal recovered from the
+  // anchor, so `i ± d ∈ [0, N-1]` keeps the result inside that object and
+  // load-safe on any path. The anchor's own validity (`%ap` non-null,
+  // in-bounds i) is already established where it was emitted — by the solver
+  // on-path, by the [0, N-1] index choice off-path — and reassigning `%ap`
+  // later cannot disturb `%p1`, whose pointer value was captured at the
+  // ptrindex/addr.
+  //
+  // Returns true (pushing one step) on success, false (pushing nothing) when
+  // no reusable anchor is live, so the caller falls back to the combined
+  // ptrindex/ptrfield expression form.
+  // ---------------------------------------------------------------------------
+  static bool tryEmitPtrVarArith(
+      std::vector<Instr> &result, std::mt19937 &rng, const VarCatalogue &vars,
+      const TypePtr &lhsPtee, const std::string &lhsName
+  ) {
+    auto typeOf = [&](const std::string &n) -> TypePtr {
+      for (const auto &v: vars.vars)
+        if (v.name == n)
+          return v.type;
+      return nullptr;
+    };
+    // `[N] F` with F == lhsPtee and N >= 2 → N, else nullopt.
+    auto arrayN = [&](const TypePtr &t) -> std::optional<int64_t> {
+      if (t)
+        if (auto *at = std::get_if<ArrayType>(&t->v))
+          if (at->size >= 2 && typeEquals(at->elem, lhsPtee))
+            return (int64_t) at->size;
+      return std::nullopt;
+    };
+
+    struct Anchor {
+      std::string ptr;
+      int64_t N;
+      int64_t i;
+    };
+
+    std::vector<Anchor> anchors;
+    std::vector<std::string> seen; // pointers whose latest assignment we've passed
+
+    // Walk the block's emitted statements newest-first; the first assignment
+    // to a given pointer is its current value (a later one would clobber it).
+    for (auto it = result.rbegin(); it != result.rend(); ++it) {
+      auto *asg = std::get_if<AssignInstr>(&*it);
+      if (!asg || !asg->lhs.accesses.empty())
+        continue; // only a plain `%p = ...` defines a pointer's current value
+      const std::string &p = asg->lhs.base.name;
+      auto pty = typeOf(p);
+      if (!pty || !isPtrType(pty))
+        continue;
+      if (std::find(seen.begin(), seen.end(), p) != seen.end())
+        continue; // an older, already-superseded assignment to this pointer
+      seen.push_back(p);
+      if (!typeEquals(pointeeType(pty), lhsPtee) || !asg->rhs.rest.empty())
+        continue; // pointee must match %p2; the anchor must be a single atom
+      const Atom &a = asg->rhs.first;
+      if (auto *pix = std::get_if<PtrIndexAtom>(&a.v)) {
+        // %p = ptrindex %ap, <IntLit i>
+        auto *il = std::get_if<IntLit>(&pix->index);
+        if (il && pix->rval.accesses.empty())
+          if (auto n = arrayN(pointeeType(typeOf(pix->rval.base.name))))
+            if (il->value >= 0 && il->value < *n)
+              anchors.push_back({p, *n, il->value});
+      } else if (auto *ad = std::get_if<AddrAtom>(&a.v)) {
+        // %p = addr %a[<IntLit i>]
+        if (ad->lv.accesses.size() == 1)
+          if (auto *aidx = std::get_if<AccessIndex>(&ad->lv.accesses[0]))
+            if (auto *il = std::get_if<IntLit>(&aidx->index))
+              if (auto n = arrayN(typeOf(ad->lv.base.name)))
+                if (il->value >= 0 && il->value < *n)
+                  anchors.push_back({p, *n, il->value});
+      }
+    }
+
+    if (anchors.empty())
+      return false;
+
+    const auto &an =
+        anchors[std::uniform_int_distribution<std::size_t>(0, anchors.size() - 1)(rng)];
+    // Distinct result index r in [0, N-1] \ {i}, so the offset d is non-zero.
+    int64_t r = std::uniform_int_distribution<int64_t>(0, an.N - 2)(rng);
+    if (r >= an.i)
+      r++;
+    int64_t d = r - an.i;
+
+    Expr step;
+    step.first = rvalAtom(localLV(an.ptr));
+    step.rest.push_back(
+        {d > 0 ? AddOp::Plus : AddOp::Minus, coefAtom(intCoef(d > 0 ? d : -d)), {}}
+    );
+    result.push_back(Instr{AssignInstr{localLV(lhsName), std::move(step), {}}});
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
   // Trivial-shape post-check helpers
   //
   // Shared by `genExpr` and `genExprWithRequires`. The two callers used to
@@ -1847,7 +1962,16 @@ namespace refractir::reify {
           bool emittedPtrArith = false;
           if (cfg.enablePtrArith && lhsPtee && isScalarType(lhsPtee) &&
               ptrArithCoin(rng) < rysmith::hp::kPPtrArith) {
-            if (auto rhs = genPtrArithRhs(rng, vars, lhsPtee, lhsVar->name)) {
+            // Prefer the direct ptr-var arithmetic shape (`%p2 = %p1 ± d` on a
+            // pointer already anchored to an array element in this block);
+            // otherwise the combined ptrindex/ptrfield expression.
+            // tryEmitPtrVarArith builds and pushes its own assignment, so its
+            // branch doesn't consume `lhs`.
+            if (ptrArithCoin(rng) < rysmith::hp::kPPtrArithVarShare &&
+                tryEmitPtrVarArith(result, rng, vars, lhsPtee, lhsVar->name)) {
+              assignEmitted = true;
+              emittedPtrArith = true;
+            } else if (auto rhs = genPtrArithRhs(rng, vars, lhsPtee, lhsVar->name)) {
               result.push_back(Instr{AssignInstr{std::move(lhs), std::move(*rhs), {}}});
               assignEmitted = true;
               emittedPtrArith = true;
