@@ -1962,16 +1962,39 @@ namespace refractir::reify {
           bool emittedPtrArith = false;
           if (cfg.enablePtrArith && lhsPtee && isScalarType(lhsPtee) &&
               ptrArithCoin(rng) < rysmith::hp::kPPtrArith) {
-            // Prefer the direct ptr-var arithmetic shape (`%p2 = %p1 ± d` on a
-            // pointer already anchored to an array element in this block);
-            // otherwise the combined ptrindex/ptrfield expression.
-            // tryEmitPtrVarArith builds and pushes its own assignment, so its
-            // branch doesn't consume `lhs`.
-            if (ptrArithCoin(rng) < rysmith::hp::kPPtrArithVarShare &&
-                tryEmitPtrVarArith(result, rng, vars, lhsPtee, lhsVar->name)) {
+            if (!onPath) {
+              // Off-path (unexecuted) blocks are never run and never
+              // symbolically constrained, so pointer arithmetic here can be
+              // arbitrary — any pointer plus any offset, no in-bounds
+              // reasoning, since the result is never dereferenced or
+              // UB-checked. Reuse genPtrAtom for the base (same definite-init
+              // safety as the default redirect) and append an unbounded
+              // stride; this stresses pointer / alias codegen the in-bounds
+              // on-path forms can't. Skip the stride on a `null` base, where
+              // `null ± k` would be a pointless (and parse-noisy) shape.
+              Expr rhs;
+              rhs.first = genPtrAtom(rng, vars, lhsVar->type, lhsVar->name);
+              const auto *ca = std::get_if<CoefAtom>(&rhs.first.v);
+              if (!(ca && std::holds_alternative<NullLit>(ca->coef))) {
+                std::uniform_int_distribution<int64_t> mag(1, rysmith::hp::kOffPathPtrStrideMax);
+                bool minus = std::uniform_int_distribution<int>(0, 1)(rng) == 1;
+                rhs.rest.push_back(
+                    {minus ? AddOp::Minus : AddOp::Plus, coefAtom(intCoef(mag(rng))), {}}
+                );
+              }
+              result.push_back(Instr{AssignInstr{std::move(lhs), std::move(rhs), {}}});
+              assignEmitted = true;
+              emittedPtrArith = true;
+            } else if (ptrArithCoin(rng) < rysmith::hp::kPPtrArithVarShare &&
+                       tryEmitPtrVarArith(result, rng, vars, lhsPtee, lhsVar->name)) {
+              // On-path: prefer the direct ptr-var arithmetic shape
+              // (`%p2 = %p1 ± d` on a pointer already anchored to an array
+              // element in this block). tryEmitPtrVarArith builds and pushes
+              // its own assignment, so its branch doesn't consume `lhs`.
               assignEmitted = true;
               emittedPtrArith = true;
             } else if (auto rhs = genPtrArithRhs(rng, vars, lhsPtee, lhsVar->name)) {
+              // On-path fallback: the combined ptrindex/ptrfield expression.
               result.push_back(Instr{AssignInstr{std::move(lhs), std::move(*rhs), {}}});
               assignEmitted = true;
               emittedPtrArith = true;

@@ -155,15 +155,25 @@ namespace refractir::reify::rysmith::hp {
   // `addr %scalar`, a single-element object with no room to step.
   inline constexpr double kPPtrArith = 0.25;
 
-  // Within the ptr-arith slot above, probability of emitting the DIRECT
-  // pointer-variable form (`%p1 = ptrindex %ap, i; %p2 = %p1 ± d;`) rather
-  // than the combined ptrindex/ptrfield expression. The anchor pins %p1's
-  // provenance and index in the same block immediately before the step, so
-  // `i ± d` is bounds-checkable locally (def-use) and the result stays
-  // load-safe. This is the only shape that exercises `ptr_var ± iN` (a
+  // Within the ON-PATH ptr-arith slot above, probability of emitting the
+  // DIRECT pointer-variable form (`%p2 = %p1 ± d`) by reusing a pointer
+  // already anchored to an array element earlier in the block, rather than
+  // the combined ptrindex/ptrfield expression. The reused anchor pins %p1's
+  // provenance and literal index, so `i ± d` is bounds-checkable locally
+  // (def-use). This is the only on-path shape exercising `ptr_var ± iN` (a
   // pointer read from a variable, not a fresh navigation); it falls back to
-  // the expression form when no array source is in scope.
+  // the expression form when no live anchor exists.
   inline constexpr double kPPtrArithVarShare = 0.40;
+
+  // Off-path (unexecuted) blocks are never run and never symbolically
+  // constrained, so their pointer arithmetic can be arbitrary: any pointer
+  // plus any offset, with no in-bounds reasoning (the result is never
+  // dereferenced or UB-checked). The off-path ptr-arith slot emits
+  // `<ptr atom> ± <stride>` with a stride drawn uniformly from
+  // [1, kOffPathPtrStrideMax] — deliberately ranging past any array bound so
+  // it stresses pointer/alias codegen the in-bounds on-path forms can't,
+  // at zero solver cost.
+  inline constexpr int64_t kOffPathPtrStrideMax = 64;
 
   // How many times `genExpr` / `genExprWithRequires` tries to roll a
   // non-trivial atom before giving up and accepting whatever the gen

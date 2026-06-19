@@ -1659,6 +1659,10 @@ _PTR_ARITH_RE = re.compile(r"ptrindex %\w+,\s*-?\d+\s*[+-]\s*\d+")
 _PTR_ARITH_NEG_RE = re.compile(r"ptrindex %\w+,\s*-?\d+\s*-\s*\d+")
 # Struct field step, e.g. `ptrfield %sp, f1 + 1` or `ptrfield %sp, f2 - 1`.
 _PTR_FIELD_ARITH_RE = re.compile(r"ptrfield %\w+,\s*\w+\s*[+-]\s*\d+")
+# Off-path arbitrary arithmetic on a bare `addr`, e.g. `= addr %v6 + 51;`.
+# Unique to unexecuted blocks: the in-bounds on-path forms (ptrindex/ptrfield
+# on the left, or `%var ± d`) never append an arithmetic tail to a raw addr.
+_OFFPATH_ADDR_ARITH_RE = re.compile(r"=\s*addr %[\w.\[\]]+\s*[+-]\s*\d+")
 # Direct pointer-variable arithmetic `%p2 = %p1 ± d;` (both ptr-typed).
 _PTR_DECL_RE = re.compile(r"let\s+mut\s+(%\w+)\s*:\s*ptr\b")
 _VAR_ARITH_RE = re.compile(r"(?m)^\s*(%\w+)\s*=\s*(%\w+)\s*[+-]\s*\d+\s*;")
@@ -1736,10 +1740,12 @@ def test_no_ptrarith_flag(rysmith):
   n_arr = len(_PTR_ARITH_RE.findall(text))
   n_field = len(_PTR_FIELD_ARITH_RE.findall(text))
   n_var = _count_ptr_var_arith(text)
+  n_off = len(_OFFPATH_ADDR_ARITH_RE.findall(text))
   check(
-    f"--no-ptrarith emits zero ptr-arith (array={n_arr}, struct={n_field}, var={n_var})",
-    n_arr == 0 and n_field == 0 and n_var == 0,
-    f"array={n_arr} struct={n_field} var={n_var}",
+    f"--no-ptrarith emits zero ptr-arith "
+    f"(array={n_arr}, struct={n_field}, var={n_var}, offpath={n_off})",
+    n_arr == 0 and n_field == 0 and n_var == 0 and n_off == 0,
+    f"array={n_arr} struct={n_field} var={n_var} offpath={n_off}",
   )
 
 
@@ -1752,7 +1758,10 @@ def test_ptr_arith_reassign_generated(rysmith):
        was generalized away from the original constant `+ 1`;
     3. struct field step `%p = ptrfield %sp, f ± d;` across a run of
        consecutive same-type fields (lands on a same-typed, loadable cell
-       per SPEC §7.5 rule 15b).
+       per SPEC §7.5 rule 15b);
+    4. arbitrary off-path arithmetic on a bare addr (`= addr %v + k;`) —
+       unexecuted blocks are never run or UB-checked, so they carry any
+       pointer ± any (unbounded) stride for pure codegen/alias stress.
 
   Pre-feature ptr reassigns were single-atom only (`genPtrAtom`), so no
   arithmetic tail could appear at all."""
@@ -1760,6 +1769,7 @@ def test_ptr_arith_reassign_generated(rysmith):
   n_arr = len(_PTR_ARITH_RE.findall(text))
   n_neg = len(_PTR_ARITH_NEG_RE.findall(text))
   n_field = len(_PTR_FIELD_ARITH_RE.findall(text))
+  n_off = len(_OFFPATH_ADDR_ARITH_RE.findall(text))
   check(
     f"array ptr-arith reassignment present ({n_arr} found)",
     n_arr >= 3,
@@ -1774,6 +1784,11 @@ def test_ptr_arith_reassign_generated(rysmith):
     f"struct field ptr-arith reassignment present ({n_field} found)",
     n_field >= 3,
     f"found={n_field}",
+  )
+  check(
+    f"off-path arbitrary addr arithmetic present ({n_off} found)",
+    n_off >= 3,
+    f"found={n_off}",
   )
 
 
@@ -1819,18 +1834,6 @@ def test_custom_int_widths_generated(rysmith):
     f"custom iN widths present ({widths})",
     total >= 10 and sum(1 for n in widths.values() if n > 0) >= 3,
     f"widths={widths}",
-  )
-
-
-def test_safe_off_path_removed(rysmith):
-  """--safe-off-path was removed: off-path blocks are never executed at the
-  solved inputs, so its UB guards only ever decorated dead code. The flag
-  must now be rejected as unknown."""
-  r = run([rysmith, "--safe-off-path", "--n-funcs", "1"])
-  check(
-    "--safe-off-path is rejected (flag removed)",
-    r.returncode != 0 and "safe-off-path" in r.stderr,
-    f"rc={r.returncode}, stderr={r.stderr[:200]!r}",
   )
 
 
@@ -1899,8 +1902,6 @@ def main():
   test_large_coef_custom_threshold_respected(rysmith)
   print("=== --large-coef: zero accepted ===")
   test_large_coef_zero_accepted(rysmith)
-  print("=== --safe-off-path removed ===")
-  test_safe_off_path_removed(rysmith)
   print("=== --off-path-multiplier: help/default ===")
   test_off_path_multiplier_help_default(rysmith)
   print("=== --off-path-multiplier: negative validation ===")
