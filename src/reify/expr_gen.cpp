@@ -1142,6 +1142,35 @@ namespace refractir::reify {
               if (auto n = arrayN(typeOf(ad->lv.base.name)))
                 if (il->value >= 0 && il->value < *n)
                   anchors.push_back({p, *n, il->value});
+      } else if (auto *pf = std::get_if<PtrFieldAtom>(&a.v)) {
+        // %p = ptrfield %sp, <field f>. Treat the maximal run of consecutive
+        // same-type fields containing f as the "array": f sits at position
+        // (idx - lo) within a run of length (hi - lo + 1), and stepping ± d
+        // lands on a same-typed field cell (packed layout → exact stride).
+        if (pf->rval.accesses.empty())
+          if (auto inner = pointeeType(typeOf(pf->rval.base.name)))
+            if (auto *st = std::get_if<StructType>(&inner->v))
+              for (const auto &sd: vars.structDecls) {
+                if (sd.name.name != st->name.name)
+                  continue;
+                int idx = -1;
+                for (int k = 0; k < (int) sd.fields.size(); k++)
+                  if (sd.fields[k].name == pf->field) {
+                    idx = k;
+                    break;
+                  }
+                if (idx >= 0 && typeEquals(sd.fields[idx].type, lhsPtee)) {
+                  int lo = idx, hi = idx;
+                  while (lo > 0 && typeEquals(sd.fields[lo - 1].type, sd.fields[idx].type))
+                    lo--;
+                  while (hi + 1 < (int) sd.fields.size() &&
+                         typeEquals(sd.fields[hi + 1].type, sd.fields[idx].type))
+                    hi++;
+                  if (hi - lo + 1 >= 2)
+                    anchors.push_back({p, hi - lo + 1, idx - lo});
+                }
+                break;
+              }
       }
     }
 
@@ -1960,7 +1989,12 @@ namespace refractir::reify {
           TypePtr lhsPtee = pointeeType(lhsVar->type);
           std::uniform_real_distribution<double> ptrArithCoin(0.0, 1.0);
           bool emittedPtrArith = false;
-          if (cfg.enablePtrArith && lhsPtee && isScalarType(lhsPtee) &&
+          // Pointer arithmetic is offered for any LOADABLE pointee — scalar
+          // or pointer (`ptr ptr T`). Aggregate/vector pointees are excluded:
+          // they aren't loadable, so an element step has nothing valid to
+          // dereference. The element-type matching downstream is by
+          // `typeEquals`, so pointer pointees flow through unchanged.
+          if (cfg.enablePtrArith && lhsPtee && (isScalarType(lhsPtee) || isPtrType(lhsPtee)) &&
               ptrArithCoin(rng) < rysmith::hp::kPPtrArith) {
             if (!onPath) {
               // Off-path (unexecuted) blocks are never run and never

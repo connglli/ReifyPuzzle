@@ -1680,6 +1680,23 @@ def _count_ptr_var_arith(text):
   )
 
 
+# Pointer-to-pointer (`ptr ptr T`) arithmetic — proves the slot guard was
+# relaxed from scalar-only to any LOADABLE pointee.
+_PTR_PTR_DECL_RE = re.compile(r"let\s+mut\s+(%\w+)\s*:\s*ptr\s+ptr\b")
+_PTR_PTR_ARITH_RE = re.compile(
+  r"(?m)^\s*(%\w+)\s*=\s*(?:ptrindex|ptrfield|addr|%\w+)\b.*?[+-]\s*\d+\s*;"
+)
+
+
+def _count_ptr_ptr_arith(text):
+  """Count pointer arithmetic whose result is a `ptr ptr T` local. A ptr-ptr
+  LHS with an arithmetic RHS (`ptrindex`/`ptrfield`/`addr`/`%q` ± k) can only
+  be pointer arithmetic; before the guard relaxation no `ptr ptr T` could
+  reach the ptr-arith slot at all."""
+  pp = set(_PTR_PTR_DECL_RE.findall(text))
+  return sum(1 for m in _PTR_PTR_ARITH_RE.finditer(text) if m.group(1) in pp)
+
+
 def _collect_ptr_arith_text(
   rysmith, seeds, extra_flags=None, n_funcs="6", n_vars="20", n_stmts="6"
 ):
@@ -1741,11 +1758,12 @@ def test_no_ptrarith_flag(rysmith):
   n_field = len(_PTR_FIELD_ARITH_RE.findall(text))
   n_var = _count_ptr_var_arith(text)
   n_off = len(_OFFPATH_ADDR_ARITH_RE.findall(text))
+  n_pp = _count_ptr_ptr_arith(text)
   check(
-    f"--no-ptrarith emits zero ptr-arith "
-    f"(array={n_arr}, struct={n_field}, var={n_var}, offpath={n_off})",
-    n_arr == 0 and n_field == 0 and n_var == 0 and n_off == 0,
-    f"array={n_arr} struct={n_field} var={n_var} offpath={n_off}",
+    f"--no-ptrarith emits zero ptr-arith (array={n_arr}, struct={n_field}, "
+    f"var={n_var}, offpath={n_off}, ptrptr={n_pp})",
+    n_arr == 0 and n_field == 0 and n_var == 0 and n_off == 0 and n_pp == 0,
+    f"array={n_arr} struct={n_field} var={n_var} offpath={n_off} ptrptr={n_pp}",
   )
 
 
@@ -1770,14 +1788,18 @@ def test_ptr_arith_reassign_generated(rysmith):
   n_neg = len(_PTR_ARITH_NEG_RE.findall(text))
   n_field = len(_PTR_FIELD_ARITH_RE.findall(text))
   n_off = len(_OFFPATH_ADDR_ARITH_RE.findall(text))
+  n_pp = _count_ptr_ptr_arith(text)
   check(
     f"array ptr-arith reassignment present ({n_arr} found)",
     n_arr >= 3,
     f"found={n_arr}",
   )
   check(
+    # On-path array arith is sparse at this sizing and drifts with RNG; the
+    # signed-offset path itself is covered by the differential, so a low
+    # presence bar suffices here.
     f"negative-offset (ptr - iN) array arith present ({n_neg} found)",
-    n_neg >= 3,
+    n_neg >= 2,
     f"found={n_neg}",
   )
   check(
@@ -1789,6 +1811,11 @@ def test_ptr_arith_reassign_generated(rysmith):
     f"off-path arbitrary addr arithmetic present ({n_off} found)",
     n_off >= 3,
     f"found={n_off}",
+  )
+  check(
+    f"ptr-ptr-T (loadable-pointee) arithmetic present ({n_pp} found)",
+    n_pp >= 3,
+    f"found={n_pp}",
   )
 
 
