@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// v0.2.1 §6.8.9: navigate a nested array `[2][3] i32` with two `ptrindex`
+// steps — `ptr [2][3] i32` -> `ptr [3] i32` -> `ptr i32` — staging each
+// (non-lvalue) result through a `let mut` local, then `load` the loadable
+// scalar leaf. The first `ptrindex` lands on row 1 (`&%a[1]`), the second
+// on element 2 of that row (`&%a[1][2]`), whose value is 6.
+
+fun @main() : i32 {
+  let mut %a: [2][3] i32 = {{1, 2, 3}, {4, 5, 6}};
+  let mut %ap: ptr [2][3] i32 = null;
+  let mut %row: ptr [3] i32 = null;
+  let mut %elem: ptr i32 = null;
+  let mut %v: i32 = 0;
+^entry:
+  %ap = addr %a;
+  %row = ptrindex %ap, 1;       // ptr [2][3] i32 -> ptr [3] i32  (&%a[1])
+  %elem = ptrindex %row, 2;     // ptr [3] i32     -> ptr i32     (&%a[1][2])
+  %v = load %elem;
+  require %v == 6, "two ptrindex steps must reach %a[1][2] == 6";
+  ret %v;
+}
