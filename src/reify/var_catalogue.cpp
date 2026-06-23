@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <functional>
 #include "reify/hyperparameters.hpp"
 
 namespace refractir::reify {
@@ -306,6 +307,71 @@ namespace refractir::reify {
         pt.pointee = tgt.type;
         apv.type = std::make_shared<Type>(Type{pt, {}});
         cat.vars.push_back(std::move(apv));
+      }
+    }
+
+    // [v0.2.2] Phase 4b: navigation-staging pointers. Chained
+    // ptrindex/ptrfield navigation of an aggregate pointer
+    // (`ptr [N][M] F -> ptr [M] F -> ptr F`, `ptr [N] @S -> ptr @S -> ...`)
+    // stages each intermediate through a `let mut` local of the sub-aggregate
+    // pointer type. Those staging types essentially never coexist with their
+    // source by chance, so inject ONE shared local per distinct sub-aggregate
+    // pointer type reachable from any aggregate pointer (deduped against
+    // existing vars). Target-less (start `undef`, written by the generated
+    // chain before any read). See tryEmitNavChain.
+    {
+      std::vector<TypePtr> subAggs;
+      std::function<void(const TypePtr &)> collect = [&](const TypePtr &a) {
+        if (auto *at = std::get_if<ArrayType>(&a->v)) {
+          if (isAggType(at->elem)) {
+            subAggs.push_back(at->elem);
+            collect(at->elem);
+          }
+        } else if (auto *st = std::get_if<StructType>(&a->v)) {
+          for (const auto &sd: cat.structDecls) {
+            if (sd.name.name != st->name.name)
+              continue;
+            for (const auto &f: sd.fields)
+              if (isAggType(f.type)) {
+                subAggs.push_back(f.type);
+                collect(f.type);
+              }
+            break;
+          }
+        }
+      };
+      // Snapshot of current pointer pointees: don't grow `cat.vars` mid-scan.
+      std::vector<TypePtr> aggPointees;
+      for (const auto &v: cat.vars)
+        if (isPtrType(v.type)) {
+          auto p = pointeeType(v.type);
+          if (p && isAggType(p))
+            aggPointees.push_back(p);
+        }
+      for (const auto &p: aggPointees)
+        collect(p);
+
+      int navIdx = 0;
+      std::vector<TypePtr> injected;
+      auto present = [&](const TypePtr &ptee) {
+        for (const auto &v: cat.vars)
+          if (isPtrType(v.type) && typeEquals(pointeeType(v.type), ptee))
+            return true;
+        for (const auto &t: injected)
+          if (typeEquals(t, ptee))
+            return true;
+        return false;
+      };
+      for (const auto &sub: subAggs) {
+        if (present(sub))
+          continue;
+        injected.push_back(sub);
+        VarEntry nv;
+        nv.name = "%nav" + std::to_string(navIdx++);
+        PtrType pt;
+        pt.pointee = sub;
+        nv.type = std::make_shared<Type>(Type{pt, {}});
+        cat.vars.push_back(std::move(nv));
       }
     }
 

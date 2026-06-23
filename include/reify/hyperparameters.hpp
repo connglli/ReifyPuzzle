@@ -175,6 +175,15 @@ namespace refractir::reify::rysmith::hp {
   // at zero solver cost.
   inline constexpr int64_t kOffPathPtrStrideMax = 64;
 
+  // Probability that a `ptr F` (loadable F) reassign navigates an aggregate
+  // to its leaf via a chain of >= 2 staged ptrindex/ptrfield steps
+  // (tryEmitNavChain) — `ptr [N][M] F`, `ptr [N] @S`, struct-of-array, any
+  // mix — when an aggregate-pointer source and the needed staging locals are
+  // in scope (the var catalogue injects the latter). Plain in-bounds
+  // navigation, not arithmetic, so NOT gated by --no-ptrarith; rolled after
+  // the arithmetic slot declines, leaving that stream undisturbed.
+  inline constexpr double kPNavChain = 0.50;
+
   // How many times `genExpr` / `genExprWithRequires` tries to roll a
   // non-trivial atom before giving up and accepting whatever the gen
   // returns. With the ~40-50% trivial rate of the on/off-path atom

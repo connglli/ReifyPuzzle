@@ -1697,6 +1697,35 @@ def _count_ptr_ptr_arith(text):
   return sum(1 for m in _PTR_PTR_ARITH_RE.finditer(text) if m.group(1) in pp)
 
 
+_NAV_RE = re.compile(r"(?m)^\s*(%\w+)\s*=\s*(ptrindex|ptrfield)\s+(%\w+)")
+
+
+def _count_nav_chains(text):
+  """Count uniform aggregate-navigation *chains* and how many involve a
+  `ptrfield` step. A chain is `%x = ptrindex|ptrfield %y, ...` where `%y` was
+  itself produced by a ptrindex/ptrfield earlier in the SAME function — i.e.
+  multi-step navigation of a nested array / array-of-struct / struct-of-array
+  to a loadable leaf. Reset per function so reused names can't fake a chain.
+  Returns (chains, chains_touching_a_struct_field)."""
+  total = 0
+  with_field = 0
+  for fn in re.split(r"(?m)^fun ", text):
+    nav_kind = {}  # var -> step kind that produced it (or chain-carried field flag)
+    field_seen = {}  # var -> whether its producing chain touched a ptrfield
+    for m in _NAV_RE.finditer(fn):
+      lhs, kind, src = m.group(1), m.group(2), m.group(3)
+      if src in nav_kind:
+        total += 1
+        touched = field_seen.get(src, False) or kind == "ptrfield"
+        if touched:
+          with_field += 1
+        field_seen[lhs] = touched
+      else:
+        field_seen[lhs] = kind == "ptrfield"
+      nav_kind[lhs] = kind
+  return total, with_field
+
+
 def _collect_ptr_arith_text(
   rysmith, seeds, extra_flags=None, n_funcs="6", n_vars="20", n_stmts="6"
 ):
@@ -1845,6 +1874,22 @@ def test_ptr_var_arith_generated(rysmith):
     f"direct ptr-var arithmetic present ({n} found)",
     n >= 3,
     f"found={n}",
+  )
+  # Uniform aggregate navigation reuses this dense collection: chained
+  # ptrindex/ptrfield steps (staged through injected `%nav` locals) reach a
+  # loadable leaf of a nested array / array-of-struct / struct-of-array. We
+  # assert chains exist AND that some involve a `ptrfield` step (the struct
+  # case the array-only special form never covered).
+  n_chain, n_field = _count_nav_chains(text)
+  check(
+    f"aggregate navigation chains present ({n_chain} found)",
+    n_chain >= 3,
+    f"found={n_chain}",
+  )
+  check(
+    f"navigation chains through a struct field present ({n_field} found)",
+    n_field >= 1,
+    f"found={n_field}",
   )
 
 

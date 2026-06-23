@@ -1195,6 +1195,149 @@ namespace refractir::reify {
   }
 
   // ---------------------------------------------------------------------------
+  // Uniform aggregate-pointer navigation: tryEmitNavChain
+  //
+  // The general form of nested navigation, replacing the array-only special
+  // case. For a `ptr F` reassign (F loadable), find an in-scope aggregate
+  // pointer `%app : ptr A` and a chain of navigation steps that reaches a
+  // sub-element of type F, staging each intermediate through a `let mut`
+  // local (ptrindex/ptrfield results are Atoms, not lvalues):
+  //
+  //   array  [N] U  ->  %s = ptrindex %p, i      (U next)
+  //   struct @S     ->  %s = ptrfield %p, f      (field type next)
+  //
+  // applied uniformly and recursively until the leaf type F is reached, e.g.
+  // `ptr [N][M] F -> ptr [M] F -> ptr F`, `ptr [N] @S -> ptr @S -> ptr Ffld`,
+  // or any mix. Indices are in-bounds literals and field paths are static, so
+  // the leaf is dereferenceable on any path. Only chains of >= 2 steps are
+  // emitted here; the single-step navigations are genPtrAtom's job.
+  // ---------------------------------------------------------------------------
+  struct NavStep {
+    bool isField;
+    std::string field;  // ptrfield field name
+    int64_t arraySize;  // ptrindex bound (when !isField)
+    TypePtr resultPtee; // pointee type produced by this step
+  };
+
+  // Collect navigation paths from aggregate type `A` to a sub-element of type
+  // `target`. Depth-bounded; each emitted path's last step lands on `target`.
+  static void collectNavPaths(
+      const VarCatalogue &vars, const TypePtr &A, const TypePtr &target, std::vector<NavStep> &cur,
+      std::vector<std::vector<NavStep>> &out, int maxDepth
+  ) {
+    if ((int) cur.size() >= maxDepth || out.size() >= 16)
+      return;
+    if (auto *at = std::get_if<ArrayType>(&A->v)) {
+      cur.push_back({false, "", (int64_t) at->size, at->elem});
+      if (typeEquals(at->elem, target))
+        out.push_back(cur);
+      if (isAggType(at->elem))
+        collectNavPaths(vars, at->elem, target, cur, out, maxDepth);
+      cur.pop_back();
+    } else if (auto *st = std::get_if<StructType>(&A->v)) {
+      for (const auto &sd: vars.structDecls) {
+        if (sd.name.name != st->name.name)
+          continue;
+        for (const auto &f: sd.fields) {
+          cur.push_back({true, f.name, 0, f.type});
+          if (typeEquals(f.type, target))
+            out.push_back(cur);
+          if (isAggType(f.type))
+            collectNavPaths(vars, f.type, target, cur, out, maxDepth);
+          cur.pop_back();
+        }
+        break;
+      }
+    }
+  }
+
+  static bool tryEmitNavChain(
+      std::vector<Instr> &result, std::mt19937 &rng, const VarCatalogue &vars,
+      const TypePtr &lhsPtee, const std::string &lhsName
+  ) {
+    if (!isScalarType(lhsPtee) && !isPtrType(lhsPtee))
+      return false; // leaf must be loadable
+
+    struct Cand {
+      std::string app;
+      std::vector<NavStep> path;
+    };
+
+    std::vector<Cand> cands;
+    for (const auto &v: vars.vars) {
+      if (!isPtrType(v.type))
+        continue;
+      auto A = pointeeType(v.type);
+      if (!A || !isAggType(A))
+        continue;
+      std::vector<NavStep> cur;
+      std::vector<std::vector<NavStep>> paths;
+      collectNavPaths(vars, A, lhsPtee, cur, paths, /*maxDepth=*/3);
+      for (auto &p: paths)
+        if (p.size() >= 2) // single-step navigations are genPtrAtom's job
+          cands.push_back({v.name, std::move(p)});
+    }
+    if (cands.empty())
+      return false;
+    std::shuffle(cands.begin(), cands.end(), rng);
+
+    // Find an in-scope staging local of type `ptr ptee` (not the LHS).
+    auto findStage = [&](const TypePtr &ptee) -> std::optional<std::string> {
+      std::vector<std::string> opts;
+      for (const auto &v: vars.vars) {
+        if (v.isParam || v.name == lhsName || !isPtrType(v.type))
+          continue;
+        if (typeEquals(pointeeType(v.type), ptee))
+          opts.push_back(v.name);
+      }
+      if (opts.empty())
+        return std::nullopt;
+      return opts[std::uniform_int_distribution<std::size_t>(0, opts.size() - 1)(rng)];
+    };
+
+    for (auto &c: cands) {
+      // Staging locals for every intermediate step (all but the last).
+      std::vector<std::string> stages;
+      bool ok = true;
+      for (std::size_t i = 0; i + 1 < c.path.size(); i++) {
+        auto s = findStage(c.path[i].resultPtee);
+        if (!s) {
+          ok = false;
+          break;
+        }
+        stages.push_back(*s);
+      }
+      if (!ok)
+        continue;
+
+      std::string cur = c.app;
+      for (std::size_t i = 0; i < c.path.size(); i++) {
+        const NavStep &st = c.path[i];
+        const std::string &dst = (i + 1 < c.path.size()) ? stages[i] : lhsName;
+        Atom nav;
+        if (st.isField) {
+          PtrFieldAtom pf;
+          pf.rval = localLV(cur);
+          pf.field = st.field;
+          nav = Atom{std::move(pf), {}};
+        } else {
+          PtrIndexAtom pi;
+          pi.rval = localLV(cur);
+          pi.index =
+              Index{IntLit{std::uniform_int_distribution<int64_t>(0, st.arraySize - 1)(rng), {}}};
+          nav = Atom{std::move(pi), {}};
+        }
+        Expr e;
+        e.first = std::move(nav);
+        result.push_back(Instr{AssignInstr{localLV(dst), std::move(e), {}}});
+        cur = dst;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
   // Trivial-shape post-check helpers
   //
   // Shared by `genExpr` and `genExprWithRequires`. The two callers used to
@@ -2033,6 +2176,17 @@ namespace refractir::reify {
               assignEmitted = true;
               emittedPtrArith = true;
             }
+          }
+
+          // Aggregate-pointer navigation: when the arithmetic slot declined, a
+          // `ptr F` reassign may instead navigate an aggregate to its loadable
+          // leaf via a chain of staged ptrindex/ptrfield steps. Plain
+          // navigation (no arithmetic), so it runs regardless of --no-ptrarith,
+          // and is rolled after the arith slot to leave that stream intact.
+          if (!emittedPtrArith && lhsPtee && ptrArithCoin(rng) < rysmith::hp::kPNavChain &&
+              tryEmitNavChain(result, rng, vars, lhsPtee, lhsVar->name)) {
+            assignEmitted = true;
+            emittedPtrArith = true;
           }
 
           if (!emittedPtrArith) {
