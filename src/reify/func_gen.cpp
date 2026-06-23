@@ -7,6 +7,7 @@
 #include <set>
 #include <unordered_set>
 #include "analysis/intrinsics.hpp"
+#include "reify/hyperparameters.hpp"
 #include "reify/intrinsic_whitelist.hpp"
 
 namespace refractir::reify {
@@ -37,20 +38,61 @@ namespace refractir::reify {
   static Expr simpleExpr(Atom a) { return Expr{std::move(a), {}, {}}; }
 
   // ---------------------------------------------------------------------------
+  // let-init value sampling
+  // ---------------------------------------------------------------------------
+
+  // Signed [min, max] of an N-bit integer type (N ∈ [2, 64]).
+  static std::pair<int64_t, int64_t> signedIntRange(uint32_t bits) {
+    if (bits >= 64)
+      return {INT64_MIN, INT64_MAX};
+    int64_t hi = (int64_t(1) << (bits - 1)) - 1;
+    return {-hi - 1, hi};
+  }
+
+  // Weighted-mixture integer init literal — see hp::kInitInt_* for the
+  // three-bucket rationale (small / mid / boundary).
+  static int64_t pickInitIntLit(std::mt19937 &rng, const TypePtr &t) {
+    auto [lo, hi] = signedIntRange(intBitWidth(t));
+    std::uniform_real_distribution<double> coin(0.0, 1.0);
+    double u = coin(rng);
+    if (u < rysmith::hp::kInitInt_pSmall) {
+      int64_t mag = std::min<int64_t>(rysmith::hp::kInitInt_SmallMag, hi);
+      std::uniform_int_distribution<int64_t> d(std::max<int64_t>(-mag, lo), mag);
+      return d(rng);
+    }
+    if (u < rysmith::hp::kInitInt_pSmall + rysmith::hp::kInitInt_pMid) {
+      std::uniform_int_distribution<int64_t> d(lo, hi);
+      return d(rng);
+    }
+    const int64_t cand[] = {0, -1, 1, lo, hi, lo + 1, hi - 1};
+    std::uniform_int_distribution<std::size_t> d(0, sizeof(cand) / sizeof(cand[0]) - 1);
+    return cand[d(rng)];
+  }
+
+  // Float init literal: a dyadic, bit-exact, f32-safe value from the shared
+  // pool (uniform). Same pool the expression generator uses, so the FP
+  // serialization / differential-testing invariant is preserved.
+  static double pickInitFloatLit(std::mt19937 &rng) {
+    std::uniform_int_distribution<std::size_t> d(0, rysmith::hp::kFloatLitPoolSize - 1);
+    return rysmith::hp::kFloatLitPool[d(rng)];
+  }
+
+  // ---------------------------------------------------------------------------
   // Unified recursive initializer
   // ---------------------------------------------------------------------------
 
-  static InitVal makeInitVal(const TypePtr &t, const std::vector<StructDecl> &structDecls) {
+  static InitVal
+  makeInitVal(std::mt19937 &rng, const TypePtr &t, const std::vector<StructDecl> &structDecls) {
     if (isIntType(t)) {
       InitVal iv;
       iv.kind = InitVal::Kind::Int;
-      iv.value = IntLit{1, {}};
+      iv.value = IntLit{pickInitIntLit(rng, t), {}};
       return iv;
     }
     if (isFpType(t)) {
       InitVal iv;
       iv.kind = InitVal::Kind::Float;
-      iv.value = FloatLit{1.0, {}};
+      iv.value = FloatLit{pickInitFloatLit(rng), {}};
       return iv;
     }
     if (isPtrType(t)) {
@@ -62,7 +104,7 @@ namespace refractir::reify {
       const auto &at = std::get<ArrayType>(t->v);
       std::vector<InitValPtr> children;
       for (uint64_t i = 0; i < at.size; i++) {
-        children.push_back(std::make_shared<InitVal>(makeInitVal(at.elem, structDecls)));
+        children.push_back(std::make_shared<InitVal>(makeInitVal(rng, at.elem, structDecls)));
       }
       InitVal iv;
       iv.kind = InitVal::Kind::Aggregate;
@@ -80,7 +122,7 @@ namespace refractir::reify {
       if (sd) {
         std::vector<InitValPtr> children;
         for (const auto &field: sd->fields) {
-          children.push_back(std::make_shared<InitVal>(makeInitVal(field.type, structDecls)));
+          children.push_back(std::make_shared<InitVal>(makeInitVal(rng, field.type, structDecls)));
         }
         InitVal iv;
         iv.kind = InitVal::Kind::Aggregate;
@@ -93,7 +135,7 @@ namespace refractir::reify {
       const auto &vt = std::get<VecType>(t->v);
       std::vector<InitValPtr> children;
       for (uint64_t i = 0; i < vt.size; i++) {
-        children.push_back(std::make_shared<InitVal>(makeInitVal(vt.elem, structDecls)));
+        children.push_back(std::make_shared<InitVal>(makeInitVal(rng, vt.elem, structDecls)));
       }
       InitVal iv;
       iv.kind = InitVal::Kind::Aggregate;
@@ -430,7 +472,7 @@ namespace refractir::reify {
         iv.kind = InitVal::Kind::Undef;
         let.init = std::move(iv);
       } else {
-        let.init = makeInitVal(v.type, vars.structDecls);
+        let.init = makeInitVal(rng, v.type, vars.structDecls);
       }
 
       fun.lets.push_back(std::move(let));

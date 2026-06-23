@@ -300,6 +300,31 @@ namespace refractir::reify::rysmith::hp {
   inline constexpr std::int64_t kConcreteInt_Default_Hi = 8;
 
   // ===========================================================================
+  // let-init value diversity (func_gen::makeInitVal).
+  //
+  // Scalar locals are seeded with a weighted mixture rather than a constant
+  // `1`, so two generated programs start from different state and the C
+  // optimizer can't fold every local to a known constant. The integer draw is
+  // a three-bucket mixture over a [0,1) roll:
+  //
+  //   [0, pSmall)           "small"    — uniform in [-SmallMag, SmallMag],
+  //                                      clamped to the type range. Dominant
+  //                                      bucket; keeps most inits readable and
+  //                                      SMT-friendly.
+  //   [pSmall, pSmall+pMid) "mid"      — uniform over the full signed range of
+  //                                      the type, supplying large-magnitude
+  //                                      diversity (concrete constants only —
+  //                                      no solver-variable / nonlinearity cost).
+  //   [pSmall+pMid, 1)      "boundary" — type extremes and sign edges
+  //                                      (0, ±1, min, max, min+1, max-1).
+  //
+  // Floats reuse kFloatLitPool (every entry is dyadic, bit-exact, and
+  // f32-representable, so the FP differential-testing invariant still holds).
+  inline constexpr double kInitInt_pSmall = 0.60;
+  inline constexpr double kInitInt_pMid = 0.30; // remaining 0.10 → boundary
+  inline constexpr std::int64_t kInitInt_SmallMag = 256;
+
+  // ===========================================================================
   // Float literal pools.
   //
   // SAFETY-CRITICAL — DO NOT REPLACE WITH uniform_real_distribution.
