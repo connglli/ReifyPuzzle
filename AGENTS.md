@@ -85,8 +85,22 @@ Key characteristics:
 | `symirc` | Translate `.sir` to C / WebAssembly |
 | `symiri` | Interpret `.sir` programs |
 | `symirsolve` | Concretize symbolic programs using SMT |
+| `rysmith` / `rylink` | Generate random leaf functions / whole programs |
+| `rypuzmk` / `rypuzchk` | Make / check fill-in-the-blanks puzzles (see [./docs/puzzle.md](./docs/puzzle.md)) |
 
 Documentation of each tool: [./docs/](./docs).
+
+### Puzzle tooling (`rypuzmk` / `rypuzchk`)
+
+The puzzle tools live in [`./puzzle/`](./puzzle) and share
+[`puzzle/puzzle_common.hpp`](./puzzle/puzzle_common.hpp) (the masking printer,
+the `MaskedConstantCollector`, and helpers). `rypuzmk` masks a rysmith-generated
+leaf into `FILL_XXX` blanks with a machine-readable banner; `rypuzchk` validates
+a solution (correctness via the embedded `check_chksum`, plus path, FILL_CONST
+budget, intrinsic usage, and a re-mask structural check). The puzzle/checker
+contract and its intended degrees of freedom are documented in
+[./docs/puzzle.md](./docs/puzzle.md) — read it before changing the masking model
+or either tool, because the producer and consumer must stay in lockstep.
 
 ## Compilation / Analysis Pipeline
 

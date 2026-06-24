@@ -95,6 +95,8 @@ TARGET_COMPILER = symirc
 TARGET_SOLVER = symirsolve
 TARGET_RYSMITH = rysmith
 TARGET_RYLINK = rylink
+TARGET_RYPUZMK = rypuzmk
+TARGET_RYPUZCHK = rypuzchk
 
 BUILD_DIR = build
 BIN_DIR = $(BUILD_DIR)/bin
@@ -119,7 +121,7 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
 
 .PHONY: all clean test test-unit test-frontend test-interp test-backends test-cross-validation test-solver test-reify cross-validation build
 
-all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK)
+all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYPUZMK) $(TARGET_RYPUZCHK)
 
 $(TARGET_INTERP): $(COMMON_OBJS) $(INTERP_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
@@ -131,6 +133,12 @@ $(TARGET_SOLVER): $(COMMON_OBJS) $(SOLVER_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(TARGET_RYSMITH): $(COMMON_OBJS) $(RYSMITH_OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(TARGET_RYPUZMK): puzzle/rypuzmk.o $(COMMON_OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(TARGET_RYPUZCHK): puzzle/rypuzchk.o $(COMMON_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 # [v0.2.2] rylink also depends on the solver objects: it doesn't call
@@ -145,7 +153,7 @@ $(TARGET_RYLINK): $(COMMON_OBJS) $(RYLINK_OBJS) src/solver/solver.o src/solver/i
 
 build: all $(LIB_DIR)/$(LIB_NAME)
 	mkdir -p $(BIN_DIR) $(INC_DIR)
-	cp $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(BIN_DIR)/
+	cp $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYPUZMK) $(TARGET_RYPUZCHK) $(BIN_DIR)/
 	cp -r include/* $(INC_DIR)/
 
 $(LIB_DIR)/$(LIB_NAME): $(LIBRARY_OBJS)
@@ -153,7 +161,7 @@ $(LIB_DIR)/$(LIB_NAME): $(LIBRARY_OBJS)
 	$(AR) $(ARFLAGS) $@ $^
 
 clean:
-	rm -f $(COMMON_OBJS) $(TEST_OBJS) $(INTERP_OBJS) $(COMPILER_OBJS) $(SOLVER_OBJS) $(RYSMITH_OBJS) $(RYLINK_OBJS) $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK)
+	rm -f $(COMMON_OBJS) $(TEST_OBJS) $(INTERP_OBJS) $(COMPILER_OBJS) $(SOLVER_OBJS) $(RYSMITH_OBJS) $(RYLINK_OBJS) puzzle/rypuzmk.o puzzle/rypuzchk.o $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYPUZMK) $(TARGET_RYPUZCHK)
 	rm -rf $(BUILD_DIR)
 	find . -name "*.gcno" -delete
 	find . -name "*.gcda" -delete
@@ -164,10 +172,11 @@ clean:
 # split-by-source output, etc.). They don't go through the `.sir`
 # test runner in test/lib because they need to assert on the binary's
 # stdout / sidecar files / output directory layout.
-test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK)
+test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYPUZMK) $(TARGET_RYPUZCHK)
 	$(PY) -m test.unit.run_param_features_tests ./$(TARGET_INTERP) ./$(TARGET_COMPILER) ./$(TARGET_SOLVER)
 	$(PY) -m test.unit.run_rysmith_tests ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
 	$(PY) -m test.unit.run_rylink_tests ./$(TARGET_RYLINK) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
+	$(PY) -m test.unit.run_puzzle_tests ./$(TARGET_RYPUZMK) ./$(TARGET_RYPUZCHK) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
 
 # Integration tests, grouped by the component under test. Each component
 # target is callable on its own (e.g. `make test-frontend`) so a developer
