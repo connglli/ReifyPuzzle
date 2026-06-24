@@ -40,6 +40,8 @@ It provides a robust foundation for building tools that need to reason about pro
 | `rysmith` | **Reifier**: Generate random RefractIR leaf functions for compiler testing. |
 | `rylink` | **Reifier**: Generate random RefractIR whole programs for compiler testing. |
 | `rytwin` | **Reifier**: Transform a generated program into a semantically-equivalent variant. |
+| `rypuzmk` | **Puzzle maker**: Mask a generated function into a fill-in-the-blanks puzzle. |
+| `rypuzchk` | **Puzzle checker**: Validate a candidate puzzle solution. |
 
 ## 🚀 Getting Started
 
@@ -136,6 +138,14 @@ Automatically find values for symbols that satisfy a specific execution path:
 # in-process (no --emit-state needed).
 ./rysmith -n 1 --emit-desc -o out/
 ./rytwin --p-twin 0.5 --validate -o out/<func>.twin.sir out/<func>.sir
+```
+
+#### Make and Check Puzzles
+```bash
+# Mask a generated function into a fill-in-the-blanks puzzle (+ ground truth).
+./rypuzmk --seed 42 -o puzzle.sir --keep-ground-truth
+# Validate a candidate solution.
+./rypuzchk puzzle.sir solution.sir
 ```
 
 ### Switching SMT Backends
@@ -304,6 +314,7 @@ Find more examples in [./examples](./examples/) and [./test/](./test/).
 - **[symirc User Guide](./docs/symirc.md)**
 - **[symirsolve User Guide](./docs/symirsolve.md)**
 - **[rysmith/rylink/rytwin User Guide](./docs/reify.md)**
+- **[rypuzmk/rypuzchk User Guide](./docs/puzzle.md)**
 
 ## 📋 License
 
