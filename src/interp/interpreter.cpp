@@ -20,7 +20,7 @@ namespace refractir {
   Interpreter::Interpreter(const Program &prog) : Interpreter(prog, std::cout) {}
 
   Interpreter::Interpreter(const Program &prog, std::ostream &out) :
-      prog_(prog), out_(out), typeLayout_(prog) {}
+      prog_(prog), out_(out), typeLayout_(prog), memory_(typeLayout_) {}
 
   void Interpreter::run(
       const std::string &entryFuncName, const SymBindings &symBindings,
@@ -106,12 +106,8 @@ namespace refractir {
       const FunDecl &f, const std::vector<RuntimeValue> &args, const SymBindings &symBindings
   ) {
     // Reset per-function memory state
-    heap_.clear();
-    objects_.clear();
-    addrMap_.clear();
+    memory_.reset();
     typeMap_.clear();
-    nextAddr_ = 4096; // leave address 0 for null
-    nextProvId_ = 1;
 
     // Build name→type map for addr provenance lookups.
     for (const auto &p: f.params)
@@ -212,7 +208,7 @@ namespace refractir {
 
   RuntimeValue Interpreter::callFunction(const FunDecl &f, std::vector<RuntimeValue> args) {
     // [v0.2.2] §9.6.1 — interprocedural execution in the interpreter.
-    // Memory state (heap_, objects_, addrMap_) is preserved across the
+    // Memory state (heap, objects, addresses) is preserved across the
     // call: pointer arguments must remain valid in the callee. typeMap_
     // entries that share a name with a callee parameter or local are
     // saved here and restored on return.
@@ -235,17 +231,17 @@ namespace refractir {
           typeMap_.erase(it->first);
       }
     };
-    // addrMap_ resolves `addr %x` to a heap base for the *current*
+    // The address map resolves `addr %x` to a heap base for the *current*
     // frame's local %x. Without scoping, callee's `addr %x` aliases
     // the caller's %x (same name, possibly different type), and
     // callee's entries also leak into the caller after return —
     // corrupting any subsequent caller `addr %y` whose name happens
     // to match a callee local. Snapshot/restore the whole map at the
-    // call boundary; pointer arguments don't go through addrMap_
-    // (they carry a provId that resolves via objects_/heap_), so this
+    // call boundary; pointer arguments don't go through the address map
+    // (they carry a provId that resolves via the object table / heap), so this
     // doesn't break the cross-frame pointer-validity guarantee.
-    auto savedAddrMap = addrMap_;
-    addrMap_.clear();
+    auto savedAddrMap = memory_.addrMap();
+    memory_.addrMap().clear();
 
     // Bind parameters.
     if (args.size() != f.params.size())
@@ -313,31 +309,31 @@ namespace refractir {
       runBlocks(f, store, &ret);
     } catch (...) {
       restoreTypes();
-      addrMap_ = std::move(savedAddrMap);
+      memory_.addrMap() = std::move(savedAddrMap);
       throw;
     }
     restoreTypes();
-    addrMap_ = std::move(savedAddrMap);
+    memory_.addrMap() = std::move(savedAddrMap);
     return ret;
   }
 
   // [v0.2.2] §9.6.1 step 5: refresh caller-side Store entries from heap.
-  // Walk every addr-promoted local (varName ∈ addrMap_) that has a Store
-  // entry in `store`. Reconstruct its value by reading heap_ at the base
+  // Walk every addr-promoted local (varName ∈ the address map) that has a Store
+  // entry in `store`. Reconstruct its value by reading the heap at the base
   // address (and at the per-element offsets for arrays). Scalars, ptrs,
   // and arrays-of-scalars are handled; struct and array-of-struct refresh
   // is deferred (the existing per-store syncObj path handles them within
   // the same call frame, which is enough for most cases).
   void Interpreter::syncStoreFromHeap(Store &store) {
-    for (const auto &[name, base]: addrMap_) {
+    for (const auto &[name, base]: memory_.addrMap()) {
       auto sit = store.find(name);
       if (sit == store.end())
         continue;
       RuntimeValue &slot = sit->second;
       if (slot.kind == RuntimeValue::Kind::Int || slot.kind == RuntimeValue::Kind::Float ||
           slot.kind == RuntimeValue::Kind::Ptr) {
-        auto hit = heap_.find(base);
-        if (hit != heap_.end()) {
+        auto hit = memory_.heap().find(base);
+        if (hit != memory_.heap().end()) {
           // Preserve declared bit-width metadata; only the value changes.
           RuntimeValue fresh = hit->second;
           if (slot.bits && !fresh.bits)
@@ -350,7 +346,7 @@ namespace refractir {
         // Find a matching whole-array ObjectInfo (arrayIdx == -1,
         // fieldName == "") so we know elemSize / count.
         const ObjectInfo *root = nullptr;
-        for (const auto &o: objects_)
+        for (const auto &o: memory_.objects())
           if (o.varName == name && o.fieldName.empty() &&
               o.arrayIdx == static_cast<std::uint64_t>(-1) && o.base == base) {
             root = &o;
@@ -359,8 +355,8 @@ namespace refractir {
         if (!root)
           continue;
         for (std::size_t i = 0; i < slot.arrayVal.size() && i < root->count; ++i) {
-          auto hit = heap_.find(base + i * root->elemSize);
-          if (hit == heap_.end())
+          auto hit = memory_.heap().find(base + i * root->elemSize);
+          if (hit == memory_.heap().end())
             continue;
           RuntimeValue &cell = slot.arrayVal[i];
           if (cell.kind != RuntimeValue::Kind::Int && cell.kind != RuntimeValue::Kind::Float &&
@@ -441,7 +437,7 @@ namespace refractir {
                 if (ptrVal.ptrVal == 0)
                   throw UndefinedBehaviorError("UB: Null pointer dereference in store");
                 // Provenance-based bounds check.
-                const ObjectInfo *obj = findObjectByProvId(ptrVal.ptrBase);
+                const ObjectInfo *obj = memory_.findObjectByProvId(ptrVal.ptrBase);
                 if (!obj)
                   throw UndefinedBehaviorError("UB: Store to unknown address");
                 if (ptrVal.ptrVal < obj->base || ptrVal.ptrVal >= obj->end)
@@ -450,7 +446,7 @@ namespace refractir {
                 // Derive the pointer's pointee type from the expression's first
                 // atom — supports AddrAtom, RValueAtom, LoadAtom, PtrIndexAtom,
                 // PtrFieldAtom, etc.
-                const ObjectInfo *cellObj = findObject(ptrVal.ptrVal);
+                const ObjectInfo *cellObj = memory_.findObject(ptrVal.ptrVal);
                 if (cellObj && cellObj->type) {
                   TypePtr ptrPointeeType = nullptr;
                   std::visit(
@@ -488,13 +484,13 @@ namespace refractir {
                 // the bit pattern.  Falls back to the provenance object
                 // when no cell-level ObjectInfo is registered.
                 std::uint64_t storeElemSize = obj->elemSize;
-                if (const ObjectInfo *precCell = findObject(ptrVal.ptrVal))
+                if (const ObjectInfo *precCell = memory_.findObject(ptrVal.ptrVal))
                   storeElemSize = precCell->elemSize;
                 if (val.kind == RuntimeValue::Kind::Float && storeElemSize == 4) {
                   val.bits = 32;
                   val.floatVal = static_cast<double>(static_cast<float>(val.floatVal));
                 }
-                heap_[ptrVal.ptrVal] = val;
+                memory_.heap()[ptrVal.ptrVal] = val;
                 // Sync back to store for Store/Heap consistency.
                 // Strategy: find the most specific ObjectInfo that
                 // contains the store address. If it's a field-level
@@ -512,9 +508,9 @@ namespace refractir {
                 // whole array-typed field with the scalar, corrupting its
                 // shape. This offset walk handles arbitrary nesting.
                 const std::string &rootVar = obj->varName;
-                auto baseIt = addrMap_.find(rootVar);
+                auto baseIt = memory_.addrMap().find(rootVar);
                 auto rootTyIt = typeMap_.find(rootVar);
-                if (baseIt != addrMap_.end() && rootTyIt != typeMap_.end() &&
+                if (baseIt != memory_.addrMap().end() && rootTyIt != typeMap_.end() &&
                     store.count(rootVar)) {
                   std::function<bool(RuntimeValue &, const TypePtr &, std::uint64_t)> setLeaf =
                       [&](RuntimeValue &node, const TypePtr &ty, std::uint64_t off) -> bool {

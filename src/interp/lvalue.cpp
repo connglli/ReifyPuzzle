@@ -110,8 +110,8 @@ namespace refractir {
     // Spec §9.4.7 / interp Store↔Heap consistency: when an addr-taken local
     // is updated via a direct assignment, the heap-side mirror must reflect
     // the new value so subsequent loads through `load <ptr>` see it.
-    auto ait = addrMap_.find(lv.base.name);
-    if (ait == addrMap_.end())
+    auto ait = memory_.addrMap().find(lv.base.name);
+    if (ait == memory_.addrMap().end())
       return;
     uint64_t base = ait->second;
     const RuntimeValue &top = store.at(lv.base.name);
@@ -193,7 +193,7 @@ namespace refractir {
               }
             }
           } else {
-            heap_[targetAddr] = rv;
+            memory_.heap()[targetAddr] = rv;
           }
         };
 

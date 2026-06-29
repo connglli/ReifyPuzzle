@@ -105,7 +105,7 @@ namespace refractir {
         // ptr ± int: scale offset by element size; result must stay in [base, end].
         // One-past-the-end (== end) is valid for arithmetic but not for dereference.
         // Use ptrBase to find the exact provenance object (enforces field-level boundaries).
-        const ObjectInfo *obj = findObjectByProvId(v.ptrBase);
+        const ObjectInfo *obj = memory_.findObjectByProvId(v.ptrBase);
         if (!obj)
           throw UndefinedBehaviorError("UB: Pointer arithmetic on out-of-bounds pointer");
         uint64_t elemSize = v.elemSize;
@@ -554,14 +554,14 @@ namespace refractir {
         auto sit = typeLayout_.structs().find(st->name.name);
         if (sit == typeLayout_.structs().end())
           throw std::runtime_error("Unknown struct: " + st->name.name);
-        base = materializeStruct(varName, *sit->second, store);
+        base = memory_.materializeStruct(varName, *sit->second, store);
       } else {
-        base = allocObject(varName, tit->second, store);
+        base = memory_.allocObject(varName, tit->second, store);
       }
     } else {
       // Fallback for variables without type info: infer from RuntimeValue shape.
-      auto ait = addrMap_.find(varName);
-      if (ait != addrMap_.end()) {
+      auto ait = memory_.addrMap().find(varName);
+      if (ait != memory_.addrMap().end()) {
         base = ait->second;
       } else {
         const RuntimeValue &sv = store.at(varName);
@@ -578,35 +578,34 @@ namespace refractir {
         } else if (sv.kind == RuntimeValue::Kind::Float) {
           elemSize = sv.bits / 8;
         }
-        base = nextAddr_;
-        nextAddr_ += (elemSize * count + 7) & ~7ULL;
+        base = memory_.bumpAlloc(elemSize * count);
         TypePtr varType = typeMap_.at(varName);
-        addObject(
+        memory_.addObject(
             ObjectInfo{
                 varName, "", base, base + elemSize * count, elemSize, count,
                 static_cast<std::uint64_t>(-1), 0, varType
             }
         );
-        addrMap_[varName] = base;
+        memory_.addrMap()[varName] = base;
         if (sv.kind == RuntimeValue::Kind::Array) {
           for (size_t i = 0; i < sv.arrayVal.size(); ++i)
-            heap_[base + i * elemSize] = sv.arrayVal[i];
+            memory_.heap()[base + i * elemSize] = sv.arrayVal[i];
         } else {
-          heap_[base] = sv;
+          memory_.heap()[base] = sv;
         }
       }
     }
 
     // Find the top-level ObjectInfo for the variable.
     const ObjectInfo *curObj = nullptr;
-    for (const auto &o: objects_) {
+    for (const auto &o: memory_.objects()) {
       if (o.varName == varName && o.fieldName.empty() && o.base == base) {
         curObj = &o;
         break;
       }
     }
     if (!curObj) {
-      for (const auto &o: objects_) {
+      for (const auto &o: memory_.objects()) {
         if (o.varName == varName && o.fieldName.empty()) {
           curObj = &o;
           break;
@@ -657,7 +656,7 @@ namespace refractir {
         curType = elemTy;
         if (curType && (std::holds_alternative<StructType>(curType->v) ||
                         std::holds_alternative<ArrayType>(curType->v)))
-          curObj = findFieldOrStructObject(addr, curType);
+          curObj = memory_.findFieldOrStructObject(addr, curType);
         else
           curObj = nullptr;
       } else if (auto af = std::get_if<AccessField>(&acc)) {
@@ -688,7 +687,7 @@ namespace refractir {
         curType = fieldType;
         if (curType) {
           // Find the field ObjectInfo at 'addr'.
-          curObj = findFieldOrStructObject(addr, curType);
+          curObj = memory_.findFieldOrStructObject(addr, curType);
         } else {
           curObj = nullptr;
         }
@@ -717,7 +716,7 @@ namespace refractir {
     if (ptrRv.ptrVal == 0)
       throw UndefinedBehaviorError("UB: Null pointer dereference in load");
     // Provenance-based bounds check: use ptrBase to locate the exact object.
-    const ObjectInfo *obj = findObjectByProvId(ptrRv.ptrBase);
+    const ObjectInfo *obj = memory_.findObjectByProvId(ptrRv.ptrBase);
     if (!obj)
       throw UndefinedBehaviorError("UB: Load from unknown address");
     if (ptrRv.ptrVal < obj->base || ptrRv.ptrVal >= obj->end)
@@ -728,7 +727,7 @@ namespace refractir {
     // most specific (field-level) ObjectInfo at the address; if
     // the pointer's type doesn't match that ObjectInfo's type,
     // the types disagree.
-    const ObjectInfo *cellObj = findObject(ptrRv.ptrVal);
+    const ObjectInfo *cellObj = memory_.findObject(ptrRv.ptrVal);
     if (cellObj && cellObj->type) {
       if (auto ptrTy = getLValueType(arg.rval)) {
         if (auto pt = std::get_if<PtrType>(&ptrTy->v)) {
@@ -739,8 +738,8 @@ namespace refractir {
         }
       }
     }
-    auto hit = heap_.find(ptrRv.ptrVal);
-    if (hit == heap_.end())
+    auto hit = memory_.heap().find(ptrRv.ptrVal);
+    if (hit == memory_.heap().end())
       throw UndefinedBehaviorError("UB: Load from uninitialized memory");
     return hit->second;
 
@@ -760,7 +759,7 @@ namespace refractir {
       throw std::runtime_error("ptrindex requires a pointer operand");
     if (ptrRv.ptrVal == 0)
       throw UndefinedBehaviorError("UB: 'ptrindex' through null pointer");
-    const ObjectInfo *obj = findObjectByProvId(ptrRv.ptrBase);
+    const ObjectInfo *obj = memory_.findObjectByProvId(ptrRv.ptrBase);
     if (!obj)
       throw UndefinedBehaviorError("UB: 'ptrindex' on pointer to unknown object");
     if (ptrRv.ptrVal == obj->end)
@@ -814,11 +813,11 @@ namespace refractir {
     // i32).
     const ObjectInfo *containingArrayObj = nullptr;
     if (pointeeType) {
-      containingArrayObj = findFieldOrStructObject(ptrRv.ptrVal, pointeeType);
+      containingArrayObj = memory_.findFieldOrStructObject(ptrRv.ptrVal, pointeeType);
     }
     if (!containingArrayObj) {
       // Fallback: search by base address or create a new ObjectInfo
-      containingArrayObj = findObjectByBaseAddress(ptrRv.ptrVal);
+      containingArrayObj = memory_.findObjectByBaseAddress(ptrRv.ptrVal);
       if (!containingArrayObj) {
         uint64_t subBase = ptrRv.ptrVal;
         uint64_t subEnd = ptrRv.ptrVal + arrSize * elemSize;
@@ -828,7 +827,7 @@ namespace refractir {
             subType = at->elem;
           }
         }
-        containingArrayObj = &addObject(
+        containingArrayObj = &memory_.addObject(
             ObjectInfo{
                 obj->varName, "", subBase, subEnd, elemSize, arrSize,
                 static_cast<std::uint64_t>(-1), 0, subType
@@ -860,7 +859,7 @@ namespace refractir {
       throw std::runtime_error("ptrfield requires a pointer operand");
     if (ptrRv.ptrVal == 0)
       throw UndefinedBehaviorError("UB: 'ptrfield' through null pointer");
-    const ObjectInfo *obj = findObjectByProvId(ptrRv.ptrBase);
+    const ObjectInfo *obj = memory_.findObjectByProvId(ptrRv.ptrBase);
     if (!obj)
       throw UndefinedBehaviorError("UB: 'ptrfield' on pointer to unknown object");
     if (ptrRv.ptrVal == obj->end)
@@ -913,10 +912,11 @@ namespace refractir {
 
     // Find the ObjectInfo of the containing struct (which is @Inner, located at
     // ptrRv.ptrVal).
-    const ObjectInfo *containingStructObj = findFieldOrStructObject(ptrRv.ptrVal, pt.pointee);
+    const ObjectInfo *containingStructObj =
+        memory_.findFieldOrStructObject(ptrRv.ptrVal, pt.pointee);
     if (!containingStructObj) {
       // Fallback: create one if it doesn't exist
-      containingStructObj = &addObject(
+      containingStructObj = &memory_.addObject(
           ObjectInfo{
               obj->varName, "", ptrRv.ptrVal, ptrRv.ptrVal + typeLayout_.sizeofType(pt.pointee),
               typeLayout_.sizeofType(pt.pointee), 1, static_cast<std::uint64_t>(-1), 0, pt.pointee
