@@ -61,7 +61,10 @@ BACKEND_SRCS = src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
                src/backend/vec_lowering_array.cpp \
                src/backend/vec_lowering_scalars.cpp \
                src/backend/vec_lowering_struct.cpp
-INTERP_IMPL_SRCS = src/interp/interpreter.cpp src/interp/intrinsics.cpp
+INTERP_IMPL_SRCS = src/interp/interpreter.cpp src/interp/intrinsics.cpp \
+                   src/interp/type_layout.cpp src/interp/types.cpp \
+                   src/interp/memory.cpp src/interp/values.cpp \
+                   src/interp/expr.cpp src/interp/lvalue.cpp
 INTERP_SRCS = src/symiri.cpp $(INTERP_IMPL_SRCS)
 COMPILER_SRCS = src/symirc.cpp $(BACKEND_SRCS)
 SOLVER_MAIN_SRCS = src/symirsolve.cpp src/solver/solver.cpp src/solver/intrinsics.cpp
@@ -105,6 +108,12 @@ LIB_NAME = libsymir.a
 LIBRARY_OBJS = $(COMMON_OBJS) \
                src/interp/interpreter.o \
                src/interp/intrinsics.o \
+               src/interp/type_layout.o \
+               src/interp/types.o \
+               src/interp/memory.o \
+               src/interp/values.o \
+               src/interp/expr.o \
+               src/interp/lvalue.o \
                src/backend/c_backend.o \
                src/backend/intrinsics_c.o \
                src/backend/intrinsics_wasm.o \
