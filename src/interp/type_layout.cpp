@@ -1,12 +1,20 @@
+#include "interp/type_layout.hpp"
 #include <cstdint>
 #include <stdexcept>
-#include "interp/interpreter.hpp"
 
 namespace refractir {
 
-  // ---- Memory helpers ----
+  TypeLayout::TypeLayout(const Program &prog) {
+    for (const auto &s: prog.structs)
+      structs_[s.name.name] = &s;
+  }
 
-  std::uint64_t Interpreter::sizeofType(const TypePtr &t) const {
+  const StructDecl *TypeLayout::lookupStruct(const std::string &name) const {
+    auto it = structs_.find(name);
+    return it == structs_.end() ? nullptr : it->second;
+  }
+
+  std::uint64_t TypeLayout::sizeofType(const TypePtr &t) const {
     if (!t)
       return 8;
     if (auto it = std::get_if<IntType>(&t->v)) {
@@ -33,7 +41,7 @@ namespace refractir {
     return 8;
   }
 
-  TypePtr Interpreter::getCellTypeAtOffset(TypePtr t, std::uint64_t offset) const {
+  TypePtr TypeLayout::getCellTypeAtOffset(TypePtr t, std::uint64_t offset) const {
     if (!t)
       return nullptr;
     if (auto at = std::get_if<ArrayType>(&t->v)) {
@@ -60,7 +68,7 @@ namespace refractir {
   }
 
   // Byte offset of named field within struct s (sequential layout, no padding).
-  std::uint64_t Interpreter::fieldOffset(const StructDecl &s, const std::string &fieldName) const {
+  std::uint64_t TypeLayout::fieldOffset(const StructDecl &s, const std::string &fieldName) const {
     uint64_t offset = 0;
     for (const auto &f: s.fields) {
       if (f.name == fieldName)
@@ -69,4 +77,5 @@ namespace refractir {
     }
     throw std::runtime_error("Internal: field '" + fieldName + "' not found in struct");
   }
+
 } // namespace refractir

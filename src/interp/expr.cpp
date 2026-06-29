@@ -551,8 +551,8 @@ namespace refractir {
     auto tit = typeMap_.find(varName);
     if (tit != typeMap_.end()) {
       if (auto st = std::get_if<StructType>(&tit->second->v)) {
-        auto sit = structs_.find(st->name.name);
-        if (sit == structs_.end())
+        auto sit = typeLayout_.structs().find(st->name.name);
+        if (sit == typeLayout_.structs().end())
           throw std::runtime_error("Unknown struct: " + st->name.name);
         base = materializeStruct(varName, *sit->second, store);
       } else {
@@ -636,7 +636,7 @@ namespace refractir {
           throw std::runtime_error("Internal: index access on non-array type");
         TypePtr elemTy = at->elem;
         uint64_t cnt = at->size;
-        uint64_t elemSz = sizeofType(elemTy);
+        uint64_t elemSz = typeLayout_.sizeofType(elemTy);
         int64_t idx = 0;
         if (std::holds_alternative<IntLit>(ai->index)) {
           idx = std::get<IntLit>(ai->index).value;
@@ -666,11 +666,11 @@ namespace refractir {
         auto st = std::get_if<StructType>(&curType->v);
         if (!st)
           throw std::runtime_error("Field access on non-struct variable");
-        auto sit = structs_.find(st->name.name);
-        if (sit == structs_.end())
+        auto sit = typeLayout_.structs().find(st->name.name);
+        if (sit == typeLayout_.structs().end())
           throw std::runtime_error("Unknown struct for field access");
 
-        uint64_t off = fieldOffset(*sit->second, af->field);
+        uint64_t off = typeLayout_.fieldOffset(*sit->second, af->field);
         addr = addr + off;
 
         // Provenance = the containing struct (spec rule 15).
@@ -699,7 +699,7 @@ namespace refractir {
     rv.kind = RuntimeValue::Kind::Ptr;
     rv.ptrVal = addr;
     rv.ptrBase = provId;
-    rv.elemSize = curType ? sizeofType(curType) : 1;
+    rv.elemSize = curType ? typeLayout_.sizeofType(curType) : 1;
     rv.bits = 64;
     return rv;
 
@@ -732,7 +732,8 @@ namespace refractir {
     if (cellObj && cellObj->type) {
       if (auto ptrTy = getLValueType(arg.rval)) {
         if (auto pt = std::get_if<PtrType>(&ptrTy->v)) {
-          TypePtr cellType = getCellTypeAtOffset(cellObj->type, ptrRv.ptrVal - cellObj->base);
+          TypePtr cellType =
+              typeLayout_.getCellTypeAtOffset(cellObj->type, ptrRv.ptrVal - cellObj->base);
           if (!TypeUtils::areTypesEqual(pt->pointee, cellType))
             throw UndefinedBehaviorError("UB: Typed-access mismatch (rule 15b)");
         }
@@ -780,7 +781,7 @@ namespace refractir {
         pointeeType = pt->pointee;
         if (auto at = std::get_if<ArrayType>(&pt->pointee->v)) {
           arrSize = at->size;
-          elemSize = sizeofType(at->elem);
+          elemSize = typeLayout_.sizeofType(at->elem);
         }
       }
     }
@@ -873,8 +874,8 @@ namespace refractir {
     for (const auto &acc: arg.rval.accesses) {
       if (auto af = std::get_if<AccessField>(&acc)) {
         if (auto st = std::get_if<StructType>(&cur->v)) {
-          auto sit = structs_.find(st->name.name);
-          if (sit == structs_.end())
+          auto sit = typeLayout_.structs().find(st->name.name);
+          if (sit == typeLayout_.structs().end())
             throw std::runtime_error("Unknown struct in ptrfield rval chain");
           bool found = false;
           for (const auto &f: sit->second->fields)
@@ -905,10 +906,10 @@ namespace refractir {
     if (!std::holds_alternative<StructType>(pt.pointee->v))
       throw std::runtime_error("ptrfield: pointee is not a struct");
     auto &st = std::get<StructType>(pt.pointee->v);
-    auto sit = structs_.find(st.name.name);
-    if (sit == structs_.end())
+    auto sit = typeLayout_.structs().find(st.name.name);
+    if (sit == typeLayout_.structs().end())
       throw std::runtime_error("Unknown struct in ptrfield: " + st.name.name);
-    uint64_t off = fieldOffset(*sit->second, arg.field);
+    uint64_t off = typeLayout_.fieldOffset(*sit->second, arg.field);
 
     // Find the ObjectInfo of the containing struct (which is @Inner, located at
     // ptrRv.ptrVal).
@@ -917,8 +918,8 @@ namespace refractir {
       // Fallback: create one if it doesn't exist
       containingStructObj = &addObject(
           ObjectInfo{
-              obj->varName, "", ptrRv.ptrVal, ptrRv.ptrVal + sizeofType(pt.pointee),
-              sizeofType(pt.pointee), 1, static_cast<std::uint64_t>(-1), 0, pt.pointee
+              obj->varName, "", ptrRv.ptrVal, ptrRv.ptrVal + typeLayout_.sizeofType(pt.pointee),
+              typeLayout_.sizeofType(pt.pointee), 1, static_cast<std::uint64_t>(-1), 0, pt.pointee
           }
       );
     }
@@ -937,7 +938,7 @@ namespace refractir {
     rv.ptrVal = ptrRv.ptrVal + off;
     // Provenance = the containing struct's provId!
     rv.ptrBase = containingStructObj->provId;
-    rv.elemSize = fieldType ? sizeofType(fieldType) : 1;
+    rv.elemSize = fieldType ? typeLayout_.sizeofType(fieldType) : 1;
     return rv;
 
     return RuntimeValue{};

@@ -7,6 +7,7 @@
 #include <variant>
 #include <vector>
 #include "ast/ast.hpp"
+#include "interp/type_layout.hpp"
 #include "interp/value.hpp"
 
 namespace refractir {
@@ -47,7 +48,9 @@ namespace refractir {
     const Program &prog_;
     std::ostream &out_; // sink for Result: / dump-exec (default std::cout)
     bool dumpExec_ = false;
-    std::unordered_map<std::string, const StructDecl *> structs_;
+    // Owns the struct registry + pure type-layout queries (sizeofType,
+    // getCellTypeAtOffset, fieldOffset). Frame-independent; see TypeLayout.
+    TypeLayout typeLayout_;
 
     // ---- Memory model for pointer operations ----
 
@@ -90,8 +93,6 @@ namespace refractir {
     // nextProvId_: unique provenance ID counter
     std::uint64_t nextProvId_ = 1;
 
-    std::uint64_t sizeofType(const TypePtr &t) const;
-    TypePtr getCellTypeAtOffset(TypePtr t, std::uint64_t offset) const;
     TypePtr getLValueType(const LValue &lv) const;
     TypePtr getCoefType(const Coef &coef) const;
     TypePtr getAtomType(const Atom &atom) const;
@@ -104,7 +105,6 @@ namespace refractir {
     // a deep cell (e.g. `%a[k].f[i]`) finds a scalar there rather than the
     // whole sub-aggregate.
     void flattenValueToHeap(std::uint64_t addr, const RuntimeValue &v, const TypePtr &ty);
-    std::uint64_t fieldOffset(const StructDecl &s, const std::string &fieldName) const;
     std::uint64_t
     materializeStruct(const std::string &varName, const StructDecl &s, const Store &store);
     ObjectInfo &addObject(ObjectInfo obj);

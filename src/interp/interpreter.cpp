@@ -19,11 +19,8 @@ namespace refractir {
 
   Interpreter::Interpreter(const Program &prog) : Interpreter(prog, std::cout) {}
 
-  Interpreter::Interpreter(const Program &prog, std::ostream &out) : prog_(prog), out_(out) {
-    for (const auto &s: prog_.structs) {
-      structs_[s.name.name] = &s;
-    }
-  }
+  Interpreter::Interpreter(const Program &prog, std::ostream &out) :
+      prog_(prog), out_(out), typeLayout_(prog) {}
 
   void Interpreter::run(
       const std::string &entryFuncName, const SymBindings &symBindings,
@@ -473,8 +470,9 @@ namespace refractir {
                       i.ptr.first.v
                   );
                   if (ptrPointeeType) {
-                    TypePtr cellType =
-                        getCellTypeAtOffset(cellObj->type, ptrVal.ptrVal - cellObj->base);
+                    TypePtr cellType = typeLayout_.getCellTypeAtOffset(
+                        cellObj->type, ptrVal.ptrVal - cellObj->base
+                    );
                     if (!TypeUtils::areTypesEqual(ptrPointeeType, cellType))
                       throw UndefinedBehaviorError("UB: Typed-access mismatch (rule 15b) on store");
                   }
@@ -523,7 +521,7 @@ namespace refractir {
                     if (!ty)
                       return false;
                     if (auto at = std::get_if<ArrayType>(&ty->v)) {
-                      std::uint64_t es = sizeofType(at->elem);
+                      std::uint64_t es = typeLayout_.sizeofType(at->elem);
                       if (es == 0 || node.kind != RuntimeValue::Kind::Array)
                         return false;
                       std::uint64_t idx = off / es;
@@ -532,7 +530,7 @@ namespace refractir {
                       return setLeaf(node.arrayVal[idx], at->elem, off % es);
                     }
                     if (auto vt = std::get_if<VecType>(&ty->v)) {
-                      std::uint64_t es = sizeofType(vt->elem);
+                      std::uint64_t es = typeLayout_.sizeofType(vt->elem);
                       if (es == 0 || node.kind != RuntimeValue::Kind::Vec)
                         return false;
                       std::uint64_t idx = off / es;
@@ -541,12 +539,13 @@ namespace refractir {
                       return setLeaf(node.arrayVal[idx], vt->elem, off % es);
                     }
                     if (auto st = std::get_if<StructType>(&ty->v)) {
-                      auto sit = structs_.find(st->name.name);
-                      if (sit == structs_.end() || node.kind != RuntimeValue::Kind::Struct)
+                      auto sit = typeLayout_.structs().find(st->name.name);
+                      if (sit == typeLayout_.structs().end() ||
+                          node.kind != RuntimeValue::Kind::Struct)
                         return false;
                       std::uint64_t fo = 0;
                       for (const auto &f: sit->second->fields) {
-                        std::uint64_t fs = sizeofType(f.type);
+                        std::uint64_t fs = typeLayout_.sizeofType(f.type);
                         if (off >= fo && off < fo + fs)
                           return setLeaf(node.structVal[f.name], f.type, off - fo);
                         fo += fs;

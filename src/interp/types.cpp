@@ -20,8 +20,8 @@ namespace refractir {
           cur = vt->elem;
       } else if (auto af = std::get_if<AccessField>(&acc)) {
         if (auto st = std::get_if<StructType>(&cur->v)) {
-          auto sit = structs_.find(st->name.name);
-          if (sit != structs_.end()) {
+          auto sit = typeLayout_.structs().find(st->name.name);
+          if (sit != typeLayout_.structs().end()) {
             bool found = false;
             for (const auto &fd: sit->second->fields) {
               if (fd.name == af->field) {
@@ -131,8 +131,8 @@ namespace refractir {
             if (pt) {
               if (auto ptr = std::get_if<PtrType>(&pt->v)) {
                 if (auto st = std::get_if<StructType>(&ptr->pointee->v)) {
-                  auto sit = structs_.find(st->name.name);
-                  if (sit != structs_.end()) {
+                  auto sit = typeLayout_.structs().find(st->name.name);
+                  if (sit != typeLayout_.structs().end()) {
                     for (const auto &fd: sit->second->fields) {
                       if (fd.name == arg.field) {
                         auto resPtr = std::make_shared<Type>();

@@ -14,12 +14,12 @@ namespace refractir {
       return it->second;
 
     uint64_t base = nextAddr_;
-    uint64_t totalSize = sizeofType(t);
+    uint64_t totalSize = typeLayout_.sizeofType(t);
     // Align allocation to 8 bytes
     nextAddr_ += (totalSize + 7) & ~7ULL;
 
     uint64_t elemSize =
-        sizeofType(std::get_if<ArrayType>(&t->v) ? std::get<ArrayType>(t->v).elem : t);
+        typeLayout_.sizeofType(std::get_if<ArrayType>(&t->v) ? std::get<ArrayType>(t->v).elem : t);
     uint64_t count = std::get_if<ArrayType>(&t->v) ? std::get<ArrayType>(t->v).size : 1;
     addObject(
         ObjectInfo{
@@ -44,8 +44,8 @@ namespace refractir {
         bool elemIsStruct = elemTy && std::holds_alternative<StructType>(elemTy->v);
         const StructDecl *sd = nullptr;
         if (elemIsStruct) {
-          auto sIt = structs_.find(std::get<StructType>(elemTy->v).name.name);
-          if (sIt != structs_.end())
+          auto sIt = typeLayout_.structs().find(std::get<StructType>(elemTy->v).name.name);
+          if (sIt != typeLayout_.structs().end())
             sd = sIt->second;
         }
         for (std::size_t i = 0; i < sv.arrayVal.size(); ++i) {
@@ -56,7 +56,7 @@ namespace refractir {
             uint64_t off = 0;
             uint64_t minFS = elemSize;
             for (const auto &f: sd->fields) {
-              uint64_t fs = sizeofType(f.type);
+              uint64_t fs = typeLayout_.sizeofType(f.type);
               if (fs < minFS)
                 minFS = fs;
             }
@@ -67,7 +67,7 @@ namespace refractir {
                 }
             );
             for (const auto &f: sd->fields) {
-              uint64_t fSize = sizeofType(f.type);
+              uint64_t fSize = typeLayout_.sizeofType(f.type);
               addObject(
                   ObjectInfo{
                       varName, f.name, elemBase + off, elemBase + off + fSize, fSize, 1, i, 0,
@@ -90,7 +90,7 @@ namespace refractir {
             // ptrindex can navigate into sub-arrays and load individual
             // elements.
             auto subAt = elemTy ? std::get_if<ArrayType>(&elemTy->v) : nullptr;
-            uint64_t subElemSize = subAt ? sizeofType(subAt->elem) : 4;
+            uint64_t subElemSize = subAt ? typeLayout_.sizeofType(subAt->elem) : 4;
             uint64_t subCount = subAt ? subAt->size : sv.arrayVal[i].arrayVal.size();
             addObject(
                 ObjectInfo{
@@ -167,7 +167,7 @@ namespace refractir {
 
   const Interpreter::ObjectInfo *
   Interpreter::findFieldOrStructObject(std::uint64_t addr, const TypePtr &type) const {
-    uint64_t size = sizeofType(type);
+    uint64_t size = typeLayout_.sizeofType(type);
     // Base + size alone is ambiguous for a single-element outer array: a
     // `[1][3] i16` and its sole `[3] i16` element share the same base and
     // the same 6-byte span, yet differ in element count (1 vs 3). Prefer an
@@ -192,26 +192,26 @@ namespace refractir {
   Interpreter::flattenValueToHeap(std::uint64_t addr, const RuntimeValue &v, const TypePtr &ty) {
     if (ty) {
       if (auto at = std::get_if<ArrayType>(&ty->v)) {
-        std::uint64_t es = sizeofType(at->elem);
+        std::uint64_t es = typeLayout_.sizeofType(at->elem);
         for (std::size_t i = 0; i < v.arrayVal.size(); ++i)
           flattenValueToHeap(addr + i * es, v.arrayVal[i], at->elem);
         return;
       }
       if (auto vt = std::get_if<VecType>(&ty->v)) {
-        std::uint64_t es = sizeofType(vt->elem);
+        std::uint64_t es = typeLayout_.sizeofType(vt->elem);
         for (std::size_t i = 0; i < v.arrayVal.size(); ++i)
           flattenValueToHeap(addr + i * es, v.arrayVal[i], vt->elem);
         return;
       }
       if (auto st = std::get_if<StructType>(&ty->v)) {
-        auto sit = structs_.find(st->name.name);
-        if (sit != structs_.end() && v.kind == RuntimeValue::Kind::Struct) {
+        auto sit = typeLayout_.structs().find(st->name.name);
+        if (sit != typeLayout_.structs().end() && v.kind == RuntimeValue::Kind::Struct) {
           std::uint64_t off = 0;
           for (const auto &f: sit->second->fields) {
             auto fit = v.structVal.find(f.name);
             if (fit != v.structVal.end())
               flattenValueToHeap(addr + off, fit->second, f.type);
-            off += sizeofType(f.type);
+            off += typeLayout_.sizeofType(f.type);
           }
           return;
         }
@@ -232,7 +232,7 @@ namespace refractir {
     // Compute total size (sequential field layout, no padding).
     uint64_t totalSize = 0;
     for (const auto &f: s.fields)
-      totalSize += sizeofType(f.type);
+      totalSize += typeLayout_.sizeofType(f.type);
 
     uint64_t base = nextAddr_;
     nextAddr_ += (totalSize + 7) & ~7ULL;
@@ -244,7 +244,7 @@ namespace refractir {
     // size so ptr arith steps by the right granularity.
     uint64_t minFieldSize = totalSize;
     for (const auto &f: s.fields) {
-      uint64_t fs = sizeofType(f.type);
+      uint64_t fs = typeLayout_.sizeofType(f.type);
       if (fs < minFieldSize)
         minFieldSize = fs;
     }
@@ -268,19 +268,19 @@ namespace refractir {
       const StructDecl *fieldSD = nullptr;
       if (auto at = std::get_if<ArrayType>(&f.type->v)) {
         fCount = at->size;
-        fElemSize = sizeofType(at->elem);
+        fElemSize = typeLayout_.sizeofType(at->elem);
       } else if (auto st = std::get_if<StructType>(&f.type->v)) {
         // Nested struct field: create per-sub-field ObjectInfos.
         fCount = 1;
-        fElemSize = sizeofType(f.type);
-        auto sit = structs_.find(st->name.name);
-        if (sit != structs_.end()) {
+        fElemSize = typeLayout_.sizeofType(f.type);
+        auto sit = typeLayout_.structs().find(st->name.name);
+        if (sit != typeLayout_.structs().end()) {
           fieldIsStruct = true;
           fieldSD = sit->second;
         }
       } else {
         fCount = 1;
-        fElemSize = sizeofType(f.type);
+        fElemSize = typeLayout_.sizeofType(f.type);
       }
       uint64_t fSize = fCount * fElemSize;
       addObject(
@@ -296,7 +296,7 @@ namespace refractir {
       if (fieldIsStruct && fieldSD) {
         uint64_t subOff = 0;
         for (const auto &sf: fieldSD->fields) {
-          uint64_t sfSize = sizeofType(sf.type);
+          uint64_t sfSize = typeLayout_.sizeofType(sf.type);
           addObject(
               ObjectInfo{
                   varName, sf.name, fBase + subOff, fBase + subOff + sfSize, sfSize, 1,

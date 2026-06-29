@@ -137,7 +137,7 @@ namespace refractir {
         uint64_t elemSize = 0;
         if (curType) {
           if (auto at = std::get_if<ArrayType>(&curType->v)) {
-            elemSize = sizeofType(at->elem);
+            elemSize = typeLayout_.sizeofType(at->elem);
             curType = at->elem;
           }
         }
@@ -153,10 +153,10 @@ namespace refractir {
         auto st = std::get_if<StructType>(&curType->v);
         if (!st)
           return;
-        auto sit = structs_.find(st->name.name);
-        if (sit == structs_.end())
+        auto sit = typeLayout_.structs().find(st->name.name);
+        if (sit == typeLayout_.structs().end())
           return;
-        addr += fieldOffset(*sit->second, af->field);
+        addr += typeLayout_.fieldOffset(*sit->second, af->field);
         for (const auto &f: sit->second->fields)
           if (f.name == af->field) {
             curType = f.type;
@@ -174,21 +174,21 @@ namespace refractir {
           if (rv.kind == RuntimeValue::Kind::Array) {
             auto innerAt = ty ? std::get_if<ArrayType>(&ty->v) : nullptr;
             auto innerElem = innerAt ? innerAt->elem : TypePtr{};
-            uint64_t innerElemSz = innerElem ? sizeofType(innerElem) : 4;
+            uint64_t innerElemSz = innerElem ? typeLayout_.sizeofType(innerElem) : 4;
             for (std::size_t j = 0; j < rv.arrayVal.size(); ++j)
               flattenToHeap(targetAddr + j * innerElemSz, rv.arrayVal[j], innerElem);
           } else if (rv.kind == RuntimeValue::Kind::Struct) {
             auto innerSt = ty ? std::get_if<StructType>(&ty->v) : nullptr;
             if (innerSt) {
-              auto sd = structs_.find(innerSt->name.name);
-              if (sd != structs_.end()) {
+              auto sd = typeLayout_.structs().find(innerSt->name.name);
+              if (sd != typeLayout_.structs().end()) {
                 uint64_t off = 0;
                 for (const auto &f: sd->second->fields) {
                   auto fit = rv.structVal.find(f.name);
                   if (fit != rv.structVal.end()) {
                     flattenToHeap(targetAddr + off, fit->second, f.type);
                   }
-                  off += sizeofType(f.type);
+                  off += typeLayout_.sizeofType(f.type);
                 }
               }
             }

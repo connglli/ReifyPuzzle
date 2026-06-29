@@ -51,8 +51,8 @@ namespace refractir {
         res.arrayVal.push_back(makeUndef(at->elem));
     } else if (auto st = TypeUtils::asStruct(t)) {
       res.kind = RuntimeValue::Kind::Struct;
-      auto it = structs_.find(st->name.name);
-      if (it != structs_.end()) {
+      auto it = typeLayout_.structs().find(st->name.name);
+      if (it != typeLayout_.structs().end()) {
         for (const auto &f: it->second->fields)
           res.structVal[f.name] = makeUndef(f.type);
       }
@@ -97,8 +97,8 @@ namespace refractir {
     } else if (auto st = TypeUtils::asStruct(t)) {
       RuntimeValue res;
       res.kind = RuntimeValue::Kind::Struct;
-      auto it = structs_.find(st->name.name);
-      if (it != structs_.end()) {
+      auto it = typeLayout_.structs().find(st->name.name);
+      if (it != typeLayout_.structs().end()) {
         for (const auto &f: it->second->fields)
           res.structVal[f.name] = broadcast(f.type, v);
       }
@@ -146,8 +146,8 @@ namespace refractir {
       } else if (auto st = TypeUtils::asStruct(t)) {
         RuntimeValue res;
         res.kind = RuntimeValue::Kind::Struct;
-        auto sit = structs_.find(st->name.name);
-        if (sit != structs_.end()) {
+        auto sit = typeLayout_.structs().find(st->name.name);
+        if (sit != typeLayout_.structs().end()) {
           for (size_t i = 0; i < sit->second->fields.size(); ++i) {
             res.structVal[sit->second->fields[i].name] =
                 evalInit(*elements[i], sit->second->fields[i].type, store);
