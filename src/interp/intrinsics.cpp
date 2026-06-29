@@ -73,12 +73,11 @@ namespace refractir {
      * @brief Read the i-th argument as a 64-bit signed value, sign-extended
      * from the *parameter's own width* (NOT the return width).
      */
-    inline int64_t argSint(
-        const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args, size_t i
-    ) {
+    inline int64_t
+    argSint(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args, size_t i) {
       if (i >= args.size())
         throw std::runtime_error("Intrinsic " + intr.name.name + ": argument count error");
-      if (args[i].kind != Interpreter::RuntimeValue::Kind::Int)
+      if (args[i].kind != RuntimeValue::Kind::Int)
         throw std::runtime_error("Intrinsic " + intr.name.name + ": non-integer argument");
       auto pb = TypeUtils::getIntBitWidth(intr.params[i].type);
       uint32_t pN = pb ? *pb : args[i].bits;
@@ -92,9 +91,8 @@ namespace refractir {
      * @brief Read the i-th argument as a 64-bit unsigned value, masked to
      * the parameter's own width.
      */
-    inline uint64_t argUint(
-        const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args, size_t i
-    ) {
+    inline uint64_t
+    argUint(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args, size_t i) {
       auto pb = TypeUtils::getIntBitWidth(intr.params[i].type);
       uint32_t pN = pb ? *pb : args[i].bits;
       return uintOfN(argSint(intr, args, i), pN);
@@ -107,9 +105,9 @@ namespace refractir {
      * literal 0 or 1, matching the `cmp` instruction's convention in the
      * interpreter (see src/interp/interpreter.cpp:1609).
      */
-    inline Interpreter::RuntimeValue makeInt(uint32_t N, int64_t v) {
-      Interpreter::RuntimeValue r;
-      r.kind = Interpreter::RuntimeValue::Kind::Int;
+    inline RuntimeValue makeInt(uint32_t N, int64_t v) {
+      RuntimeValue r;
+      r.kind = RuntimeValue::Kind::Int;
       r.bits = N;
       // [v0.2.2] Spec §6.4: i1 is signed.  Sign-extension of the low
       // bit is 0 → 0 and 1 → -1, matching `iN as iM` widening
@@ -133,9 +131,8 @@ namespace refractir {
      * value held in `floatVal` is already at f32 precision (see the
      * argument-binding path in interpreter.cpp).
      */
-    inline double argFloat(
-        const IntrinsicDecl & /*intr*/, const std::vector<Interpreter::RuntimeValue> &args, size_t i
-    ) {
+    inline double
+    argFloat(const IntrinsicDecl & /*intr*/, const std::vector<RuntimeValue> &args, size_t i) {
       return args[i].floatVal;
     }
 
@@ -144,9 +141,9 @@ namespace refractir {
      * narrowed to f32 precision so subsequent reads agree with the C
      * backend's `float`-typed storage.
      */
-    inline Interpreter::RuntimeValue makeFloat(uint32_t N, double v) {
-      Interpreter::RuntimeValue r;
-      r.kind = Interpreter::RuntimeValue::Kind::Float;
+    inline RuntimeValue makeFloat(uint32_t N, double v) {
+      RuntimeValue r;
+      r.kind = RuntimeValue::Kind::Float;
       r.bits = N;
       r.floatVal = (N == 32) ? static_cast<double>(static_cast<float>(v)) : v;
       return r;
@@ -165,17 +162,16 @@ namespace refractir {
        * @param args Arguments, in declaration order.
        * @return The resulting RuntimeValue.
        */
-      virtual Interpreter::RuntimeValue
-      eval(const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args) const = 0;
+      virtual RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const = 0;
     };
 
     // ── §12.1 Arithmetic intrinsics ─────────────────────────────────────────
 
     class AbsIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t x = argSint(intr, args, 0);
         if (x == intMinN(N))
@@ -186,9 +182,8 @@ namespace refractir {
 
     class MinIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
         return makeInt(N, a < b ? a : b);
@@ -197,9 +192,8 @@ namespace refractir {
 
     class MaxIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
         return makeInt(N, a > b ? a : b);
@@ -210,9 +204,8 @@ namespace refractir {
 
     class PopcountIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         uint64_t u = argUint(intr, args, 0);
         int64_t c = __builtin_popcountll(u);
@@ -224,9 +217,8 @@ namespace refractir {
 
     class ClzIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         uint64_t u = argUint(intr, args, 0);
         if (u == 0)
@@ -243,9 +235,8 @@ namespace refractir {
 
     class CtzIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         uint64_t u = argUint(intr, args, 0);
         if (u == 0)
@@ -269,9 +260,8 @@ namespace refractir {
      */
     class AbsDiffIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
         int64_t maxN = intMaxN(N);
@@ -311,9 +301,8 @@ namespace refractir {
      */
     class SignumIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t x = argSint(intr, args, 0);
         int64_t r = (x > 0) - (x < 0);
@@ -326,9 +315,8 @@ namespace refractir {
      */
     class ClampIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t v = argSint(intr, args, 0);
         int64_t lo = argSint(intr, args, 1);
@@ -345,9 +333,8 @@ namespace refractir {
      */
     class MidpointIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
         // For N <= 63, (a + b) always fits in int64. For N == 64, do the
@@ -383,9 +370,8 @@ namespace refractir {
      */
     class ParityIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint64_t u = argUint(intr, args, 0);
         int64_t p = __builtin_parityll(u);
         return makeInt(1, p & 1);
@@ -397,9 +383,8 @@ namespace refractir {
      */
     class BswapIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         uint64_t u = argUint(intr, args, 0);
         uint32_t nbytes = N / 8;
@@ -417,9 +402,8 @@ namespace refractir {
      */
     class BitreverseIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         uint64_t u = argUint(intr, args, 0);
         uint64_t r = 0;
@@ -436,9 +420,8 @@ namespace refractir {
      */
     class RotlIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         uint64_t u = argUint(intr, args, 0);
         int64_t n = argSint(intr, args, 1);
@@ -458,9 +441,8 @@ namespace refractir {
      */
     class RotrIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         uint64_t u = argUint(intr, args, 0);
         int64_t n = argSint(intr, args, 1);
@@ -480,9 +462,8 @@ namespace refractir {
      */
     class IsPow2Intrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         int64_t x = argSint(intr, args, 0);
         uint64_t u = static_cast<uint64_t>(x);
         int64_t r = (x > 0 && (u & (u - 1)) == 0) ? 1 : 0;
@@ -495,9 +476,8 @@ namespace refractir {
      */
     class Ilog2Intrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t x = argSint(intr, args, 0);
         if (x <= 0)
@@ -521,9 +501,8 @@ namespace refractir {
      */
     class WrappingAddIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         uint64_t a = argUint(intr, args, 0), b = argUint(intr, args, 1);
         return makeInt(N, static_cast<int64_t>(a + b));
@@ -535,9 +514,8 @@ namespace refractir {
      */
     class WrappingSubIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         uint64_t a = argUint(intr, args, 0), b = argUint(intr, args, 1);
         return makeInt(N, static_cast<int64_t>(a - b));
@@ -549,9 +527,8 @@ namespace refractir {
      */
     class WrappingMulIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         uint64_t a = argUint(intr, args, 0), b = argUint(intr, args, 1);
         // Unsigned mul on the iN-sized values; for N < 64 the high bits
@@ -566,9 +543,8 @@ namespace refractir {
      */
     class WrappingNegIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         uint64_t a = argUint(intr, args, 0);
         return makeInt(N, static_cast<int64_t>(-a));
@@ -581,9 +557,8 @@ namespace refractir {
      */
     class WrappingShlIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         uint64_t a = argUint(intr, args, 0);
         int64_t n = argSint(intr, args, 1);
@@ -600,9 +575,8 @@ namespace refractir {
      */
     class WrappingShrIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t x = argSint(intr, args, 0);
         int64_t n = argSint(intr, args, 1);
@@ -621,9 +595,8 @@ namespace refractir {
      */
     class SaturatingAddIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
         int64_t lo = intMinN(N), hi = intMaxN(N);
@@ -647,9 +620,8 @@ namespace refractir {
      */
     class SaturatingSubIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
         int64_t lo = intMinN(N), hi = intMaxN(N);
@@ -672,9 +644,8 @@ namespace refractir {
      */
     class SaturatingMulIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
         int64_t lo = intMinN(N), hi = intMaxN(N);
@@ -710,9 +681,8 @@ namespace refractir {
      */
     class SaturatingNegIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t x = argSint(intr, args, 0);
         int64_t r = (x == intMinN(N)) ? intMaxN(N) : -x;
@@ -728,9 +698,8 @@ namespace refractir {
      */
     class DivEuclidIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
         if (b == 0)
@@ -756,9 +725,8 @@ namespace refractir {
      */
     class RemEuclidIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         int64_t a = argSint(intr, args, 0), b = argSint(intr, args, 1);
         if (b == 0)
@@ -782,9 +750,8 @@ namespace refractir {
      */
     class FabsIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = fpBitsOf(intr.retType);
         double x = argFloat(intr, args, 0);
         return makeFloat(N, std::fabs(x));
@@ -797,9 +764,8 @@ namespace refractir {
      */
     class FnegIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = fpBitsOf(intr.retType);
         double x = argFloat(intr, args, 0);
         return makeFloat(N, -x);
@@ -811,9 +777,8 @@ namespace refractir {
      */
     class CopysignIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = fpBitsOf(intr.retType);
         double x = argFloat(intr, args, 0), y = argFloat(intr, args, 1);
         return makeFloat(N, std::copysign(x, y));
@@ -832,9 +797,8 @@ namespace refractir {
      */
     class FminIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = fpBitsOf(intr.retType);
         double x = argFloat(intr, args, 0), y = argFloat(intr, args, 1);
         double r;
@@ -850,9 +814,8 @@ namespace refractir {
 
     class FmaxIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = fpBitsOf(intr.retType);
         double x = argFloat(intr, args, 0), y = argFloat(intr, args, 1);
         double r;
@@ -872,9 +835,8 @@ namespace refractir {
      */
     class SignbitIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl & /*intr*/, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl & /*intr*/, const std::vector<RuntimeValue> &args) const override {
         double x = args[0].floatVal;
         return makeInt(1, std::signbit(x) ? 1 : 0);
       }
@@ -887,9 +849,8 @@ namespace refractir {
      */
     class IsNormalIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         // Classify at the operand's declared precision — an f32 subnormal
         // stored as a double would otherwise be classified as normal at
         // f64 precision (f64's normal range is much wider).
@@ -910,9 +871,8 @@ namespace refractir {
      */
     class IsSubnormalIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         // Operate at the operand's declared precision: an f32 subnormal
         // stored as a double would otherwise be classified as normal at
         // f64 precision.
@@ -932,9 +892,8 @@ namespace refractir {
      */
     class ToBitsIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = *TypeUtils::getIntBitWidth(intr.retType);
         if (N == 32) {
           float f = static_cast<float>(args[0].floatVal);
@@ -956,9 +915,8 @@ namespace refractir {
      */
     class FromBitsIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = fpBitsOf(intr.retType);
         if (N == 32) {
           uint32_t u = static_cast<uint32_t>(args[0].intVal & 0xFFFFFFFFu);
@@ -993,9 +951,8 @@ namespace refractir {
 
     class SqrtIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = fpBitsOf(intr.retType);
         double x = argFloat(intr, args, 0);
         // Round at the operand precision: sqrtf(x) for f32, sqrt(x) for f64.
@@ -1011,9 +968,8 @@ namespace refractir {
 
     class FloorIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = fpBitsOf(intr.retType);
         double x = argFloat(intr, args, 0);
         return makeFloat(N, std::floor(x));
@@ -1022,9 +978,8 @@ namespace refractir {
 
     class CeilIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = fpBitsOf(intr.retType);
         double x = argFloat(intr, args, 0);
         return makeFloat(N, std::ceil(x));
@@ -1033,9 +988,8 @@ namespace refractir {
 
     class TruncIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = fpBitsOf(intr.retType);
         double x = argFloat(intr, args, 0);
         return makeFloat(N, std::trunc(x));
@@ -1052,9 +1006,8 @@ namespace refractir {
 
     class FractIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = fpBitsOf(intr.retType);
         double x = argFloat(intr, args, 0);
         double r;
@@ -1070,9 +1023,8 @@ namespace refractir {
 
     class RecipIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         uint32_t N = fpBitsOf(intr.retType);
         double x = argFloat(intr, args, 0);
         double r = (N == 32) ? static_cast<double>(1.0f / static_cast<float>(x)) : 1.0 / x;
@@ -1114,9 +1066,8 @@ namespace refractir {
 
     class Crc32UpdateIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         // state: i32 (param 0); val: iN (param 1); return: i32.
         uint32_t state = static_cast<uint32_t>(argUint(intr, args, 0));
         uint64_t val = argUint(intr, args, 1);
@@ -1138,9 +1089,8 @@ namespace refractir {
 
     class CheckChksumIntrinsic final : public InterpreterIntrinsic {
     public:
-      Interpreter::RuntimeValue eval(
-          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
-      ) const override {
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
         // expected, actual: i32 → returns actual; raises UB on mismatch so
         // symiri flags the divergence the same way the C assert() does at
         // run time.
@@ -1238,7 +1188,7 @@ namespace refractir {
 
   } // namespace
 
-  Interpreter::RuntimeValue Interpreter::callIntrinsic(
+  RuntimeValue Interpreter::callIntrinsic(
       const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args, SourceSpan /*callSpan*/
   ) {
     auto kind = getIntrinsicKind(intr.name.name);

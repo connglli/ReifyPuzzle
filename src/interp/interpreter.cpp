@@ -734,7 +734,7 @@ namespace refractir {
     return static_cast<std::int64_t>(uval);
   }
 
-  Interpreter::RuntimeValue Interpreter::makeUndef(const TypePtr &t) {
+  RuntimeValue Interpreter::makeUndef(const TypePtr &t) {
     RuntimeValue res;
     if (auto vt = TypeUtils::asVec(t)) {
       // [v0.2.1] Undef vector: every lane is undef. A subsequent lane
@@ -773,7 +773,7 @@ namespace refractir {
     return res;
   }
 
-  Interpreter::RuntimeValue Interpreter::broadcast(const TypePtr &t, const RuntimeValue &v) {
+  RuntimeValue Interpreter::broadcast(const TypePtr &t, const RuntimeValue &v) {
     if (v.kind == RuntimeValue::Kind::Vec || v.kind == RuntimeValue::Kind::Array ||
         v.kind == RuntimeValue::Kind::Struct) {
       return v;
@@ -814,8 +814,7 @@ namespace refractir {
     }
   }
 
-  Interpreter::RuntimeValue
-  Interpreter::evalInit(const InitVal &iv, const TypePtr &t, const Store &store) {
+  RuntimeValue Interpreter::evalInit(const InitVal &iv, const TypePtr &t, const Store &store) {
     if (iv.kind == InitVal::Kind::Undef)
       return makeUndef(t);
 
@@ -1005,8 +1004,7 @@ namespace refractir {
     runBlocks(f, store, /*outRet=*/nullptr);
   }
 
-  Interpreter::RuntimeValue
-  Interpreter::callFunction(const FunDecl &f, std::vector<RuntimeValue> args) {
+  RuntimeValue Interpreter::callFunction(const FunDecl &f, std::vector<RuntimeValue> args) {
     // [v0.2.2] §9.6.1 — interprocedural execution in the interpreter.
     // Memory state (heap_, objects_, addrMap_) is preserved across the
     // call: pointer arguments must remain valid in the callee. typeMap_
@@ -1409,7 +1407,7 @@ namespace refractir {
     }
   }
 
-  Interpreter::RuntimeValue Interpreter::evalExpr(const Expr &e, const Store &store) {
+  RuntimeValue Interpreter::evalExpr(const Expr &e, const Store &store) {
     RuntimeValue v = evalAtom(e.first, store);
     for (const auto &tail: e.rest) {
       RuntimeValue right = evalAtom(tail.atom, store);
@@ -1535,7 +1533,7 @@ namespace refractir {
     return v;
   }
 
-  Interpreter::RuntimeValue Interpreter::evalAtom(const Atom &a, const Store &store) {
+  RuntimeValue Interpreter::evalAtom(const Atom &a, const Store &store) {
     return std::visit(
         [&](auto &&arg) -> RuntimeValue {
           using T = std::decay_t<decltype(arg)>;
@@ -2478,7 +2476,7 @@ namespace refractir {
     );
   }
 
-  Interpreter::RuntimeValue Interpreter::evalCoef(const Coef &c, const Store &store) {
+  RuntimeValue Interpreter::evalCoef(const Coef &c, const Store &store) {
     if (std::holds_alternative<IntLit>(c)) {
       RuntimeValue rv;
       rv.kind = RuntimeValue::Kind::Int;
@@ -2509,13 +2507,13 @@ namespace refractir {
     throw std::runtime_error("Internal error: Unbound symbol " + sid->name);
   }
 
-  Interpreter::RuntimeValue Interpreter::evalSelectVal(const SelectVal &sv, const Store &store) {
+  RuntimeValue Interpreter::evalSelectVal(const SelectVal &sv, const Store &store) {
     if (std::holds_alternative<RValue>(sv))
       return evalLValue(std::get<RValue>(sv), store);
     return evalCoef(std::get<Coef>(sv), store);
   }
 
-  Interpreter::RuntimeValue Interpreter::evalLValue(const LValue &lv, const Store &store) {
+  RuntimeValue Interpreter::evalLValue(const LValue &lv, const Store &store) {
     const RuntimeValue *cur = &store.at(lv.base.name);
 
     for (const auto &acc: lv.accesses) {

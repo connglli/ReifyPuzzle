@@ -7,6 +7,7 @@
 #include <variant>
 #include <vector>
 #include "ast/ast.hpp"
+#include "interp/value.hpp"
 
 namespace refractir {
 
@@ -39,25 +40,8 @@ namespace refractir {
     run(const std::string &entryFuncName, const SymBindings &symBindings,
         const std::vector<std::string> &paramArgs = {}, bool dumpExec = false);
 
-    /**
-     * Represents a value during runtime.
-     */
-    struct RuntimeValue {
-      enum class Kind { Int, Float, Array, Struct, Undef, Ptr, Vec } kind = Kind::Undef;
-      std::int64_t intVal = 0;
-      double floatVal = 0.0;
-      std::uint32_t bits = 64;    // bitwidth for Int or Float (32/64)
-      std::uint64_t ptrVal = 0;   // for Ptr kind: raw address
-      std::uint64_t ptrBase = 0;  // for Ptr kind: base address of provenance object
-      std::uint64_t elemSize = 1; // for Ptr kind: static element size of the pointee type
-      std::vector<RuntimeValue> arrayVal;
-      std::unordered_map<std::string, RuntimeValue> structVal;
-      // [v0.2.1] Vec: same shape as Array (per-lane RuntimeValue tuple),
-      // but represents a vector value (no address; not in heap_; lane-wise
-      // arithmetic). Element kind matches the lane scalar type.
-    };
-
-    using Store = std::unordered_map<std::string, RuntimeValue>;
+    // RuntimeValue and Store are defined in interp/value.hpp at namespace
+    // scope so the memory / type-layout collaborators can share them.
 
   private:
     const Program &prog_;
