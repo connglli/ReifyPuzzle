@@ -1,0 +1,20 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// SKIP: INTERPRETER
+// SPEC v0.2.2 §12.5 / §7.7 rule 25 — @rem_euclid(INT_MIN, -1) is UB: the
+// underlying quotient -INT_MIN overflows iN (same UB as C-style div/mod).
+// With %a == INT_MIN fixed and %?b assumed == -1, the solver's UB guard
+// ¬(a == INT_MIN ∧ b == -1) is unsatisfiable → UNSAT.
+intrinsic @rem_euclid(%a: i32, %b: i32) : i32;
+fun @main() : i32 {
+  sym %?b : value i32;
+  let %a: i32 = -2147483648;
+  let mut %r: i32 = 0;
+^entry:
+  assume %?b == -1;
+  %r = call @rem_euclid(%a, %?b);
+  require %r == %r, "unreachable: rem_euclid already UB on INT_MIN / -1";
+  br ^exit;
+^exit:
+  ret %a;
+}

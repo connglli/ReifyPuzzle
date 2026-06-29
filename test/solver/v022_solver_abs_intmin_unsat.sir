@@ -1,0 +1,18 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// SKIP: INTERPRETER
+// SPEC v0.2.2 §12.1 / §7.7 rule 25 — @abs can never return a negative value:
+// the only input whose negation is negative is INT_MIN, which is itself UB
+// (the result -INT_MIN is not representable). The solver must conjoin the
+// x != INT_MIN UB guard, leaving `require @abs(x) < 0` unsatisfiable → UNSAT.
+intrinsic @abs(%x: i32) : i32;
+fun @main() : i32 {
+  sym %?x : value i32;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @abs(%?x);
+  require %r < 0, "unreachable: abs is non-negative except at the UB input";
+  br ^exit;
+^exit:
+  ret %?x;
+}

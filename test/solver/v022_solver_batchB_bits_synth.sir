@@ -1,0 +1,37 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// SKIP: COMPILER
+// SPEC v0.2.2 §12.4 (batch B bit-manipulation) — exercises the symbolic SMT
+// encodings of @parity (i1 result), @bswap, @bitreverse, @rotr, and @ilog2.
+// Independent symbols keep the conjunction satisfiable; the harness
+// re-validates the model through symiri.
+intrinsic @parity(%x: i8) : i1;
+intrinsic @bswap(%x: i16) : i16;
+intrinsic @bitreverse(%x: i8) : i8;
+intrinsic @rotr(%x: i8, %n: i8) : i8;
+intrinsic @ilog2(%x: i32) : i32;
+fun @main() : i16 {
+  sym %?pa : value i8;
+  sym %?bs : value i16;
+  sym %?br : value i8;
+  sym %?ro : value i8;
+  sym %?il : value i32 in [1, 1000];
+  let mut %p: i1 = 0;
+  let mut %r8: i8 = 0;
+  let mut %r16: i16 = 0;
+  let mut %r32: i32 = 0;
+^entry:
+  %p = call @parity(%?pa);
+  require %p == -1, "parity true (odd popcount) is the i1 value -1";
+  %r16 = call @bswap(%?bs);
+  require %r16 == 256, "bswap(x)==0x0100 forces x==0x0001";
+  %r8 = call @bitreverse(%?br);
+  require %r8 == -128, "bitreverse(x)==0x80 forces x==0x01";
+  %r8 = call @rotr(%?ro, 1);
+  require %r8 == -128, "rotr(x,1)==0x80 forces x==0x01 (i8)";
+  %r32 = call @ilog2(%?il);
+  require %r32 == 3, "ilog2(x)==3 forces x in [8,15]";
+  br ^exit;
+^exit:
+  ret %?bs;
+}

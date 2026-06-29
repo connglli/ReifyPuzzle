@@ -1,0 +1,18 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// SKIP: INTERPRETER
+// SPEC v0.2.2 §12.4 / §7.7 rule 25 — @ilog2 requires strictly positive input.
+// With %?x assumed <= 0, the solver's `0 < x` UB guard is unsatisfiable, so
+// the path is pruned → UNSAT.
+intrinsic @ilog2(%x: i32) : i32;
+fun @main() : i32 {
+  sym %?x : value i32;
+  let mut %r: i32 = 0;
+^entry:
+  assume %?x <= 0;
+  %r = call @ilog2(%?x);
+  require %r == %r, "unreachable: ilog2 already UB on non-positive operand";
+  br ^exit;
+^exit:
+  ret %?x;
+}

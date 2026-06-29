@@ -181,6 +181,57 @@ fun @main(%a: i32) : i32 {
       )
 
 
+def test_refractirc_wasm_rejects_checksum(symirc):
+  """SPEC v0.2.2 §12.7 — the reify checksum intrinsics @crc32_update and
+  @check_chksum lower to C only. `symirc --target wasm` must reject any
+  program that declares them (clean non-zero exit), while `--target c`
+  accepts the same program. This is the only "C accepts, WASM rejects"
+  contract shipped in v0.2.2, so it lives here rather than in the dual-target
+  compiler suite (which runs both targets on every file)."""
+  cases = {
+    "@crc32_update": """intrinsic @crc32_update(%state: i32, %val: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @crc32_update(0, 42);
+  ret %r;
+}
+""",
+    "@check_chksum": """intrinsic @check_chksum(%expected: i32, %actual: i32) : i32;
+fun @main() : i32 {
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @check_chksum(5, 5);
+  ret %r;
+}
+""",
+  }
+  for name, src in cases.items():
+    with tempfile.TemporaryDirectory() as d:
+      inp = os.path.join(d, "primary.sir")
+      open(inp, "w").write(src)
+      c_out = os.path.join(d, "out.c")
+      wat_out = os.path.join(d, "out.wat")
+      rc = run([symirc, inp, "--target", "c", "-o", c_out])
+      check(
+        f"symirc --target c accepts {name}",
+        rc.returncode == 0,
+        f"rc={rc.returncode}, stderr={rc.stderr!r}",
+      )
+      rw = run([symirc, inp, "--target", "wasm", "-o", wat_out])
+      check(
+        f"symirc --target wasm rejects {name} (non-zero exit)",
+        rw.returncode != 0,
+        f"rc={rw.returncode}, stdout={rw.stdout!r}, stderr={rw.stderr!r}",
+      )
+      blob = rw.stdout + rw.stderr
+      check(
+        f"wasm rejection names {name}",
+        name in blob or name.lstrip("@") in blob,
+        f"diagnostic did not mention {name}: {blob!r}",
+      )
+
+
 def main():
   if len(sys.argv) != 4:
     print(
@@ -196,6 +247,8 @@ def main():
   test_refractirsolve_solved_header(symirsolve, symiri)
   print("=== symirc --split-by-source ===")
   test_refractirc_split_by_source(symirc)
+  print("=== symirc --target wasm rejects checksum intrinsics ===")
+  test_refractirc_wasm_rejects_checksum(symirc)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

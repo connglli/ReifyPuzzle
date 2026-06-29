@@ -1,0 +1,42 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// SKIP: COMPILER
+// SPEC v0.2.2 §12.5 (batch C overflow-aware family) — exercises the symbolic
+// SMT encodings of @wrapping_add, @wrapping_neg, @wrapping_shl,
+// @saturating_add, @saturating_neg, and @rem_euclid at i8/i32. Each forces a
+// distinctive corner (modular wrap, fixed point, saturation bound, Euclidean
+// non-negative remainder). The harness re-validates the model through symiri.
+intrinsic @wrapping_add(%a: i8, %b: i8) : i8;
+intrinsic @wrapping_neg(%x: i8) : i8;
+intrinsic @wrapping_shl(%x: i8, %n: i8) : i8;
+intrinsic @saturating_add(%a: i8, %b: i8) : i8;
+intrinsic @saturating_neg(%x: i8) : i8;
+intrinsic @rem_euclid(%a: i32, %b: i32) : i32;
+fun @main() : i8 {
+  sym %?wa : value i8;
+  sym %?wn : value i8;
+  sym %?ws : value i8;
+  sym %?sa : value i8;
+  sym %?sn : value i8;
+  sym %?re : value i32 in [-100, 100];
+  let mut %r8: i8 = 0;
+  let mut %r32: i32 = 0;
+^entry:
+  %r8 = call @wrapping_add(%?wa, 1);
+  require %r8 == -128, "wrapping_add(x,1) wraps to INT_MIN forces x==127";
+  %r8 = call @wrapping_neg(%?wn);
+  require %r8 == -128, "wrapping_neg fixed point forces x==INT_MIN";
+  %r8 = call @wrapping_shl(%?ws, 1);
+  require %r8 == 0, "wrapping_shl(x,1)==0 forces x==INT_MIN";
+  require %?ws != 0, "exclude the trivial x==0 solution";
+  %r8 = call @saturating_add(%?sa, 100);
+  require %r8 == 127, "saturating_add saturates to INT_MAX forces x>=27";
+  %r8 = call @saturating_neg(%?sn);
+  require %r8 == 127, "saturating_neg(INT_MIN)==INT_MAX forces x==INT_MIN";
+  %r32 = call @rem_euclid(%?re, 3);
+  require %r32 == 2, "rem_euclid is always non-negative";
+  require %?re < 0, "force a negative dividend to exercise the Euclidean step";
+  br ^exit;
+^exit:
+  ret %?wa;
+}

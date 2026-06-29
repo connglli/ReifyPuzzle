@@ -1,0 +1,26 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// SKIP: COMPILER
+// SPEC v0.2.2 §12.3 (batch A integer extras) — exercises the symbolic SMT
+// encodings of @abs_diff, @signum, and @midpoint. Each intrinsic gets its
+// own independent symbol so the conjunction is jointly satisfiable; the
+// solver-test harness re-validates the chosen model through symiri.
+intrinsic @abs_diff(%a: i32, %b: i32) : i32;
+intrinsic @signum(%x: i32) : i32;
+intrinsic @midpoint(%a: i32, %b: i32) : i32;
+fun @main() : i32 {
+  sym %?ad : value i32 in [-100, 100];
+  sym %?sg : value i32 in [-50, 50];
+  sym %?mp : value i32 in [-100, 100];
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @abs_diff(%?ad, 10);
+  require %r == 5, "abs_diff(x,10)==5 forces x in {5,15}";
+  %r = call @signum(%?sg);
+  require %r == -1, "signum(x)==-1 forces x<0";
+  %r = call @midpoint(%?mp, 0);
+  require %r == 3, "midpoint(x,0)==3 (trunc toward 0) forces x in {6,7}";
+  br ^exit;
+^exit:
+  ret %?ad;
+}

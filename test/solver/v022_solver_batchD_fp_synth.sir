@@ -1,0 +1,35 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// SKIP: COMPILER
+// SPEC v0.2.2 §12.6 (batch D floating-point IEEE family) — exercises the
+// QF_FP encodings of @fneg, @copysign, @to_bits (the fresh-BV bit-pattern
+// trick), and @is_normal (fp.isNormal). Independent f64 symbols keep the
+// conjunction satisfiable; the harness re-validates the model through symiri.
+intrinsic @fneg(%x: f64) : f64;
+intrinsic @copysign(%x: f64, %y: f64) : f64;
+intrinsic @to_bits(%x: f64) : i64;
+intrinsic @is_normal(%x: f64) : i1;
+fun @main() : f64 {
+  sym %?fn : value f64;
+  sym %?cs : value f64;
+  sym %?tb : value f64;
+  sym %?in : value f64;
+  let mut %rf: f64 = 0.0;
+  let mut %ri: i64 = 0;
+  let mut %p: i1 = 0;
+^entry:
+  %rf = call @fneg(%?fn);
+  require %rf == -2.5, "fneg(x)==-2.5 forces x==2.5";
+  assume %?cs > 0.0;
+  %rf = call @copysign(%?cs, -1.0);
+  require %rf == -3.0, "copysign(x,-1) with x>0 forces x==3.0";
+  %ri = call @to_bits(%?tb);
+  require %ri == 4607182418800017408, "to_bits(x)==bits(1.0) forces x==1.0";
+  assume %?in > 1.0;
+  assume %?in < 2.0;
+  %p = call @is_normal(%?in);
+  require %p == -1, "a value in (1,2) is a normal f64";
+  br ^exit;
+^exit:
+  ret %?fn;
+}
