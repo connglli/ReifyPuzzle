@@ -590,6 +590,19 @@ Per-lane symbolic terms, lane-wise SMT operations, `cmp` as per-lane boolean tup
    - If provenance is a struct `@S`: every field cell is havoc'd in its respective `Mem[FieldType]`.
    - If any cell in the provenance is itself a pointer (`ptr V`), it is havoc'd in `Mem[ptr V]`; transitively reachable storage **is not** further havoc'd — the contract is responsible for constraining nested-pointer behavior explicitly via `post` clauses.
    - The havoc'd values are constrained only by `post` clauses that reference them.
+
+   > **[Partial in v0.2.2 — extended provenance forms are a non-goal, see §13.]**
+   > The rule above is the target model. The shipped solver currently havocs only two
+   > argument-expression forms — a direct `addr %x`, and a plain ptr local
+   > `%p` whose provenance is known — and it does so by replacing the source
+   > local's whole symbolic value with a fresh constant rather than havocing
+   > per cell. Aggregate provenance (every cell of a `[N] U` / every field of
+   > an `@S`), pointer arguments derived from `ptrindex` / `ptrfield` /
+   > pointer arithmetic, and transitive nested-pointer cells are **not yet
+   > havoc'd**. Callers passing those forms must constrain the post-state
+   > explicitly via `post` clauses or caller-side asserts until the next
+   > refinement lands. See the "Contract memory havoc — extended provenance
+   > forms" bullet in §13.
 5. **Caller `Store` coherence**: as in §9.6.1 step 5 — any caller-side `let mut` local whose address was reachable from an argument has its cached `Store` invalidated.
 6. **Result**: the `call` atom evaluates to `ret_sym`.
 
@@ -597,7 +610,7 @@ Per-lane symbolic terms, lane-wise SMT operations, `cmp` as per-lane boolean tup
 
 The solver applies the intrinsic's hard-coded SMT encoding. See §12 for per-intrinsic encodings.
 
-#### 9.6.4 Path specification for interprocedural execution
+#### 9.6.4 Path specification for interprocedural execution (non-goal for v0.2.2)
 
 The user-chosen path `π` is extended to a **tree** of block visits:
 
@@ -606,6 +619,16 @@ The user-chosen path `π` is extended to a **tree** of block visits:
 ```
 
 `[call @name: ...]` denotes the sub-path through the callee at that call site. Each call site on `π` may specify a different sub-path.
+
+> **[Non-goal in v0.2.2 — surface syntax deferred, see §13.]** The
+> `[call @name: ...]` tree notation above is **not yet a parseable surface
+> form**, and `--path` accepts only the flat caller-block list. For each
+> branchy callee the shipped solver instead **samples one random sub-path**
+> per `solve()` invocation, seeded from `--seed`, bounding loops with a
+> per-block visit cap (the cap raises an error if exceeded). Straight-line
+> callees are therefore exact; branchy callees are not reproducible across
+> the choice until the user-supplied sub-path syntax lands. See the
+> "Callee sub-path syntax" bullet in §13.
 
 ### 9.7 No recursion **[New in v0.2.2]**
 
