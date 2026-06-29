@@ -2087,6 +2087,73 @@ namespace refractir {
       std::string op_;
     };
 
+    // ── §12.6 D.5 compositions ─────────────────────────────────────────────
+    //
+    // @fract(x) = x - trunc(x) via native `fN.trunc` + `fN.sub`; the result
+    // is always finite (|.| < 1) so there is no UB guard.  @recip(x) = 1/x
+    // via `fN.div`, then the same (|r| < +inf) finiteness guard as @sqrt
+    // (UB on x = ±0.0 or reciprocal overflow).
+
+    class FractWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        std::string ty = retFpTy(intr);
+        indent(backend);
+        out(backend) << "local.get $a0\n";
+        indent(backend);
+        out(backend) << "local.get $a0\n";
+        indent(backend);
+        out(backend) << ty << ".trunc\n";
+        indent(backend);
+        out(backend) << ty << ".sub\n";
+      }
+    };
+
+    class RecipWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void declareLocals(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        // Scratch local holding the reciprocal for the finiteness check.
+        indent(backend);
+        out(backend) << "(local $r " << retFpTy(intr) << ")\n";
+      }
+
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        std::string ty = retFpTy(intr);
+        // Step 1: r = 1 / a0.
+        indent(backend);
+        out(backend) << ty << ".const 1\n";
+        indent(backend);
+        out(backend) << "local.get $a0\n";
+        indent(backend);
+        out(backend) << ty << ".div\n";
+        indent(backend);
+        out(backend) << "local.set $r\n";
+        // Step 2: UB if non-finite (x = ±0.0 → ±inf, or overflow).  Same
+        // (|r| < +inf) guard as @sqrt.
+        indent(backend);
+        out(backend) << "local.get $r\n";
+        indent(backend);
+        out(backend) << ty << ".abs\n";
+        indent(backend);
+        out(backend) << ty << ".const inf\n";
+        indent(backend);
+        out(backend) << ty << ".lt\n";
+        indent(backend);
+        out(backend) << "i32.eqz\n";
+        indent(backend);
+        out(backend) << "if\n";
+        incrIndent(backend);
+        indent(backend);
+        out(backend) << "unreachable\n";
+        decrIndent(backend);
+        indent(backend);
+        out(backend) << "end\n";
+        // Step 3: return the (finite) reciprocal.
+        indent(backend);
+        out(backend) << "local.get $r\n";
+      }
+    };
+
   } // namespace
 
   struct WasmFpIntrinsicRegistry {
@@ -2109,6 +2176,8 @@ namespace refractir {
         r[IntrinsicKind::Floor] = std::make_unique<RtiWasmIntrinsic>("floor");
         r[IntrinsicKind::Ceil] = std::make_unique<RtiWasmIntrinsic>("ceil");
         r[IntrinsicKind::Trunc] = std::make_unique<RtiWasmIntrinsic>("trunc");
+        r[IntrinsicKind::Fract] = std::make_unique<FractWasmIntrinsic>();
+        r[IntrinsicKind::Recip] = std::make_unique<RecipWasmIntrinsic>();
         return r;
       }();
       return registry;

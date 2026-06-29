@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// Cross-validate @recip / @fract at f32.  recip(3.0) at single precision is
+// the bit-exactness guard: interp must compute 1.0f/x (single-rounded), not
+// a double reciprocal narrowed afterward, to match the C backend's float
+// division and WASM's f32.div.
+intrinsic @recip(%x: f32) : f32;
+intrinsic @fract(%x: f32) : f32;
+
+fun @main() : f32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = call @recip(3.0);          // single-precision 1/3
+  %r = %r + call @fract(-2.25);   // - 0.25
+  ret %r;
+}

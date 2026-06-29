@@ -875,6 +875,34 @@ namespace refractir {
       }
     };
 
+    // ── §12.6 D.5 compositions ─────────────────────────────────────────────
+    //
+    // @fract(x) = x - trunc(x) — no UB.  @recip(x) = 1/x traps on a
+    // non-finite result (x = ±0.0 or overflow); the explicit isfinite check
+    // is required because UBSan's `-fsanitize=undefined` does not catch
+    // overflow-to-∞ (and `float-divide-by-zero` is off in the xval harness),
+    // matching the C backend's treatment of the `/` operator.
+
+    class FractCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &intr) const override {
+        bool isF32 = std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32;
+        out(backend) << "  return a0 - " << (isF32 ? "__builtin_truncf" : "__builtin_trunc")
+                     << "(a0);\n";
+      }
+    };
+
+    class RecipCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &intr) const override {
+        bool isF32 = std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32;
+        out(backend) << "  " << (isF32 ? "float" : "double") << " r = " << (isF32 ? "1.0f" : "1.0")
+                     << " / a0;\n";
+        out(backend) << "  if (!__builtin_isfinite(r)) __builtin_trap();\n";
+        out(backend) << "  return r;\n";
+      }
+    };
+
     // ── Checksum primitives ──────────────────────────────────────────────
     //
     // Self-contained lowerings for the @crc32_update / @check_chksum
@@ -985,6 +1013,8 @@ namespace refractir {
         r[IntrinsicKind::Floor] = std::make_unique<FloorCIntrinsic>();
         r[IntrinsicKind::Ceil] = std::make_unique<CeilCIntrinsic>();
         r[IntrinsicKind::Trunc] = std::make_unique<TruncCIntrinsic>();
+        r[IntrinsicKind::Fract] = std::make_unique<FractCIntrinsic>();
+        r[IntrinsicKind::Recip] = std::make_unique<RecipCIntrinsic>();
         return r;
       }();
       return registry;

@@ -1,0 +1,23 @@
+// EXPECT: PASS
+// [v0.2.2] §12.6 D.5 — compile @recip / @fract at f32 and f64 and check each
+// result.  Exercises the C `1/x` + isfinite guard and `x - trunc(x)`, and
+// the native WASM fN.div / fN.trunc + fN.sub lowerings end-to-end.
+intrinsic @recip(%x: f32) : f32;
+intrinsic @fract(%x: f32) : f32;
+intrinsic @recip(%x: f64) : f64;
+intrinsic @fract(%x: f64) : f64;
+
+fun @main() : i32 {
+  let mut %a: f32 = 0.0;
+  let mut %b: f64 = 0.0;
+^entry:
+  %a = call @recip(4.0);          // 0.25 (exact)
+  require %a == 0.25, "recip(4.0) f32 == 0.25";
+  %b = call @recip(8.0);          // 0.125 (exact)
+  require %b == 0.125, "recip(8.0) f64 == 0.125";
+  %a = call @fract(-3.5);         // -0.5
+  require %a == -0.5, "fract(-3.5) f32 == -0.5";
+  %b = call @fract(7.25);         // 0.25
+  require %b == 0.25, "fract(7.25) f64 == 0.25";
+  ret 0;
+}

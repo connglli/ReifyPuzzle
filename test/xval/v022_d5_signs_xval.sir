@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// Cross-validate @recip / @fract sign handling between interp and compiled C.
+// recip(-4.0) + fract(-3.0) = (-0.25) + (+0.0) = -0.25; the `Result:`
+// hex-float carries the sign, so any sign-of-zero or negative-reciprocal
+// divergence would show up.
+intrinsic @recip(%x: f64) : f64;
+intrinsic @fract(%x: f64) : f64;
+
+fun @main() : f64 {
+  let mut %a: f64 = 0.0;
+  let mut %b: f64 = 0.0;
+^entry:
+  %a = call @recip(-4.0);   // -0.25
+  %b = call @fract(-3.0);   // +0.0
+  ret %a + %b;              // -0.25
+}

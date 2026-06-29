@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// Cross-validate @recip / @fract at f64 between interp and compiled C.
+// recip(3.0) = 0.3333... is precision-sensitive (single-rounded division),
+// so a bit-exact `Result:` proves both sides agree; the fract terms add a
+// signed fractional part.  0x1.5555...p-2 + 0.5 + (-0.25) = recip(3) + 0.25.
+intrinsic @recip(%x: f64) : f64;
+intrinsic @fract(%x: f64) : f64;
+
+fun @main() : f64 {
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @recip(3.0);          // 0.33333... (precision-sensitive)
+  %r = %r + call @fract(2.5);     // + 0.5
+  %r = %r + call @fract(-1.25);   // - 0.25
+  ret %r;
+}

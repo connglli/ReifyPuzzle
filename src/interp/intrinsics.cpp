@@ -1042,6 +1042,48 @@ namespace refractir {
       }
     };
 
+    // ── §12.6 D.5 compositions ─────────────────────────────────────────────
+    //
+    // @fract(x) = x - trunc(x) is the fractional part (sign follows x); the
+    // result magnitude is always < 1 so it never leaves the finite domain —
+    // no UB.  @recip(x) = 1/x is UB when the result is non-finite (x = ±0.0
+    // → ±∞, or a tiny |x| whose reciprocal overflows).  Both compute at the
+    // operand's declared precision to stay bit-exact with the backends.
+
+    class FractIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = fpBitsOf(intr.retType);
+        double x = argFloat(intr, args, 0);
+        double r;
+        if (N == 32) {
+          float fx = static_cast<float>(x);
+          r = static_cast<double>(fx - std::trunc(fx));
+        } else {
+          r = x - std::trunc(x);
+        }
+        return makeFloat(N, r);
+      }
+    };
+
+    class RecipIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = fpBitsOf(intr.retType);
+        double x = argFloat(intr, args, 0);
+        double r = (N == 32) ? static_cast<double>(1.0f / static_cast<float>(x)) : 1.0 / x;
+        if (!std::isfinite(r))
+          throw UndefinedBehaviorError(
+              "UB: @recip result is non-finite (division by zero or overflow, spec §2.9)"
+          );
+        return makeFloat(N, r);
+      }
+    };
+
     // ── Checksum machinery ────────────────────────────────────────────────
     //
     // Bit-exact counterpart of the C-side helpers emitted by
@@ -1183,6 +1225,9 @@ namespace refractir {
         registry_[IntrinsicKind::Floor] = std::make_unique<FloorIntrinsic>();
         registry_[IntrinsicKind::Ceil] = std::make_unique<CeilIntrinsic>();
         registry_[IntrinsicKind::Trunc] = std::make_unique<TruncIntrinsic>();
+        // §12.6 D.5 — compositions.
+        registry_[IntrinsicKind::Fract] = std::make_unique<FractIntrinsic>();
+        registry_[IntrinsicKind::Recip] = std::make_unique<RecipIntrinsic>();
         // Checksum primitives.
         registry_[IntrinsicKind::Crc32Update] = std::make_unique<Crc32UpdateIntrinsic>();
         registry_[IntrinsicKind::CheckChksum] = std::make_unique<CheckChksumIntrinsic>();

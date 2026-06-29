@@ -1,0 +1,10 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SPEC v0.2.2 §12.6 D.5 / §2.9 — @recip(-0.0) = -inf, non-finite → UB.
+// Unlike @sqrt(-0.0) (which is defined), -0.0 IS a UB input for @recip.
+intrinsic @recip(%x: f64) : f64;
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @recip(-0.0);
+  ret 0;
+}

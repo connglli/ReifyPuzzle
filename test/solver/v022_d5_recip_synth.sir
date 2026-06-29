@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+// [v0.2.2] §12.6 D.5 — solver synthesizes %?x such that @recip(%?x) == 0.25.
+// @recip reuses the FP `/` encoding, so the only finite solution is 4.0.
+intrinsic @recip(%x: f64) : f64;
+fun @main() : f64 {
+  sym %?x : value f64;
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @recip(%?x);
+  require %r == 0.25, "@recip(?x) == 0.25 ⇒ ?x == 4.0";
+  br ^exit;
+^exit:
+  ret %?x;
+}

@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.5 — @fract of an integral value is +0.0 and never UB
+// (the result magnitude is always < 1, so it cannot overflow), confirmed at
+// a large integral magnitude where trunc(x) == x.
+intrinsic @fract(%x: f64) : f64;
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+  let %big: f64 = 9007199254740992.0;   // 2^53, exactly integral in f64
+^entry:
+  %r = call @fract(5.0);
+  require %r == 0.0, "fract(5.0) == 0.0";
+  %r = call @fract(-3.0);
+  require %r == 0.0, "fract(-3.0) == 0.0";
+  %r = call @fract(%big);
+  require %r == 0.0, "fract(2^53) == 0.0";
+  ret 0;
+}

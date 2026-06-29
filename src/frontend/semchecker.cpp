@@ -427,6 +427,10 @@ namespace refractir {
       case IntrinsicKind::Floor:
       case IntrinsicKind::Ceil:
       case IntrinsicKind::Trunc:
+      // [v0.2.2 extra batch D.5] Compositions (§12.6) — @fract = x - trunc(x),
+      // @recip = 1/x; both unary fN → fN.
+      case IntrinsicKind::Fract:
+      case IntrinsicKind::Recip:
         expectArity(1);
         expectAllSameFp();
         break;

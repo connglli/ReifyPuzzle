@@ -697,6 +697,8 @@ fun @demo(%x: i32) : i32 {
 | `@floor` | `(fN) → fN` | — | integral `fN` |
 | `@ceil` | `(fN) → fN` | — | integral `fN` |
 | `@trunc` | `(fN) → fN` | — | integral `fN` |
+| `@fract` | `(fN) → fN` | — | `(-1, 1)` |
+| `@recip` | `(fN) → fN` | result non-finite (`x = ±0.0` or overflow) | finite `fN` |
 | `@crc32_update` | `(i32, iN) → i32`, `N ∈ {8, 16, 24, 32, 40, 48, 56, 64}` | — | full `i32` |
 | `@check_chksum` | `(i32, i32) → i32` | `expected != actual` (abort in C, UB in symiri) | `= actual` on match |
 
@@ -815,7 +817,7 @@ uses the native FP precision directly (no widening-and-mask).
 - D.3 — *min / max* **(shipped — §12.6 below)**: `@fmin`, `@fmax`.
 - D.4 — *correctly-rounded math* **(shipped — §12.6 below)**: `@sqrt`,
   `@floor`, `@ceil`, `@trunc`.
-- D.5 — *compositions* (planned): `@fract`, `@recip`.
+- D.5 — *compositions* **(shipped — §12.6 below)**: `@fract`, `@recip`.
 
 **Exponent manipulation is not an intrinsic target.**  `@ldexp`,
 `@scalbn`, `@ilogb`, and `@logb` were briefly considered for batch D but
@@ -1084,6 +1086,52 @@ value of the same type.
 | `@floor` | RTN | `std::floor` | `__builtin_floorf/floor` | `fN.floor` |
 | `@ceil`  | RTP | `std::ceil`  | `__builtin_ceilf/ceil`   | `fN.ceil`  |
 | `@trunc` | RTZ | `std::trunc` | `__builtin_truncf/trunc` | `fN.trunc` |
+
+### §12.6 D.5 per-intrinsic spec
+
+Two unary `fN → fN` intrinsics, each a short composition of the
+correctly-rounded primitives.  Native FP precision (no widening); the
+f32 helpers use single-precision division so the result is bit-exact
+with the C and WASM backends.
+
+```text
+intrinsic @fract(%x: fN) : fN;
+intrinsic @recip(%x: fN) : fN;
+```
+
+#### `@fract`
+
+Fractional part: `@fract(x) = x - trunc(x)`.  The sign follows `x`
+(`fract(-2.5) = -0.5`), matching Rust's `fN::fract`.  The result
+magnitude is always `< 1`, so it never leaves the finite domain —
+**no UB** (like `@trunc`).
+
+**SMT encoding**: `fp.sub(x, fp.roundToIntegral(RTZ, x))` — no UB guard.
+**Interpreter**: `x - std::trunc(x)` at the operand precision.
+**C**: `a0 - __builtin_truncf(a0)` / `a0 - __builtin_trunc(a0)`.
+**WASM**: `fN.trunc` then `fN.sub`.
+
+#### `@recip`
+
+Reciprocal: `@recip(x) = 1/x`, RNE.  This reuses the FP `/` operator,
+so it carries the same UB rule.
+
+**UB conditions**:
+- The result is non-finite (`±∞`).  This covers `x = ±0.0`
+  (`1/±0.0 = ±∞`) and a tiny `|x|` whose reciprocal overflows
+  (e.g. `recip` of a subnormal).  `recip(±0.0)` is UB — unlike
+  `@sqrt(-0.0)`, signed zero is *not* a defined input here.
+
+**SMT encoding**: `fp.div(RNE, 1.0, x)`, with `not(fp.isInfinite(r))`
+and `not(fp.isNaN(r))` conjoined to `PC` (the same finiteness guard the
+solver applies to every division).
+**Interpreter**: `1.0f / x` (f32) / `1.0 / x` (f64); trap if
+`!std::isfinite(r)`.
+**C**: `1.0 / a0`, then `__builtin_trap()` if `!__builtin_isfinite(r)`
+(the explicit check is required — `-fsanitize=undefined` does not catch
+overflow-to-∞, matching the `/` operator's lowering).
+**WASM**: `fN.div`, then the `(|r| < +inf)` finiteness guard via a
+scratch local (same shape as `@sqrt`).
 
 ## 12.7 Checksum primitives (v0.2.2 reify R1)
 

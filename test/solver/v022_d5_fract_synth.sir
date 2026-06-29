@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+// [v0.2.2] §12.6 D.5 — solver reasons about @fract = x - fp.rti[RTZ](x).
+// With %?x constrained to (2, 3), @fract(%?x) == 0.5 forces %?x == 2.5.
+intrinsic @fract(%x: f64) : f64;
+fun @main() : f64 {
+  sym %?x : value f64;
+  let mut %r: f64 = 0.0;
+^entry:
+  assume %?x > 2.0;
+  assume %?x < 3.0;
+  %r = call @fract(%?x);
+  require %r == 0.5, "fract(?x) == 0.5 with ?x in (2,3) ⇒ ?x == 2.5";
+  br ^exit;
+^exit:
+  ret %?x;
+}

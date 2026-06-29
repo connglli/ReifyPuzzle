@@ -1,0 +1,18 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// SKIP: INTERPRETER
+// [v0.2.2] §12.6 D.5 — forcing @recip onto a zero operand makes the path
+// infeasible: 1/0 = ±inf, and the result-finiteness guard (not isInf)
+// is unsatisfiable → UNSAT.
+intrinsic @recip(%x: f64) : f64;
+fun @main() : f64 {
+  sym %?x : value f64;
+  let mut %r: f64 = 0.0;
+^entry:
+  assume %?x == 0.0;
+  %r = call @recip(%?x);
+  require %r == %r, "unreachable: recip already UB on a zero operand";
+  br ^exit;
+^exit:
+  ret %?x;
+}

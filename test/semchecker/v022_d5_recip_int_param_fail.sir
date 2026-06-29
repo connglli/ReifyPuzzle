@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.6 D.5 — @recip is fN → fN; an integer parameter must be
+// rejected by the per-intrinsic signature check.
+intrinsic @recip(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

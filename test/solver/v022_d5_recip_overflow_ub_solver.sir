@@ -1,0 +1,20 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// SKIP: INTERPRETER
+// [v0.2.2] §12.6 D.5 — @recip UB is the *result* being non-finite, not just a
+// zero operand: every %?x in (0, 1e-309) makes 1/%?x overflow to +inf, so the
+// result-finiteness guard is unsatisfiable → UNSAT.  The solver prunes
+// overflow, not only division by zero.
+intrinsic @recip(%x: f64) : f64;
+fun @main() : f64 {
+  sym %?x : value f64;
+  let mut %r: f64 = 0.0;
+^entry:
+  assume %?x > 0.0;
+  assume %?x < 1e-309;
+  %r = call @recip(%?x);
+  require %r == %r, "unreachable: recip overflows across (0, 1e-309)";
+  br ^exit;
+^exit:
+  ret %?x;
+}

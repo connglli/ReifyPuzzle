@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// [v0.2.2] §12.6 D.5 — verify sign behavior on the C and WASM backends.
+// @fract of a negative integral value is +0.0 (x - x = +0.0, never -0.0), so
+// @signbit must read 0; @recip preserves the operand's sign.  A backend that
+// produced -0.0 from fract or mishandled the sign would trap a require.
+intrinsic @fract(%x: f64) : f64;
+intrinsic @recip(%x: f64) : f64;
+intrinsic @signbit(%x: f64) : i1;
+
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+  let mut %s: i1 = 0;
+^entry:
+  %r = call @fract(-3.0);
+  %s = call @signbit(%r);
+  require %s == 0, "fract(-3.0) is +0.0 (sign bit clear)";
+  %r = call @recip(-4.0);
+  require %r == -0.25, "recip(-4.0) == -0.25";
+  %r = call @recip(-0.5);
+  require %r == -2.0, "recip(-0.5) == -2.0";
+  ret 0;
+}

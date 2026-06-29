@@ -1,0 +1,11 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SPEC v0.2.2 §12.6 D.5 / §2.9 — @recip overflows when |x| is tiny: 1e-40
+// is an f32 subnormal, and 1/1e-40 ≈ 1e40 > FLT_MAX → +inf → UB.  Shows the
+// UB boundary is "non-finite result", not just "x == 0".
+intrinsic @recip(%x: f32) : f32;
+fun @main() : i32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = call @recip(0.0000000000000000000000000000000000000001);
+  ret 0;
+}

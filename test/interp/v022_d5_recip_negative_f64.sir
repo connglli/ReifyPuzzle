@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.5 — @recip preserves sign for negative inputs and is
+// not UB there: recip(-4.0) = -0.25, recip(-0.5) = -2.0.
+intrinsic @recip(%x: f64) : f64;
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @recip(-4.0);
+  require %r == -0.25, "recip(-4.0) == -0.25";
+  %r = call @recip(-0.5);
+  require %r == -2.0, "recip(-0.5) == -2.0";
+  ret 0;
+}

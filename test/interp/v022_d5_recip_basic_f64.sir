@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.5 — @recip(x) = 1/x at f64.
+intrinsic @recip(%x: f64) : f64;
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @recip(2.0);
+  require %r == 0.5, "recip(2.0) == 0.5";
+  %r = call @recip(0.5);
+  require %r == 2.0, "recip(0.5) == 2.0";
+  ret 0;
+}

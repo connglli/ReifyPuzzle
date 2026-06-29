@@ -26,6 +26,7 @@ namespace refractir {
    * v0.2.2 extra D.3 — floating-point min / max (§12.6): Fmin, Fmax.
    * v0.2.2 extra D.4 — correctly-rounded math (§12.6):
    *   Sqrt, Floor, Ceil, Trunc.
+   * v0.2.2 extra D.5 — compositions (§12.6): Fract, Recip.
    *
    * Note: there is no @umin / @umax — RefractIR has no unsigned integer types
    * and the toolchain does not implicitly reinterpret iN bits as uN.
@@ -85,6 +86,9 @@ namespace refractir {
     Floor,
     Ceil,
     Trunc,
+    // v0.2.2 extra batch D.5 — compositions (§12.6)
+    Fract,
+    Recip,
     // Checksum primitives.
     //   @crc32_update(state: i32, val: iN) : i32
     //     Fold val into a running CRC32 state. Reflected polynomial
@@ -196,6 +200,11 @@ namespace refractir {
       return IntrinsicKind::Ceil;
     if (name == "@trunc")
       return IntrinsicKind::Trunc;
+    // v0.2.2 extra batch D.5 — compositions (§12.6)
+    if (name == "@fract")
+      return IntrinsicKind::Fract;
+    if (name == "@recip")
+      return IntrinsicKind::Recip;
     // Checksum machinery (see IntrinsicKind comment above).
     if (name == "@crc32_update")
       return IntrinsicKind::Crc32Update;

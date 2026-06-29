@@ -1057,6 +1057,51 @@ namespace refractir {
       smt::RoundingMode rm_;
     };
 
+    // ── §12.6 D.5 compositions ─────────────────────────────────────────────
+    //
+    // @fract(x) = x - trunc(x); the result is always finite (|.| < 1), so —
+    // like @trunc — no UB guard.  @recip(x) = 1/x reuses the FP `/` op and
+    // carries the same result-finiteness guard the solver applies to every
+    // division (UB on x = ±0.0 or reciprocal overflow).
+
+    class FractSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        auto rtz = solver.make_rm_value(smt::RoundingMode::RTZ);
+        auto tr = solver.make_term(smt::Kind::FP_RTI, {rtz, argVals[0].term});
+        auto r = solver.make_term(smt::Kind::FP_SUB, {argVals[0].term, tr});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    class RecipSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &intr, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &pc
+      ) const override {
+        auto one = solver.make_fp_value_from_real(
+            fpSortOf(intr.retType, solver), 1.0, smt::RoundingMode::RNE
+        );
+        auto r = solver.make_term(smt::Kind::FP_DIV, {one, argVals[0].term});
+        // UB if the reciprocal is non-finite (x = ±0.0 → ±∞, or overflow).
+        auto notInf =
+            solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::FP_IS_INF, {r})});
+        auto notNaN =
+            solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::FP_IS_NAN, {r})});
+        pc.push_back(notInf);
+        pc.push_back(notNaN);
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
     class SolverFpIntrinsicRegistry {
     public:
       static const SolverFpIntrinsicRegistry &get() {
@@ -1089,6 +1134,9 @@ namespace refractir {
             std::make_unique<RtiSolverIntrinsic>(smt::RoundingMode::RTP);
         registry_[IntrinsicKind::Trunc] =
             std::make_unique<RtiSolverIntrinsic>(smt::RoundingMode::RTZ);
+        // §12.6 D.5 — compositions.
+        registry_[IntrinsicKind::Fract] = std::make_unique<FractSolverIntrinsic>();
+        registry_[IntrinsicKind::Recip] = std::make_unique<RecipSolverIntrinsic>();
       }
 
       std::unordered_map<IntrinsicKind, std::unique_ptr<SolverFpIntrinsic>> registry_;

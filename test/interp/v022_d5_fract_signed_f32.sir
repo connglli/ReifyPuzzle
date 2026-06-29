@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.5 — @fract(x) = x - trunc(x); the sign follows x.
+// fract(2.5) = 0.5, fract(-2.5) = -0.5.
+intrinsic @fract(%x: f32) : f32;
+fun @main() : i32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = call @fract(2.5);
+  require %r == 0.5, "fract(2.5) == 0.5";
+  %r = call @fract(-2.5);
+  require %r == -0.5, "fract(-2.5) == -0.5";
+  ret 0;
+}
