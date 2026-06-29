@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.4 — @sqrt of a perfect square at f64.
+intrinsic @sqrt(%x: f64) : f64;
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @sqrt(4.0);
+  require %r == 2.0, "sqrt(4.0) == 2.0";
+  ret 0;
+}

@@ -693,6 +693,10 @@ fun @demo(%x: i32) : i32 {
 | `@saturating_neg` | `(iN) → iN` | — | `[INT_MIN_N, INT_MAX_N]` |
 | `@div_euclid` | `(iN, iN) → iN` | `b == 0` or `(a == INT_MIN_N ∧ b == -1)` | `[INT_MIN_N, INT_MAX_N]` |
 | `@rem_euclid` | `(iN, iN) → iN` | `b == 0` or `(a == INT_MIN_N ∧ b == -1)` | `[0, \|b\| − 1]` |
+| `@sqrt` | `(fN) → fN` | `x < 0` (NaN result) | `[0, +max]` |
+| `@floor` | `(fN) → fN` | — | integral `fN` |
+| `@ceil` | `(fN) → fN` | — | integral `fN` |
+| `@trunc` | `(fN) → fN` | — | integral `fN` |
 | `@crc32_update` | `(i32, iN) → i32`, `N ∈ {8, 16, 24, 32, 40, 48, 56, 64}` | — | full `i32` |
 | `@check_chksum` | `(i32, i32) → i32` | `expected != actual` (abort in C, UB in symiri) | `= actual` on match |
 
@@ -809,8 +813,8 @@ directly (no widening-and-mask).
 - D.2 — *classification predicates* **(shipped — §12.6 below)**:
   `@is_normal`, `@is_subnormal`.
 - D.3 — *min / max* **(shipped — §12.6 below)**: `@fmin`, `@fmax`.
-- D.4 — *correctly-rounded math* (planned): `@sqrt`, `@floor`, `@ceil`,
-  `@trunc`.
+- D.4 — *correctly-rounded math* **(shipped — §12.6 below)**: `@sqrt`,
+  `@floor`, `@ceil`, `@trunc`.
 - D.5 — *exponent manipulation* (planned): `@ldexp`, `@scalbn`,
   `@ilogb`, `@logb`.
 - D.6 — *compositions* (planned): `@fract`, `@recip`.
@@ -1016,6 +1020,62 @@ ite(fp.isNeg(x), y, x)))   ; tie: pick +0 (use the other operand if x is -0)
 **Interpreter**: `x > y ? x : y > x ? y : (signbit(x) ? y : x)`.
 **C**: `(a0 > a1) ? a0 : (a1 > a0) ? a1 : __builtin_signbit(a0) ? a1 : a0`.
 **WASM**: native `f32.max` / `f64.max`.
+
+### §12.6 D.4 per-intrinsic spec
+
+The four correctly-rounded math intrinsics are unary `fN → fN`.  Each
+maps to a single IEEE 754 correctly-rounded operation; the lowering
+uses the operand's native precision directly (no widening-and-mask).
+Computing at the declared width is what keeps the four backends
+bit-exact: a double `sqrt` narrowed to `float` afterward would
+double-round, so the f32 helpers use the single-precision builtin /
+opcode (`sqrtf`, `f32.sqrt`).
+
+```text
+intrinsic @sqrt(%x: fN) : fN;
+intrinsic @floor(%x: fN) : fN;
+intrinsic @ceil(%x: fN) : fN;
+intrinsic @trunc(%x: fN) : fN;
+```
+
+#### `@sqrt`
+
+Correctly-rounded square root (RNE).
+
+**UB conditions**:
+- `%x < 0` (strictly negative) — the IEEE result is NaN, which is
+  outside the §2.9 finite-only domain.  `@sqrt(-0.0) == -0.0` is *not*
+  UB (the result is a finite signed zero).  No overflow is possible —
+  `sqrt` never increases magnitude beyond `+∞`.
+
+All four backends enforce the same **result-finiteness** guard (the
+uniform contract of `float.md` §10, shared with `@from_bits`): the
+square root is computed, then the path is UB if the result is `±∞` or
+NaN.  For sqrt only NaN is reachable (the operand was strictly
+negative), but the guard is written as full finiteness so every
+backend's rule is structurally identical.
+
+**SMT encoding**: `fp.sqrt(RNE, x)`, with `not(fp.isInfinite(r))` and
+`not(fp.isNaN(r))` conjoined to `PC`.
+**Interpreter**: `sqrtf` (f32) / `sqrt` (f64); trap if
+`!std::isfinite(r)`.
+**C**: `__builtin_sqrtf` / `__builtin_sqrt`, then `__builtin_trap()` if
+`!__builtin_isfinite(r)`.
+**WASM**: `fN.sqrt`, then the `(|r| < +inf)` finiteness check — `i32.eqz;
+if; unreachable; end`.
+
+#### `@floor`, `@ceil`, `@trunc`
+
+Round to an integral value toward `−∞` (`@floor`), toward `+∞`
+(`@ceil`), or toward zero (`@trunc`).  Never UB — the result of
+rounding a finite value to an integer is always a representable finite
+value of the same type.
+
+| Intrinsic | SMT (`fp.roundToIntegral`) | Interp | C | WASM |
+|---|---|---|---|---|
+| `@floor` | RTN | `std::floor` | `__builtin_floorf/floor` | `fN.floor` |
+| `@ceil`  | RTP | `std::ceil`  | `__builtin_ceilf/ceil`   | `fN.ceil`  |
+| `@trunc` | RTZ | `std::trunc` | `__builtin_truncf/trunc` | `fN.trunc` |
 
 ## 12.7 Checksum primitives (v0.2.2 reify R1)
 

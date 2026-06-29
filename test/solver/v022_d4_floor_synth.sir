@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+// [v0.2.2] §12.6 D.4 — solver reasons about fp.roundToIntegral with the
+// floor (round-toward-negative) rounding mode.  Constrained so the rounding
+// direction matters: %?x lies in (-3, -2), so @floor(%?x) must be -3.0
+// (a trunc/ceil-style rounding would give -2.0 and fail the require).
+intrinsic @floor(%x: f64) : f64;
+fun @main() : f64 {
+  sym %?x : value f64;
+  let mut %r: f64 = 0.0;
+^entry:
+  assume %?x > -3.0;
+  assume %?x < -2.0;
+  %r = call @floor(%?x);
+  require %r == -3.0, "floor of a value in (-3,-2) is -3.0";
+  br ^exit;
+^exit:
+  ret %?x;
+}

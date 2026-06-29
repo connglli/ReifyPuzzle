@@ -830,6 +830,51 @@ namespace refractir {
       }
     };
 
+    // ── §12.6 D.4 correctly-rounded math ──────────────────────────────────
+    //
+    // Unary fN → fN.  Each lowers to the matching GCC/Clang builtin at the
+    // operand precision (the f32 helper takes a `float`, so `__builtin_sqrtf`
+    // is correctly rounded at single precision).  @sqrt traps on a non-finite
+    // result (strictly-negative input → NaN, UB under §2.9); the integral
+    // rounders never leave the finite domain.
+
+    class SqrtCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &intr) const override {
+        bool isF32 = std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32;
+        out(backend) << "  " << (isF32 ? "float" : "double")
+                     << " r = " << (isF32 ? "__builtin_sqrtf" : "__builtin_sqrt") << "(a0);\n";
+        out(backend) << "  if (!__builtin_isfinite(r)) __builtin_trap();\n";
+        out(backend) << "  return r;\n";
+      }
+    };
+
+    class FloorCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &intr) const override {
+        bool isF32 = std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32;
+        out(backend) << "  return " << (isF32 ? "__builtin_floorf" : "__builtin_floor")
+                     << "(a0);\n";
+      }
+    };
+
+    class CeilCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &intr) const override {
+        bool isF32 = std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32;
+        out(backend) << "  return " << (isF32 ? "__builtin_ceilf" : "__builtin_ceil") << "(a0);\n";
+      }
+    };
+
+    class TruncCIntrinsic final : public CFpIntrinsic {
+    public:
+      void emit(CBackend &backend, const IntrinsicDecl &intr) const override {
+        bool isF32 = std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32;
+        out(backend) << "  return " << (isF32 ? "__builtin_truncf" : "__builtin_trunc")
+                     << "(a0);\n";
+      }
+    };
+
     // ── Checksum primitives ──────────────────────────────────────────────
     //
     // Self-contained lowerings for the @crc32_update / @check_chksum
@@ -936,6 +981,10 @@ namespace refractir {
         r[IntrinsicKind::IsSubnormal] = std::make_unique<IsSubnormalCIntrinsic>();
         r[IntrinsicKind::Fmin] = std::make_unique<FminCIntrinsic>();
         r[IntrinsicKind::Fmax] = std::make_unique<FmaxCIntrinsic>();
+        r[IntrinsicKind::Sqrt] = std::make_unique<SqrtCIntrinsic>();
+        r[IntrinsicKind::Floor] = std::make_unique<FloorCIntrinsic>();
+        r[IntrinsicKind::Ceil] = std::make_unique<CeilCIntrinsic>();
+        r[IntrinsicKind::Trunc] = std::make_unique<TruncCIntrinsic>();
         return r;
       }();
       return registry;

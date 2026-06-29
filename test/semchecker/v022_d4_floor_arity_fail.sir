@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// [v0.2.2] §12.6 D.4 — @floor is unary; a two-parameter declaration must
+// be rejected.
+intrinsic @floor(%x: f64, %y: f64) : f64;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

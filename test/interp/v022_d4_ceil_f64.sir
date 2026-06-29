@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.4 — @ceil rounds toward +inf.
+intrinsic @ceil(%x: f64) : f64;
+fun @main() : i32 {
+  let mut %a: f64 = 0.0;
+  let mut %b: f64 = 0.0;
+^entry:
+  %a = call @ceil(2.3);
+  require %a == 3.0, "ceil(2.3) == 3.0";
+  %b = call @ceil(-2.7);
+  require %b == -2.0, "ceil(-2.7) == -2.0";
+  ret 0;
+}

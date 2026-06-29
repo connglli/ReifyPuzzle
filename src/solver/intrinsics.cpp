@@ -1004,6 +1004,59 @@ namespace refractir {
       }
     };
 
+    // ── §12.6 D.4 correctly-rounded math ──────────────────────────────────
+    //
+    // @sqrt maps to fp.sqrt (RNE auto-supplied by the backend); a strictly
+    // negative operand yields NaN, which is UB under §2.9, so we conjoin
+    // (not isNaN(result)) to the path condition.  @floor/@ceil/@trunc map to
+    // fp.roundToIntegral with the matching rounding mode (RTN/RTP/RTZ) and
+    // never leave the finite domain — no UB guard.
+
+    class SqrtSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &pc
+      ) const override {
+        auto r = solver.make_term(smt::Kind::FP_SQRT, {argVals[0].term});
+        // UB if the result is non-finite (§2.9).  A strictly-negative operand
+        // makes fp.sqrt NaN; +∞ is unreachable for sqrt but conjoined anyway
+        // to enforce the same uniform "result must be finite" contract as the
+        // FP arithmetic ops (float.md §10) and @from_bits.
+        auto notInf =
+            solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::FP_IS_INF, {r})});
+        auto notNaN =
+            solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::FP_IS_NAN, {r})});
+        pc.push_back(notInf);
+        pc.push_back(notNaN);
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+    };
+
+    // Shared helper for the three integral-rounding intrinsics: fp.rti with a
+    // fixed rounding mode supplied as the first child (so the backend does not
+    // fall back to its default RNE).
+    class RtiSolverIntrinsic : public SolverFpIntrinsic {
+    public:
+      explicit RtiSolverIntrinsic(smt::RoundingMode rm) : rm_(rm) {}
+
+      SymbolicExecutor::SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &
+      ) const override {
+        auto rmTerm = solver.make_rm_value(rm_);
+        auto r = solver.make_term(smt::Kind::FP_RTI, {rmTerm, argVals[0].term});
+        return SymbolicExecutor::SymbolicValue(
+            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
+        );
+      }
+
+    private:
+      smt::RoundingMode rm_;
+    };
+
     class SolverFpIntrinsicRegistry {
     public:
       static const SolverFpIntrinsicRegistry &get() {
@@ -1028,6 +1081,14 @@ namespace refractir {
         registry_[IntrinsicKind::Fmax] = std::make_unique<FmaxSolverIntrinsic>();
         registry_[IntrinsicKind::IsSubnormal] = std::make_unique<IsSubnormalSolverIntrinsic>();
         registry_[IntrinsicKind::FromBits] = std::make_unique<FromBitsSolverIntrinsic>();
+        // §12.6 D.4 — correctly-rounded math.
+        registry_[IntrinsicKind::Sqrt] = std::make_unique<SqrtSolverIntrinsic>();
+        registry_[IntrinsicKind::Floor] =
+            std::make_unique<RtiSolverIntrinsic>(smt::RoundingMode::RTN);
+        registry_[IntrinsicKind::Ceil] =
+            std::make_unique<RtiSolverIntrinsic>(smt::RoundingMode::RTP);
+        registry_[IntrinsicKind::Trunc] =
+            std::make_unique<RtiSolverIntrinsic>(smt::RoundingMode::RTZ);
       }
 
       std::unordered_map<IntrinsicKind, std::unique_ptr<SolverFpIntrinsic>> registry_;

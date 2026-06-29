@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// Cross-validate @sqrt / @floor / @ceil / @trunc at f32.  The f32 @sqrt is
+// the guard against double-rounding: interp must compute sqrtf at single
+// precision (not narrow a double sqrt afterward) to stay bit-exact with the
+// C backend's __builtin_sqrtf and WASM's f32.sqrt.
+intrinsic @sqrt(%x: f32) : f32;
+intrinsic @floor(%x: f32) : f32;
+intrinsic @ceil(%x: f32) : f32;
+intrinsic @trunc(%x: f32) : f32;
+
+fun @main() : f32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = call @sqrt(2.0);          // single-precision sqrt of 2
+  %r = %r + call @floor(-1.5);   // - 2.0
+  %r = %r + call @ceil(1.5);     // + 2.0
+  %r = %r + call @trunc(-9.9);   // - 9.0
+  ret %r;
+}

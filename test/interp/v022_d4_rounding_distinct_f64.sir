@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.4 — the three integral rounders disagree on a negative
+// half-fraction: floor(-2.5)=-3 (toward -inf), ceil(-2.5)=-2 (toward +inf),
+// trunc(-2.5)=-2 (toward zero).  Catches a swapped rounding direction.
+intrinsic @floor(%x: f64) : f64;
+intrinsic @ceil(%x: f64) : f64;
+intrinsic @trunc(%x: f64) : f64;
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @floor(-2.5);
+  require %r == -3.0, "floor(-2.5) == -3.0";
+  %r = call @ceil(-2.5);
+  require %r == -2.0, "ceil(-2.5) == -2.0";
+  %r = call @trunc(-2.5);
+  require %r == -2.0, "trunc(-2.5) == -2.0";
+  ret 0;
+}

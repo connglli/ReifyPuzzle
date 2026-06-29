@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+// [v0.2.2] §12.6 D.4 — solver synthesizes %?x such that @sqrt(%?x) == 3.0.
+// The only finite solution is %?x == 9.0 (the negative root would make the
+// sqrt operand negative, which the UB guard forbids).
+intrinsic @sqrt(%x: f64) : f64;
+fun @main() : f64 {
+  sym %?x : value f64;
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @sqrt(%?x);
+  require %r == 3.0, "@sqrt(?x) must equal 3.0 ⇒ ?x == 9.0";
+  br ^exit;
+^exit:
+  ret %?x;
+}

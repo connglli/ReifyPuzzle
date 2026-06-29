@@ -23,6 +23,9 @@ namespace refractir {
    *   Fabs, Fneg, Copysign, Signbit, ToBits, FromBits.
    * v0.2.2 extra D.2 — floating-point classification predicates (§12.6):
    *   IsNormal, IsSubnormal.
+   * v0.2.2 extra D.3 — floating-point min / max (§12.6): Fmin, Fmax.
+   * v0.2.2 extra D.4 — correctly-rounded math (§12.6):
+   *   Sqrt, Floor, Ceil, Trunc.
    *
    * Note: there is no @umin / @umax — RefractIR has no unsigned integer types
    * and the toolchain does not implicitly reinterpret iN bits as uN.
@@ -77,6 +80,11 @@ namespace refractir {
     // v0.2.2 extra batch D.3 — floating-point min / max (§12.6)
     Fmin,
     Fmax,
+    // v0.2.2 extra batch D.4 — correctly-rounded math (§12.6)
+    Sqrt,
+    Floor,
+    Ceil,
+    Trunc,
     // Checksum primitives.
     //   @crc32_update(state: i32, val: iN) : i32
     //     Fold val into a running CRC32 state. Reflected polynomial
@@ -179,6 +187,15 @@ namespace refractir {
       return IntrinsicKind::Fmin;
     if (name == "@fmax")
       return IntrinsicKind::Fmax;
+    // v0.2.2 extra batch D.4 — correctly-rounded math (§12.6)
+    if (name == "@sqrt")
+      return IntrinsicKind::Sqrt;
+    if (name == "@floor")
+      return IntrinsicKind::Floor;
+    if (name == "@ceil")
+      return IntrinsicKind::Ceil;
+    if (name == "@trunc")
+      return IntrinsicKind::Trunc;
     // Checksum machinery (see IntrinsicKind comment above).
     if (name == "@crc32_update")
       return IntrinsicKind::Crc32Update;

@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.4 — @floor rounds toward -inf.
+intrinsic @floor(%x: f32) : f32;
+fun @main() : i32 {
+  let mut %a: f32 = 0.0;
+  let mut %b: f32 = 0.0;
+^entry:
+  %a = call @floor(2.7);
+  require %a == 2.0, "floor(2.7) == 2.0";
+  %b = call @floor(-2.3);
+  require %b == -3.0, "floor(-2.3) == -3.0";
+  ret 0;
+}

@@ -2018,6 +2018,75 @@ namespace refractir {
       }
     };
 
+    // ── §12.6 D.4 correctly-rounded math ──────────────────────────────────
+    //
+    // WASM has native `fN.sqrt`, `fN.floor`, `fN.ceil`, `fN.trunc` opcodes,
+    // all correctly rounded per IEEE 754, so each is a one-opcode wrapper.
+    // @sqrt of a strictly-negative input is NaN (UB under §2.9); the
+    // integral rounders never leave the finite domain.
+
+    class SqrtWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void declareLocals(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        // Scratch local holding the sqrt result for the finiteness check.
+        indent(backend);
+        out(backend) << "(local $r " << retFpTy(intr) << ")\n";
+      }
+
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        std::string ty = retFpTy(intr);
+        // Step 1: compute the square root, save to the scratch local.
+        indent(backend);
+        out(backend) << "local.get $a0\n";
+        indent(backend);
+        out(backend) << ty << ".sqrt\n";
+        indent(backend);
+        out(backend) << "local.set $r\n";
+        // Step 2: UB if the result is non-finite (§2.9).  A strictly-negative
+        // operand makes sqrt NaN; (|r| < +inf) is true iff r is finite (NaN
+        // comparisons are always false).  Same result-finiteness guard as
+        // @from_bits, keeping every backend's sqrt UB rule uniform.
+        indent(backend);
+        out(backend) << "local.get $r\n";
+        indent(backend);
+        out(backend) << ty << ".abs\n";
+        indent(backend);
+        out(backend) << ty << ".const inf\n";
+        indent(backend);
+        out(backend) << ty << ".lt\n";
+        indent(backend);
+        out(backend) << "i32.eqz\n";
+        indent(backend);
+        out(backend) << "if\n";
+        incrIndent(backend);
+        indent(backend);
+        out(backend) << "unreachable\n";
+        decrIndent(backend);
+        indent(backend);
+        out(backend) << "end\n";
+        // Step 3: return the (finite) result.
+        indent(backend);
+        out(backend) << "local.get $r\n";
+      }
+    };
+
+    // Shared one-opcode wrapper for the integral-rounding intrinsics.
+    class RtiWasmIntrinsic final : public WasmFpIntrinsic {
+    public:
+      explicit RtiWasmIntrinsic(std::string op) : op_(std::move(op)) {}
+
+      void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
+        std::string ty = retFpTy(intr);
+        indent(backend);
+        out(backend) << "local.get $a0\n";
+        indent(backend);
+        out(backend) << ty << "." << op_ << "\n";
+      }
+
+    private:
+      std::string op_;
+    };
+
   } // namespace
 
   struct WasmFpIntrinsicRegistry {
@@ -2036,6 +2105,10 @@ namespace refractir {
         r[IntrinsicKind::IsSubnormal] = std::make_unique<IsSubnormalWasmIntrinsic>();
         r[IntrinsicKind::Fmin] = std::make_unique<FminWasmIntrinsic>();
         r[IntrinsicKind::Fmax] = std::make_unique<FmaxWasmIntrinsic>();
+        r[IntrinsicKind::Sqrt] = std::make_unique<SqrtWasmIntrinsic>();
+        r[IntrinsicKind::Floor] = std::make_unique<RtiWasmIntrinsic>("floor");
+        r[IntrinsicKind::Ceil] = std::make_unique<RtiWasmIntrinsic>("ceil");
+        r[IntrinsicKind::Trunc] = std::make_unique<RtiWasmIntrinsic>("trunc");
         return r;
       }();
       return registry;

@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.4 / §2.9 — @sqrt(-0.0) == -0.0 is a finite signed
+// zero, NOT UB.  The UB boundary is at strictly-negative inputs; -0.0 sits
+// on the defined side (-0.0 < 0.0 is false).  @signbit confirms the result
+// kept its negative sign bit.
+intrinsic @sqrt(%x: f64) : f64;
+intrinsic @signbit(%x: f64) : i1;
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+  let mut %s: i1 = 0;
+^entry:
+  %r = call @sqrt(-0.0);
+  require %r == 0.0, "sqrt(-0.0) compares equal to zero";
+  %s = call @signbit(%r);
+  require %s == -1, "sqrt(-0.0) is negative zero (sign bit set)";
+  ret 0;
+}

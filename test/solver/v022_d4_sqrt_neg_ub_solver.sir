@@ -1,0 +1,18 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @main --path ^entry,^exit
+// SKIP: INTERPRETER
+// [v0.2.2] §12.6 D.4 — the solver must prune a path that forces @sqrt onto a
+// strictly-negative operand (NaN result, §2.9).  With %?x assumed < -1.0 the
+// `not(fp.isNaN(sqrt(%?x)))` UB guard is unsatisfiable → UNSAT.
+intrinsic @sqrt(%x: f64) : f64;
+fun @main() : f64 {
+  sym %?x : value f64;
+  let mut %r: f64 = 0.0;
+^entry:
+  assume %?x < -1.0;
+  %r = call @sqrt(%?x);
+  require %r == %r, "unreachable: sqrt already UB on negative operand";
+  br ^exit;
+^exit:
+  ret %?x;
+}

@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// [v0.2.2] §12.6 D.4 — verify the signed-zero results of the integral
+// rounders on the C and WASM backends.  `== 0.0` can't see the sign, so
+// @signbit gates the check: ceil(-0.5) and trunc(-0.5) must be -0.0
+// (signbit -1) while floor(-0.5) is -1.0.  A backend emitting +0.0 traps
+// the require and fails.
+intrinsic @ceil(%x: f64) : f64;
+intrinsic @trunc(%x: f64) : f64;
+intrinsic @floor(%x: f64) : f64;
+intrinsic @signbit(%x: f64) : i1;
+
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+  let mut %s: i1 = 0;
+^entry:
+  %r = call @ceil(-0.5);
+  %s = call @signbit(%r);
+  require %s == -1, "ceil(-0.5) is -0.0 on this backend";
+  %r = call @trunc(-0.5);
+  %s = call @signbit(%r);
+  require %s == -1, "trunc(-0.5) is -0.0 on this backend";
+  %r = call @floor(-0.5);
+  require %r == -1.0, "floor(-0.5) is -1.0 on this backend";
+  ret 0;
+}

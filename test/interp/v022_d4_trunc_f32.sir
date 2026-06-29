@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.4 — @trunc rounds toward zero (drops the fraction).
+intrinsic @trunc(%x: f32) : f32;
+fun @main() : i32 {
+  let mut %a: f32 = 0.0;
+  let mut %b: f32 = 0.0;
+^entry:
+  %a = call @trunc(2.7);
+  require %a == 2.0, "trunc(2.7) == 2.0";
+  %b = call @trunc(-2.7);
+  require %b == -2.0, "trunc(-2.7) == -2.0";
+  ret 0;
+}

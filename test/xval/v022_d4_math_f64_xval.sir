@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// Cross-validate @sqrt / @floor / @ceil / @trunc at f64 across interp and
+// the compiled C backend.  sqrt(2.0) is irrational, so a bit-exact match
+// of the `Result:` hex-float proves both sides round identically; the
+// integral rounders add exact integers on top.
+intrinsic @sqrt(%x: f64) : f64;
+intrinsic @floor(%x: f64) : f64;
+intrinsic @ceil(%x: f64) : f64;
+intrinsic @trunc(%x: f64) : f64;
+
+fun @main() : f64 {
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @sqrt(2.0);          // 1.41421356... (precision-sensitive)
+  %r = %r + call @floor(2.7);    // + 2.0
+  %r = %r + call @ceil(-2.7);    // - 2.0
+  %r = %r + call @trunc(3.9);    // + 3.0
+  ret %r;
+}

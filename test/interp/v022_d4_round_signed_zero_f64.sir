@@ -1,0 +1,23 @@
+// EXPECT: PASS
+// SPEC v0.2.2 §12.6 D.4 — integral rounding preserves the operand's sign on
+// a zero result.  ceil(-0.5) and trunc(-0.5) round to -0.0 (IEEE
+// roundToIntegral keeps the sign of zero), while floor(-0.5) is -1.0.
+// A naive `== 0.0` cannot see the sign, so @signbit checks it.
+intrinsic @ceil(%x: f64) : f64;
+intrinsic @trunc(%x: f64) : f64;
+intrinsic @floor(%x: f64) : f64;
+intrinsic @signbit(%x: f64) : i1;
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+  let mut %s: i1 = 0;
+^entry:
+  %r = call @ceil(-0.5);
+  %s = call @signbit(%r);
+  require %s == -1, "ceil(-0.5) is -0.0";
+  %r = call @trunc(-0.5);
+  %s = call @signbit(%r);
+  require %s == -1, "trunc(-0.5) is -0.0";
+  %r = call @floor(-0.5);
+  require %r == -1.0, "floor(-0.5) is -1.0";
+  ret 0;
+}

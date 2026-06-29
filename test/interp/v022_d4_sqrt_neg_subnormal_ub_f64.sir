@@ -1,0 +1,11 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SPEC v0.2.2 §12.6 D.4 / §2.9 — @sqrt of any strictly-negative value (even
+// a tiny subnormal magnitude) yields NaN, which is UB.  Distinguishes the
+// UB boundary from -0.0 (which is defined).
+intrinsic @sqrt(%x: f64) : f64;
+fun @main() : i32 {
+  let mut %r: f64 = 0.0;
+^entry:
+  %r = call @sqrt(-0.000000000000000000000000000000000000000000001);
+  ret 0;
+}

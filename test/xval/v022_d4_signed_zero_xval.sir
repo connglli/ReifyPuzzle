@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// Cross-validate the signed-zero results of @sqrt and the integral rounders
+// between interp and compiled C.  The `Result:` hex-float carries the sign
+// bit, so a backend that produced +0.0 where IEEE requires -0.0 would
+// diverge (interp -0x0p+0 vs C 0x0p+0).  sqrt(-0.0) + ceil(-0.5) =
+// (-0.0) + (-0.0) = -0.0.
+intrinsic @sqrt(%x: f64) : f64;
+intrinsic @ceil(%x: f64) : f64;
+
+fun @main() : f64 {
+  let mut %a: f64 = 0.0;
+  let mut %b: f64 = 0.0;
+^entry:
+  %a = call @sqrt(-0.0);   // -0.0 (not UB)
+  %b = call @ceil(-0.5);   // -0.0
+  ret %a + %b;             // -0.0
+}

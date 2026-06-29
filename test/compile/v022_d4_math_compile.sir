@@ -1,0 +1,31 @@
+// EXPECT: PASS
+// [v0.2.2] §12.6 D.4 — compile @sqrt / @floor / @ceil / @trunc at f32 and
+// f64 and check each result.  Exercises the C builtins and the native WASM
+// fN.{sqrt,floor,ceil,trunc} opcodes end-to-end.
+intrinsic @sqrt(%x: f32) : f32;
+intrinsic @floor(%x: f32) : f32;
+intrinsic @ceil(%x: f32) : f32;
+intrinsic @trunc(%x: f32) : f32;
+intrinsic @sqrt(%x: f64) : f64;
+intrinsic @floor(%x: f64) : f64;
+intrinsic @ceil(%x: f64) : f64;
+intrinsic @trunc(%x: f64) : f64;
+
+fun @main() : i32 {
+  let mut %a: f32 = 0.0;
+  let mut %b: f64 = 0.0;
+^entry:
+  %a = call @sqrt(2.25);          // 1.5 (exact)
+  require %a == 1.5, "sqrt(2.25) f32 == 1.5";
+  %b = call @sqrt(6.25);          // 2.5 (exact)
+  require %b == 2.5, "sqrt(6.25) f64 == 2.5";
+  %a = call @floor(-2.3);
+  require %a == -3.0, "floor(-2.3) f32 == -3.0";
+  %b = call @ceil(2.3);
+  require %b == 3.0, "ceil(2.3) f64 == 3.0";
+  %a = call @trunc(-2.9);
+  require %a == -2.0, "trunc(-2.9) f32 == -2.0";
+  %b = call @floor(2.7);
+  require %b == 2.0, "floor(2.7) f64 == 2.0";
+  ret 0;
+}

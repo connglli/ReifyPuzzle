@@ -1,0 +1,10 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SPEC v0.2.2 §12.6 D.4 — @sqrt of a strictly negative value yields NaN,
+// which is outside the §2.9 finite-only domain — UB.
+intrinsic @sqrt(%x: f32) : f32;
+fun @main() : i32 {
+  let mut %r: f32 = 0.0;
+^entry:
+  %r = call @sqrt(-1.0);
+  ret 0;
+}

@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --path ^entry,^exit
+// [v0.2.2] §12.6 D.4 — the solver reasons about fp.roundToIntegral with the
+// ceil (round-toward-positive) mode.  %?x lies in (-3, -2), so @ceil(%?x)
+// must be -2.0 — the rounding direction matters (floor would give -3.0).
+intrinsic @ceil(%x: f64) : f64;
+fun @main() : f64 {
+  sym %?x : value f64;
+  let mut %r: f64 = 0.0;
+^entry:
+  assume %?x > -3.0;
+  assume %?x < -2.0;
+  %r = call @ceil(%?x);
+  require %r == -2.0, "ceil of a value in (-3,-2) is -2.0";
+  br ^exit;
+^exit:
+  ret %?x;
+}

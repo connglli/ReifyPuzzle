@@ -421,6 +421,12 @@ namespace refractir {
       // [v0.2.2 extra batch D.1] FP sign / bit ops (§12.6).
       case IntrinsicKind::Fabs:
       case IntrinsicKind::Fneg:
+      // [v0.2.2 extra batch D.4] Correctly-rounded math (§12.6) — every
+      // member is unary fN → fN of matching width, same shape as @fabs.
+      case IntrinsicKind::Sqrt:
+      case IntrinsicKind::Floor:
+      case IntrinsicKind::Ceil:
+      case IntrinsicKind::Trunc:
         expectArity(1);
         expectAllSameFp();
         break;

@@ -981,6 +981,67 @@ namespace refractir {
       }
     };
 
+    // ── §12.6 D.4 correctly-rounded math ──────────────────────────────────
+    //
+    // @sqrt, @floor, @ceil, @trunc are all unary fN → fN.  Each maps to a
+    // single correctly-rounded IEEE 754 operation; computing at the
+    // operand's declared precision keeps the interpreter bit-exact with the
+    // C builtins (`sqrtf` vs a double `sqrt` narrowed afterward would
+    // double-round) and the WASM `fN.*` opcodes.  @floor/@ceil/@trunc never
+    // leave the finite domain; @sqrt of a strictly-negative value is NaN,
+    // which is UB under §2.9.
+
+    class SqrtIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = fpBitsOf(intr.retType);
+        double x = argFloat(intr, args, 0);
+        // Round at the operand precision: sqrtf(x) for f32, sqrt(x) for f64.
+        // sqrt(-0.0) == -0.0 (finite, not UB); sqrt(x<0) == NaN → UB.
+        double r = (N == 32) ? static_cast<double>(std::sqrt(static_cast<float>(x))) : std::sqrt(x);
+        if (!std::isfinite(r))
+          throw UndefinedBehaviorError(
+              "UB: @sqrt of a negative value is NaN (spec §2.9 finite-only domain)"
+          );
+        return makeFloat(N, r);
+      }
+    };
+
+    class FloorIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = fpBitsOf(intr.retType);
+        double x = argFloat(intr, args, 0);
+        return makeFloat(N, std::floor(x));
+      }
+    };
+
+    class CeilIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = fpBitsOf(intr.retType);
+        double x = argFloat(intr, args, 0);
+        return makeFloat(N, std::ceil(x));
+      }
+    };
+
+    class TruncIntrinsic final : public InterpreterIntrinsic {
+    public:
+      Interpreter::RuntimeValue eval(
+          const IntrinsicDecl &intr, const std::vector<Interpreter::RuntimeValue> &args
+      ) const override {
+        uint32_t N = fpBitsOf(intr.retType);
+        double x = argFloat(intr, args, 0);
+        return makeFloat(N, std::trunc(x));
+      }
+    };
+
     // ── Checksum machinery ────────────────────────────────────────────────
     //
     // Bit-exact counterpart of the C-side helpers emitted by
@@ -1117,6 +1178,11 @@ namespace refractir {
         // §12.6 D.3 — min / max.
         registry_[IntrinsicKind::Fmin] = std::make_unique<FminIntrinsic>();
         registry_[IntrinsicKind::Fmax] = std::make_unique<FmaxIntrinsic>();
+        // §12.6 D.4 — correctly-rounded math.
+        registry_[IntrinsicKind::Sqrt] = std::make_unique<SqrtIntrinsic>();
+        registry_[IntrinsicKind::Floor] = std::make_unique<FloorIntrinsic>();
+        registry_[IntrinsicKind::Ceil] = std::make_unique<CeilIntrinsic>();
+        registry_[IntrinsicKind::Trunc] = std::make_unique<TruncIntrinsic>();
         // Checksum primitives.
         registry_[IntrinsicKind::Crc32Update] = std::make_unique<Crc32UpdateIntrinsic>();
         registry_[IntrinsicKind::CheckChksum] = std::make_unique<CheckChksumIntrinsic>();
