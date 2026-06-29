@@ -228,7 +228,7 @@ Any intrinsic whose declared semantics requires a precondition treats violations
 - **Result not representable**: the computed result would overflow the intrinsic's declared return type (e.g., `@abs(INT_MIN_N)`, `@abs_diff(INT_MIN_N, INT_MAX_N)`).
 - **Operand-domain restriction**: an operand falls outside the domain the intrinsic is defined on (e.g., `@ctz`/`@clz` require non-zero input; `@ilog2` requires strictly positive input; `@div_euclid` requires non-zero divisor).
 
-The table below enumerates every UB precondition shipped in v0.2.2 batches A, B, and C. Adding a new intrinsic requires (i) declaring its UB preconditions in §12 of `intrinsics.md`, (ii) raising a UB exception in `symiri` when violated, (iii) emitting a guard in `symirc` (C and WASM), and (iv) conjoining the precondition to `PC` in `symirsolve`.
+The table below enumerates every UB precondition shipped in v0.2.2 batches A through D. Adding a new intrinsic requires (i) declaring its UB preconditions in §12 of `intrinsics.md`, (ii) raising a UB exception in `symiri` when violated, (iii) emitting a guard in `symirc` (C and WASM), and (iv) conjoining the precondition to `PC` in `symirsolve`.
 
 | Intrinsic | UB precondition(s) | Spec |
 |---|---|---|
@@ -242,8 +242,11 @@ The table below enumerates every UB precondition shipped in v0.2.2 batches A, B,
 | `@bswap(x)` | declaration-time: `N % 8 != 0` (rejected at check time, not runtime UB) | §12.4 |
 | `@wrapping_shl(x, n)`, `@wrapping_shr(x, n)` | `n < 0` or `n >= N` | §12.5 |
 | `@div_euclid(a, b)`, `@rem_euclid(a, b)` | `b == 0` or `(a == INT_MIN_N ∧ b == -1)` | §12.5 |
+| `@sqrt(x)` | `x < 0` (NaN result; `@sqrt(-0.0)` is **not** UB) | §12.6 |
+| `@from_bits(x)` | bit pattern decodes to a non-finite value (`±∞` or NaN) | §12.6 |
+| `@recip(x)` | result non-finite (`x == ±0.0`, or `\|x\|` so small the reciprocal overflows) | §12.6 |
 
-Intrinsics not listed (e.g., `@min`, `@max`, `@signum`, `@midpoint`, `@parity`, `@bitreverse`, `@is_pow2`, the six `@wrapping_*` arithmetic ops, the four `@saturating_*` ops) have **no UB precondition** — their result is defined for every input in their declared signature.
+Intrinsics not listed (e.g., `@min`, `@max`, `@signum`, `@midpoint`, `@parity`, `@bitreverse`, `@is_pow2`, the six `@wrapping_*` arithmetic ops, the four `@saturating_*` ops, and the no-UB floating-point intrinsics `@fabs`, `@fneg`, `@copysign`, `@signbit`, `@to_bits`, `@is_normal`, `@is_subnormal`, `@fmin`, `@fmax`, `@floor`, `@ceil`, `@trunc`, `@fract`) have **no UB precondition** — their result is defined for every input in their declared signature.
 
 - **symiri:** every intrinsic implementation in `src/interp/intrinsics.cpp` checks its precondition and throws `UndefinedBehaviorError` on violation.
 - **symirc:** the C-backend helper (`src/backend/intrinsics_c.cpp`) emits an `if (cond) __builtin_trap();` guard ahead of the computation; the WASM-backend helper (`src/backend/intrinsics_wasm.cpp`) emits an `if … unreachable end` sequence.

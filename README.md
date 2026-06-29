@@ -1,9 +1,9 @@
 # RefractIR
 
 > [!WARNING]
-> The project is under active development. APIs and IR details are still evolving, but semantic decisions in `docs/SPEC_v0.2.1.md` are authoritative for the current release (v0.2.1).
+> The project is under active development. APIs and IR details are still evolving, but semantic decisions in `docs/SPEC_v0.2.2.md` are authoritative for the current release (v0.2.2): function calls (`call`), external declarations (`decl`) with link/contract forms, and standard intrinsics.
 >
-> The version being developed is v0.2.2, which will include additional features such as intrinsics.
+> The next version in development is v0.2.3, which will add WASM SIMD support and addressable vectors.
 
 RefractIR (internally SymIR) is a **CFG-based symbolic intermediate representation** designed for program synthesis, symbolic execution, and constraint generation for SMT solvers using **bit-vector (BV) logic**.
 
@@ -257,10 +257,13 @@ Find more examples in [./examples](./examples/) and [./test/](./test/).
 
 ## 📚 Documentation
 
-- **[Language Specification (v0.2.1, current)](./docs/SPEC_v0.2.1.md)** — the current normative spec, including v0.2.1 additions: aggregate pointers (`ptr [N] T`, `ptr @S`, `ptrindex`, `ptrfield`), SIMD vector types (`<N> T`), and `cmp` expressions.
+- **[Language Specification (v0.2.2, current)](./docs/SPEC_v0.2.2.md)** — the current normative spec, including v0.2.2 additions: function calls (`call`), interprocedural execution, external declarations (`decl`) with `-I` link resolution and behavioral contracts (`pre`/`post`/`ret`), and standard intrinsics.
+- **[Language Specification (v0.2.1, archived)](./docs/SPEC_v0.2.1.md)** — aggregate pointers (`ptr [N] T`, `ptr @S`, `ptrindex`, `ptrfield`), SIMD vector types (`<N> T`), and `cmp` expressions.
 - **[Language Specification (v0.2.0, archived)](./docs/SPEC_v0.2.0.md)** — the pointer baseline (`ptr T`, `addr`, `load`, `store`, `null`).
 - **[Language Specification (v0.1.0, archived)](./docs/SPEC_v0.1.0.md)** — the pre-pointer baseline, kept for reference.
-- **[Undefined Behaviour reference](./docs/undefined.md)**
+- **[Standard Intrinsics reference](./docs/intrinsics.md)** — per-intrinsic signatures, SMT encodings, UB conditions, and C/WASM lowering rules.
+- **[Floating-point model](./docs/float.md)** — the finite-only IEEE 754 value model and bit-exact text serialization.
+- **[Undefined Behaviour reference](./docs/undefined.md)** — the strict UB model and list of UBs.
 - **[symiri User Guide](./docs/symiri.md)**
 - **[symirc User Guide](./docs/symirc.md)**
 - **[symirsolve User Guide](./docs/symirsolve.md)**

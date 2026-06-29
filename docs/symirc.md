@@ -99,13 +99,14 @@ Examples:
 | `-h, --help`       | Print usage                                |
 
 
-## Limitations (v0.2.1)
+## Limitations (v0.2.2)
 
 * `i1`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, arrays, structs, and pointers (`ptr T`) lower to both C and WASM.
+* Function calls (`call`), link-form `decl` resolution (`-I`), and the standard intrinsics (§12) lower to both C and WASM, with two exceptions: the reify checksum intrinsics `@crc32_update` and `@check_chksum` lower to C only — `symirc --target wasm` rejects a program that declares them (see `docs/intrinsics.md` §12.7).
 * Heap allocation is still out of scope; pointers always refer to stack-resident `let mut` locals (see spec §2.8).
 * No optimization passes — the lowered C/WASM follows the source closely.
 * In WASM, pointers are 32-bit addresses into the linear memory; in C they are native C pointers. Pointer arithmetic and `ptr - ptr` (element distance) are both supported, but cross-object arithmetic remains UB per spec §7.5.
-* WASM vector support currently unrolls operations lane-by-lane on the shadow stack (as aggregates). Native WebAssembly SIMD-128 lowering (using the `v128` type and instructions) is planned per SPEC §10.16.
+* WASM vector support currently unrolls operations lane-by-lane on the shadow stack (as aggregates). Native WebAssembly SIMD-128 lowering (using the `v128` type and instructions) is a non-goal for v0.2.2, planned for v0.2.3 (SPEC §13).
 
 ## Refinement and Undefined Behavior Semantics
 

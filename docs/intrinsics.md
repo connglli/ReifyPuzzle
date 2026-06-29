@@ -59,9 +59,14 @@ so storage of an `i1` local always matches `{0, -1}`. Earlier drafts
 that documented "stored as `0/1`" reflect the pre-v0.2.2 convention
 and have been rewritten where they survived.
 
-Floating-point intrinsics are **not** supported in v0.2.2 baseline.
-The P0 floating-point basic IEEE family is planned for a future v0.2.2
-follow-up; see *Priority tiers* below.
+Floating-point intrinsics **are** supported as of v0.2.2: the P0
+floating-point basic IEEE family (batch D — `@fabs`, `@fneg`,
+`@copysign`, `@signbit`, `@to_bits`, `@from_bits`, `@is_normal`,
+`@is_subnormal`, `@fmin`, `@fmax`, `@sqrt`, `@floor`, `@ceil`,
+`@trunc`, `@fract`, `@recip`) has shipped. Throughout this document
+`fN` denotes any concrete floating-point type (`f32` or `f64`); their
+per-intrinsic specs are in §12.6. See *Priority tiers* below for what
+remains deferred (P1–P4).
 
 ### Widening-and-mask lowering (§11.5)
 
@@ -782,13 +787,14 @@ Difficulty legend: ★ trivial · ◐ easy · ◑ medium · ◯ hard but feasibl
 
 ### P0 — solver-★/◐, C-★, WASM-★/◐
 
-P0 is split into three groups by domain. The integer extras and
-bit-manipulation groups are **shipped** (§12.3 and §12.4 above). The
-integer overflow-aware family and the floating-point basic IEEE family
-are **planned** for later v0.2.2 work — the FP family additionally
-needs the §12 type-restriction sentence ("`iN` denotes any concrete
-integer type") to be relaxed before it can land, and that change is
-held back by the §13 non-goal bullet listed below.
+P0 is split into four groups by domain, and **all four have shipped**
+in v0.2.2: the integer extras (§12.3), bit-manipulation (§12.4),
+the integer overflow-aware family (scalar-result subset, §12.5), and
+the floating-point basic IEEE family (batch D, §12.6). Shipping batch
+D.1 relaxed the §12 type-restriction sentence to admit `fN`. The only
+P0 members still outstanding are the tuple-returning overflow ops
+(`@checked_*`, `@overflowing_*`) and the cross-width `@widening_mul`,
+which wait on the multi-value return ABI.
 
 **v0.2.2 extra batch A - Integer extras** (shipped — §12.3): `@abs_diff`, `@signum`, `@clamp`,
 `@midpoint`.

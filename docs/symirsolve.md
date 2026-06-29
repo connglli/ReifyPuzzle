@@ -192,27 +192,30 @@ Operators:
 * `/` uses signed truncating division: `bvsdiv`
 * `%` uses signed remainder: `bvsrem`
 
-These match the language semantics in `docs/SPEC_v0.2.0.md`.
+These match the language semantics in `docs/SPEC_v0.2.2.md`.
 
 
-## Notes on Pointer Support (v0.2.0)
+## Notes on Pointer Support (v0.2.2)
 
-The solver encodes pointers as **64-bit BV tags** identifying the addressed local (tag `0` reserved for `null`; tags derived from local names via FNV-1a). `addr` / `load` / `store` dispatch builds an `ite`-chain over candidate targets of the matching pointee type, so load/store through symbolic pointers resolves to the right local without requiring SMT array theory.
+The solver encodes pointers as **64-bit BV tags** identifying the addressed storage (tag `0` reserved for `null`; the base tag is the FNV-1a hash of the local name, and sub-object addressing advances it by a *leaf-unit* offset — each scalar or pointer leaf counts as one unit and arrays/structs sum their leaves, per `sizeofTagUnits`; this is **not** a byte offset). `addr` / `load` / `store` dispatch builds an `ite`-chain over candidate targets of the matching pointee type, so load/store through symbolic pointers resolves to the right cell without requiring SMT array theory.
 
 **Currently supported in the solver:**
 
 * `addr %v` for a whole `let mut` local `%v` (scalar or pointer).
-* `load %p` / `store %p, v` where `%p` is a `ptr T` local that ultimately points at another local of type `T`.
-* Pointer-to-pointer chains (`ptr ptr T`).
-* Pointer equality and inequality (`==`, `!=`) — these are plain BV equality on the 64-bit tags.
+* `addr %arr[i]` and `addr %st.f` — array-element and struct-field addressing (the v0.2.1 §9.4 provenance model: base tag + leaf-unit offset, provenance = the immediate containing aggregate, with rule-15b typed-access checks at the deref).
+* `ptrindex` / `ptrfield` aggregate navigation, including one-past-the-end and the associated navigation UB (rules 16–19).
+* Pointer arithmetic (`ptr ± iN`, `ptr - ptr`) with in-bounds / cross-object UB enforced via per-provenance base+size constraints.
+* `load %p` / `store %p, v` where `%p` is a `ptr T` value that ultimately points at a `T`-typed cell; pointer-to-pointer chains (`ptr ptr T`).
+* Pointer equality / inequality (`==`, `!=`) on the 64-bit tags; relational compare (`<`, `<=`, `>`, `>=`) is UB across distinct objects (rule 14).
+* Pointer **parameters** of functions, threaded through interprocedural `call` (§9.6) with caller-store coherence on callee `store`s.
 
-**Not yet supported in the solver** (these are valid RefractIR programs accepted by the interpreter and the C/WASM backends, but `symirsolve` will raise an error or return a model that ignores them):
+**Known limitations (v0.2.2):**
 
-* `addr %arr[i]` and `addr %st.f` — array-element and struct-field addressing. These need the full spec §9.4 array-theory memory model (abstract address constants + `Mem[T]` SMT arrays).
-* Pointer arithmetic (`ptr + iN`, `ptr - iN`, `ptr - ptr`). Requires the same address model so the solver can reason about offsets.
-* Pointer parameters of functions with no addr-taken locals — the solver has no externally-allocated storage to dispatch into.
+* `sym` of pointer type is not supported (SPEC §13 non-goal — pointer symbols need a richer address-domain theory).
+* Contract-form `decl` memory havoc currently resolves only the `addr %x` and plain-ptr-local argument forms; aggregate / `ptrindex` / `ptrfield` / derived / nested-pointer provenance is not yet havoc'd (SPEC §9.6.2 step 4 and the §13 "Contract memory havoc — extended provenance forms" non-goal). Callers passing those forms must constrain the post-state explicitly.
+* Branchy callees use seeded random sub-path sampling (no user-supplied callee sub-path syntax yet — SPEC §9.6.4 / §13).
 
-These gaps are intentional simplifications: the BV-tag model gives sound, fast symbolic execution for the common "single-cell aliasing" case that random program generation typically produces, at the cost of leaving arithmetic-heavy pointer programs unsolvable until the spec §9.4 model lands.
+The BV-tag model gives sound, fast symbolic execution without SMT array theory: because each scalar leaf is a single addressable unit, aliasing and pointer arithmetic resolve through `ite`-chains over candidate cells rather than a byte-addressable `Mem[T]`. This handles the full typed-pointer fragment (aggregate addressing, navigation, and in-bounds arithmetic) but deliberately cannot model byte-level reasoning — which is why the byte-granular memory intrinsics (`@memcpy`, `@memset`) remain a spec §13 non-goal. The three limitations listed above are the remaining deltas from the abstract spec §9.4 model.
 
 
 ## Failure Modes
