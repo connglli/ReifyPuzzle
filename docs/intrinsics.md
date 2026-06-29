@@ -803,9 +803,9 @@ cross-width `@widening_mul` (`iN×iN → i2N`) are slated for a follow-up
 batch that introduces the multi-value return ABI.
 
 **v0.2.2 extra batch D - Floating-point basic IEEE family**.  Ships
-incrementally as D.1–D.6 sub-batches.  All entries map to QF_FP ops
-and direct WASM `fN.*` opcodes; lowering uses the native FP precision
-directly (no widening-and-mask).
+incrementally as D.1–D.5 sub-batches.  All entries map to QF_FP ops
+and direct WASM `fN.*` opcodes (or short compositions of them); lowering
+uses the native FP precision directly (no widening-and-mask).
 
 - D.1 — *sign / bit ops* **(shipped — §12.6 below)**: `@fabs`, `@fneg`,
   `@copysign`, `@signbit`, `@to_bits`, `@from_bits`.  Shipping this
@@ -815,9 +815,17 @@ directly (no widening-and-mask).
 - D.3 — *min / max* **(shipped — §12.6 below)**: `@fmin`, `@fmax`.
 - D.4 — *correctly-rounded math* **(shipped — §12.6 below)**: `@sqrt`,
   `@floor`, `@ceil`, `@trunc`.
-- D.5 — *exponent manipulation* (planned): `@ldexp`, `@scalbn`,
-  `@ilogb`, `@logb`.
-- D.6 — *compositions* (planned): `@fract`, `@recip`.
+- D.5 — *compositions* (planned): `@fract`, `@recip`.
+
+**Exponent manipulation is not an intrinsic target.**  `@ldexp`,
+`@scalbn`, `@ilogb`, and `@logb` were briefly considered for batch D but
+are **dropped**: their symbolic SMT story is not solver-friendly.
+Scaling by `2^exp` for a symbolic integer `exp` has no clean QF_FP
+encoding (constructing `2^exp` overflows independently of the finite
+product), and exponent extraction (`ilogb`/`logb`) needs a
+normal/subnormal bit split.  Neither fits RefractIR's "predictable
+BV/QF_FP constraints, minimal nonlinearity" design goal, so they are
+left out of the language rather than shipped behind a partial encoding.
 
 The originally-listed `@fma`, `@rint` (ties-to-even), `@to_degrees`,
 and `@to_radians` are deferred from batch D to keep the initial set

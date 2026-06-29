@@ -415,10 +415,14 @@ the cross-backend contract.
 Batch D (the FP basic IEEE family — `@fabs`, `@fneg`, `@copysign`,
 `@fmin`, `@fmax`, `@sqrt`, `@fma`, `@floor`/`@ceil`/`@trunc`/`@rint`,
 `@signbit`, `@is_normal`, `@is_subnormal`, `@to_bits`/`@from_bits`,
-`@ldexp`/`@scalbn`/`@ilogb`/`@logb`, `@fract`, `@recip`,
-`@to_degrees`/`@to_radians`) is precisely the subset of FP intrinsics
-where bit-exactness across backends is guaranteed by either pure
-bit-manipulation or IEEE-required correct rounding. Three care points:
+`@fract`, `@recip`, `@to_degrees`/`@to_radians`) is precisely the subset
+of FP intrinsics where bit-exactness across backends is guaranteed by
+either pure bit-manipulation or IEEE-required correct rounding. The
+exponent-manipulation functions (`@ldexp`/`@scalbn`/`@ilogb`/`@logb`)
+are intentionally **excluded** from batch D: scaling by `2^exp` for a
+symbolic integer `exp` and exponent extraction have no clean QF_FP
+encoding, so they are not solver-friendly. Three care points for the
+members that remain deferred:
 
 - `@fma` must lower to `fma()`/`fmaf()` (libm-backed), never `x*y+z`.
 - `@rint` must use a fenv-independent lowering (`__builtin_roundeven*`
