@@ -149,7 +149,21 @@ namespace refractir {
     const SymBindings *symBindings_ = nullptr;
 
     RuntimeValue evalExpr(const Expr &e, const Store &store);
+    // evalAtom dispatches on the Atom variant; each alternative's evaluation
+    // lives in a dedicated evalXxxAtom helper (src/interp/expr.cpp). The two
+    // trivial alternatives (CoefAtom / RValueAtom) are handled inline in the
+    // dispatcher and delegate straight to evalCoef / evalLValue.
     RuntimeValue evalAtom(const Atom &a, const Store &store);
+    RuntimeValue evalOpAtom(const OpAtom &arg, const Store &store);
+    RuntimeValue evalUnaryAtom(const UnaryAtom &arg, const Store &store);
+    RuntimeValue evalSelectAtom(const SelectAtom &arg, const Store &store);
+    RuntimeValue evalCmpAtom(const CmpAtom &arg, const Store &store);
+    RuntimeValue evalAddrAtom(const AddrAtom &arg, const Store &store);
+    RuntimeValue evalLoadAtom(const LoadAtom &arg, const Store &store);
+    RuntimeValue evalPtrIndexAtom(const PtrIndexAtom &arg, const Store &store);
+    RuntimeValue evalPtrFieldAtom(const PtrFieldAtom &arg, const Store &store);
+    RuntimeValue evalCastAtom(const CastAtom &arg, const Store &store);
+    RuntimeValue evalCallAtom(const CallAtom &arg, const Store &store);
     // [v0.2.2] Execute a built-in intrinsic. Argument values are already
     // evaluated. Result has the intrinsic's declared return bitwidth.
     // Implemented in src/interp/intrinsics.cpp — the single source of
