@@ -58,6 +58,8 @@ TEST_SRCS =
 BACKEND_SRCS = src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
                src/backend/c_expr.cpp src/backend/c_vec.cpp \
                src/backend/c_lvalue.cpp src/backend/c_types.cpp \
+               src/backend/wasm_expr.cpp src/backend/wasm_vec.cpp \
+               src/backend/wasm_lvalue.cpp src/backend/wasm_types.cpp \
                src/backend/intrinsics_c.cpp src/backend/intrinsics_wasm.cpp \
                src/backend/vec_lowering_vecext.cpp \
                src/backend/vec_lowering_array.cpp \
@@ -135,6 +137,10 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                src/backend/vec_lowering_scalars.o \
                src/backend/vec_lowering_struct.o \
                src/backend/wasm_backend.o \
+               src/backend/wasm_expr.o \
+               src/backend/wasm_vec.o \
+               src/backend/wasm_lvalue.o \
+               src/backend/wasm_types.o \
                $(SOLVER_CORE_SRCS:.cpp=.o) \
                $(SOLVER_IMPL_OBJ)
 
