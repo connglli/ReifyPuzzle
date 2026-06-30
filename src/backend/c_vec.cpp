@@ -130,144 +130,15 @@ namespace refractir {
             // emitLValue + lane subscript. Not exercised by our tests.
             return base + "/* nested */" + "[" + kS + "]";
           } else if constexpr (std::is_same_v<T, CoefAtom>) {
-            // Literal broadcasts.
-            if (auto i = std::get_if<IntLit>(&arg.coef))
-              return std::to_string(i->value);
-            if (auto f = std::get_if<FloatLit>(&arg.coef)) {
-              std::ostringstream os;
-              os.precision(17);
-              os << f->value;
-              return os.str();
-            }
-            if (auto id = std::get_if<LocalOrSymId>(&arg.coef)) {
-              std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
-              // If it names a vector local/sym, take lane k; else broadcast.
-              auto vinfo = varTypes_.find(nm);
-              if (vinfo != varTypes_.end() && std::holds_alternative<VecType>(vinfo->second->v)) {
-                auto &vvt = std::get<VecType>(vinfo->second->v);
-                return vecLowering_->emitLaneRead(mangleName(nm), vvt, kS);
-              }
-              return mangleName(nm);
-            }
-            return "/*?coef*/";
+            return emitVecCoefAtomLane(arg, vt, k);
           } else if constexpr (std::is_same_v<T, OpAtom>) {
-            // coef <op> rval, lane-wise. coef may be a literal (broadcast)
-            // or a vector lvalue.
-            std::string coefLane;
-            if (auto i = std::get_if<IntLit>(&arg.coef))
-              coefLane = std::to_string(i->value);
-            else if (auto f = std::get_if<FloatLit>(&arg.coef)) {
-              std::ostringstream os;
-              os.precision(17);
-              os << f->value;
-              coefLane = os.str();
-            } else if (auto id = std::get_if<LocalOrSymId>(&arg.coef)) {
-              std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
-              auto vinfo = varTypes_.find(nm);
-              if (vinfo != varTypes_.end() && std::holds_alternative<VecType>(vinfo->second->v)) {
-                auto &vvt = std::get<VecType>(vinfo->second->v);
-                coefLane = vecLowering_->emitLaneRead(mangleName(nm), vvt, kS);
-              } else {
-                coefLane = mangleName(nm);
-              }
-            } else {
-              coefLane = "/*?coef*/";
-            }
-            std::string rvalLane =
-                vecLowering_->emitLaneRead(mangleName(arg.rval.base.name), vt, kS);
-            const char *op = nullptr;
-            switch (arg.op) {
-              case AtomOpKind::Mul:
-                op = "*";
-                break;
-              case AtomOpKind::Div:
-                op = "/";
-                break;
-              case AtomOpKind::Mod:
-                op = "%";
-                break;
-              case AtomOpKind::And:
-                op = "&";
-                break;
-              case AtomOpKind::Or:
-                op = "|";
-                break;
-              case AtomOpKind::Xor:
-                op = "^";
-                break;
-              case AtomOpKind::Shl:
-                op = "<<";
-                break;
-              case AtomOpKind::Shr:
-                op = ">>";
-                break;
-              case AtomOpKind::LShr:
-                op = ">>";
-                break;
-            }
-            // Float % needs fmod / fmodf, with the §2.9 intermediate-overflow
-            // UB check on x/y (see scalar `%` emission for the rationale).
-            bool isFloat = vt.elem && std::holds_alternative<FloatType>(vt.elem->v);
-            if (arg.op == AtomOpKind::Mod && isFloat) {
-              bool isF32Lane = std::get<FloatType>(vt.elem->v).kind == FloatType::Kind::F32;
-              const char *ty = isF32Lane ? "float" : "double";
-              const char *fn = isF32Lane ? "fmodf" : "fmod";
-              return std::string("({ ") + ty + " _mx = (" + coefLane + "), _my = (" + rvalLane +
-                     "); if (!__builtin_isfinite(_mx / _my)) __builtin_trap(); " + fn +
-                     "(_mx, _my); })";
-            }
-            if (arg.op == AtomOpKind::LShr) {
-              // Logical (unsigned) right-shift: cast lane to unsigned at
-              // the lane's actual bit width so we don't accidentally
-              // sign-extend through a wider unsigned type.
-              const char *u = "uint32_t";
-              if (auto it = std::get_if<IntType>(&vt.elem->v)) {
-                int bits = it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
-                if (bits <= 8)
-                  u = "uint8_t";
-                else if (bits <= 16)
-                  u = "uint16_t";
-                else if (bits <= 32)
-                  u = "uint32_t";
-                else
-                  u = "uint64_t";
-              }
-              return std::string("((") + u + ")(" + coefLane + ") >> (" + rvalLane + "))";
-            }
-            return "((" + coefLane + ") " + op + " (" + rvalLane + "))";
+            return emitVecOpAtomLane(arg, vt, k);
           } else if constexpr (std::is_same_v<T, UnaryAtom>) {
             std::string rvalLane =
                 vecLowering_->emitLaneRead(mangleName(arg.rval.base.name), vt, kS);
             return "(~(" + rvalLane + "))";
           } else if constexpr (std::is_same_v<T, CastAtom>) {
-            // src is LValue (or literal/sym, but those aren't vectors).
-            auto lv = std::get_if<LValue>(&arg.src);
-            if (!lv)
-              return "/*?cast*/";
-            auto srcTy = getLValueType(*lv);
-            if (!srcTy || !std::holds_alternative<VecType>(srcTy->v))
-              return "/*?cast2*/";
-            auto &srcVt = std::get<VecType>(srcTy->v);
-            std::string srcLane = vecLowering_->emitLaneRead(mangleName(lv->base.name), srcVt, kS);
-            // C cast on scalar lane.
-            std::ostringstream os;
-            os << "((";
-            // Element C type from vt:
-            if (auto it = std::get_if<IntType>(&vt.elem->v)) {
-              int bits = it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
-              if (bits <= 8)
-                os << "int8_t";
-              else if (bits <= 16)
-                os << "int16_t";
-              else if (bits <= 32)
-                os << "int32_t";
-              else
-                os << "int64_t";
-            } else if (auto ft = std::get_if<FloatType>(&vt.elem->v)) {
-              os << (ft->kind == FloatType::Kind::F32 ? "float" : "double");
-            }
-            os << ")(" << srcLane << "))";
-            return os.str();
+            return emitVecCastAtomLane(arg, vt, k);
           } else {
             // Other atoms (cmp / mask-select / load / addr) aren't handled
             // by the lane-unroll path — they're special-cased at
@@ -277,6 +148,153 @@ namespace refractir {
         },
         a.v
     );
+  }
+
+  std::string
+  CBackend::emitVecCoefAtomLane(const CoefAtom &arg, const VecType & /*vt*/, std::uint64_t k) {
+    std::string kS = std::to_string(k);
+
+    // Literal broadcasts.
+    if (auto i = std::get_if<IntLit>(&arg.coef))
+      return std::to_string(i->value);
+    if (auto f = std::get_if<FloatLit>(&arg.coef)) {
+      std::ostringstream os;
+      os.precision(17);
+      os << f->value;
+      return os.str();
+    }
+    if (auto id = std::get_if<LocalOrSymId>(&arg.coef)) {
+      std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
+      // If it names a vector local/sym, take lane k; else broadcast.
+      auto vinfo = varTypes_.find(nm);
+      if (vinfo != varTypes_.end() && std::holds_alternative<VecType>(vinfo->second->v)) {
+        auto &vvt = std::get<VecType>(vinfo->second->v);
+        return vecLowering_->emitLaneRead(mangleName(nm), vvt, kS);
+      }
+      return mangleName(nm);
+    }
+    return "/*?coef*/";
+  }
+
+  std::string CBackend::emitVecOpAtomLane(const OpAtom &arg, const VecType &vt, std::uint64_t k) {
+    std::string kS = std::to_string(k);
+
+    // coef <op> rval, lane-wise. coef may be a literal (broadcast)
+    // or a vector lvalue.
+    std::string coefLane;
+    if (auto i = std::get_if<IntLit>(&arg.coef))
+      coefLane = std::to_string(i->value);
+    else if (auto f = std::get_if<FloatLit>(&arg.coef)) {
+      std::ostringstream os;
+      os.precision(17);
+      os << f->value;
+      coefLane = os.str();
+    } else if (auto id = std::get_if<LocalOrSymId>(&arg.coef)) {
+      std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
+      auto vinfo = varTypes_.find(nm);
+      if (vinfo != varTypes_.end() && std::holds_alternative<VecType>(vinfo->second->v)) {
+        auto &vvt = std::get<VecType>(vinfo->second->v);
+        coefLane = vecLowering_->emitLaneRead(mangleName(nm), vvt, kS);
+      } else {
+        coefLane = mangleName(nm);
+      }
+    } else {
+      coefLane = "/*?coef*/";
+    }
+    std::string rvalLane = vecLowering_->emitLaneRead(mangleName(arg.rval.base.name), vt, kS);
+    const char *op = nullptr;
+    switch (arg.op) {
+      case AtomOpKind::Mul:
+        op = "*";
+        break;
+      case AtomOpKind::Div:
+        op = "/";
+        break;
+      case AtomOpKind::Mod:
+        op = "%";
+        break;
+      case AtomOpKind::And:
+        op = "&";
+        break;
+      case AtomOpKind::Or:
+        op = "|";
+        break;
+      case AtomOpKind::Xor:
+        op = "^";
+        break;
+      case AtomOpKind::Shl:
+        op = "<<";
+        break;
+      case AtomOpKind::Shr:
+        op = ">>";
+        break;
+      case AtomOpKind::LShr:
+        op = ">>";
+        break;
+    }
+    // Float % needs fmod / fmodf, with the §2.9 intermediate-overflow
+    // UB check on x/y (see scalar `%` emission for the rationale).
+    bool isFloat = vt.elem && std::holds_alternative<FloatType>(vt.elem->v);
+    if (arg.op == AtomOpKind::Mod && isFloat) {
+      bool isF32Lane = std::get<FloatType>(vt.elem->v).kind == FloatType::Kind::F32;
+      const char *ty = isF32Lane ? "float" : "double";
+      const char *fn = isF32Lane ? "fmodf" : "fmod";
+      return std::string("({ ") + ty + " _mx = (" + coefLane + "), _my = (" + rvalLane +
+             "); if (!__builtin_isfinite(_mx / _my)) __builtin_trap(); " + fn + "(_mx, _my); })";
+    }
+    if (arg.op == AtomOpKind::LShr) {
+      // Logical (unsigned) right-shift: cast lane to unsigned at
+      // the lane's actual bit width so we don't accidentally
+      // sign-extend through a wider unsigned type.
+      const char *u = "uint32_t";
+      if (auto it = std::get_if<IntType>(&vt.elem->v)) {
+        int bits = it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
+        if (bits <= 8)
+          u = "uint8_t";
+        else if (bits <= 16)
+          u = "uint16_t";
+        else if (bits <= 32)
+          u = "uint32_t";
+        else
+          u = "uint64_t";
+      }
+      return std::string("((") + u + ")(" + coefLane + ") >> (" + rvalLane + "))";
+    }
+    return "((" + coefLane + ") " + op + " (" + rvalLane + "))";
+  }
+
+  std::string
+  CBackend::emitVecCastAtomLane(const CastAtom &arg, const VecType &vt, std::uint64_t k) {
+    std::string kS = std::to_string(k);
+
+    // src is LValue (or literal/sym, but those aren't vectors).
+    auto lv = std::get_if<LValue>(&arg.src);
+    if (!lv)
+      return "/*?cast*/";
+    auto srcTy = getLValueType(*lv);
+    if (!srcTy || !std::holds_alternative<VecType>(srcTy->v))
+      return "/*?cast2*/";
+    auto &srcVt = std::get<VecType>(srcTy->v);
+    std::string srcLane = vecLowering_->emitLaneRead(mangleName(lv->base.name), srcVt, kS);
+    // C cast on scalar lane.
+    std::ostringstream os;
+    os << "((";
+    // Element C type from vt:
+    if (auto it = std::get_if<IntType>(&vt.elem->v)) {
+      int bits = it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
+      if (bits <= 8)
+        os << "int8_t";
+      else if (bits <= 16)
+        os << "int16_t";
+      else if (bits <= 32)
+        os << "int32_t";
+      else
+        os << "int64_t";
+    } else if (auto ft = std::get_if<FloatType>(&vt.elem->v)) {
+      os << (ft->kind == FloatType::Kind::F32 ? "float" : "double");
+    }
+    os << ")(" << srcLane << "))";
+    return os.str();
   }
 
   std::string CBackend::emitVecExprLane(const Expr &e, const VecType &vt, std::uint64_t k) {

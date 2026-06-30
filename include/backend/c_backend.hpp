@@ -84,6 +84,19 @@ namespace refractir {
     void emitType(const TypePtr &type);
     void emitExpr(const Expr &expr);
     void emitAtom(const Atom &atom);
+    // emitAtom dispatches on the Atom variant; each alternative's emission
+    // lives in a dedicated emitXxxAtom helper (src/backend/c_expr.cpp). The
+    // trivial CoefAtom / RValueAtom alternatives stay inline in the dispatcher.
+    void emitOpAtom(const OpAtom &arg);
+    void emitSelectAtom(const SelectAtom &arg);
+    void emitCmpAtom(const CmpAtom &arg);
+    void emitUnaryAtom(const UnaryAtom &arg);
+    void emitAddrAtom(const AddrAtom &arg);
+    void emitLoadAtom(const LoadAtom &arg);
+    void emitPtrIndexAtom(const PtrIndexAtom &arg);
+    void emitPtrFieldAtom(const PtrFieldAtom &arg);
+    void emitCallAtom(const CallAtom &arg);
+    void emitCastAtom(const CastAtom &arg);
     void emitCond(const Cond &cond);
     void emitLValue(const LValue &lv);
     void emitCoef(const Coef &coef);
@@ -128,6 +141,11 @@ namespace refractir {
     /// the AssignInstr handler when the active strategy needs lane-wise
     /// statement emission (scalars / array / struct*).
     std::string emitVecAtomLane(const Atom &a, const VecType &vt, std::uint64_t k);
+    // Per-Atom-kind lane emission for emitVecAtomLane (src/backend/c_vec.cpp);
+    // the trivial RValueAtom / UnaryAtom alternatives stay inline.
+    std::string emitVecOpAtomLane(const OpAtom &arg, const VecType &vt, std::uint64_t k);
+    std::string emitVecCoefAtomLane(const CoefAtom &arg, const VecType &vt, std::uint64_t k);
+    std::string emitVecCastAtomLane(const CastAtom &arg, const VecType &vt, std::uint64_t k);
     std::string emitVecExprLane(const Expr &e, const VecType &vt, std::uint64_t k);
     /// Emit `lhs = rhs;` for a vector LHS, using lane-unroll if the
     /// strategy requires it; falls back to the inline (vecext) path
