@@ -67,7 +67,14 @@ INTERP_IMPL_SRCS = src/interp/interpreter.cpp src/interp/intrinsics.cpp \
                    src/interp/expr.cpp src/interp/lvalue.cpp
 INTERP_SRCS = src/symiri.cpp $(INTERP_IMPL_SRCS)
 COMPILER_SRCS = src/symirc.cpp $(BACKEND_SRCS)
-SOLVER_MAIN_SRCS = src/symirsolve.cpp src/solver/solver.cpp src/solver/intrinsics.cpp
+# Core symbolic-executor sources (distinct from the SMT backend in
+# SOLVER_SRCS / SOLVER_IMPL_OBJ). Shared by symirsolve, rysmith, rylink, and
+# libsymir, so every consumer picks up new TUs from one place.
+SOLVER_CORE_SRCS = src/solver/solver.cpp src/solver/intrinsics.cpp \
+                   src/solver/values.cpp src/solver/expr.cpp \
+                   src/solver/vec.cpp src/solver/lvalue.cpp \
+                   src/solver/calls.cpp src/solver/types.cpp
+SOLVER_MAIN_SRCS = src/symirsolve.cpp $(SOLVER_CORE_SRCS)
 SOLVER_ALL_SRCS = $(SOLVER_MAIN_SRCS) $(SOLVER_SRCS)
 REIFY_SRCS = src/reify/cfg_gen.cpp src/reify/path_sampler.cpp \
              src/reify/type_gen.cpp src/reify/var_catalogue.cpp \
@@ -77,7 +84,7 @@ REIFY_SRCS = src/reify/cfg_gen.cpp src/reify/path_sampler.cpp \
              src/reify/common.cpp \
              src/reify/func_pool.cpp src/reify/cg_gen.cpp \
              src/reify/rewrite.cpp
-RYSMITH_SRCS = src/rysmith.cpp src/solver/solver.cpp src/solver/intrinsics.cpp $(REIFY_SRCS) $(BACKEND_SRCS) $(INTERP_IMPL_SRCS)
+RYSMITH_SRCS = src/rysmith.cpp $(SOLVER_CORE_SRCS) $(REIFY_SRCS) $(BACKEND_SRCS) $(INTERP_IMPL_SRCS)
 # [v0.2.2] rylink links the C / WASM backends in-process so the bundle's
 # FunDecl::sourceStem survives all the way to emitSplit. Driving symirc
 # as a subprocess instead would parse the bundled .sir back from text
@@ -122,8 +129,7 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                src/backend/vec_lowering_scalars.o \
                src/backend/vec_lowering_struct.o \
                src/backend/wasm_backend.o \
-               src/solver/solver.o \
-               src/solver/intrinsics.o \
+               $(SOLVER_CORE_SRCS:.cpp=.o) \
                $(SOLVER_IMPL_OBJ)
 
 .PHONY: all clean test test-unit test-frontend test-interp test-backends test-cross-validation test-solver test-reify cross-validation build
@@ -146,7 +152,7 @@ $(TARGET_RYSMITH): $(COMMON_OBJS) $(RYSMITH_OBJS)
 # the SMT solver itself, but the reify libs (and SIRPrinter) include
 # solver headers and reference its types, so the linker needs the
 # symbols. We don't link the Bitwuzla impl since rylink never solves.
-$(TARGET_RYLINK): $(COMMON_OBJS) $(RYLINK_OBJS) src/solver/solver.o src/solver/intrinsics.o
+$(TARGET_RYLINK): $(COMMON_OBJS) $(RYLINK_OBJS) $(SOLVER_CORE_SRCS:.cpp=.o)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 %.o: %.cpp
