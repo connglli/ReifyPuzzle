@@ -25,6 +25,340 @@ namespace refractir {
     }
   }
 
+  void SymbolicExecutor::execInstr(
+      const Instr &ins, smt::ISolver &solver, SymbolicStore &store,
+      std::vector<smt::Term> &pathConstraints, std::vector<smt::Term> &requirements
+  ) {
+    std::visit(
+        [&](auto &&arg) {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, AssignInstr>) {
+            auto lhsVal = evalLValue(arg.lhs, solver, store, pathConstraints, /*forWrite=*/true);
+            // [v0.2.1] Vector LHS: evaluate RHS as a SymbolicValue::Vec.
+            if (lhsVal.kind == SymbolicValue::Kind::Vec && arg.lhs.accesses.empty()) {
+              // Find the LHS local's declared VecType.
+              TypePtr lhsType;
+              if (currentFun_) {
+                for (const auto &l: currentFun_->lets)
+                  if (l.name.name == arg.lhs.base.name) {
+                    lhsType = l.type;
+                    break;
+                  }
+                if (!lhsType)
+                  for (const auto &p: currentFun_->params)
+                    if (p.name.name == arg.lhs.base.name) {
+                      lhsType = p.type;
+                      break;
+                    }
+              }
+              if (lhsType && std::holds_alternative<VecType>(lhsType->v)) {
+                auto &vt = std::get<VecType>(lhsType->v);
+                SymbolicValue rhsV = evalVecExpr(arg.rhs, vt, solver, store, pathConstraints);
+                setLValue(arg.lhs, rhsV, solver, store, pathConstraints);
+                return;
+              }
+            }
+            auto rhs = evalExpr(
+                arg.rhs, solver, store, pathConstraints,
+                lhsVal.kind == SymbolicValue::Kind::Int
+                    ? std::optional(solver.get_sort(lhsVal.term))
+                    : std::nullopt
+            );
+            setLValue(arg.lhs, rhs, solver, store, pathConstraints);
+            // [v0.2.1] Track ptr provenance for cross-object and one-
+            // past-end UB checks. The LHS is either a whole-local ptr
+            // or a ptr-typed struct field path (`%s.p1`); we mirror
+            // the RHS atom's provenance (addr / ptrindex / ptrfield
+            // set a known provenance, pointer arithmetic preserves
+            // it, load-derived ptrs are unknown).
+            if (currentFun_) {
+              // Resolve the LHS type by walking accesses.
+              auto resolveLhsType = [&]() -> TypePtr {
+                TypePtr cur;
+                for (const auto &l: currentFun_->lets)
+                  if (l.name.name == arg.lhs.base.name) {
+                    cur = l.type;
+                    break;
+                  }
+                if (!cur)
+                  for (const auto &p: currentFun_->params)
+                    if (p.name.name == arg.lhs.base.name) {
+                      cur = p.type;
+                      break;
+                    }
+                for (const auto &acc: arg.lhs.accesses) {
+                  if (!cur)
+                    return nullptr;
+                  if (auto af = std::get_if<AccessField>(&acc)) {
+                    auto st = std::get_if<StructType>(&cur->v);
+                    if (!st)
+                      return nullptr;
+                    auto sIt = structs_.find(st->name.name);
+                    if (sIt == structs_.end())
+                      return nullptr;
+                    cur = nullptr;
+                    for (const auto &f: sIt->second->fields)
+                      if (f.name == af->field) {
+                        cur = f.type;
+                        break;
+                      }
+                  } else if (auto ai = std::get_if<AccessIndex>(&acc)) {
+                    (void) ai;
+                    if (auto at = std::get_if<ArrayType>(&cur->v))
+                      cur = at->elem;
+                    else if (auto vt = std::get_if<VecType>(&cur->v))
+                      cur = vt->elem;
+                    else
+                      return nullptr;
+                  }
+                }
+                return cur;
+              };
+              auto isPtr = [&]() {
+                auto t = resolveLhsType();
+                return t && std::holds_alternative<PtrType>(t->v);
+              };
+              auto buildLhsKey = [&]() -> std::string {
+                // Only field-keyed accesses (no dynamic indices).
+                std::string key = arg.lhs.base.name;
+                for (const auto &acc: arg.lhs.accesses) {
+                  if (auto af = std::get_if<AccessField>(&acc)) {
+                    key += "." + af->field;
+                  } else {
+                    return {};
+                  }
+                }
+                return key;
+              };
+              std::string lhsKey = isPtr() ? buildLhsKey() : "";
+              if (!lhsKey.empty()) {
+                auto provFromName = [&](const std::string &src) -> std::optional<PtrProvenance> {
+                  auto it = ptrProv_.find(src);
+                  if (it != ptrProv_.end())
+                    return it->second;
+                  return std::nullopt;
+                };
+                auto compute = [&]() -> std::optional<PtrProvenance> {
+                  if (arg.rhs.rest.empty()) {
+                    const auto &a = arg.rhs.first.v;
+                    if (auto addr = std::get_if<AddrAtom>(&a)) {
+                      // Provenance = the addressed local; size is the
+                      // immediate containing object's total tag-unit
+                      // span (spec rule 15). For `addr %arr[k]` that
+                      // remains the whole array; for `addr %s.f` the
+                      // whole struct.
+                      uint64_t baseTag = tagOfLocal(addr->lv.base.name);
+                      TypePtr ty;
+                      for (const auto &l: currentFun_->lets)
+                        if (l.name.name == addr->lv.base.name) {
+                          ty = l.type;
+                          break;
+                        }
+                      if (!ty)
+                        for (const auto &p: currentFun_->params)
+                          if (p.name.name == addr->lv.base.name) {
+                            ty = p.type;
+                            break;
+                          }
+                      std::uint64_t size = sizeofTagUnits(ty, structs_);
+                      return PtrProvenance{baseTag, size};
+                    }
+                    if (auto pi = std::get_if<PtrIndexAtom>(&a)) {
+                      // [v0.2.1 fix] Narrow provenance for ptrindex.
+                      // The result pointer's provenance = the array the
+                      // source points to. Compute the narrowed sub-array
+                      // range from the source's type (ptr [N] T).
+                      auto srcProv = provFromName(buildLValueKey(pi->rval));
+                      if (srcProv && currentFun_) {
+                        TypePtr baseType = resolveLValueType(pi->rval);
+                        if (baseType) {
+                          if (auto pt = std::get_if<PtrType>(&baseType->v)) {
+                            if (auto at = std::get_if<ArrayType>(&pt->pointee->v)) {
+                              // Narrowed size = N * sizeofTagUnits(T)
+                              std::uint64_t elemUnits = sizeofTagUnits(at->elem, structs_);
+                              std::uint64_t narrowSize = at->size * elemUnits;
+                              // The narrowed base = source ptrVal at
+                              // assignment time. We don't have the
+                              // concrete tag here, so approximate:
+                              // baseTag stays at the source's base but
+                              // size is narrowed.
+                              return PtrProvenance{srcProv->baseTag, narrowSize};
+                            }
+                          }
+                        }
+                      }
+                      return srcProv;
+                    }
+                    if (auto pf = std::get_if<PtrFieldAtom>(&a))
+                      return provFromName(buildLValueKey(pf->rval));
+                    if (auto ca = std::get_if<CoefAtom>(&a)) {
+                      if (auto id = std::get_if<LocalOrSymId>(&ca->coef))
+                        if (auto lid = std::get_if<LocalId>(id))
+                          return provFromName(lid->name);
+                    }
+                    if (auto rv = std::get_if<RValueAtom>(&a)) {
+                      return provFromName(buildLValueKey(rv->rval));
+                    }
+                    // LoadAtom-derived ptrs: provenance unknown.
+                  } else {
+                    // `%p = %q + i` style: provenance carries from %q.
+                    const auto &a = arg.rhs.first.v;
+                    if (auto ca = std::get_if<CoefAtom>(&a)) {
+                      if (auto id = std::get_if<LocalOrSymId>(&ca->coef))
+                        if (auto lid = std::get_if<LocalId>(id))
+                          return provFromName(lid->name);
+                    }
+                    if (auto rv = std::get_if<RValueAtom>(&a)) {
+                      return provFromName(buildLValueKey(rv->rval));
+                    }
+                  }
+                  return std::nullopt;
+                };
+                auto newProv = compute();
+                if (newProv)
+                  ptrProv_[lhsKey] = *newProv;
+                else
+                  ptrProv_.erase(lhsKey);
+              }
+            }
+          } else if constexpr (std::is_same_v<T, AssumeInstr>) {
+            pathConstraints.push_back(evalCond(arg.cond, solver, store, pathConstraints));
+          } else if constexpr (std::is_same_v<T, RequireInstr>) {
+            requirements.push_back(evalCond(arg.cond, solver, store, pathConstraints));
+          } else if constexpr (std::is_same_v<T, StoreInstr>) {
+            // store %p, %v — mux-update every candidate target's value:
+            //   for each %t of pointee type: %t := ite(p == tag_t, v, %t)
+            if (!currentFun_)
+              throw std::runtime_error("store encountered without active FunDecl");
+
+            // Evaluate ptr term (BV64) and stored value term.
+            SymbolicValue ptrVal = evalExpr(arg.ptr, solver, store, pathConstraints);
+            smt::Term ptrTerm = ptrVal.term;
+
+            // [v0.2.1] Rule 9/11: store through null or OOB is UB.
+            // The evalExpr above already pushes rule-10 OOB constraints
+            // for ptr-arith expressions, but a bare `store %pa, v`
+            // where %pa was set earlier still needs a null check.
+            auto bv64Store = solver.make_bv_sort(kPtrBits);
+            auto nullStore = solver.make_bv_value_int64(bv64Store, 0);
+            pathConstraints.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullStore}));
+
+            if (ptrVal.prov_base.internal && ptrVal.prov_size.internal) {
+              auto zero = solver.make_bv_value_int64(bv64Store, 0);
+              auto hasProv = solver.make_term(smt::Kind::DISTINCT, {ptrVal.prov_base, zero});
+              auto inBoundsLower = solver.make_term(smt::Kind::BV_ULE, {ptrVal.prov_base, ptrTerm});
+              auto endAddr =
+                  solver.make_term(smt::Kind::BV_ADD, {ptrVal.prov_base, ptrVal.prov_size});
+              auto inBoundsUpper = solver.make_term(smt::Kind::BV_ULT, {ptrTerm, endAddr});
+              auto cond = solver.make_term(
+                  smt::Kind::IMPLIES,
+                  {hasProv, solver.make_term(smt::Kind::AND, {inBoundsLower, inBoundsUpper})}
+              );
+              pathConstraints.push_back(cond);
+            }
+
+            // Determine pointee type from the ptr expression's first atom.
+            TypePtr pointeeType;
+            if (auto *rv = std::get_if<RValueAtom>(&arg.ptr.first.v)) {
+              TypePtr rvalType = resolveLValueType(rv->rval);
+              if (rvalType) {
+                if (auto pt = std::get_if<PtrType>(&rvalType->v)) {
+                  pointeeType = pt->pointee;
+                }
+              }
+            }
+            if (!pointeeType)
+              throw std::runtime_error(
+                  "store: cannot derive pointee type (only `store %p, ...` "
+                  "with a ptr-typed local or parameter %p is currently supported)"
+              );
+
+            auto pointeeSort = getSort(pointeeType, solver);
+            SymbolicValue valVal =
+                evalExpr(arg.val, solver, store, pathConstraints, std::optional(pointeeSort));
+            smt::Term valTerm = valVal.term;
+
+            auto bv64 = solver.make_bv_sort(kPtrBits);
+            // Mirror the load enumeration: recurse over (type, value,
+            // offset) so a store can target any scalar leaf of a
+            // nested aggregate — array-of-structs, struct-of-arrays.
+            std::function<void(const TypePtr &, SymbolicValue &, std::uint64_t, std::uint64_t)>
+                enumStore;
+            std::vector<smt::Term> storeMatchConds;
+            enumStore = [&](const TypePtr &ty, SymbolicValue &sv, std::uint64_t baseTag,
+                            std::uint64_t off) {
+              if (!ty)
+                return;
+              if (typeMatch(ty, pointeeType)) {
+                auto tagTerm =
+                    solver.make_bv_value_int64(bv64, static_cast<int64_t>(baseTag + off));
+                auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, tagTerm});
+                storeMatchConds.push_back(cond);
+                sv.term = solver.make_term(smt::Kind::ITE, {cond, valTerm, sv.term});
+                // [v0.2.2] When the pointee is itself a pointer, the stored
+                // value carries its own provenance (base/size). The target's
+                // provenance must follow the value under the same `cond`,
+                // mirroring the select-arm ITE — otherwise a later store/load
+                // through this redirected pointer bounds-checks `ptrTerm`
+                // against the stale base the target held before this store,
+                // a spurious UNSAT. Absent provenance reads as tag 0 (the
+                // bounds check is gated on base != 0, so it self-disables).
+                if (std::get_if<PtrType>(&pointeeType->v)) {
+                  auto zeroP = solver.make_bv_value_int64(bv64, 0);
+                  auto curBase = sv.prov_base.internal ? sv.prov_base : zeroP;
+                  auto curSize = sv.prov_size.internal ? sv.prov_size : zeroP;
+                  auto newBase = valVal.prov_base.internal ? valVal.prov_base : zeroP;
+                  auto newSize = valVal.prov_size.internal ? valVal.prov_size : zeroP;
+                  sv.prov_base = solver.make_term(smt::Kind::ITE, {cond, newBase, curBase});
+                  sv.prov_size = solver.make_term(smt::Kind::ITE, {cond, newSize, curSize});
+                }
+                // Writing makes the cell as defined as the stored value, so
+                // a later load of a now-written cell no longer trips the
+                // rule-3 undef constraint (paired with the load's
+                // is_defined propagation).
+                auto curDef = sv.is_defined.internal ? sv.is_defined : solver.make_true();
+                auto valDef = valVal.is_defined.internal ? valVal.is_defined : solver.make_true();
+                sv.is_defined = solver.make_term(smt::Kind::ITE, {cond, valDef, curDef});
+                return;
+              }
+              if (auto at = std::get_if<ArrayType>(&ty->v)) {
+                std::uint64_t stride = sizeofTagUnits(at->elem, structs_);
+                for (std::uint64_t k = 0; k < at->size && k < sv.arrayVal.size(); ++k)
+                  enumStore(at->elem, sv.arrayVal[k], baseTag, off + k * stride);
+                return;
+              }
+              if (auto st = std::get_if<StructType>(&ty->v)) {
+                auto sIt = structs_.find(st->name.name);
+                if (sIt == structs_.end())
+                  return;
+                std::uint64_t fOff = 0;
+                for (const auto &f: sIt->second->fields) {
+                  auto fIt = sv.structVal.find(f.name);
+                  if (fIt != sv.structVal.end())
+                    enumStore(f.type, fIt->second, baseTag, off + fOff);
+                  fOff += sizeofTagUnits(f.type, structs_);
+                }
+                return;
+              }
+            };
+            for (const auto &l: currentFun_->lets) {
+              std::uint64_t baseTag = tagOfLocal(l.name.name);
+              enumStore(l.type, store.at(l.name.name), baseTag, 0);
+            }
+            // [v0.2.1] Rule 11/15b: the store must land on a valid
+            // T-typed cell — same as load's anyMatch constraint.
+            if (!storeMatchConds.empty()) {
+              smt::Term anyMatch = storeMatchConds[0];
+              for (size_t j = 1; j < storeMatchConds.size(); ++j)
+                anyMatch = solver.make_term(smt::Kind::OR, {anyMatch, storeMatchConds[j]});
+              pathConstraints.push_back(anyMatch);
+            }
+          }
+        },
+        ins
+    );
+  }
+
   SymbolicExecutor::Result SymbolicExecutor::solve(
       const std::string &funcName, const std::vector<std::string> &path,
       const std::unordered_map<std::string, int64_t> &fixedSyms
@@ -205,340 +539,7 @@ namespace refractir {
       const Block &block = entry->blocks[cfg.indexOf.at(label)];
 
       for (const auto &ins: block.instrs) {
-        std::visit(
-            [&](auto &&arg) {
-              using T = std::decay_t<decltype(arg)>;
-              if constexpr (std::is_same_v<T, AssignInstr>) {
-                auto lhsVal =
-                    evalLValue(arg.lhs, solver, store, pathConstraints, /*forWrite=*/true);
-                // [v0.2.1] Vector LHS: evaluate RHS as a SymbolicValue::Vec.
-                if (lhsVal.kind == SymbolicValue::Kind::Vec && arg.lhs.accesses.empty()) {
-                  // Find the LHS local's declared VecType.
-                  TypePtr lhsType;
-                  if (currentFun_) {
-                    for (const auto &l: currentFun_->lets)
-                      if (l.name.name == arg.lhs.base.name) {
-                        lhsType = l.type;
-                        break;
-                      }
-                    if (!lhsType)
-                      for (const auto &p: currentFun_->params)
-                        if (p.name.name == arg.lhs.base.name) {
-                          lhsType = p.type;
-                          break;
-                        }
-                  }
-                  if (lhsType && std::holds_alternative<VecType>(lhsType->v)) {
-                    auto &vt = std::get<VecType>(lhsType->v);
-                    SymbolicValue rhsV = evalVecExpr(arg.rhs, vt, solver, store, pathConstraints);
-                    setLValue(arg.lhs, rhsV, solver, store, pathConstraints);
-                    return;
-                  }
-                }
-                auto rhs = evalExpr(
-                    arg.rhs, solver, store, pathConstraints,
-                    lhsVal.kind == SymbolicValue::Kind::Int
-                        ? std::optional(solver.get_sort(lhsVal.term))
-                        : std::nullopt
-                );
-                setLValue(arg.lhs, rhs, solver, store, pathConstraints);
-                // [v0.2.1] Track ptr provenance for cross-object and one-
-                // past-end UB checks. The LHS is either a whole-local ptr
-                // or a ptr-typed struct field path (`%s.p1`); we mirror
-                // the RHS atom's provenance (addr / ptrindex / ptrfield
-                // set a known provenance, pointer arithmetic preserves
-                // it, load-derived ptrs are unknown).
-                if (currentFun_) {
-                  // Resolve the LHS type by walking accesses.
-                  auto resolveLhsType = [&]() -> TypePtr {
-                    TypePtr cur;
-                    for (const auto &l: currentFun_->lets)
-                      if (l.name.name == arg.lhs.base.name) {
-                        cur = l.type;
-                        break;
-                      }
-                    if (!cur)
-                      for (const auto &p: currentFun_->params)
-                        if (p.name.name == arg.lhs.base.name) {
-                          cur = p.type;
-                          break;
-                        }
-                    for (const auto &acc: arg.lhs.accesses) {
-                      if (!cur)
-                        return nullptr;
-                      if (auto af = std::get_if<AccessField>(&acc)) {
-                        auto st = std::get_if<StructType>(&cur->v);
-                        if (!st)
-                          return nullptr;
-                        auto sIt = structs_.find(st->name.name);
-                        if (sIt == structs_.end())
-                          return nullptr;
-                        cur = nullptr;
-                        for (const auto &f: sIt->second->fields)
-                          if (f.name == af->field) {
-                            cur = f.type;
-                            break;
-                          }
-                      } else if (auto ai = std::get_if<AccessIndex>(&acc)) {
-                        (void) ai;
-                        if (auto at = std::get_if<ArrayType>(&cur->v))
-                          cur = at->elem;
-                        else if (auto vt = std::get_if<VecType>(&cur->v))
-                          cur = vt->elem;
-                        else
-                          return nullptr;
-                      }
-                    }
-                    return cur;
-                  };
-                  auto isPtr = [&]() {
-                    auto t = resolveLhsType();
-                    return t && std::holds_alternative<PtrType>(t->v);
-                  };
-                  auto buildLhsKey = [&]() -> std::string {
-                    // Only field-keyed accesses (no dynamic indices).
-                    std::string key = arg.lhs.base.name;
-                    for (const auto &acc: arg.lhs.accesses) {
-                      if (auto af = std::get_if<AccessField>(&acc)) {
-                        key += "." + af->field;
-                      } else {
-                        return {};
-                      }
-                    }
-                    return key;
-                  };
-                  std::string lhsKey = isPtr() ? buildLhsKey() : "";
-                  if (!lhsKey.empty()) {
-                    auto provFromName =
-                        [&](const std::string &src) -> std::optional<PtrProvenance> {
-                      auto it = ptrProv_.find(src);
-                      if (it != ptrProv_.end())
-                        return it->second;
-                      return std::nullopt;
-                    };
-                    auto compute = [&]() -> std::optional<PtrProvenance> {
-                      if (arg.rhs.rest.empty()) {
-                        const auto &a = arg.rhs.first.v;
-                        if (auto addr = std::get_if<AddrAtom>(&a)) {
-                          // Provenance = the addressed local; size is the
-                          // immediate containing object's total tag-unit
-                          // span (spec rule 15). For `addr %arr[k]` that
-                          // remains the whole array; for `addr %s.f` the
-                          // whole struct.
-                          uint64_t baseTag = tagOfLocal(addr->lv.base.name);
-                          TypePtr ty;
-                          for (const auto &l: currentFun_->lets)
-                            if (l.name.name == addr->lv.base.name) {
-                              ty = l.type;
-                              break;
-                            }
-                          if (!ty)
-                            for (const auto &p: currentFun_->params)
-                              if (p.name.name == addr->lv.base.name) {
-                                ty = p.type;
-                                break;
-                              }
-                          std::uint64_t size = sizeofTagUnits(ty, structs_);
-                          return PtrProvenance{baseTag, size};
-                        }
-                        if (auto pi = std::get_if<PtrIndexAtom>(&a)) {
-                          // [v0.2.1 fix] Narrow provenance for ptrindex.
-                          // The result pointer's provenance = the array the
-                          // source points to. Compute the narrowed sub-array
-                          // range from the source's type (ptr [N] T).
-                          auto srcProv = provFromName(buildLValueKey(pi->rval));
-                          if (srcProv && currentFun_) {
-                            TypePtr baseType = resolveLValueType(pi->rval);
-                            if (baseType) {
-                              if (auto pt = std::get_if<PtrType>(&baseType->v)) {
-                                if (auto at = std::get_if<ArrayType>(&pt->pointee->v)) {
-                                  // Narrowed size = N * sizeofTagUnits(T)
-                                  std::uint64_t elemUnits = sizeofTagUnits(at->elem, structs_);
-                                  std::uint64_t narrowSize = at->size * elemUnits;
-                                  // The narrowed base = source ptrVal at
-                                  // assignment time. We don't have the
-                                  // concrete tag here, so approximate:
-                                  // baseTag stays at the source's base but
-                                  // size is narrowed.
-                                  return PtrProvenance{srcProv->baseTag, narrowSize};
-                                }
-                              }
-                            }
-                          }
-                          return srcProv;
-                        }
-                        if (auto pf = std::get_if<PtrFieldAtom>(&a))
-                          return provFromName(buildLValueKey(pf->rval));
-                        if (auto ca = std::get_if<CoefAtom>(&a)) {
-                          if (auto id = std::get_if<LocalOrSymId>(&ca->coef))
-                            if (auto lid = std::get_if<LocalId>(id))
-                              return provFromName(lid->name);
-                        }
-                        if (auto rv = std::get_if<RValueAtom>(&a)) {
-                          return provFromName(buildLValueKey(rv->rval));
-                        }
-                        // LoadAtom-derived ptrs: provenance unknown.
-                      } else {
-                        // `%p = %q + i` style: provenance carries from %q.
-                        const auto &a = arg.rhs.first.v;
-                        if (auto ca = std::get_if<CoefAtom>(&a)) {
-                          if (auto id = std::get_if<LocalOrSymId>(&ca->coef))
-                            if (auto lid = std::get_if<LocalId>(id))
-                              return provFromName(lid->name);
-                        }
-                        if (auto rv = std::get_if<RValueAtom>(&a)) {
-                          return provFromName(buildLValueKey(rv->rval));
-                        }
-                      }
-                      return std::nullopt;
-                    };
-                    auto newProv = compute();
-                    if (newProv)
-                      ptrProv_[lhsKey] = *newProv;
-                    else
-                      ptrProv_.erase(lhsKey);
-                  }
-                }
-              } else if constexpr (std::is_same_v<T, AssumeInstr>) {
-                pathConstraints.push_back(evalCond(arg.cond, solver, store, pathConstraints));
-              } else if constexpr (std::is_same_v<T, RequireInstr>) {
-                requirements.push_back(evalCond(arg.cond, solver, store, pathConstraints));
-              } else if constexpr (std::is_same_v<T, StoreInstr>) {
-                // store %p, %v — mux-update every candidate target's value:
-                //   for each %t of pointee type: %t := ite(p == tag_t, v, %t)
-                if (!currentFun_)
-                  throw std::runtime_error("store encountered without active FunDecl");
-
-                // Evaluate ptr term (BV64) and stored value term.
-                SymbolicValue ptrVal = evalExpr(arg.ptr, solver, store, pathConstraints);
-                smt::Term ptrTerm = ptrVal.term;
-
-                // [v0.2.1] Rule 9/11: store through null or OOB is UB.
-                // The evalExpr above already pushes rule-10 OOB constraints
-                // for ptr-arith expressions, but a bare `store %pa, v`
-                // where %pa was set earlier still needs a null check.
-                auto bv64Store = solver.make_bv_sort(kPtrBits);
-                auto nullStore = solver.make_bv_value_int64(bv64Store, 0);
-                pathConstraints.push_back(
-                    solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullStore})
-                );
-
-                if (ptrVal.prov_base.internal && ptrVal.prov_size.internal) {
-                  auto zero = solver.make_bv_value_int64(bv64Store, 0);
-                  auto hasProv = solver.make_term(smt::Kind::DISTINCT, {ptrVal.prov_base, zero});
-                  auto inBoundsLower =
-                      solver.make_term(smt::Kind::BV_ULE, {ptrVal.prov_base, ptrTerm});
-                  auto endAddr =
-                      solver.make_term(smt::Kind::BV_ADD, {ptrVal.prov_base, ptrVal.prov_size});
-                  auto inBoundsUpper = solver.make_term(smt::Kind::BV_ULT, {ptrTerm, endAddr});
-                  auto cond = solver.make_term(
-                      smt::Kind::IMPLIES,
-                      {hasProv, solver.make_term(smt::Kind::AND, {inBoundsLower, inBoundsUpper})}
-                  );
-                  pathConstraints.push_back(cond);
-                }
-
-                // Determine pointee type from the ptr expression's first atom.
-                TypePtr pointeeType;
-                if (auto *rv = std::get_if<RValueAtom>(&arg.ptr.first.v)) {
-                  TypePtr rvalType = resolveLValueType(rv->rval);
-                  if (rvalType) {
-                    if (auto pt = std::get_if<PtrType>(&rvalType->v)) {
-                      pointeeType = pt->pointee;
-                    }
-                  }
-                }
-                if (!pointeeType)
-                  throw std::runtime_error(
-                      "store: cannot derive pointee type (only `store %p, ...` "
-                      "with a ptr-typed local or parameter %p is currently supported)"
-                  );
-
-                auto pointeeSort = getSort(pointeeType, solver);
-                SymbolicValue valVal =
-                    evalExpr(arg.val, solver, store, pathConstraints, std::optional(pointeeSort));
-                smt::Term valTerm = valVal.term;
-
-                auto bv64 = solver.make_bv_sort(kPtrBits);
-                // Mirror the load enumeration: recurse over (type, value,
-                // offset) so a store can target any scalar leaf of a
-                // nested aggregate — array-of-structs, struct-of-arrays.
-                std::function<void(const TypePtr &, SymbolicValue &, std::uint64_t, std::uint64_t)>
-                    enumStore;
-                std::vector<smt::Term> storeMatchConds;
-                enumStore = [&](const TypePtr &ty, SymbolicValue &sv, std::uint64_t baseTag,
-                                std::uint64_t off) {
-                  if (!ty)
-                    return;
-                  if (typeMatch(ty, pointeeType)) {
-                    auto tagTerm =
-                        solver.make_bv_value_int64(bv64, static_cast<int64_t>(baseTag + off));
-                    auto cond = solver.make_term(smt::Kind::EQUAL, {ptrTerm, tagTerm});
-                    storeMatchConds.push_back(cond);
-                    sv.term = solver.make_term(smt::Kind::ITE, {cond, valTerm, sv.term});
-                    // [v0.2.2] When the pointee is itself a pointer, the stored
-                    // value carries its own provenance (base/size). The target's
-                    // provenance must follow the value under the same `cond`,
-                    // mirroring the select-arm ITE — otherwise a later store/load
-                    // through this redirected pointer bounds-checks `ptrTerm`
-                    // against the stale base the target held before this store,
-                    // a spurious UNSAT. Absent provenance reads as tag 0 (the
-                    // bounds check is gated on base != 0, so it self-disables).
-                    if (std::get_if<PtrType>(&pointeeType->v)) {
-                      auto zeroP = solver.make_bv_value_int64(bv64, 0);
-                      auto curBase = sv.prov_base.internal ? sv.prov_base : zeroP;
-                      auto curSize = sv.prov_size.internal ? sv.prov_size : zeroP;
-                      auto newBase = valVal.prov_base.internal ? valVal.prov_base : zeroP;
-                      auto newSize = valVal.prov_size.internal ? valVal.prov_size : zeroP;
-                      sv.prov_base = solver.make_term(smt::Kind::ITE, {cond, newBase, curBase});
-                      sv.prov_size = solver.make_term(smt::Kind::ITE, {cond, newSize, curSize});
-                    }
-                    // Writing makes the cell as defined as the stored value, so
-                    // a later load of a now-written cell no longer trips the
-                    // rule-3 undef constraint (paired with the load's
-                    // is_defined propagation).
-                    auto curDef = sv.is_defined.internal ? sv.is_defined : solver.make_true();
-                    auto valDef =
-                        valVal.is_defined.internal ? valVal.is_defined : solver.make_true();
-                    sv.is_defined = solver.make_term(smt::Kind::ITE, {cond, valDef, curDef});
-                    return;
-                  }
-                  if (auto at = std::get_if<ArrayType>(&ty->v)) {
-                    std::uint64_t stride = sizeofTagUnits(at->elem, structs_);
-                    for (std::uint64_t k = 0; k < at->size && k < sv.arrayVal.size(); ++k)
-                      enumStore(at->elem, sv.arrayVal[k], baseTag, off + k * stride);
-                    return;
-                  }
-                  if (auto st = std::get_if<StructType>(&ty->v)) {
-                    auto sIt = structs_.find(st->name.name);
-                    if (sIt == structs_.end())
-                      return;
-                    std::uint64_t fOff = 0;
-                    for (const auto &f: sIt->second->fields) {
-                      auto fIt = sv.structVal.find(f.name);
-                      if (fIt != sv.structVal.end())
-                        enumStore(f.type, fIt->second, baseTag, off + fOff);
-                      fOff += sizeofTagUnits(f.type, structs_);
-                    }
-                    return;
-                  }
-                };
-                for (const auto &l: currentFun_->lets) {
-                  std::uint64_t baseTag = tagOfLocal(l.name.name);
-                  enumStore(l.type, store.at(l.name.name), baseTag, 0);
-                }
-                // [v0.2.1] Rule 11/15b: the store must land on a valid
-                // T-typed cell — same as load's anyMatch constraint.
-                if (!storeMatchConds.empty()) {
-                  smt::Term anyMatch = storeMatchConds[0];
-                  for (size_t j = 1; j < storeMatchConds.size(); ++j)
-                    anyMatch = solver.make_term(smt::Kind::OR, {anyMatch, storeMatchConds[j]});
-                  pathConstraints.push_back(anyMatch);
-                }
-              }
-            },
-            ins
-        );
+        execInstr(ins, solver, store, pathConstraints, requirements);
       }
 
       // Evaluate the terminator. For a conditional br on a non-final block

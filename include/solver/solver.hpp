@@ -159,6 +159,36 @@ namespace refractir {
         const Atom &a, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
         std::vector<smt::Term> &pc
     );
+    // Per-Atom-kind lane-wise helpers for evalVecExprAtom (src/solver/vec.cpp).
+    // CoefAtom / RValueAtom stay inline in the dispatcher.
+    SymbolicValue evalVecOpAtom(
+        const OpAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
+        std::vector<smt::Term> &pc
+    );
+    SymbolicValue evalVecUnaryAtom(
+        const UnaryAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
+        std::vector<smt::Term> &pc
+    );
+    SymbolicValue evalVecSelectAtom(
+        const SelectAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
+        std::vector<smt::Term> &pc
+    );
+    SymbolicValue evalVecCmpAtom(
+        const CmpAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
+        std::vector<smt::Term> &pc
+    );
+    SymbolicValue evalVecCastAtom(
+        const CastAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
+        std::vector<smt::Term> &pc
+    );
+
+    // Execute one instruction (assign / assume / require / store) of the
+    // current block against the symbolic store and path condition. Extracted
+    // from solve()'s per-instruction std::visit.
+    void execInstr(
+        const Instr &ins, smt::ISolver &solver, SymbolicStore &store,
+        std::vector<smt::Term> &pathConstraints, std::vector<smt::Term> &requirements
+    );
 
     SymbolicValue evalExpr(
         const Expr &e, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
@@ -167,6 +197,42 @@ namespace refractir {
     SymbolicValue evalAtom(
         const Atom &a, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
         std::optional<smt::Sort> expectedSort = std::nullopt
+    );
+    // evalAtom dispatches on the Atom variant; each alternative's evaluation
+    // lives in a dedicated evalXxxAtom helper (src/solver/expr.cpp). CoefAtom /
+    // RValueAtom stay inline in the dispatcher. Signatures are tailored per
+    // branch so no parameter is unused.
+    SymbolicValue evalOpAtom(
+        const OpAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
+        std::optional<smt::Sort> expectedSort
+    );
+    SymbolicValue evalUnaryAtom(
+        const UnaryAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+    );
+    SymbolicValue evalSelectAtom(
+        const SelectAtom &arg, smt::ISolver &solver, SymbolicStore &store,
+        std::vector<smt::Term> &pc, std::optional<smt::Sort> expectedSort
+    );
+    SymbolicValue evalCastAtom(
+        const CastAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+    );
+    SymbolicValue evalCmpAtom(
+        const CmpAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+    );
+    SymbolicValue evalAddrAtom(const AddrAtom &arg, smt::ISolver &solver, SymbolicStore &store);
+    SymbolicValue evalPtrIndexAtom(
+        const PtrIndexAtom &arg, smt::ISolver &solver, SymbolicStore &store,
+        std::vector<smt::Term> &pc
+    );
+    SymbolicValue evalPtrFieldAtom(
+        const PtrFieldAtom &arg, smt::ISolver &solver, SymbolicStore &store,
+        std::vector<smt::Term> &pc
+    );
+    SymbolicValue evalLoadAtom(
+        const LoadAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+    );
+    SymbolicValue evalCallAtom(
+        const CallAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
     );
     smt::Term evalCoef(
         const Coef &c, smt::ISolver &solver, SymbolicStore &store,
