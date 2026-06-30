@@ -179,7 +179,7 @@ namespace refractir {
     throw std::runtime_error("Unknown type or empty struct in getSort");
   }
 
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::createSymbolicValue(
+  SymbolicValue SymbolicExecutor::createSymbolicValue(
       const TypePtr &t, const std::string &name, smt::ISolver &solver, bool
   ) {
     SymbolicValue res;
@@ -216,8 +216,7 @@ namespace refractir {
     return res;
   }
 
-  SymbolicExecutor::SymbolicValue
-  SymbolicExecutor::makeUndef(const TypePtr &t, smt::ISolver &solver) {
+  SymbolicValue SymbolicExecutor::makeUndef(const TypePtr &t, smt::ISolver &solver) {
     SymbolicValue res;
     if (auto at = std::get_if<ArrayType>(&t->v)) {
       res.kind = SymbolicValue::Kind::Array;
@@ -242,8 +241,7 @@ namespace refractir {
     return res;
   }
 
-  SymbolicExecutor::SymbolicValue
-  SymbolicExecutor::broadcast(const TypePtr &t, smt::Term val, smt::ISolver &solver) {
+  SymbolicValue SymbolicExecutor::broadcast(const TypePtr &t, smt::Term val, smt::ISolver &solver) {
     if (std::holds_alternative<ArrayType>(t->v)) {
       SymbolicValue res;
       res.kind = SymbolicValue::Kind::Array;
@@ -299,7 +297,7 @@ namespace refractir {
     }
   }
 
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::evalInit(
+  SymbolicValue SymbolicExecutor::evalInit(
       const InitVal &iv, const TypePtr &t, smt::ISolver &solver, SymbolicStore &store,
       std::vector<smt::Term> &pc
   ) {
@@ -385,7 +383,7 @@ namespace refractir {
   // pointer derived from one) are reflected into `callerStore` so the
   // caller observes the side effect — SPEC §9.6.1 step 4 mandates that
   // `Mem[T]` reflect callee stores.
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::callFunction(
+  SymbolicValue SymbolicExecutor::callFunction(
       const FunDecl &callee, std::vector<SymbolicValue> args, smt::ISolver &solver,
       std::vector<smt::Term> &pc, const FunDecl *callerFun, SymbolicStore *callerStore
   ) {
@@ -666,7 +664,7 @@ namespace refractir {
   }
 
   // [v0.2.2 Phase 8] §9.6.2 contract-form `decl` expansion.
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::callContract(
+  SymbolicValue SymbolicExecutor::callContract(
       const ExtDecl &decl, const std::vector<std::shared_ptr<Expr>> &argExprs,
       std::vector<SymbolicValue> args, smt::ISolver &solver, SymbolicStore &callerStore,
       std::vector<smt::Term> &pc
@@ -1613,7 +1611,7 @@ namespace refractir {
     return finalRes;
   }
 
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::mergeAggregate(
+  SymbolicValue SymbolicExecutor::mergeAggregate(
       const std::vector<SymbolicValue> &elements, smt::Term idx, smt::ISolver &solver
   ) {
     if (elements.empty())
@@ -1671,7 +1669,7 @@ namespace refractir {
     return {SymbolicValue::Kind::Undef};
   }
 
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::evalLValue(
+  SymbolicValue SymbolicExecutor::evalLValue(
       const LValue &lv, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
       bool forWrite
   ) {
@@ -1730,7 +1728,7 @@ namespace refractir {
     return res;
   }
 
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::muxSymbolicValue(
+  SymbolicValue SymbolicExecutor::muxSymbolicValue(
       smt::Term cond, const SymbolicValue &t, const SymbolicValue &f, smt::ISolver &solver
   ) {
     if (t.kind != f.kind) {
@@ -1780,7 +1778,7 @@ namespace refractir {
     return res;
   }
 
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::updateLValueRec(
+  SymbolicValue SymbolicExecutor::updateLValueRec(
       const SymbolicValue &cur, std::span<const Access> accesses, const SymbolicValue &val,
       smt::Term pathCond, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
       int depth
@@ -1880,7 +1878,7 @@ namespace refractir {
     pc.push_back(notNaN);
   }
 
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::evalExpr(
+  SymbolicValue SymbolicExecutor::evalExpr(
       const Expr &e, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
       std::optional<smt::Sort> expectedSort
   ) {
@@ -1988,7 +1986,7 @@ namespace refractir {
     return res;
   }
 
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::evalAtom(
+  SymbolicValue SymbolicExecutor::evalAtom(
       const Atom &a, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
       std::optional<smt::Sort> expectedSort
   ) {
@@ -2703,7 +2701,7 @@ namespace refractir {
   // (chains involving vectors aren't exercised by our v0.2.1 tests; the
   // typechecker already permits them, so this is the natural follow-up
   // when those patterns appear in user code).
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::evalVecExpr(
+  SymbolicValue SymbolicExecutor::evalVecExpr(
       const Expr &e, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
       std::vector<smt::Term> &pc
   ) {
@@ -2776,7 +2774,7 @@ namespace refractir {
     return evalVecExprAtom(e.first, vt, solver, store, pc);
   }
 
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::evalVecExprAtom(
+  SymbolicValue SymbolicExecutor::evalVecExprAtom(
       const Atom &a, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
       std::vector<smt::Term> &pc
   ) {
@@ -3190,7 +3188,7 @@ namespace refractir {
     return std::visit([&](auto &&v) { return store.at(v.name).term; }, id);
   }
 
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::evalSelectVal(
+  SymbolicValue SymbolicExecutor::evalSelectVal(
       const SelectVal &sv, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
       std::optional<smt::Sort> expectedSort
   ) {

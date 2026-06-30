@@ -55,10 +55,9 @@ namespace refractir {
        * @param solver SMT solver backend.
        * @param pc Accumulator for path conditions / UB constraints.
        */
-      virtual SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &intr, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &pc
+      virtual SymbolicValue solve(
+          const IntrinsicDecl &intr, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const = 0;
     };
 
@@ -66,10 +65,9 @@ namespace refractir {
 
     class AbsIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &pc
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         smt::Term x = argVals[0].term;
         int64_t int_min_N = (N == 64) ? INT64_MIN : -(INT64_C(1) << (N - 1));
@@ -79,39 +77,31 @@ namespace refractir {
         auto cond = solver.make_term(smt::Kind::BV_SGE, {x, zero});
         auto neg = solver.make_term(smt::Kind::BV_NEG, {x});
         auto res = solver.make_term(smt::Kind::ITE, {cond, x, neg});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, res, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, res, solver.make_true());
       }
     };
 
     class MinIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t, const std::vector<SymbolicValue> &argVals, smt::Sort,
           smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         auto cond = solver.make_term(smt::Kind::BV_SLE, {argVals[0].term, argVals[1].term});
         auto res = solver.make_term(smt::Kind::ITE, {cond, argVals[0].term, argVals[1].term});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, res, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, res, solver.make_true());
       }
     };
 
     class MaxIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t, const std::vector<SymbolicValue> &argVals, smt::Sort,
           smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         auto cond = solver.make_term(smt::Kind::BV_SGE, {argVals[0].term, argVals[1].term});
         auto res = solver.make_term(smt::Kind::ITE, {cond, argVals[0].term, argVals[1].term});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, res, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, res, solver.make_true());
       }
     };
 
@@ -119,10 +109,9 @@ namespace refractir {
 
     class PopcountIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         smt::Term x = argVals[0].term;
         smt::Term acc = solver.make_bv_value_int64(bvN, 0);
@@ -132,18 +121,15 @@ namespace refractir {
               (N == 1) ? bit : solver.make_term(smt::Kind::BV_ZERO_EXTEND, {bit}, {N - 1});
           acc = solver.make_term(smt::Kind::BV_ADD, {acc, ext});
         }
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, acc, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, acc, solver.make_true());
       }
     };
 
     class ClzIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &pc
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         smt::Term x = argVals[0].term;
         auto zero = solver.make_bv_value_int64(bvN, 0);
@@ -159,18 +145,15 @@ namespace refractir {
           auto iT = solver.make_bv_value_int64(bvN, i);
           result = solver.make_term(smt::Kind::ITE, {cond, iT, result});
         }
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, result, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, result, solver.make_true());
       }
     };
 
     class CtzIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &pc
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         smt::Term x = argVals[0].term;
         auto zero = solver.make_bv_value_int64(bvN, 0);
@@ -184,9 +167,7 @@ namespace refractir {
           auto iT = solver.make_bv_value_int64(bvN, i);
           result = solver.make_term(smt::Kind::ITE, {cond, iT, result});
         }
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, result, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, result, solver.make_true());
       }
     };
 
@@ -194,9 +175,8 @@ namespace refractir {
 
     class AbsDiffIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t, const std::vector<SymbolicValue> &argVals, smt::Sort bvN,
           smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         smt::Term a = argVals[0].term, b = argVals[1].term;
@@ -207,17 +187,14 @@ namespace refractir {
         // UB: result must be non-negative as signed iN.
         auto zero = solver.make_bv_value_int64(bvN, 0);
         pc.push_back(solver.make_term(smt::Kind::BV_SGE, {r, zero}));
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
     class SignumIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t, const std::vector<SymbolicValue> &argVals, smt::Sort bvN,
           smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         smt::Term x = argVals[0].term;
@@ -228,17 +205,14 @@ namespace refractir {
         auto isZero = solver.make_term(smt::Kind::EQUAL, {x, zero});
         auto inner = solver.make_term(smt::Kind::ITE, {isZero, zero, one});
         auto r = solver.make_term(smt::Kind::ITE, {isNeg, minus1, inner});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
     class ClampIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t, const std::vector<SymbolicValue> &argVals, smt::Sort,
           smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         smt::Term v = argVals[0].term, lo = argVals[1].term, hi = argVals[2].term;
@@ -247,18 +221,15 @@ namespace refractir {
         auto inner = solver.make_term(smt::Kind::ITE, {vGtHi, hi, v});
         auto vLtLo = solver.make_term(smt::Kind::BV_SLT, {v, lo});
         auto r = solver.make_term(smt::Kind::ITE, {vLtLo, lo, inner});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
     class MidpointIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         // Sign-extend by 1 bit to avoid signed overflow on add, divide by 2
         // with bvsdiv (truncation toward zero), then extract low N bits.
@@ -270,9 +241,7 @@ namespace refractir {
         auto half = solver.make_term(smt::Kind::BV_SDIV, {sum, bv2});
         auto r = solver.make_term(smt::Kind::BV_EXTRACT, {half}, {N - 1, 0});
         (void) bvN;
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -280,9 +249,8 @@ namespace refractir {
 
     class ParityIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &intr, uint32_t,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+      SymbolicValue solve(
+          const IntrinsicDecl &intr, uint32_t, const std::vector<SymbolicValue> &argVals, smt::Sort,
           smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         uint32_t pN = paramBitWidth(intr, 0);
@@ -295,25 +263,20 @@ namespace refractir {
           acc = solver.make_term(smt::Kind::BV_XOR, {acc, bit});
         }
         (void) bv1;
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, acc, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, acc, solver.make_true());
       }
     };
 
     class BswapIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals, smt::Sort,
           smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         smt::Term x = argVals[0].term;
         if (N == 8) {
           // 1-byte bswap is the identity.
-          return SymbolicExecutor::SymbolicValue(
-              SymbolicExecutor::SymbolicValue::Kind::Int, x, solver.make_true()
-          );
+          return SymbolicValue(SymbolicValue::Kind::Int, x, solver.make_true());
         }
         // Concat the bytes of x in reverse order.
         uint32_t nbytes = N / 8;
@@ -335,24 +298,19 @@ namespace refractir {
           // appends byte_k at the low end each iteration.
           result = solver.make_term(smt::Kind::BV_CONCAT, {result, byte});
         }
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, result, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, result, solver.make_true());
       }
     };
 
     class BitreverseIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals, smt::Sort,
           smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         smt::Term x = argVals[0].term;
         if (N == 1) {
-          return SymbolicExecutor::SymbolicValue(
-              SymbolicExecutor::SymbolicValue::Kind::Int, x, solver.make_true()
-          );
+          return SymbolicValue(SymbolicValue::Kind::Int, x, solver.make_true());
         }
         // CONCAT bit_0, bit_1, ..., bit_{N-1} — bit_0 ends up in the high
         // position because CONCAT's first operand is high.
@@ -361,9 +319,7 @@ namespace refractir {
           auto bit = solver.make_term(smt::Kind::BV_EXTRACT, {x}, {k, k});
           result = solver.make_term(smt::Kind::BV_CONCAT, {result, bit});
         }
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, result, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, result, solver.make_true());
       }
     };
 
@@ -391,37 +347,30 @@ namespace refractir {
 
     class RotlIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &pc
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         auto r = emitRotation(true, N, argVals[0].term, argVals[1].term, bvN, solver, pc);
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
     class RotrIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &pc
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         auto r = emitRotation(false, N, argVals[0].term, argVals[1].term, bvN, solver, pc);
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
     class IsPow2Intrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &intr, uint32_t,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+      SymbolicValue solve(
+          const IntrinsicDecl &intr, uint32_t, const std::vector<SymbolicValue> &argVals, smt::Sort,
           smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         uint32_t pN = paramBitWidth(intr, 0);
@@ -438,18 +387,15 @@ namespace refractir {
         auto one1 = solver.make_bv_value_int64(bv1, 1);
         auto zero1 = solver.make_bv_value_int64(bv1, 0);
         auto r = solver.make_term(smt::Kind::ITE, {bothTrue, one1, zero1});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
     class Ilog2Intrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &pc
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         smt::Term x = argVals[0].term;
         auto zero = solver.make_bv_value_int64(bvN, 0);
@@ -471,9 +417,7 @@ namespace refractir {
         }
         auto nMinus1 = solver.make_bv_value_int64(bvN, (int64_t) N - 1);
         auto r = solver.make_term(smt::Kind::BV_SUB, {nMinus1, clz});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -484,15 +428,12 @@ namespace refractir {
      */
     class WrappingAddIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t, const std::vector<SymbolicValue> &argVals, smt::Sort,
           smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         auto r = solver.make_term(smt::Kind::BV_ADD, {argVals[0].term, argVals[1].term});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -501,15 +442,12 @@ namespace refractir {
      */
     class WrappingSubIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t, const std::vector<SymbolicValue> &argVals, smt::Sort,
           smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         auto r = solver.make_term(smt::Kind::BV_SUB, {argVals[0].term, argVals[1].term});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -518,15 +456,12 @@ namespace refractir {
      */
     class WrappingMulIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t, const std::vector<SymbolicValue> &argVals, smt::Sort,
           smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         auto r = solver.make_term(smt::Kind::BV_MUL, {argVals[0].term, argVals[1].term});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -535,15 +470,12 @@ namespace refractir {
      */
     class WrappingNegIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort,
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t, const std::vector<SymbolicValue> &argVals, smt::Sort,
           smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         auto r = solver.make_term(smt::Kind::BV_NEG, {argVals[0].term});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -552,10 +484,9 @@ namespace refractir {
      */
     class WrappingShlIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &pc
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         smt::Term x = argVals[0].term, n = argVals[1].term;
         auto zero = solver.make_bv_value_int64(bvN, 0);
@@ -563,9 +494,7 @@ namespace refractir {
         pc.push_back(solver.make_term(smt::Kind::BV_SGE, {n, zero}));
         pc.push_back(solver.make_term(smt::Kind::BV_SLT, {n, nN}));
         auto r = solver.make_term(smt::Kind::BV_SHL, {x, n});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -574,10 +503,9 @@ namespace refractir {
      */
     class WrappingShrIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &pc
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         smt::Term x = argVals[0].term, n = argVals[1].term;
         auto zero = solver.make_bv_value_int64(bvN, 0);
@@ -585,9 +513,7 @@ namespace refractir {
         pc.push_back(solver.make_term(smt::Kind::BV_SGE, {n, zero}));
         pc.push_back(solver.make_term(smt::Kind::BV_SLT, {n, nN}));
         auto r = solver.make_term(smt::Kind::BV_ASHR, {x, n});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -597,10 +523,9 @@ namespace refractir {
      */
     class SaturatingAddIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         smt::Term a = argVals[0].term, b = argVals[1].term;
         int64_t maxN = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
@@ -613,9 +538,7 @@ namespace refractir {
         auto aNonNeg = solver.make_term(smt::Kind::BV_SGE, {a, zero});
         auto satEdge = solver.make_term(smt::Kind::ITE, {aNonNeg, hi, lo});
         auto r = solver.make_term(smt::Kind::ITE, {ov, satEdge, sum});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -626,10 +549,9 @@ namespace refractir {
      */
     class SaturatingSubIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         smt::Term a = argVals[0].term, b = argVals[1].term;
         int64_t maxN = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
@@ -642,9 +564,7 @@ namespace refractir {
         auto aNonNeg = solver.make_term(smt::Kind::BV_SGE, {a, zero});
         auto satEdge = solver.make_term(smt::Kind::ITE, {aNonNeg, hi, lo});
         auto r = solver.make_term(smt::Kind::ITE, {ov, satEdge, diff});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -655,10 +575,9 @@ namespace refractir {
      */
     class SaturatingMulIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         smt::Term a = argVals[0].term, b = argVals[1].term;
         int64_t maxN = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
@@ -674,9 +593,7 @@ namespace refractir {
         auto sameSign = solver.make_term(smt::Kind::EQUAL, {aNonNeg, bNonNeg});
         auto satEdge = solver.make_term(smt::Kind::ITE, {sameSign, hi, lo});
         auto r = solver.make_term(smt::Kind::ITE, {ov, satEdge, prod});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -686,10 +603,9 @@ namespace refractir {
      */
     class SaturatingNegIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &
       ) const override {
         smt::Term x = argVals[0].term;
         int64_t maxN = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
@@ -699,9 +615,7 @@ namespace refractir {
         auto neg = solver.make_term(smt::Kind::BV_NEG, {x});
         auto isMin = solver.make_term(smt::Kind::EQUAL, {x, minT});
         auto r = solver.make_term(smt::Kind::ITE, {isMin, hi, neg});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -712,10 +626,9 @@ namespace refractir {
      */
     class DivEuclidIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &pc
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         smt::Term a = argVals[0].term, b = argVals[1].term;
         auto zero = solver.make_bv_value_int64(bvN, 0);
@@ -737,9 +650,7 @@ namespace refractir {
         auto step = solver.make_term(smt::Kind::ITE, {bPos, minusOne, one});
         auto qAdj = solver.make_term(smt::Kind::BV_ADD, {q, step});
         auto out = solver.make_term(smt::Kind::ITE, {rNeg, qAdj, q});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, out, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, out, solver.make_true());
       }
     };
 
@@ -749,10 +660,9 @@ namespace refractir {
      */
     class RemEuclidIntrinsic final : public SolverIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, uint32_t N,
-          const std::vector<SymbolicExecutor::SymbolicValue> &argVals, smt::Sort bvN,
-          smt::ISolver &solver, std::vector<smt::Term> &pc
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t N, const std::vector<SymbolicValue> &argVals,
+          smt::Sort bvN, smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         smt::Term a = argVals[0].term, b = argVals[1].term;
         auto zero = solver.make_bv_value_int64(bvN, 0);
@@ -772,9 +682,7 @@ namespace refractir {
         auto bAbs = solver.make_term(smt::Kind::ITE, {bPos, b, bNeg});
         auto rPlus = solver.make_term(smt::Kind::BV_ADD, {r, bAbs});
         auto out = solver.make_term(smt::Kind::ITE, {rNeg, rPlus, r});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, out, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, out, solver.make_true());
       }
     };
 
@@ -787,8 +695,8 @@ namespace refractir {
     class SolverFpIntrinsic {
     public:
       virtual ~SolverFpIntrinsic() = default;
-      virtual SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &intr, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+      virtual SymbolicValue solve(
+          const IntrinsicDecl &intr, const std::vector<SymbolicValue> &argVals,
           smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const = 0;
 
@@ -817,35 +725,31 @@ namespace refractir {
 
     class FabsSolverIntrinsic final : public SolverFpIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
+          std::vector<smt::Term> &
       ) const override {
         auto r = solver.make_term(smt::Kind::FP_ABS, {argVals[0].term});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
     class FnegSolverIntrinsic final : public SolverFpIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
+          std::vector<smt::Term> &
       ) const override {
         auto r = solver.make_term(smt::Kind::FP_NEG, {argVals[0].term});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
     class CopysignSolverIntrinsic final : public SolverFpIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
+          std::vector<smt::Term> &
       ) const override {
         // copysign(x, y) = if signbit(x) == signbit(y) then x else fp.neg(x).
         // Encoded as: ITE(EQUAL(isNeg(x), isNeg(y)), x, fp.neg(x)).
@@ -854,9 +758,7 @@ namespace refractir {
         auto sameSign = solver.make_term(smt::Kind::EQUAL, {sx, sy});
         auto negX = solver.make_term(smt::Kind::FP_NEG, {argVals[0].term});
         auto r = solver.make_term(smt::Kind::ITE, {sameSign, argVals[0].term, negX});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -869,9 +771,9 @@ namespace refractir {
 
     class FminSolverIntrinsic final : public SolverFpIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
+          std::vector<smt::Term> &
       ) const override {
         auto x = argVals[0].term, y = argVals[1].term;
         auto xLt = solver.make_term(smt::Kind::FP_LT, {x, y});
@@ -881,17 +783,15 @@ namespace refractir {
         auto tie = solver.make_term(smt::Kind::ITE, {xNeg, x, y});
         auto inner = solver.make_term(smt::Kind::ITE, {yLt, y, tie});
         auto r = solver.make_term(smt::Kind::ITE, {xLt, x, inner});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
     class FmaxSolverIntrinsic final : public SolverFpIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
+          std::vector<smt::Term> &
       ) const override {
         auto x = argVals[0].term, y = argVals[1].term;
         auto xGt = solver.make_term(smt::Kind::FP_GT, {x, y});
@@ -901,26 +801,22 @@ namespace refractir {
         auto tie = solver.make_term(smt::Kind::ITE, {xNeg, y, x});
         auto inner = solver.make_term(smt::Kind::ITE, {yGt, y, tie});
         auto r = solver.make_term(smt::Kind::ITE, {xGt, x, inner});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
     class SignbitSolverIntrinsic final : public SolverFpIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
+          std::vector<smt::Term> &
       ) const override {
         auto bv1 = solver.make_bv_sort(1);
         auto one = solver.make_bv_value_int64(bv1, 1);
         auto zero = solver.make_bv_value_int64(bv1, 0);
         auto isNeg = solver.make_term(smt::Kind::FP_IS_NEG, {argVals[0].term});
         auto r = solver.make_term(smt::Kind::ITE, {isNeg, one, zero});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -928,42 +824,38 @@ namespace refractir {
 
     class IsNormalSolverIntrinsic final : public SolverFpIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
+          std::vector<smt::Term> &
       ) const override {
         auto bv1 = solver.make_bv_sort(1);
         auto one = solver.make_bv_value_int64(bv1, 1);
         auto zero = solver.make_bv_value_int64(bv1, 0);
         auto pred = solver.make_term(smt::Kind::FP_IS_NORMAL, {argVals[0].term});
         auto r = solver.make_term(smt::Kind::ITE, {pred, one, zero});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
     class IsSubnormalSolverIntrinsic final : public SolverFpIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
+          std::vector<smt::Term> &
       ) const override {
         auto bv1 = solver.make_bv_sort(1);
         auto one = solver.make_bv_value_int64(bv1, 1);
         auto zero = solver.make_bv_value_int64(bv1, 0);
         auto pred = solver.make_term(smt::Kind::FP_IS_SUBNORMAL, {argVals[0].term});
         auto r = solver.make_term(smt::Kind::ITE, {pred, one, zero});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
     class ToBitsSolverIntrinsic final : public SolverFpIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &intr, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+      SymbolicValue solve(
+          const IntrinsicDecl &intr, const std::vector<SymbolicValue> &argVals,
           smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         // Introduce a fresh BV `b` such that x == ((_ to_fp eb sb) b), then
@@ -977,16 +869,14 @@ namespace refractir {
         auto reconstructed = solver.make_term(smt::Kind::FP_TO_FP_FROM_BV, {b}, {eb, sb});
         auto eq = solver.make_term(smt::Kind::FP_EQUAL, {argVals[0].term, reconstructed});
         pc.push_back(eq);
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, b, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, b, solver.make_true());
       }
     };
 
     class FromBitsSolverIntrinsic final : public SolverFpIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &intr, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+      SymbolicValue solve(
+          const IntrinsicDecl &intr, const std::vector<SymbolicValue> &argVals,
           smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         auto [eb, sb] = fpDims(intr.retType);
@@ -998,9 +888,7 @@ namespace refractir {
             solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::FP_IS_NAN, {r})});
         pc.push_back(notInf);
         pc.push_back(notNaN);
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -1014,9 +902,9 @@ namespace refractir {
 
     class SqrtSolverIntrinsic final : public SolverFpIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
-          smt::ISolver &solver, std::vector<smt::Term> &pc
+      SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
+          std::vector<smt::Term> &pc
       ) const override {
         auto r = solver.make_term(smt::Kind::FP_SQRT, {argVals[0].term});
         // UB if the result is non-finite (§2.9).  A strictly-negative operand
@@ -1029,9 +917,7 @@ namespace refractir {
             solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::FP_IS_NAN, {r})});
         pc.push_back(notInf);
         pc.push_back(notNaN);
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -1042,15 +928,13 @@ namespace refractir {
     public:
       explicit RtiSolverIntrinsic(smt::RoundingMode rm) : rm_(rm) {}
 
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
+          std::vector<smt::Term> &
       ) const override {
         auto rmTerm = solver.make_rm_value(rm_);
         auto r = solver.make_term(smt::Kind::FP_RTI, {rmTerm, argVals[0].term});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
 
     private:
@@ -1066,23 +950,21 @@ namespace refractir {
 
     class FractSolverIntrinsic final : public SolverFpIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
-          smt::ISolver &solver, std::vector<smt::Term> &
+      SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
+          std::vector<smt::Term> &
       ) const override {
         auto rtz = solver.make_rm_value(smt::RoundingMode::RTZ);
         auto tr = solver.make_term(smt::Kind::FP_RTI, {rtz, argVals[0].term});
         auto r = solver.make_term(smt::Kind::FP_SUB, {argVals[0].term, tr});
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
     class RecipSolverIntrinsic final : public SolverFpIntrinsic {
     public:
-      SymbolicExecutor::SymbolicValue solve(
-          const IntrinsicDecl &intr, const std::vector<SymbolicExecutor::SymbolicValue> &argVals,
+      SymbolicValue solve(
+          const IntrinsicDecl &intr, const std::vector<SymbolicValue> &argVals,
           smt::ISolver &solver, std::vector<smt::Term> &pc
       ) const override {
         auto one = solver.make_fp_value_from_real(
@@ -1096,9 +978,7 @@ namespace refractir {
             solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::FP_IS_NAN, {r})});
         pc.push_back(notInf);
         pc.push_back(notNaN);
-        return SymbolicExecutor::SymbolicValue(
-            SymbolicExecutor::SymbolicValue::Kind::Int, r, solver.make_true()
-        );
+        return SymbolicValue(SymbolicValue::Kind::Int, r, solver.make_true());
       }
     };
 
@@ -1197,7 +1077,7 @@ namespace refractir {
 
   } // namespace
 
-  SymbolicExecutor::SymbolicValue SymbolicExecutor::callBuiltinIntrinsicSMT(
+  SymbolicValue SymbolicExecutor::callBuiltinIntrinsicSMT(
       const IntrinsicDecl &intr, std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
       std::vector<smt::Term> &pc
   ) {
