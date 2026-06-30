@@ -56,6 +56,8 @@ COMMON_SRCS = src/frontend/lexer.cpp src/frontend/parser.cpp src/frontend/ast_du
 
 TEST_SRCS =
 BACKEND_SRCS = src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
+               src/backend/c_expr.cpp src/backend/c_vec.cpp \
+               src/backend/c_lvalue.cpp src/backend/c_types.cpp \
                src/backend/intrinsics_c.cpp src/backend/intrinsics_wasm.cpp \
                src/backend/vec_lowering_vecext.cpp \
                src/backend/vec_lowering_array.cpp \
@@ -122,6 +124,10 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                src/interp/expr.o \
                src/interp/lvalue.o \
                src/backend/c_backend.o \
+               src/backend/c_expr.o \
+               src/backend/c_vec.o \
+               src/backend/c_lvalue.o \
+               src/backend/c_types.o \
                src/backend/intrinsics_c.o \
                src/backend/intrinsics_wasm.o \
                src/backend/vec_lowering_vecext.o \
