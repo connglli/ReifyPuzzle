@@ -132,12 +132,7 @@ namespace refractir {
               };
               std::string lhsKey = isPtr() ? buildLhsKey() : "";
               if (!lhsKey.empty()) {
-                auto provFromName = [&](const std::string &src) -> std::optional<PtrProvenance> {
-                  auto it = ptrProv_.find(src);
-                  if (it != ptrProv_.end())
-                    return it->second;
-                  return std::nullopt;
-                };
+                auto provFromName = [&](const std::string &src) { return prov_.lookup(src); };
                 auto compute = [&]() -> std::optional<PtrProvenance> {
                   if (arg.rhs.rest.empty()) {
                     const auto &a = arg.rhs.first.v;
@@ -216,9 +211,9 @@ namespace refractir {
                 };
                 auto newProv = compute();
                 if (newProv)
-                  ptrProv_[lhsKey] = *newProv;
+                  prov_.set(lhsKey, *newProv);
                 else
-                  ptrProv_.erase(lhsKey);
+                  prov_.erase(lhsKey);
               }
             }
           } else if constexpr (std::is_same_v<T, AssumeInstr>) {
@@ -417,7 +412,7 @@ namespace refractir {
 
     // [v0.2.1] Reset per-solve provenance tracking. Each call to solve()
     // walks a fresh CFG path, so prior provenance state must not leak.
-    ptrProv_.clear();
+    prov_.clear();
     // [v0.2.2] Local for the captured top-level RetTerm term. The
     // path-traversal lambda captures by reference and writes into it
     // when it sees `ret <expr>;`. Lives on the stack of solve() so

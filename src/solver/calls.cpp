@@ -26,8 +26,7 @@ namespace refractir {
   ) {
     // Save caller frame state.
     const FunDecl *prevFun = currentFun_;
-    auto savedProv = std::move(ptrProv_);
-    ptrProv_.clear();
+    auto savedProv = prov_.take();
     const FunDecl *prevOuterFun = outerFun_;
     SymbolicStore *prevOuterStore = outerStore_;
 
@@ -41,7 +40,7 @@ namespace refractir {
 
     auto restoreFrame = [&]() {
       currentFun_ = prevFun;
-      ptrProv_ = std::move(savedProv);
+      prov_.restore(std::move(savedProv));
       outerFun_ = prevOuterFun;
       outerStore_ = prevOuterStore;
     };
@@ -322,7 +321,7 @@ namespace refractir {
     // find the root local; we handle the two most common forms:
     //   - `addr %x` -> root is %x directly.
     //   - plain `%p` (or `%p` with no accesses) where %p has a known
-    //     ptrProv_ entry -> reverse the FNV-1a tag against caller
+    //     provenance entry -> reverse the FNV-1a tag against caller
     //     locals/params to find the source.
     // Other forms (load-derived pointers, ptr arithmetic with
     // unknown provenance, ptrindex/ptrfield) fall back to "no havoc";
@@ -339,10 +338,10 @@ namespace refractir {
         if (!rv->rval.accesses.empty())
           return {};
         const std::string &name = rv->rval.base.name;
-        auto it = ptrProv_.find(name);
-        if (it == ptrProv_.end())
+        auto pe = prov_.lookup(name);
+        if (!pe)
           return {};
-        uint64_t targetTag = it->second.baseTag;
+        uint64_t targetTag = pe->baseTag;
         if (!currentFun_)
           return {};
         for (const auto &l: currentFun_->lets)
