@@ -24,711 +24,762 @@ namespace refractir {
   }
 
   void WasmBackend::emitAtom(const Atom &atom, std::uint32_t targetWidth, bool isFloat) {
-    uint32_t wasmWidth = (targetWidth <= 32 ? 32 : 64);
     std::visit(
-        [this, targetWidth, wasmWidth, isFloat](auto &&arg) {
+        [this, targetWidth, isFloat](auto &&arg) {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, CoefAtom>) {
             emitCoef(arg.coef, targetWidth, isFloat);
           } else if constexpr (std::is_same_v<T, RValueAtom>) {
-            emitLValue(arg.rval, false);
-            if (locals_.count(arg.rval.base.name)) {
-              auto const &li = locals_.at(arg.rval.base.name);
-              // Walk accesses to determine the actual loaded type, not the base
-              // local's type (e.g. %s.tag where tag is i64 inside an aggregate %s).
-              TypePtr srcType = li.refractirType;
-              for (const auto &acc: arg.rval.accesses) {
-                if (std::get_if<AccessIndex>(&acc)) {
-                  if (auto at = std::get_if<ArrayType>(&srcType->v))
-                    srcType = at->elem;
-                  else if (auto vt = std::get_if<VecType>(&srcType->v))
-                    srcType = vt->elem;
-                } else if (auto af = std::get_if<AccessField>(&acc)) {
-                  if (auto st = std::get_if<StructType>(&srcType->v)) {
-                    if (structLayouts_.count(st->name.name) &&
-                        structLayouts_.at(st->name.name).fields.count(af->field))
-                      srcType = structLayouts_.at(st->name.name).fields.at(af->field).type;
-                  }
-                }
-              }
-              std::uint32_t srcWidth = 32;
-              bool srcIsFloat = false;
-              if (auto bits = TypeUtils::getIntBitWidth(srcType)) {
-                srcWidth = *bits;
-              } else if (srcType && std::holds_alternative<FloatType>(srcType->v)) {
-                srcIsFloat = true;
-                srcWidth = (std::get<FloatType>(srcType->v).kind == FloatType::Kind::F32) ? 32 : 64;
-              }
-              if (srcIsFloat) {
-                if (srcWidth == 32 && targetWidth == 64) {
-                  indent();
-                  out_ << "f64.promote_f32\n";
-                }
-              } else {
-                if (srcWidth <= 32 && targetWidth > 32) {
-                  indent();
-                  out_ << "i64.extend_i32_s\n";
-                } else if (srcWidth > 32 && targetWidth <= 32) {
-                  indent();
-                  out_ << "i32.wrap_i64\n";
-                }
-              }
-            }
+            emitRValueAtom(arg, targetWidth);
           } else if constexpr (std::is_same_v<T, OpAtom>) {
-            if (isFloat) {
-              emitCoef(arg.coef, targetWidth, isFloat);
-              emitLValue(arg.rval, false);
-              if (locals_.count(arg.rval.base.name)) {
-                auto const &li = locals_.at(arg.rval.base.name);
-                if (std::holds_alternative<FloatType>(li.refractirType->v)) {
-                  if (li.bitwidth == 32 && targetWidth == 64) {
-                    indent();
-                    out_ << "f64.promote_f32\n";
-                  }
-                }
-              }
-              std::string prefix = (targetWidth <= 32 ? "f32." : "f64.");
-              if (arg.op == AtomOpKind::Mod) {
-                // WebAssembly MVP has no f32.rem / f64.rem instruction.
-                // Emit fmod inline: x - trunc(x/y) * y
-                // Stack after emitCoef+emitLValue above: [x, y] — but we need
-                // x and y each twice, so emit them fresh here.
-                // Re-emit y (with optional f32→f64 promotion) as a helper.
-                auto emitY = [&]() {
-                  emitLValue(arg.rval, false);
-                  if (locals_.count(arg.rval.base.name)) {
-                    auto const &li = locals_.at(arg.rval.base.name);
-                    if (std::holds_alternative<FloatType>(li.refractirType->v)) {
-                      if (li.bitwidth == 32 && targetWidth == 64) {
-                        indent();
-                        out_ << "f64.promote_f32\n";
-                      }
-                    }
-                  }
-                };
-                // The preceding emitCoef/emitLValue already pushed [x, y] onto
-                // the stack (used for the initial x below). Drop those now and
-                // re-emit cleanly so the stack is deterministic.
-                // Actually, since we need x twice we restructure entirely:
-                // emitCoef/emitLValue above left [x, y] on stack; pop y with
-                // local.set into a drop, but simpler: the two emits above are
-                // effectively wasted — in WASM we must balance the stack.
-                // Instead we emit a `drop` for y and `drop` for x (they were
-                // pushed by the standard path above), then emit the full fmod.
-                indent();
-                out_ << "drop\n"; // drop y (emitLValue result)
-                indent();
-                out_ << "drop\n"; // drop x (emitCoef result)
-                // Now emit fmod(x, y) = x - trunc(x/y) * y
-                emitCoef(arg.coef, targetWidth, isFloat); // x
-                emitCoef(arg.coef, targetWidth, isFloat); // x  (for division)
-                emitY();                                  // y
-                indent();
-                out_ << prefix << "div\n"; // x/y
-                // [v0.2.2] Spec §2.9 intermediate-overflow trap: the inner
-                // fp.div of the `%` encoding is subject to §7.4 rule 6.  If
-                // x/y is ±∞ or NaN at the operand precision, the path is
-                // UB.  Save the quotient into a scratch local and trap via
-                // `unreachable` when it isn't finite (NaN comparisons fold
-                // to false, so `|q| < +inf` is the simplest finiteness
-                // test that catches both inf and NaN).
-                {
-                  std::string qLocal = (targetWidth <= 32) ? "$__fmod_q_f32" : "$__fmod_q_f64";
-                  indent();
-                  out_ << "local.tee " << qLocal << "\n"; // stack: [x, q]
-                  indent();
-                  out_ << prefix << "abs\n";
-                  indent();
-                  out_ << prefix << "const inf\n";
-                  indent();
-                  out_ << prefix << "lt\n"; // |q| < +inf ?  1 if finite, 0 otherwise
-                  indent();
-                  out_ << "i32.eqz\n"; // not-finite ?
-                  indent();
-                  out_ << "if\n";
-                  indent_level_++;
-                  indent();
-                  out_ << "unreachable\n";
-                  indent_level_--;
-                  indent();
-                  out_ << "end\n";
-                  indent();
-                  out_ << "local.get " << qLocal << "\n"; // restore q to stack
-                }
-                indent();
-                out_ << prefix << "trunc\n"; // trunc(x/y)
-                emitY();                     // y
-                indent();
-                out_ << prefix << "mul\n"; // trunc(x/y)*y
-                indent();
-                out_ << prefix << "sub\n"; // x - trunc(x/y)*y
-              } else {
-                indent();
-                switch (arg.op) {
-                  case AtomOpKind::Mul:
-                    out_ << prefix << "mul\n";
-                    break;
-                  case AtomOpKind::Div:
-                    out_ << prefix << "div\n";
-                    break;
-                  default:
-                    break;
-                }
-              }
-            } else if (arg.op == AtomOpKind::LShr) {
-              emitCoef(arg.coef, targetWidth, isFloat);
-              emitMask(targetWidth, wasmWidth);
-              emitLValue(arg.rval, false);
-              indent();
-              out_ << (wasmWidth == 32 ? "i32.shr_u\n" : "i64.shr_u\n");
-            } else {
-              emitCoef(arg.coef, targetWidth, isFloat);
-              emitLValue(arg.rval, false);
-              if (locals_.count(arg.rval.base.name)) {
-                std::uint32_t rWidth = getIntWidth(locals_.at(arg.rval.base.name).refractirType);
-                if (rWidth <= 32 && targetWidth > 32) {
-                  indent();
-                  out_ << "i64.extend_i32_s\n";
-                } else if (rWidth > 32 && targetWidth <= 32) {
-                  indent();
-                  out_ << "i32.wrap_i64\n";
-                }
-              }
-
-              indent();
-              std::string opStr;
-              std::string prefix = (targetWidth <= 32 ? "i32." : "i64.");
-              switch (arg.op) {
-                case AtomOpKind::Mul:
-                  opStr = prefix + "mul";
-                  break;
-                case AtomOpKind::Div:
-                  opStr = prefix + "div_s";
-                  break;
-                case AtomOpKind::Mod:
-                  opStr = prefix + "rem_s";
-                  break;
-                case AtomOpKind::And:
-                  opStr = prefix + "and";
-                  break;
-                case AtomOpKind::Or:
-                  opStr = prefix + "or";
-                  break;
-                case AtomOpKind::Xor:
-                  opStr = prefix + "xor";
-                  break;
-                case AtomOpKind::Shl:
-                  opStr = prefix + "shl";
-                  break;
-                case AtomOpKind::Shr:
-                  opStr = prefix + "shr_s";
-                  break;
-                case AtomOpKind::LShr:
-                  opStr = prefix + "shr_u";
-                  break;
-              }
-              out_ << opStr << "\n";
-            }
-            if (!isFloat)
-              emitSignExtend(targetWidth, wasmWidth);
+            emitOpAtom(arg, targetWidth, isFloat);
           } else if constexpr (std::is_same_v<T, SelectAtom>) {
-            if (arg.maskExpr) {
-              emitExpr(*arg.maskExpr, 32, false);
-            } else {
-              emitCond(*arg.cond);
-            }
-            indent();
-            std::string typePrefix;
-            if (isFloat)
-              typePrefix = (targetWidth <= 32 ? "f32" : "f64");
-            else
-              typePrefix = (targetWidth <= 32 ? "i32" : "i64");
-
-            out_ << "if (result " << typePrefix << ")\n";
-            indent_level_++;
-            emitSelectVal(arg.vtrue, targetWidth, isFloat);
-            indent_level_--;
-            indent();
-            out_ << "else\n";
-            indent_level_++;
-            emitSelectVal(arg.vfalse, targetWidth, isFloat);
-            indent_level_--;
-            indent();
-            out_ << "end\n";
+            emitSelectAtom(arg, targetWidth, isFloat);
           } else if constexpr (std::is_same_v<T, CmpAtom>) {
-            TypePtr lhsType = getSelectValType(arg.lhs);
-            TypePtr rhsType = getSelectValType(arg.rhs);
-            bool isFloat = (lhsType && std::holds_alternative<FloatType>(lhsType->v)) ||
-                           (rhsType && std::holds_alternative<FloatType>(rhsType->v));
-            bool is64 = false;
-            if (isFloat) {
-              is64 = (lhsType && std::get_if<FloatType>(&lhsType->v) &&
-                      std::get<FloatType>(lhsType->v).kind == FloatType::Kind::F64) ||
-                     (rhsType && std::get_if<FloatType>(&rhsType->v) &&
-                      std::get<FloatType>(rhsType->v).kind == FloatType::Kind::F64);
-            } else {
-              auto getWidth = [](const TypePtr &t) -> uint32_t {
-                if (!t)
-                  return 32;
-                if (auto it = std::get_if<IntType>(&t->v)) {
-                  if (it->kind == IntType::Kind::I64 || (it->bits && *it->bits > 32))
-                    return 64;
-                }
-                return 32;
-              };
-              is64 = (getWidth(lhsType) > 32 || getWidth(rhsType) > 32);
-            }
-            uint32_t operandWidth = is64 ? 64 : 32;
-            emitSelectVal(arg.lhs, operandWidth, isFloat);
-            emitSelectVal(arg.rhs, operandWidth, isFloat);
-
-            indent();
-            std::string opStr;
-            if (isFloat) {
-              std::string prefix = (operandWidth <= 32 ? "f32." : "f64.");
-              switch (arg.op) {
-                case RelOp::EQ:
-                  opStr = prefix + "eq";
-                  break;
-                case RelOp::NE:
-                  opStr = prefix + "ne";
-                  break;
-                case RelOp::LT:
-                  opStr = prefix + "lt";
-                  break;
-                case RelOp::LE:
-                  opStr = prefix + "le";
-                  break;
-                case RelOp::GT:
-                  opStr = prefix + "gt";
-                  break;
-                case RelOp::GE:
-                  opStr = prefix + "ge";
-                  break;
-              }
-            } else {
-              std::string prefix = (operandWidth <= 32 ? "i32." : "i64.");
-              switch (arg.op) {
-                case RelOp::EQ:
-                  opStr = prefix + "eq";
-                  break;
-                case RelOp::NE:
-                  opStr = prefix + "ne";
-                  break;
-                case RelOp::LT:
-                  opStr = prefix + "lt_s";
-                  break;
-                case RelOp::LE:
-                  opStr = prefix + "le_s";
-                  break;
-                case RelOp::GT:
-                  opStr = prefix + "gt_s";
-                  break;
-                case RelOp::GE:
-                  opStr = prefix + "ge_s";
-                  break;
-              }
-            }
-            out_ << opStr << "\n";
-            // [v0.2.2] cmp returns i1; sign-extend bit 0 so true is -1.
-            emitSignExtend(1, (targetWidth > 32 ? 64 : 32));
+            emitCmpAtom(arg, targetWidth);
           } else if constexpr (std::is_same_v<T, PtrIndexAtom>) {
-            uint64_t arrSize = 0;
-            TypePtr elemType = nullptr;
-            auto rvTy = getLValueType(arg.rval);
-            if (rvTy) {
-              if (auto pt = std::get_if<PtrType>(&rvTy->v)) {
-                if (auto at = std::get_if<ArrayType>(&pt->pointee->v)) {
-                  arrSize = at->size;
-                  elemType = at->elem;
-                }
-              }
-            }
-            uint32_t elemSize = elemType ? getTypeSize(elemType) : 1;
-
-            emitLValue(arg.rval, false);
-            indent();
-            out_ << "local.tee $__ptr_temp\n";
-            indent();
-            out_ << "i32.eqz\n";
-            indent();
-            out_ << "if\n";
-            indent_level_++;
-            indent();
-            out_ << "unreachable\n";
-            indent_level_--;
-            indent();
-            out_ << "end\n";
-
-            emitIndex(arg.index);
-            indent();
-            out_ << "local.tee $__idx_temp\n";
-            indent();
-            out_ << "local.get $__idx_temp\n";
-            indent();
-            out_ << "i32.const 0\n";
-            indent();
-            out_ << "i32.lt_s\n";
-            indent();
-            out_ << "local.get $__idx_temp\n";
-            indent();
-            out_ << "i32.const " << arrSize << "\n";
-            indent();
-            out_ << "i32.gt_s\n";
-            indent();
-            out_ << "i32.or\n";
-            indent();
-            out_ << "if\n";
-            indent_level_++;
-            indent();
-            out_ << "unreachable\n";
-            indent_level_--;
-            indent();
-            out_ << "end\n";
-
-            indent();
-            out_ << "local.get $__ptr_temp\n";
-            indent();
-            out_ << "local.get $__idx_temp\n";
-            if (elemSize > 1) {
-              indent();
-              out_ << "i32.const " << elemSize << "\n";
-              indent();
-              out_ << "i32.mul\n";
-            }
-            indent();
-            out_ << "i32.add\n";
+            emitPtrIndexAtom(arg);
           } else if constexpr (std::is_same_v<T, CallAtom>) {
-            // [v0.2.2] Push arguments left-to-right then `call $name`.
-            // Use the overload the type checker pinned onto the AST
-            // node — see CallAtom::resolvedIntrinsic.
-            const IntrinsicDecl *intr = arg.resolvedIntrinsic;
-            if (!intr && prog_) {
-              for (const auto &i: prog_->intrinsics) {
-                if (i.name.name != arg.callee.name)
-                  continue;
-                if (i.params.size() != arg.args.size())
-                  continue;
-                if (!intr) {
-                  intr = &i;
-                  continue;
-                }
-                auto bw1 = TypeUtils::getIntBitWidth(intr->params[0].type);
-                auto bw2 = TypeUtils::getIntBitWidth(i.params[0].type);
-                if (!bw1 || !bw2 || *bw1 == *bw2)
-                  continue;
-                uint32_t argBW = *bw1;
-                if (!arg.args.empty()) {
-                  auto at = getExprType(*arg.args[0]);
-                  if (at) {
-                    if (auto b = TypeUtils::getIntBitWidth(at))
-                      argBW = *b;
-                  }
-                }
-                if (*bw2 == argBW && *bw1 != argBW)
-                  intr = &i;
-              }
-            }
-            // Determine the parameter types so we can pass argWidth correctly.
-            std::vector<TypePtr> ptypes;
-            if (intr) {
-              for (const auto &p: intr->params)
-                ptypes.push_back(p.type);
-            } else if (prog_) {
-              for (const auto &f: prog_->funs)
-                if (f.name.name == arg.callee.name) {
-                  for (const auto &p: f.params)
-                    ptypes.push_back(p.type);
-                  break;
-                }
-              if (ptypes.empty()) {
-                for (const auto &d: prog_->extDecls)
-                  if (d.name.name == arg.callee.name) {
-                    for (const auto &p: d.params)
-                      ptypes.push_back(p.type);
-                    break;
-                  }
-              }
-            }
-            for (size_t i = 0; i < arg.args.size(); ++i) {
-              uint32_t pw = 32;
-              bool pf = false;
-              if (i < ptypes.size() && ptypes[i]) {
-                pw = getIntWidth(ptypes[i]);
-                if (pw == 0) {
-                  if (std::holds_alternative<FloatType>(ptypes[i]->v)) {
-                    auto &ft = std::get<FloatType>(ptypes[i]->v);
-                    pw = (ft.kind == FloatType::Kind::F32) ? 32 : 64;
-                    pf = true;
-                  } else {
-                    pw = 32;
-                  }
-                }
-              }
-              emitExpr(*arg.args[i], pw, pf);
-            }
-            indent();
-            if (intr) {
-              out_ << "call " << intrinsicHelperName(*intr) << "\n";
-            } else {
-              out_ << "call " << mangleName(arg.callee.name) << "\n";
-            }
+            emitCallAtom(arg);
           } else if constexpr (std::is_same_v<T, PtrFieldAtom>) {
-            uint32_t fieldOffset = 0;
-            auto rvTy = getLValueType(arg.rval);
-            if (rvTy) {
-              if (auto pt = std::get_if<PtrType>(&rvTy->v)) {
-                if (auto st = std::get_if<StructType>(&pt->pointee->v)) {
-                  if (structLayouts_.count(st->name.name)) {
-                    const auto &sinfo = structLayouts_.at(st->name.name);
-                    if (sinfo.fields.count(arg.field)) {
-                      fieldOffset = sinfo.fields.at(arg.field).offset;
-                    }
-                  }
-                }
-              }
-            }
-
-            emitLValue(arg.rval, false);
-            indent();
-            out_ << "local.tee $__ptr_temp\n";
-            indent();
-            out_ << "i32.eqz\n";
-            indent();
-            out_ << "if\n";
-            indent_level_++;
-            indent();
-            out_ << "unreachable\n";
-            indent_level_--;
-            indent();
-            out_ << "end\n";
-
-            if (fieldOffset > 0) {
-              indent();
-              out_ << "local.get $__ptr_temp\n";
-              indent();
-              out_ << "i32.const " << fieldOffset << "\n";
-              indent();
-              out_ << "i32.add\n";
-            } else {
-              indent();
-              out_ << "local.get $__ptr_temp\n";
-            }
+            emitPtrFieldAtom(arg);
           } else if constexpr (std::is_same_v<T, UnaryAtom>) {
-            emitLValue(arg.rval, false);
-            if (isFloat) {
-              indent();
-              out_ << (targetWidth <= 32 ? "f32.neg\n" : "f64.neg\n");
-            } else {
-              if (locals_.count(arg.rval.base.name)) {
-                std::uint32_t srcWidth = getIntWidth(locals_.at(arg.rval.base.name).refractirType);
-                if (srcWidth <= 32 && targetWidth > 32) {
-                  indent();
-                  out_ << "i64.extend_i32_s\n";
-                } else if (srcWidth > 32 && targetWidth <= 32) {
-                  indent();
-                  out_ << "i32.wrap_i64\n";
-                }
-              }
-
-              indent();
-              if (targetWidth <= 32) {
-                out_ << "i32.const -1\n";
-                indent();
-                out_ << "i32.xor\n";
-              } else {
-                out_ << "i64.const -1\n";
-                indent();
-                out_ << "i64.xor\n";
-              }
-              emitSignExtend(targetWidth, wasmWidth);
-            }
+            emitUnaryAtom(arg, targetWidth, isFloat);
           } else if constexpr (std::is_same_v<T, AddrAtom>) {
-            // Return the WASM memory address of the lvalue (must be an aggregate/spilled local)
-            emitAddress(arg.lv);
+            emitAddrAtom(arg);
           } else if constexpr (std::is_same_v<T, LoadAtom>) {
-            // Load through pointer: *ptr
-            // Push ptr twice — first copy stays for the actual load,
-            // second copy is used for the null check.
-            const std::string &pname = arg.rval.base.name;
-            // If pname was address-taken, it lives on the shadow stack rather
-            // than as a WASM local; fetch its value from there.
-            auto emitPushPtr = [&]() {
-              if (locals_.count(pname) && locals_.at(pname).isAggregate) {
-                const auto &pinfo = locals_.at(pname);
-                indent();
-                out_ << "local.get $__old_sp\n";
-                indent();
-                out_ << "i32.const " << pinfo.offset << "\n";
-                indent();
-                out_ << "i32.sub\n";
-                indent();
-                out_ << "i32.load\n";
-              } else {
-                indent();
-                out_ << "local.get " << mangleName(pname) << "\n";
-              }
-            };
-            // Null check: push ptr for null test, then keep first for load
-            emitPushPtr();
-            emitPushPtr();
-            indent();
-            out_ << "i32.eqz\n";
-            indent();
-            out_ << "if\n";
-            indent_level_++;
-            indent();
-            out_ << "unreachable\n";
-            indent_level_--;
-            indent();
-            out_ << "end\n";
-            // stack: [ptr_for_load]; determine pointee type for load instruction
-            uint32_t loadWidth = targetWidth;
-            bool loadIsFloat = isFloat;
-            if (locals_.count(pname)) {
-              const auto &info = locals_.at(pname);
-              if (auto pt = std::get_if<PtrType>(&info.refractirType->v)) {
-                if (auto bits = TypeUtils::getIntBitWidth(pt->pointee)) {
-                  loadWidth = *bits;
-                  loadIsFloat = false;
-                } else if (pt->pointee && std::holds_alternative<FloatType>(pt->pointee->v)) {
-                  loadIsFloat = true;
-                  loadWidth =
-                      (std::get<FloatType>(pt->pointee->v).kind == FloatType::Kind::F32) ? 32 : 64;
-                }
-              }
-            }
-            indent();
-            if (loadIsFloat) {
-              out_ << (loadWidth <= 32 ? "f32.load\n" : "f64.load\n");
-            } else {
-              out_
-                  << (loadWidth <= 8    ? "i32.load8_s\n"
-                      : loadWidth <= 16 ? "i32.load16_s\n"
-                      : loadWidth <= 32 ? "i32.load\n"
-                                        : "i64.load\n");
-            }
-            // Sign-extend if needed
-            if (!loadIsFloat && loadWidth <= 32 && targetWidth > 32) {
-              indent();
-              out_ << "i64.extend_i32_s\n";
-            }
+            emitLoadAtom(arg, targetWidth, isFloat);
           } else if constexpr (std::is_same_v<T, CastAtom>) {
-            std::uint32_t srcWidth = 32;
-            bool srcIsFloat = false;
-            std::visit(
-                [&](auto &&src) {
-                  using S = std::decay_t<decltype(src)>;
-                  if constexpr (std::is_same_v<S, IntLit>) {
-                    srcWidth = (src.value > INT32_MAX || src.value < INT32_MIN) ? 64 : 32;
-                    indent();
-                    out_ << (srcWidth <= 32 ? "i32.const " : "i64.const ") << src.value << "\n";
-                  } else if constexpr (std::is_same_v<S, FloatLit>) {
-                    srcWidth = 64;
-                    srcIsFloat = true;
-                    indent();
-                    out_ << "f64.const " << formatFloatLit(src.value) << "\n";
-                  } else if constexpr (std::is_same_v<S, SymId>) {
-                    indent();
-                    out_ << "call " << mangleName(getMangledSymbolName(curFuncName_, src.name))
-                         << "\n";
-                    srcWidth = 32;
-                    if (syms_.count(src.name)) {
-                      srcWidth = getIntWidth(syms_.at(src.name));
-                      if (std::holds_alternative<FloatType>(syms_.at(src.name)->v)) {
-                        srcIsFloat = true;
-                        srcWidth = (std::get<FloatType>(syms_.at(src.name)->v).kind ==
-                                    FloatType::Kind::F32)
-                                       ? 32
-                                       : 64;
-                      }
-                    }
-                  } else {
-                    emitLValue(src, false);
-                    if (locals_.count(src.base.name)) {
-                      auto const &li = locals_.at(src.base.name);
-                      // Walk accesses so cast-from-field uses the field's
-                      // type, not the base local's (e.g. %s.tag where tag is i64).
-                      TypePtr at_type = li.refractirType;
-                      for (const auto &acc: src.accesses) {
-                        if (std::get_if<AccessIndex>(&acc)) {
-                          if (auto at = std::get_if<ArrayType>(&at_type->v))
-                            at_type = at->elem;
-                          else if (auto vt = std::get_if<VecType>(&at_type->v))
-                            at_type = vt->elem;
-                        } else if (auto af = std::get_if<AccessField>(&acc)) {
-                          if (auto st = std::get_if<StructType>(&at_type->v)) {
-                            if (structLayouts_.count(st->name.name) &&
-                                structLayouts_.at(st->name.name).fields.count(af->field))
-                              at_type = structLayouts_.at(st->name.name).fields.at(af->field).type;
-                          }
-                        }
-                      }
-                      if (auto bits = TypeUtils::getIntBitWidth(at_type)) {
-                        srcWidth = *bits;
-                      } else if (at_type && std::holds_alternative<FloatType>(at_type->v)) {
-                        srcIsFloat = true;
-                        srcWidth = (std::get<FloatType>(at_type->v).kind == FloatType::Kind::F32)
-                                       ? 32
-                                       : 64;
-                      }
-                    }
-                  }
-                },
-                arg.src
-            );
-
-            bool dstIsFloat = std::holds_alternative<FloatType>(arg.dstType->v);
-            std::uint32_t dstWidth = 32;
-            if (dstIsFloat) {
-              dstWidth =
-                  (std::get<FloatType>(arg.dstType->v).kind == FloatType::Kind::F32) ? 32 : 64;
-            } else {
-              dstWidth = getIntWidth(arg.dstType);
-            }
-
-            indent();
-            if (srcIsFloat && dstIsFloat) {
-              if (srcWidth == 32 && dstWidth == 64)
-                out_ << "f64.promote_f32\n";
-              else if (srcWidth == 64 && dstWidth == 32)
-                out_ << "f32.demote_f64\n";
-            } else if (srcIsFloat && !dstIsFloat) {
-              if (dstWidth <= 32)
-                out_ << (srcWidth == 32 ? "i32.trunc_f32_s\n" : "i32.trunc_f64_s\n");
-              else
-                out_ << (srcWidth == 32 ? "i64.trunc_f32_s\n" : "i64.trunc_f64_s\n");
-            } else if (!srcIsFloat && dstIsFloat) {
-              if (srcWidth <= 32)
-                out_ << (dstWidth == 32 ? "f32.convert_i32_s\n" : "f64.convert_i32_s\n");
-              else
-                out_ << (dstWidth == 32 ? "f32.convert_i64_s\n" : "f64.convert_i64_s\n");
-            } else {
-              // BV -> BV
-              // [v0.2.2] Spec §6.4: i1 is signed; widening sign-extends
-              // bit 0.  Emit the i1 sign-extension *first* (in i32
-              // space) so a subsequent i64.extend_i32_s, if any, sees
-              // the already-sign-extended low half.  Otherwise the
-              // shift-pair ends up landing on a 64-bit stack top.
-              if (srcWidth == 1) {
-                emitSignExtend(1, 32);
-              }
-              if (srcWidth <= 32 && (targetWidth > 32 || dstWidth > 32)) {
-                if (wasmWidth == 64) {
-                  out_ << "i64.extend_i32_s\n";
-                }
-              } else if (srcWidth > 32 && (targetWidth <= 32 || dstWidth <= 32)) {
-                if (wasmWidth == 32) {
-                  out_ << "i32.wrap_i64\n";
-                }
-              }
-            }
-            if (!dstIsFloat && srcWidth != 1)
-              emitSignExtend(targetWidth, wasmWidth);
+            emitCastAtom(arg, targetWidth);
           }
         },
         atom.v
     );
+  }
+
+  void WasmBackend::emitRValueAtom(const RValueAtom &arg, std::uint32_t targetWidth) {
+
+    emitLValue(arg.rval, false);
+    if (locals_.count(arg.rval.base.name)) {
+      auto const &li = locals_.at(arg.rval.base.name);
+      // Walk accesses to determine the actual loaded type, not the base
+      // local's type (e.g. %s.tag where tag is i64 inside an aggregate %s).
+      TypePtr srcType = li.refractirType;
+      for (const auto &acc: arg.rval.accesses) {
+        if (std::get_if<AccessIndex>(&acc)) {
+          if (auto at = std::get_if<ArrayType>(&srcType->v))
+            srcType = at->elem;
+          else if (auto vt = std::get_if<VecType>(&srcType->v))
+            srcType = vt->elem;
+        } else if (auto af = std::get_if<AccessField>(&acc)) {
+          if (auto st = std::get_if<StructType>(&srcType->v)) {
+            if (structLayouts_.count(st->name.name) &&
+                structLayouts_.at(st->name.name).fields.count(af->field))
+              srcType = structLayouts_.at(st->name.name).fields.at(af->field).type;
+          }
+        }
+      }
+      std::uint32_t srcWidth = 32;
+      bool srcIsFloat = false;
+      if (auto bits = TypeUtils::getIntBitWidth(srcType)) {
+        srcWidth = *bits;
+      } else if (srcType && std::holds_alternative<FloatType>(srcType->v)) {
+        srcIsFloat = true;
+        srcWidth = (std::get<FloatType>(srcType->v).kind == FloatType::Kind::F32) ? 32 : 64;
+      }
+      if (srcIsFloat) {
+        if (srcWidth == 32 && targetWidth == 64) {
+          indent();
+          out_ << "f64.promote_f32\n";
+        }
+      } else {
+        if (srcWidth <= 32 && targetWidth > 32) {
+          indent();
+          out_ << "i64.extend_i32_s\n";
+        } else if (srcWidth > 32 && targetWidth <= 32) {
+          indent();
+          out_ << "i32.wrap_i64\n";
+        }
+      }
+    }
+  }
+
+  void WasmBackend::emitOpAtom(const OpAtom &arg, std::uint32_t targetWidth, bool isFloat) {
+    uint32_t wasmWidth = (targetWidth <= 32 ? 32 : 64);
+
+    if (isFloat) {
+      emitCoef(arg.coef, targetWidth, isFloat);
+      emitLValue(arg.rval, false);
+      if (locals_.count(arg.rval.base.name)) {
+        auto const &li = locals_.at(arg.rval.base.name);
+        if (std::holds_alternative<FloatType>(li.refractirType->v)) {
+          if (li.bitwidth == 32 && targetWidth == 64) {
+            indent();
+            out_ << "f64.promote_f32\n";
+          }
+        }
+      }
+      std::string prefix = (targetWidth <= 32 ? "f32." : "f64.");
+      if (arg.op == AtomOpKind::Mod) {
+        // WebAssembly MVP has no f32.rem / f64.rem instruction.
+        // Emit fmod inline: x - trunc(x/y) * y
+        // Stack after emitCoef+emitLValue above: [x, y] — but we need
+        // x and y each twice, so emit them fresh here.
+        // Re-emit y (with optional f32→f64 promotion) as a helper.
+        auto emitY = [&]() {
+          emitLValue(arg.rval, false);
+          if (locals_.count(arg.rval.base.name)) {
+            auto const &li = locals_.at(arg.rval.base.name);
+            if (std::holds_alternative<FloatType>(li.refractirType->v)) {
+              if (li.bitwidth == 32 && targetWidth == 64) {
+                indent();
+                out_ << "f64.promote_f32\n";
+              }
+            }
+          }
+        };
+        // The preceding emitCoef/emitLValue already pushed [x, y] onto
+        // the stack (used for the initial x below). Drop those now and
+        // re-emit cleanly so the stack is deterministic.
+        // Actually, since we need x twice we restructure entirely:
+        // emitCoef/emitLValue above left [x, y] on stack; pop y with
+        // local.set into a drop, but simpler: the two emits above are
+        // effectively wasted — in WASM we must balance the stack.
+        // Instead we emit a `drop` for y and `drop` for x (they were
+        // pushed by the standard path above), then emit the full fmod.
+        indent();
+        out_ << "drop\n"; // drop y (emitLValue result)
+        indent();
+        out_ << "drop\n"; // drop x (emitCoef result)
+        // Now emit fmod(x, y) = x - trunc(x/y) * y
+        emitCoef(arg.coef, targetWidth, isFloat); // x
+        emitCoef(arg.coef, targetWidth, isFloat); // x  (for division)
+        emitY();                                  // y
+        indent();
+        out_ << prefix << "div\n"; // x/y
+        // [v0.2.2] Spec §2.9 intermediate-overflow trap: the inner
+        // fp.div of the `%` encoding is subject to §7.4 rule 6.  If
+        // x/y is ±∞ or NaN at the operand precision, the path is
+        // UB.  Save the quotient into a scratch local and trap via
+        // `unreachable` when it isn't finite (NaN comparisons fold
+        // to false, so `|q| < +inf` is the simplest finiteness
+        // test that catches both inf and NaN).
+        {
+          std::string qLocal = (targetWidth <= 32) ? "$__fmod_q_f32" : "$__fmod_q_f64";
+          indent();
+          out_ << "local.tee " << qLocal << "\n"; // stack: [x, q]
+          indent();
+          out_ << prefix << "abs\n";
+          indent();
+          out_ << prefix << "const inf\n";
+          indent();
+          out_ << prefix << "lt\n"; // |q| < +inf ?  1 if finite, 0 otherwise
+          indent();
+          out_ << "i32.eqz\n"; // not-finite ?
+          indent();
+          out_ << "if\n";
+          indent_level_++;
+          indent();
+          out_ << "unreachable\n";
+          indent_level_--;
+          indent();
+          out_ << "end\n";
+          indent();
+          out_ << "local.get " << qLocal << "\n"; // restore q to stack
+        }
+        indent();
+        out_ << prefix << "trunc\n"; // trunc(x/y)
+        emitY();                     // y
+        indent();
+        out_ << prefix << "mul\n"; // trunc(x/y)*y
+        indent();
+        out_ << prefix << "sub\n"; // x - trunc(x/y)*y
+      } else {
+        indent();
+        switch (arg.op) {
+          case AtomOpKind::Mul:
+            out_ << prefix << "mul\n";
+            break;
+          case AtomOpKind::Div:
+            out_ << prefix << "div\n";
+            break;
+          default:
+            break;
+        }
+      }
+    } else if (arg.op == AtomOpKind::LShr) {
+      emitCoef(arg.coef, targetWidth, isFloat);
+      emitMask(targetWidth, wasmWidth);
+      emitLValue(arg.rval, false);
+      indent();
+      out_ << (wasmWidth == 32 ? "i32.shr_u\n" : "i64.shr_u\n");
+    } else {
+      emitCoef(arg.coef, targetWidth, isFloat);
+      emitLValue(arg.rval, false);
+      if (locals_.count(arg.rval.base.name)) {
+        std::uint32_t rWidth = getIntWidth(locals_.at(arg.rval.base.name).refractirType);
+        if (rWidth <= 32 && targetWidth > 32) {
+          indent();
+          out_ << "i64.extend_i32_s\n";
+        } else if (rWidth > 32 && targetWidth <= 32) {
+          indent();
+          out_ << "i32.wrap_i64\n";
+        }
+      }
+
+      indent();
+      std::string opStr;
+      std::string prefix = (targetWidth <= 32 ? "i32." : "i64.");
+      switch (arg.op) {
+        case AtomOpKind::Mul:
+          opStr = prefix + "mul";
+          break;
+        case AtomOpKind::Div:
+          opStr = prefix + "div_s";
+          break;
+        case AtomOpKind::Mod:
+          opStr = prefix + "rem_s";
+          break;
+        case AtomOpKind::And:
+          opStr = prefix + "and";
+          break;
+        case AtomOpKind::Or:
+          opStr = prefix + "or";
+          break;
+        case AtomOpKind::Xor:
+          opStr = prefix + "xor";
+          break;
+        case AtomOpKind::Shl:
+          opStr = prefix + "shl";
+          break;
+        case AtomOpKind::Shr:
+          opStr = prefix + "shr_s";
+          break;
+        case AtomOpKind::LShr:
+          opStr = prefix + "shr_u";
+          break;
+      }
+      out_ << opStr << "\n";
+    }
+    if (!isFloat)
+      emitSignExtend(targetWidth, wasmWidth);
+  }
+
+  void WasmBackend::emitSelectAtom(const SelectAtom &arg, std::uint32_t targetWidth, bool isFloat) {
+
+    if (arg.maskExpr) {
+      emitExpr(*arg.maskExpr, 32, false);
+    } else {
+      emitCond(*arg.cond);
+    }
+    indent();
+    std::string typePrefix;
+    if (isFloat)
+      typePrefix = (targetWidth <= 32 ? "f32" : "f64");
+    else
+      typePrefix = (targetWidth <= 32 ? "i32" : "i64");
+
+    out_ << "if (result " << typePrefix << ")\n";
+    indent_level_++;
+    emitSelectVal(arg.vtrue, targetWidth, isFloat);
+    indent_level_--;
+    indent();
+    out_ << "else\n";
+    indent_level_++;
+    emitSelectVal(arg.vfalse, targetWidth, isFloat);
+    indent_level_--;
+    indent();
+    out_ << "end\n";
+  }
+
+  void WasmBackend::emitCmpAtom(const CmpAtom &arg, std::uint32_t targetWidth) {
+
+    TypePtr lhsType = getSelectValType(arg.lhs);
+    TypePtr rhsType = getSelectValType(arg.rhs);
+    bool isFloat = (lhsType && std::holds_alternative<FloatType>(lhsType->v)) ||
+                   (rhsType && std::holds_alternative<FloatType>(rhsType->v));
+    bool is64 = false;
+    if (isFloat) {
+      is64 = (lhsType && std::get_if<FloatType>(&lhsType->v) &&
+              std::get<FloatType>(lhsType->v).kind == FloatType::Kind::F64) ||
+             (rhsType && std::get_if<FloatType>(&rhsType->v) &&
+              std::get<FloatType>(rhsType->v).kind == FloatType::Kind::F64);
+    } else {
+      auto getWidth = [](const TypePtr &t) -> uint32_t {
+        if (!t)
+          return 32;
+        if (auto it = std::get_if<IntType>(&t->v)) {
+          if (it->kind == IntType::Kind::I64 || (it->bits && *it->bits > 32))
+            return 64;
+        }
+        return 32;
+      };
+      is64 = (getWidth(lhsType) > 32 || getWidth(rhsType) > 32);
+    }
+    uint32_t operandWidth = is64 ? 64 : 32;
+    emitSelectVal(arg.lhs, operandWidth, isFloat);
+    emitSelectVal(arg.rhs, operandWidth, isFloat);
+
+    indent();
+    std::string opStr;
+    if (isFloat) {
+      std::string prefix = (operandWidth <= 32 ? "f32." : "f64.");
+      switch (arg.op) {
+        case RelOp::EQ:
+          opStr = prefix + "eq";
+          break;
+        case RelOp::NE:
+          opStr = prefix + "ne";
+          break;
+        case RelOp::LT:
+          opStr = prefix + "lt";
+          break;
+        case RelOp::LE:
+          opStr = prefix + "le";
+          break;
+        case RelOp::GT:
+          opStr = prefix + "gt";
+          break;
+        case RelOp::GE:
+          opStr = prefix + "ge";
+          break;
+      }
+    } else {
+      std::string prefix = (operandWidth <= 32 ? "i32." : "i64.");
+      switch (arg.op) {
+        case RelOp::EQ:
+          opStr = prefix + "eq";
+          break;
+        case RelOp::NE:
+          opStr = prefix + "ne";
+          break;
+        case RelOp::LT:
+          opStr = prefix + "lt_s";
+          break;
+        case RelOp::LE:
+          opStr = prefix + "le_s";
+          break;
+        case RelOp::GT:
+          opStr = prefix + "gt_s";
+          break;
+        case RelOp::GE:
+          opStr = prefix + "ge_s";
+          break;
+      }
+    }
+    out_ << opStr << "\n";
+    // [v0.2.2] cmp returns i1; sign-extend bit 0 so true is -1.
+    emitSignExtend(1, (targetWidth > 32 ? 64 : 32));
+  }
+
+  void WasmBackend::emitPtrIndexAtom(const PtrIndexAtom &arg) {
+
+    uint64_t arrSize = 0;
+    TypePtr elemType = nullptr;
+    auto rvTy = getLValueType(arg.rval);
+    if (rvTy) {
+      if (auto pt = std::get_if<PtrType>(&rvTy->v)) {
+        if (auto at = std::get_if<ArrayType>(&pt->pointee->v)) {
+          arrSize = at->size;
+          elemType = at->elem;
+        }
+      }
+    }
+    uint32_t elemSize = elemType ? getTypeSize(elemType) : 1;
+
+    emitLValue(arg.rval, false);
+    indent();
+    out_ << "local.tee $__ptr_temp\n";
+    indent();
+    out_ << "i32.eqz\n";
+    indent();
+    out_ << "if\n";
+    indent_level_++;
+    indent();
+    out_ << "unreachable\n";
+    indent_level_--;
+    indent();
+    out_ << "end\n";
+
+    emitIndex(arg.index);
+    indent();
+    out_ << "local.tee $__idx_temp\n";
+    indent();
+    out_ << "local.get $__idx_temp\n";
+    indent();
+    out_ << "i32.const 0\n";
+    indent();
+    out_ << "i32.lt_s\n";
+    indent();
+    out_ << "local.get $__idx_temp\n";
+    indent();
+    out_ << "i32.const " << arrSize << "\n";
+    indent();
+    out_ << "i32.gt_s\n";
+    indent();
+    out_ << "i32.or\n";
+    indent();
+    out_ << "if\n";
+    indent_level_++;
+    indent();
+    out_ << "unreachable\n";
+    indent_level_--;
+    indent();
+    out_ << "end\n";
+
+    indent();
+    out_ << "local.get $__ptr_temp\n";
+    indent();
+    out_ << "local.get $__idx_temp\n";
+    if (elemSize > 1) {
+      indent();
+      out_ << "i32.const " << elemSize << "\n";
+      indent();
+      out_ << "i32.mul\n";
+    }
+    indent();
+    out_ << "i32.add\n";
+  }
+
+  void WasmBackend::emitCallAtom(const CallAtom &arg) {
+
+    // [v0.2.2] Push arguments left-to-right then `call $name`.
+    // Use the overload the type checker pinned onto the AST
+    // node — see CallAtom::resolvedIntrinsic.
+    const IntrinsicDecl *intr = arg.resolvedIntrinsic;
+    if (!intr && prog_) {
+      for (const auto &i: prog_->intrinsics) {
+        if (i.name.name != arg.callee.name)
+          continue;
+        if (i.params.size() != arg.args.size())
+          continue;
+        if (!intr) {
+          intr = &i;
+          continue;
+        }
+        auto bw1 = TypeUtils::getIntBitWidth(intr->params[0].type);
+        auto bw2 = TypeUtils::getIntBitWidth(i.params[0].type);
+        if (!bw1 || !bw2 || *bw1 == *bw2)
+          continue;
+        uint32_t argBW = *bw1;
+        if (!arg.args.empty()) {
+          auto at = getExprType(*arg.args[0]);
+          if (at) {
+            if (auto b = TypeUtils::getIntBitWidth(at))
+              argBW = *b;
+          }
+        }
+        if (*bw2 == argBW && *bw1 != argBW)
+          intr = &i;
+      }
+    }
+    // Determine the parameter types so we can pass argWidth correctly.
+    std::vector<TypePtr> ptypes;
+    if (intr) {
+      for (const auto &p: intr->params)
+        ptypes.push_back(p.type);
+    } else if (prog_) {
+      for (const auto &f: prog_->funs)
+        if (f.name.name == arg.callee.name) {
+          for (const auto &p: f.params)
+            ptypes.push_back(p.type);
+          break;
+        }
+      if (ptypes.empty()) {
+        for (const auto &d: prog_->extDecls)
+          if (d.name.name == arg.callee.name) {
+            for (const auto &p: d.params)
+              ptypes.push_back(p.type);
+            break;
+          }
+      }
+    }
+    for (size_t i = 0; i < arg.args.size(); ++i) {
+      uint32_t pw = 32;
+      bool pf = false;
+      if (i < ptypes.size() && ptypes[i]) {
+        pw = getIntWidth(ptypes[i]);
+        if (pw == 0) {
+          if (std::holds_alternative<FloatType>(ptypes[i]->v)) {
+            auto &ft = std::get<FloatType>(ptypes[i]->v);
+            pw = (ft.kind == FloatType::Kind::F32) ? 32 : 64;
+            pf = true;
+          } else {
+            pw = 32;
+          }
+        }
+      }
+      emitExpr(*arg.args[i], pw, pf);
+    }
+    indent();
+    if (intr) {
+      out_ << "call " << intrinsicHelperName(*intr) << "\n";
+    } else {
+      out_ << "call " << mangleName(arg.callee.name) << "\n";
+    }
+  }
+
+  void WasmBackend::emitPtrFieldAtom(const PtrFieldAtom &arg) {
+
+    uint32_t fieldOffset = 0;
+    auto rvTy = getLValueType(arg.rval);
+    if (rvTy) {
+      if (auto pt = std::get_if<PtrType>(&rvTy->v)) {
+        if (auto st = std::get_if<StructType>(&pt->pointee->v)) {
+          if (structLayouts_.count(st->name.name)) {
+            const auto &sinfo = structLayouts_.at(st->name.name);
+            if (sinfo.fields.count(arg.field)) {
+              fieldOffset = sinfo.fields.at(arg.field).offset;
+            }
+          }
+        }
+      }
+    }
+
+    emitLValue(arg.rval, false);
+    indent();
+    out_ << "local.tee $__ptr_temp\n";
+    indent();
+    out_ << "i32.eqz\n";
+    indent();
+    out_ << "if\n";
+    indent_level_++;
+    indent();
+    out_ << "unreachable\n";
+    indent_level_--;
+    indent();
+    out_ << "end\n";
+
+    if (fieldOffset > 0) {
+      indent();
+      out_ << "local.get $__ptr_temp\n";
+      indent();
+      out_ << "i32.const " << fieldOffset << "\n";
+      indent();
+      out_ << "i32.add\n";
+    } else {
+      indent();
+      out_ << "local.get $__ptr_temp\n";
+    }
+  }
+
+  void WasmBackend::emitUnaryAtom(const UnaryAtom &arg, std::uint32_t targetWidth, bool isFloat) {
+    uint32_t wasmWidth = (targetWidth <= 32 ? 32 : 64);
+
+    emitLValue(arg.rval, false);
+    if (isFloat) {
+      indent();
+      out_ << (targetWidth <= 32 ? "f32.neg\n" : "f64.neg\n");
+    } else {
+      if (locals_.count(arg.rval.base.name)) {
+        std::uint32_t srcWidth = getIntWidth(locals_.at(arg.rval.base.name).refractirType);
+        if (srcWidth <= 32 && targetWidth > 32) {
+          indent();
+          out_ << "i64.extend_i32_s\n";
+        } else if (srcWidth > 32 && targetWidth <= 32) {
+          indent();
+          out_ << "i32.wrap_i64\n";
+        }
+      }
+
+      indent();
+      if (targetWidth <= 32) {
+        out_ << "i32.const -1\n";
+        indent();
+        out_ << "i32.xor\n";
+      } else {
+        out_ << "i64.const -1\n";
+        indent();
+        out_ << "i64.xor\n";
+      }
+      emitSignExtend(targetWidth, wasmWidth);
+    }
+  }
+
+  void WasmBackend::emitAddrAtom(const AddrAtom &arg) {
+
+    // Return the WASM memory address of the lvalue (must be an aggregate/spilled local)
+    emitAddress(arg.lv);
+  }
+
+  void WasmBackend::emitLoadAtom(const LoadAtom &arg, std::uint32_t targetWidth, bool isFloat) {
+
+    // Load through pointer: *ptr
+    // Push ptr twice — first copy stays for the actual load,
+    // second copy is used for the null check.
+    const std::string &pname = arg.rval.base.name;
+    // If pname was address-taken, it lives on the shadow stack rather
+    // than as a WASM local; fetch its value from there.
+    auto emitPushPtr = [&]() {
+      if (locals_.count(pname) && locals_.at(pname).isAggregate) {
+        const auto &pinfo = locals_.at(pname);
+        indent();
+        out_ << "local.get $__old_sp\n";
+        indent();
+        out_ << "i32.const " << pinfo.offset << "\n";
+        indent();
+        out_ << "i32.sub\n";
+        indent();
+        out_ << "i32.load\n";
+      } else {
+        indent();
+        out_ << "local.get " << mangleName(pname) << "\n";
+      }
+    };
+    // Null check: push ptr for null test, then keep first for load
+    emitPushPtr();
+    emitPushPtr();
+    indent();
+    out_ << "i32.eqz\n";
+    indent();
+    out_ << "if\n";
+    indent_level_++;
+    indent();
+    out_ << "unreachable\n";
+    indent_level_--;
+    indent();
+    out_ << "end\n";
+    // stack: [ptr_for_load]; determine pointee type for load instruction
+    uint32_t loadWidth = targetWidth;
+    bool loadIsFloat = isFloat;
+    if (locals_.count(pname)) {
+      const auto &info = locals_.at(pname);
+      if (auto pt = std::get_if<PtrType>(&info.refractirType->v)) {
+        if (auto bits = TypeUtils::getIntBitWidth(pt->pointee)) {
+          loadWidth = *bits;
+          loadIsFloat = false;
+        } else if (pt->pointee && std::holds_alternative<FloatType>(pt->pointee->v)) {
+          loadIsFloat = true;
+          loadWidth = (std::get<FloatType>(pt->pointee->v).kind == FloatType::Kind::F32) ? 32 : 64;
+        }
+      }
+    }
+    indent();
+    if (loadIsFloat) {
+      out_ << (loadWidth <= 32 ? "f32.load\n" : "f64.load\n");
+    } else {
+      out_
+          << (loadWidth <= 8    ? "i32.load8_s\n"
+              : loadWidth <= 16 ? "i32.load16_s\n"
+              : loadWidth <= 32 ? "i32.load\n"
+                                : "i64.load\n");
+    }
+    // Sign-extend if needed
+    if (!loadIsFloat && loadWidth <= 32 && targetWidth > 32) {
+      indent();
+      out_ << "i64.extend_i32_s\n";
+    }
+  }
+
+  void WasmBackend::emitCastAtom(const CastAtom &arg, std::uint32_t targetWidth) {
+    uint32_t wasmWidth = (targetWidth <= 32 ? 32 : 64);
+
+    std::uint32_t srcWidth = 32;
+    bool srcIsFloat = false;
+    std::visit(
+        [&](auto &&src) {
+          using S = std::decay_t<decltype(src)>;
+          if constexpr (std::is_same_v<S, IntLit>) {
+            srcWidth = (src.value > INT32_MAX || src.value < INT32_MIN) ? 64 : 32;
+            indent();
+            out_ << (srcWidth <= 32 ? "i32.const " : "i64.const ") << src.value << "\n";
+          } else if constexpr (std::is_same_v<S, FloatLit>) {
+            srcWidth = 64;
+            srcIsFloat = true;
+            indent();
+            out_ << "f64.const " << formatFloatLit(src.value) << "\n";
+          } else if constexpr (std::is_same_v<S, SymId>) {
+            indent();
+            out_ << "call " << mangleName(getMangledSymbolName(curFuncName_, src.name)) << "\n";
+            srcWidth = 32;
+            if (syms_.count(src.name)) {
+              srcWidth = getIntWidth(syms_.at(src.name));
+              if (std::holds_alternative<FloatType>(syms_.at(src.name)->v)) {
+                srcIsFloat = true;
+                srcWidth = (std::get<FloatType>(syms_.at(src.name)->v).kind == FloatType::Kind::F32)
+                               ? 32
+                               : 64;
+              }
+            }
+          } else {
+            emitLValue(src, false);
+            if (locals_.count(src.base.name)) {
+              auto const &li = locals_.at(src.base.name);
+              // Walk accesses so cast-from-field uses the field's
+              // type, not the base local's (e.g. %s.tag where tag is i64).
+              TypePtr at_type = li.refractirType;
+              for (const auto &acc: src.accesses) {
+                if (std::get_if<AccessIndex>(&acc)) {
+                  if (auto at = std::get_if<ArrayType>(&at_type->v))
+                    at_type = at->elem;
+                  else if (auto vt = std::get_if<VecType>(&at_type->v))
+                    at_type = vt->elem;
+                } else if (auto af = std::get_if<AccessField>(&acc)) {
+                  if (auto st = std::get_if<StructType>(&at_type->v)) {
+                    if (structLayouts_.count(st->name.name) &&
+                        structLayouts_.at(st->name.name).fields.count(af->field))
+                      at_type = structLayouts_.at(st->name.name).fields.at(af->field).type;
+                  }
+                }
+              }
+              if (auto bits = TypeUtils::getIntBitWidth(at_type)) {
+                srcWidth = *bits;
+              } else if (at_type && std::holds_alternative<FloatType>(at_type->v)) {
+                srcIsFloat = true;
+                srcWidth = (std::get<FloatType>(at_type->v).kind == FloatType::Kind::F32) ? 32 : 64;
+              }
+            }
+          }
+        },
+        arg.src
+    );
+
+    bool dstIsFloat = std::holds_alternative<FloatType>(arg.dstType->v);
+    std::uint32_t dstWidth = 32;
+    if (dstIsFloat) {
+      dstWidth = (std::get<FloatType>(arg.dstType->v).kind == FloatType::Kind::F32) ? 32 : 64;
+    } else {
+      dstWidth = getIntWidth(arg.dstType);
+    }
+
+    indent();
+    if (srcIsFloat && dstIsFloat) {
+      if (srcWidth == 32 && dstWidth == 64)
+        out_ << "f64.promote_f32\n";
+      else if (srcWidth == 64 && dstWidth == 32)
+        out_ << "f32.demote_f64\n";
+    } else if (srcIsFloat && !dstIsFloat) {
+      if (dstWidth <= 32)
+        out_ << (srcWidth == 32 ? "i32.trunc_f32_s\n" : "i32.trunc_f64_s\n");
+      else
+        out_ << (srcWidth == 32 ? "i64.trunc_f32_s\n" : "i64.trunc_f64_s\n");
+    } else if (!srcIsFloat && dstIsFloat) {
+      if (srcWidth <= 32)
+        out_ << (dstWidth == 32 ? "f32.convert_i32_s\n" : "f64.convert_i32_s\n");
+      else
+        out_ << (dstWidth == 32 ? "f32.convert_i64_s\n" : "f64.convert_i64_s\n");
+    } else {
+      // BV -> BV
+      // [v0.2.2] Spec §6.4: i1 is signed; widening sign-extends
+      // bit 0.  Emit the i1 sign-extension *first* (in i32
+      // space) so a subsequent i64.extend_i32_s, if any, sees
+      // the already-sign-extended low half.  Otherwise the
+      // shift-pair ends up landing on a 64-bit stack top.
+      if (srcWidth == 1) {
+        emitSignExtend(1, 32);
+      }
+      if (srcWidth <= 32 && (targetWidth > 32 || dstWidth > 32)) {
+        if (wasmWidth == 64) {
+          out_ << "i64.extend_i32_s\n";
+        }
+      } else if (srcWidth > 32 && (targetWidth <= 32 || dstWidth <= 32)) {
+        if (wasmWidth == 32) {
+          out_ << "i32.wrap_i64\n";
+        }
+      }
+    }
+    if (!dstIsFloat && srcWidth != 1)
+      emitSignExtend(targetWidth, wasmWidth);
   }
 
   void WasmBackend::emitCond(const Cond &cond) {

@@ -87,6 +87,22 @@ namespace refractir {
     bool isPtrDiff(const Expr &expr) const;
     void emitPtrDiff(const Expr &expr);
     void emitAtom(const Atom &atom, std::uint32_t targetWidth, bool isFloat = false);
+    // emitAtom dispatches on the Atom variant; each alternative's emission
+    // lives in a dedicated emitXxxAtom helper (src/backend/wasm_expr.cpp).
+    // CoefAtom stays inline; signatures are tailored per branch so no
+    // parameter is unused (wasmWidth is recomputed from targetWidth where
+    // needed).
+    void emitRValueAtom(const RValueAtom &arg, std::uint32_t targetWidth);
+    void emitOpAtom(const OpAtom &arg, std::uint32_t targetWidth, bool isFloat);
+    void emitSelectAtom(const SelectAtom &arg, std::uint32_t targetWidth, bool isFloat);
+    void emitCmpAtom(const CmpAtom &arg, std::uint32_t targetWidth);
+    void emitPtrIndexAtom(const PtrIndexAtom &arg);
+    void emitCallAtom(const CallAtom &arg);
+    void emitPtrFieldAtom(const PtrFieldAtom &arg);
+    void emitUnaryAtom(const UnaryAtom &arg, std::uint32_t targetWidth, bool isFloat);
+    void emitAddrAtom(const AddrAtom &arg);
+    void emitLoadAtom(const LoadAtom &arg, std::uint32_t targetWidth, bool isFloat);
+    void emitCastAtom(const CastAtom &arg, std::uint32_t targetWidth);
     void emitCond(const Cond &cond);
     void emitLValue(const LValue &lv, bool isStore);
     void emitCoef(const Coef &coef, std::uint32_t targetWidth, bool isFloat = false);
@@ -117,6 +133,26 @@ namespace refractir {
     void emitVecAtomLane(
         const Atom &atom, const VecType &vt, std::uint64_t lane, std::uint32_t targetWidth,
         bool isFloat
+    );
+    // Per-Atom-kind lane emission for emitVecAtomLane (src/backend/wasm_vec.cpp);
+    // CoefAtom / RValueAtom stay inline; signatures tailored per branch.
+    void emitVecOpAtomLane(
+        const OpAtom &arg, const VecType &vt, std::uint64_t lane, std::uint32_t targetWidth,
+        bool isFloat
+    );
+    void emitVecSelectAtomLane(
+        const SelectAtom &arg, const VecType &vt, std::uint64_t lane, std::uint32_t targetWidth,
+        bool isFloat
+    );
+    void emitVecUnaryAtomLane(
+        const UnaryAtom &arg, const VecType &vt, std::uint64_t lane, std::uint32_t targetWidth,
+        bool isFloat
+    );
+    void emitVecCastAtomLane(
+        const CastAtom &arg, const VecType &vt, std::uint64_t lane, std::uint32_t targetWidth
+    );
+    void emitVecCmpAtomLane(
+        const CmpAtom &arg, const VecType &vt, std::uint64_t lane, std::uint32_t targetWidth
     );
     void emitVecCoefLane(
         const Coef &coef, const VecType &vt, std::uint64_t lane, std::uint32_t targetWidth,
