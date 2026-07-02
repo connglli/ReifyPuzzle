@@ -44,6 +44,25 @@ It provides a robust foundation for building tools that need to reason about pro
 
 ### Prerequisites
 
+
+We recommend experimenting with RefractIR inside **a docker environment**.
+
+Build the image first:
+
+```bash
+docker build -t refractir:latest --build-arg UID=$(id -u) --build-arg GID=$(id -g) .
+```
+
+Then start the container:
+
+```bash
+docker run -it --rm -v $(pwd):/workspace refractir:latest bash
+```
+
+Once inside, skip the prerequisites below and jump directly to the [Building](#building) section.
+
+To run RefractIR in **a local environment** instead, the following tools are required:
+
 - **C++20** compatible compiler (GCC 10+ or Clang 10+)
 - **Bitwuzla** (Required by default)
   - Install: https://github.com/bitwuzla/bitwuzla
