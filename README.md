@@ -136,6 +136,13 @@ Automatically find values for symbols that satisfy a specific execution path:
 See the **[Puzzle Tooling Guide](./docs/puzzle.md)** for the masking model and
 the validation contract.
 
+#### Run ReifyPuzzle Benchmarks
+First configure your environment variables for your chosen agent in `puzzle/bench/rypuzbench.env`.
+Then run the benchmark suite for example:
+```bash
+python puzzle/bench/run.py -n 3 -o ./benchmark -a opencode -m 'opencode/deepseek-v4-flash-free' --timeout 600 -B 1 -S 5
+```
+
 ### Switching SMT Backends
 
 RefractIR supports multiple SMT solvers via an abstract interface. The following backends are available:
