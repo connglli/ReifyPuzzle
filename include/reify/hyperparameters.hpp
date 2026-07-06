@@ -108,7 +108,7 @@ namespace refractir::reify::rysmith::hp {
   // compiler to chew on. (Pre-restructure this knob was an inline
   // `prob > 0.80` that *did* consume the per-iter budget, so heavy
   // store density starved the assignment count.)
-  inline constexpr double kPStoreBeforeAssign = 0.25;
+  inline constexpr double kPStoreBeforeAssign = 0;
 
   // How many LHS picks `genBlockStmts` tries before giving up on the
   // current `nStmts` slot. The slot can fail to emit an AssignInstr when
