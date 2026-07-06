@@ -174,7 +174,7 @@ static GenerateResult generateLeaf(
     const std::string &genId,
     // [v0.2.2] When true, write the rylink-consumable func_<id>_<i>.json
     // sidecar next to each successful concrete .sir.
-    bool emitDesc, bool emitMain
+    bool emitDesc, bool emitMain, bool noCrc32
 ) {
   // S1: CFG
   GenCFGParams cfgParams;
@@ -319,7 +319,10 @@ static GenerateResult generateLeaf(
         // pre-rewrite `res.retModel` (the solver's sum) is now stale
         // and is dropped from the SOLVED header so the post-rewrite
         // symiri value can take its place below.
-        size_t crcUpdates = rewriteExitToCrc32Checksum(prog, funcName, res.letExitValues);
+        size_t crcUpdates = 0;
+        if (!noCrc32) {
+          crcUpdates = rewriteExitToCrc32Checksum(prog, funcName, res.letExitValues);
+        }
         bool rewriteApplied = crcUpdates > 0;
         if (rewriteApplied)
           res.retModel.reset();
@@ -417,13 +420,17 @@ static GenerateResult generateLeaf(
           crcRetValue = std::move(*captured);
         }
 
-        // Now that we have the CRC32 retValue we can build a faithful
+        std::string expectedRet =
+            !crcRetValue.empty() ? crcRetValue
+                                 : (res.retModel.has_value() ? fmtModelVal(*res.retModel) : "");
+
+        // Now that we have the expected return value we can build a faithful
         // `@main` wrapper that asserts it via `@check_chksum`. This
         // push_back invalidates `entry`, but every read we needed
         // from it has already been snapshotted into paramVals /
         // paramValuesCaptured / symValuesCaptured above.
         if (emitMain && entry) {
-          FunDecl mainFn = buildMainFunction(prog, *entry, paramVals, crcRetValue);
+          FunDecl mainFn = buildMainFunction(prog, *entry, paramVals, expectedRet);
           prog.funs.push_back(std::move(mainFn));
           entry = nullptr; // do not use after realloc
         }
@@ -437,17 +444,15 @@ static GenerateResult generateLeaf(
           // [v0.2.2] SOLVED header (same format as symirsolve --output).
           // Records the synthesised param + ret values so symiri can
           // re-run via `--main @f <file> -- <p0> <p1>` deterministically.
-          if (!res.paramModel.empty() || res.retModel.has_value() || !crcRetValue.empty()) {
+          if (!res.paramModel.empty() || !expectedRet.empty()) {
             ofs << "// SOLVED:";
             bool first = true;
             for (const auto &[name, val]: res.paramModel) {
               ofs << (first ? " " : ", ") << name << "=" << fmtModelVal(val);
               first = false;
             }
-            if (!crcRetValue.empty()) {
-              ofs << (first ? " " : ", ") << "ret=" << crcRetValue;
-            } else if (res.retModel.has_value()) {
-              ofs << (first ? " " : ", ") << "ret=" << fmtModelVal(*res.retModel);
+            if (!expectedRet.empty()) {
+              ofs << (first ? " " : ", ") << "ret=" << expectedRet;
             }
             ofs << "\n";
           }
@@ -466,14 +471,7 @@ static GenerateResult generateLeaf(
         cf.rz.file = concretePath.filename().string();
         cf.rz.paramValues = std::move(paramValuesCaptured);
         cf.rz.symValues = std::move(symValuesCaptured);
-        // Prefer the post-rewrite CRC32 captured from symiri above;
-        // fall back to the solver's pre-rewrite model only when the
-        // rewrite was skipped (e.g. checksum already in CRC32 form or
-        // exit block didn't match the sum pattern).
-        if (!crcRetValue.empty())
-          cf.rz.retValue = crcRetValue;
-        else if (res.retModel.has_value())
-          cf.rz.retValue = fmtModelVal(*res.retModel);
+        cf.rz.retValue = expectedRet;
         produced.push_back(std::move(cf));
         if (emitDesc) {
           std::vector<FuncDescriptor::Realization> realizations;
@@ -536,6 +534,7 @@ int main(int argc, char **argv) {
     ("no-select",         "Disable select ternary expressions")
     ("no-intrinsics",     "Disable intrinsic call generation")
     ("no-ptrarith",       "Disable pointer arithmetics")
+    ("no-crc32",          "Disable CRC32 replacement of the original addition-based checksum")
     // CFG
     ("n-bbls",            "Basic blocks between entry and exit per CFG",
                           cxxopts::value<int>()->default_value("15"))
@@ -715,6 +714,7 @@ int main(int argc, char **argv) {
   bool doValidate = result.count("validate") > 0;
   bool emitMain = result.count("emit-main") > 0;
   bool verbose = result.count("verbose") > 0;
+  bool noCrc32 = result.count("no-crc32") > 0;
   std::string target = result["target"].as<std::string>();
   bool noRequire = !result.count("keep-require");
   std::string vecLoweringOpt = result["vec-lowering"].as<std::string>();
@@ -765,7 +765,8 @@ int main(int argc, char **argv) {
           nBbls, pBranch, pBackedge, maxLoopIter, minLoopIter, fnVarCfg, funcName, nStmts,
           offPathMultiplier, enableInterestCoefs, pLargeCoef, largeCoefThreshold, coefLo, coefHi,
           valueLo, valueHi, indexLo, indexHi, exprCfg, enableIntrinsics, timeoutMs, maxRetries,
-          nInits, outDir, keepSymbolic, verbose, state->rng, funcSeed, genId, emitDesc, emitMain
+          nInits, outDir, keepSymbolic, verbose, state->rng, funcSeed, genId, emitDesc, emitMain,
+          noCrc32
       );
       state->done.store(true, std::memory_order_release);
     });

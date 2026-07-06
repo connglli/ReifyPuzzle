@@ -1909,6 +1909,191 @@ def test_custom_int_widths_generated(rysmith):
   )
 
 
+# ---------------------------------------------------------------------------
+# --no-crc32 tests
+# ---------------------------------------------------------------------------
+
+
+def test_no_crc32_flag_accepted(rysmith):
+  """rysmith --no-crc32 is accepted as a valid CLI flag and runs successfully."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run([rysmith, "--n-funcs", "1", "--no-crc32", "-o", d])
+    check(
+      "rysmith --no-crc32 run exits 0",
+      r.returncode == 0,
+      f"rc={r.returncode}, stderr={r.stderr[:300]!r}",
+    )
+
+
+def test_no_crc32_no_crc32_update_in_sir(rysmith):
+  """When --no-crc32 is specified, the generated SIR file does not contain crc32_update."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run([rysmith, "--n-funcs", "1", "--no-crc32", "-o", d])
+    if r.returncode != 0:
+      check("no-crc32 presence check setup", False, r.stderr[:200])
+      return
+    sirs = [f for f in os.listdir(d) if f.endswith(".sir")]
+    check(
+      "at least one concrete .sir emitted for no-crc32 check", len(sirs) > 0, str(sirs)
+    )
+    if not sirs:
+      return
+    with open(os.path.join(d, sirs[0])) as f:
+      content = f.read()
+    check(
+      "generated SIR does not contain crc32_update when --no-crc32 is specified",
+      "crc32_update" not in content,
+      "crc32_update found in SIR",
+    )
+
+
+def test_no_crc32_emit_main_runs_correctly(rysmith, symiri):
+  """When --no-crc32 and --emit-main are specified, the program runs and validates with symiri."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "1",
+        "--seed",
+        "42",
+        "--n-params",
+        "2",
+        "--emit-main",
+        "--no-crc32",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("no-crc32 main validation setup", False, r.stderr[:200])
+      return
+    sirs = [f for f in os.listdir(d) if f.endswith(".sir")]
+    if not sirs:
+      check("at least one concrete .sir for no-crc32 main validation", False, "no sirs")
+      return
+    sir_path = os.path.join(d, sirs[0])
+
+    # Execute symiri on it directly without entry or parameters!
+    r2 = run([symiri, sir_path])
+    check(
+      "executing no-crc32 @main directly via symiri exits 0 and returns Result: 0",
+      r2.returncode == 0 and "Result: 0" in r2.stdout,
+      f"rc={r2.returncode}, stdout={r2.stdout[:200]!r}, stderr={r2.stderr[:200]!r}",
+    )
+
+
+def test_no_crc32_solved_header_matches_sum(rysmith, symiri):
+  """When --no-crc32 is specified, the SOLVED header matches the return value of symiri."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "1",
+        "--seed",
+        "13",
+        "--n-params",
+        "2",
+        "--no-crc32",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("no-crc32 solved header check setup", False, r.stderr[:200])
+      return
+    gid = extract_id(r.stdout)
+    if gid is None:
+      check("rysmith id discovery for no-crc32 solved header", False, "no id in stdout")
+      return
+    sirs = sorted(
+      f for f in os.listdir(d) if f.startswith(f"func_{gid}_0") and f.endswith(".sir")
+    )
+    if not sirs:
+      check("at least one concrete .sir for no-crc32 replay", False, "no sirs")
+      return
+    sir_path = os.path.join(d, sirs[0])
+    header = open(sir_path).readline().strip()
+    check("no-crc32 first line is // SOLVED:", header.startswith("// SOLVED:"), header)
+    if not header.startswith("// SOLVED:"):
+      return
+    kv = dict(re.findall(r"(%\w+|ret)=(-?\d+(?:\.\d+(?:[eE][-+]?\d+)?)?)", header))
+    pa0 = kv.get("%pa0")
+    pa1 = kv.get("%pa1")
+    ret = kv.get("ret")
+    check(
+      "no-crc32 SOLVED has %pa0, %pa1, ret",
+      pa0 is not None and pa1 is not None and ret is not None,
+      str(kv),
+    )
+    if pa0 is None or pa1 is None:
+      return
+    # Replay through symiri — must produce the same return value.
+    r2 = run([symiri, "--main", f"@func_{gid}_0", sir_path, "--", pa0, pa1])
+    expected = f"Result: {ret.rstrip('.0')}" if ret.endswith(".0") else f"Result: {ret}"
+    ok = r2.returncode == 0 and (f"Result: {ret}" in r2.stdout or expected in r2.stdout)
+    check(
+      f"no-crc32 symiri replay @func_{gid}_0({pa0},{pa1}) -> {ret}",
+      ok,
+      f"rc={r2.returncode}, stdout={r2.stdout[:120]!r}",
+    )
+
+
+def test_no_crc32_descriptor_matches_solved_header(rysmith):
+  """When --no-crc32 is specified, the descriptor json ret matches the SOLVED header ret."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--emit-desc",
+        "--n-funcs",
+        "1",
+        "--seed",
+        "11",
+        "--n-params",
+        "2",
+        "--no-crc32",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("no-crc32 descriptor schema setup", False, r.stderr[:200])
+      return
+    gid = extract_id(r.stdout)
+    if gid is None:
+      check(
+        "rysmith id discovery for no-crc32 descriptor schema", False, "no id in stdout"
+      )
+      return
+    desc = json.load(open(os.path.join(d, f"func_{gid}_0.json")))
+    check(
+      "descriptor realization exists", "realizations" in desc, str(list(desc.keys()))
+    )
+    rzs = desc.get("realizations")
+    if not rzs:
+      return
+    desc_ret = rzs[0].get("ret")
+    sirs = sorted(
+      f for f in os.listdir(d) if f.startswith(f"func_{gid}_0") and f.endswith(".sir")
+    )
+    if not sirs:
+      check(
+        "at least one concrete .sir for no-crc32 descriptor check", False, "no sirs"
+      )
+      return
+    sir_path = os.path.join(d, sirs[0])
+    header = open(sir_path).readline().strip()
+    kv = dict(re.findall(r"(%\w+|ret)=(-?\d+(?:\.\d+(?:[eE][-+]?\d+)?)?)", header))
+    solved_ret = kv.get("ret")
+    check(
+      "descriptor ret matches solved header ret",
+      desc_ret == solved_ret,
+      f"desc={desc_ret} solved={solved_ret}",
+    )
+
+
 def main():
   if len(sys.argv) != 3:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri>")
@@ -2006,6 +2191,16 @@ def main():
   test_ptr_var_arith_generated(rysmith)
   print("=== ptr-arith: --no-ptrarith disables it ===")
   test_no_ptrarith_flag(rysmith)
+  print("=== --no-crc32: CLI flag accepted ===")
+  test_no_crc32_flag_accepted(rysmith)
+  print("=== --no-crc32: no crc32_update in SIR ===")
+  test_no_crc32_no_crc32_update_in_sir(rysmith)
+  print("=== --no-crc32: emit-main runs correctly ===")
+  test_no_crc32_emit_main_runs_correctly(rysmith, symiri)
+  print("=== --no-crc32: solved header matches sum ===")
+  test_no_crc32_solved_header_matches_sum(rysmith, symiri)
+  print("=== --no-crc32: descriptor matches solved header ===")
+  test_no_crc32_descriptor_matches_solved_header(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)
