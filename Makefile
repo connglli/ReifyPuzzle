@@ -13,6 +13,7 @@ ifeq ($(PY),)
 endif
 
 SOLVER ?= bitwuzla
+INSTALL_PREFIX ?= /usr/local
 
 CXXFLAGS = -std=c++20 -Iinclude -Wall -Wextra -O2
 LDFLAGS =
@@ -144,7 +145,7 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                $(SOLVER_CORE_SRCS:.cpp=.o) \
                $(SOLVER_IMPL_OBJ)
 
-.PHONY: all clean test test-unit test-frontend test-interp test-backends test-cross-validation test-solver test-reify cross-validation build
+.PHONY: all clean test test-unit test-frontend test-interp test-backends test-cross-validation test-solver test-reify cross-validation build install
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK)
 
@@ -174,6 +175,14 @@ build: all $(LIB_DIR)/$(LIB_NAME)
 	mkdir -p $(BIN_DIR) $(INC_DIR)
 	cp $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(BIN_DIR)/
 	cp -r include/* $(INC_DIR)/
+
+install: build
+	mkdir -p $(INSTALL_PREFIX)/bin
+	mkdir -p $(INSTALL_PREFIX)/lib
+	mkdir -p $(INSTALL_PREFIX)/include/refractir
+	cp -fp $(BIN_DIR)/* $(INSTALL_PREFIX)/bin/
+	cp -fp $(LIB_DIR)/* $(INSTALL_PREFIX)/lib/
+	cp -rfp $(INC_DIR)/* $(INSTALL_PREFIX)/include/refractir/
 
 $(LIB_DIR)/$(LIB_NAME): $(LIBRARY_OBJS)
 	mkdir -p $(LIB_DIR)
