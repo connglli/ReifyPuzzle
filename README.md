@@ -71,7 +71,7 @@ To run RefractIR in **a local environment** instead, the following tools are req
   - Install: https://github.com/bitwuzla/bitwuzla
 - **Z3** (Optional)
   - Install: https://github.com/Z3Prover/z3
-- **Python 3** (Optional, for the test suite and for running Python-target output)
+- **Python 3** (Optional, for the test suite, running Python-target output, and puzzles)
 - **WASM runtime** (Optional, for running WASM backend tests such as Wasmtime, Wasmer, or Node.js)
 
 ### Building
