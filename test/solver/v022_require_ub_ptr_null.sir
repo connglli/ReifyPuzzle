@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path ^entry --require-ub
+// SKIP: INTERPRETER
+// Under --require-ub, the solver must force %?b to 1 so %p is null and dereferencing triggers UB.
+fun @main() : i32 {
+  sym %?b : value i32;
+  let mut %p: ptr i32 = null;
+  let mut %x: i32 = 42;
+  let mut %r: i32 = 0;
+  let %x_addr: ptr i32 = addr %x;
+^entry:
+  %p = select %?b == 1, null, %x_addr;
+  %r = load %p;
+  ret %r;
+}

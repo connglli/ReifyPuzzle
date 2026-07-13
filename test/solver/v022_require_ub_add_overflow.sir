@@ -1,0 +1,12 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path ^entry --require-ub
+// SKIP: INTERPRETER
+// Under --require-ub, the solver must find %?b that overflows INT32_MAX.
+fun @main() : i32 {
+  sym %?b : value i32;
+  let %a: i32 = 2147483647;
+  let mut %r: i32 = 0;
+^entry:
+  %r = %a + %?b;
+  ret %r;
+}

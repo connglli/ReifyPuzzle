@@ -8,9 +8,9 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::evalExpr(
       const Expr &e, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
-      std::optional<smt::Sort> expectedSort
+      std::vector<smt::Term> &ub, std::optional<smt::Sort> expectedSort
   ) {
-    SymbolicValue res = evalAtom(e.first, solver, store, pc, expectedSort);
+    SymbolicValue res = evalAtom(e.first, solver, store, pc, ub, expectedSort);
     // The typechecker requires the +/- chain to be homogeneous in type. If the
     // caller didn't supply an expected sort, propagate the first atom's sort
     // to subsequent atoms.
@@ -31,7 +31,7 @@ namespace refractir {
       TypePtr rightTy = resolveAtomType(tail.atom);
       bool rhsIsPtr = rightTy && std::holds_alternative<PtrType>(rightTy->v);
 
-      SymbolicValue right = evalAtom(tail.atom, solver, store, pc, chainSort);
+      SymbolicValue right = evalAtom(tail.atom, solver, store, pc, ub, chainSort);
 
       auto lSort = solver.get_sort(res.term);
       auto rSort = solver.get_sort(right.term);
@@ -43,7 +43,7 @@ namespace refractir {
         } else {
           res.term = solver.make_term(smt::Kind::FP_SUB, {rmRNE, res.term, right.term});
         }
-        assertFPFinite(res.term, solver, pc);
+        assertFPFinite(res.term, solver, ub);
       } else if (solver.is_bv_sort(lSort) && solver.is_bv_sort(rSort)) {
         auto lWidth = solver.get_bv_width(lSort);
         auto rWidth = solver.get_bv_width(rSort);
@@ -65,11 +65,11 @@ namespace refractir {
 
         if (tail.op == AddOp::Plus) {
           auto overflow = solver.make_term(smt::Kind::BV_SADD_OVERFLOW, {res.term, right.term});
-          pc.push_back(solver.make_term(smt::Kind::NOT, {overflow}));
+          ub.push_back(solver.make_term(smt::Kind::NOT, {overflow}));
           res.term = solver.make_term(smt::Kind::BV_ADD, {res.term, right.term});
         } else {
           auto overflow = solver.make_term(smt::Kind::BV_SSUB_OVERFLOW, {res.term, right.term});
-          pc.push_back(solver.make_term(smt::Kind::NOT, {overflow}));
+          ub.push_back(solver.make_term(smt::Kind::NOT, {overflow}));
           if (isPtrSub) {
             // Pointer subtraction:
             // 1. Rule 12 dynamic assertion (matching bases, non-zero)
@@ -78,10 +78,10 @@ namespace refractir {
             if (res.prov_base.internal && right.prov_base.internal) {
               auto eqBase = solver.make_term(smt::Kind::EQUAL, {res.prov_base, right.prov_base});
               auto nonZeroBase = solver.make_term(smt::Kind::DISTINCT, {res.prov_base, zero});
-              pc.push_back(solver.make_term(smt::Kind::AND, {eqBase, nonZeroBase}));
+              ub.push_back(solver.make_term(smt::Kind::AND, {eqBase, nonZeroBase}));
             } else {
               // One or both have no provenance, which is UB for ptr subtraction
-              pc.push_back(solver.make_false());
+              ub.push_back(solver.make_false());
             }
 
             // 2. Subtract addresses
@@ -105,8 +105,8 @@ namespace refractir {
         if (isPtrIntArith) {
           if (res.prov_base.internal && res.prov_size.internal) {
             auto end = solver.make_term(smt::Kind::BV_ADD, {res.prov_base, res.prov_size});
-            pc.push_back(solver.make_term(smt::Kind::BV_ULE, {res.prov_base, res.term}));
-            pc.push_back(solver.make_term(smt::Kind::BV_ULE, {res.term, end}));
+            ub.push_back(solver.make_term(smt::Kind::BV_ULE, {res.prov_base, res.term}));
+            ub.push_back(solver.make_term(smt::Kind::BV_ULE, {res.term, end}));
           }
         }
       }
@@ -116,17 +116,17 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::evalAtom(
       const Atom &a, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
-      std::optional<smt::Sort> expectedSort
+      std::vector<smt::Term> &ub, std::optional<smt::Sort> expectedSort
   ) {
     return std::visit(
         [&](auto &&arg) -> SymbolicValue {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, OpAtom>) {
-            return evalOpAtom(arg, solver, store, pc, expectedSort);
+            return evalOpAtom(arg, solver, store, pc, ub, expectedSort);
           } else if constexpr (std::is_same_v<T, UnaryAtom>) {
-            return evalUnaryAtom(arg, solver, store, pc);
+            return evalUnaryAtom(arg, solver, store, pc, ub);
           } else if constexpr (std::is_same_v<T, SelectAtom>) {
-            return evalSelectAtom(arg, solver, store, pc, expectedSort);
+            return evalSelectAtom(arg, solver, store, pc, ub, expectedSort);
           } else if constexpr (std::is_same_v<T, CoefAtom>) {
 
             smt::Term term = evalCoef(arg.coef, solver, store, expectedSort);
@@ -136,22 +136,22 @@ namespace refractir {
 
           } else if constexpr (std::is_same_v<T, RValueAtom>) {
 
-            return evalLValue(arg.rval, solver, store, pc);
+            return evalLValue(arg.rval, solver, store, pc, ub);
 
           } else if constexpr (std::is_same_v<T, CastAtom>) {
-            return evalCastAtom(arg, solver, store, pc);
+            return evalCastAtom(arg, solver, store, pc, ub);
           } else if constexpr (std::is_same_v<T, CmpAtom>) {
-            return evalCmpAtom(arg, solver, store, pc);
+            return evalCmpAtom(arg, solver, store, pc, ub);
           } else if constexpr (std::is_same_v<T, AddrAtom>) {
             return evalAddrAtom(arg, solver, store);
           } else if constexpr (std::is_same_v<T, PtrIndexAtom>) {
-            return evalPtrIndexAtom(arg, solver, store, pc);
+            return evalPtrIndexAtom(arg, solver, store, pc, ub);
           } else if constexpr (std::is_same_v<T, PtrFieldAtom>) {
-            return evalPtrFieldAtom(arg, solver, store, pc);
+            return evalPtrFieldAtom(arg, solver, store, pc, ub);
           } else if constexpr (std::is_same_v<T, LoadAtom>) {
-            return evalLoadAtom(arg, solver, store, pc);
+            return evalLoadAtom(arg, solver, store, pc, ub);
           } else if constexpr (std::is_same_v<T, CallAtom>) {
-            return evalCallAtom(arg, solver, store, pc);
+            return evalCallAtom(arg, solver, store, pc, ub);
           }
           return SymbolicValue(SymbolicValue::Kind::Undef);
         },
@@ -161,10 +161,10 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::evalOpAtom(
       const OpAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
-      std::optional<smt::Sort> expectedSort
+      std::vector<smt::Term> &ub, std::optional<smt::Sort> expectedSort
   ) {
 
-    smt::Term r = evalLValue(arg.rval, solver, store, pc).term;
+    smt::Term r = evalLValue(arg.rval, solver, store, pc, ub).term;
     auto rSort = solver.get_sort(r);
     smt::Term c = evalCoef(arg.coef, solver, store, expectedSort.value_or(rSort));
     auto cSort = solver.get_sort(c);
@@ -188,7 +188,7 @@ namespace refractir {
         fpRes = solver.make_term(smt::Kind::FP_SUB, {rmRNE, c, prod});
       } else
         return {};
-      assertFPFinite(fpRes, solver, pc);
+      assertFPFinite(fpRes, solver, ub);
       return SymbolicValue(SymbolicValue::Kind::Int, fpRes, solver.make_true());
     }
 
@@ -206,11 +206,11 @@ namespace refractir {
 
     if (arg.op == AtomOpKind::Div || arg.op == AtomOpKind::Mod) {
       auto zero = solver.make_bv_zero(solver.get_sort(r));
-      pc.push_back(solver.make_term(smt::Kind::DISTINCT, {r, zero}));
+      ub.push_back(solver.make_term(smt::Kind::DISTINCT, {r, zero}));
     }
     if (arg.op == AtomOpKind::Mul) {
       auto overflow = solver.make_term(smt::Kind::BV_SMUL_OVERFLOW, {c, r});
-      pc.push_back(solver.make_term(smt::Kind::NOT, {overflow}));
+      ub.push_back(solver.make_term(smt::Kind::NOT, {overflow}));
       return SymbolicValue(
           SymbolicValue::Kind::Int, solver.make_term(smt::Kind::BV_MUL, {c, r}), solver.make_true()
       );
@@ -222,7 +222,7 @@ namespace refractir {
       auto is_min = solver.make_term(smt::Kind::EQUAL, {c, min_signed});
       auto is_minus_one = solver.make_term(smt::Kind::EQUAL, {r, minus_one});
       auto div_overflow = solver.make_term(smt::Kind::AND, {is_min, is_minus_one});
-      pc.push_back(solver.make_term(smt::Kind::NOT, {div_overflow}));
+      ub.push_back(solver.make_term(smt::Kind::NOT, {div_overflow}));
       return SymbolicValue(
           SymbolicValue::Kind::Int, solver.make_term(smt::Kind::BV_SDIV, {c, r}), solver.make_true()
       );
@@ -234,7 +234,7 @@ namespace refractir {
       auto is_min = solver.make_term(smt::Kind::EQUAL, {c, min_signed});
       auto is_minus_one = solver.make_term(smt::Kind::EQUAL, {r, minus_one});
       auto mod_overflow = solver.make_term(smt::Kind::AND, {is_min, is_minus_one});
-      pc.push_back(solver.make_term(smt::Kind::NOT, {mod_overflow}));
+      ub.push_back(solver.make_term(smt::Kind::NOT, {mod_overflow}));
       return SymbolicValue(
           SymbolicValue::Kind::Int, solver.make_term(smt::Kind::BV_SREM, {c, r}), solver.make_true()
       );
@@ -262,8 +262,8 @@ namespace refractir {
       uint32_t width = solver.get_bv_width(solver.get_sort(c));
       auto width_term = solver.make_bv_value(solver.get_sort(r), std::to_string(width), 10);
       auto zero = solver.make_bv_zero(solver.get_sort(r));
-      pc.push_back(solver.make_term(smt::Kind::BV_SLE, {zero, r}));
-      pc.push_back(solver.make_term(smt::Kind::BV_ULT, {r, width_term}));
+      ub.push_back(solver.make_term(smt::Kind::BV_SLE, {zero, r}));
+      ub.push_back(solver.make_term(smt::Kind::BV_ULT, {r, width_term}));
 
       if (arg.op == AtomOpKind::Shl) {
         // SPEC §7.1 rule 4: SHL on a negative operand is UB, and
@@ -272,10 +272,10 @@ namespace refractir {
         // also require `c >= 0` to catch `-1 << 1` which the
         // overflow check otherwise accepts (ashr-shl round-trips
         // on `-1` since the sign bit dominates).
-        pc.push_back(solver.make_term(smt::Kind::BV_SLE, {zero, c}));
+        ub.push_back(solver.make_term(smt::Kind::BV_SLE, {zero, c}));
         auto shifted = solver.make_term(smt::Kind::BV_SHL, {c, r});
         auto unshifted = solver.make_term(smt::Kind::BV_ASHR, {shifted, r});
-        pc.push_back(solver.make_term(smt::Kind::EQUAL, {unshifted, c}));
+        ub.push_back(solver.make_term(smt::Kind::EQUAL, {unshifted, c}));
         return SymbolicValue(SymbolicValue::Kind::Int, shifted, solver.make_true());
       }
       if (arg.op == AtomOpKind::Shr)
@@ -295,10 +295,11 @@ namespace refractir {
   }
 
   SymbolicValue SymbolicExecutor::evalUnaryAtom(
-      const UnaryAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+      const UnaryAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
+      std::vector<smt::Term> &ub
   ) {
 
-    auto r = evalLValue(arg.rval, solver, store, pc).term;
+    auto r = evalLValue(arg.rval, solver, store, pc, ub).term;
     if (arg.op == UnaryOpKind::Not) {
       return SymbolicValue(
           SymbolicValue::Kind::Int, solver.make_term(smt::Kind::BV_NOT, {r}), solver.make_true()
@@ -311,7 +312,7 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::evalSelectAtom(
       const SelectAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
-      std::optional<smt::Sort> expectedSort
+      std::vector<smt::Term> &ub, std::optional<smt::Sort> expectedSort
   ) {
 
     // Two forms: cond form (relational predicate) or mask form
@@ -319,9 +320,9 @@ namespace refractir {
     // vector path).
     smt::Term cond;
     if (arg.cond) {
-      cond = evalCond(*arg.cond, solver, store, pc);
+      cond = evalCond(*arg.cond, solver, store, pc, ub);
     } else if (arg.maskExpr) {
-      SymbolicValue m = evalExpr(*arg.maskExpr, solver, store, pc);
+      SymbolicValue m = evalExpr(*arg.maskExpr, solver, store, pc, ub);
       auto mSort = solver.get_sort(m.term);
       if (solver.is_fp_sort(mSort))
         throw std::runtime_error("scalar select: mask must be integral");
@@ -334,14 +335,18 @@ namespace refractir {
     // constraints participate in the path condition. Evaluate
     // each arm into a private constraint list, then gate them
     // with the appropriate side of `cond` before pushing to pc.
-    std::vector<smt::Term> tPc, fPc;
-    SymbolicValue vt = evalSelectVal(arg.vtrue, solver, store, tPc, expectedSort);
-    SymbolicValue vf = evalSelectVal(arg.vfalse, solver, store, fPc, expectedSort);
+    std::vector<smt::Term> tPc, tUb, fPc, fUb;
+    SymbolicValue vt = evalSelectVal(arg.vtrue, solver, store, tPc, tUb, expectedSort);
+    SymbolicValue vf = evalSelectVal(arg.vfalse, solver, store, fPc, fUb, expectedSort);
     auto notCond = solver.make_term(smt::Kind::NOT, {cond});
     for (auto &t: tPc)
       pc.push_back(solver.make_term(smt::Kind::IMPLIES, {cond, t}));
+    for (auto &u: tUb)
+      ub.push_back(solver.make_term(smt::Kind::IMPLIES, {cond, u}));
     for (auto &t: fPc)
       pc.push_back(solver.make_term(smt::Kind::IMPLIES, {notCond, t}));
+    for (auto &u: fUb)
+      ub.push_back(solver.make_term(smt::Kind::IMPLIES, {notCond, u}));
 
     return muxSymbolicValue(cond, vt, vf, solver);
 
@@ -349,7 +354,8 @@ namespace refractir {
   }
 
   SymbolicValue SymbolicExecutor::evalCastAtom(
-      const CastAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+      const CastAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
+      std::vector<smt::Term> &ub
   ) {
 
     smt::Term src = std::visit(
@@ -365,7 +371,7 @@ namespace refractir {
           } else if constexpr (std::is_same_v<S, SymId>) {
             return store.at(s.name).term;
           } else {
-            return evalLValue(s, solver, store, pc).term;
+            return evalLValue(s, solver, store, pc, ub).term;
           }
         },
         arg.src
@@ -379,25 +385,25 @@ namespace refractir {
     if (srcIsFp && !dstIsFp) { // FP -> BV (spec §7.4 rule 8: range check)
       uint32_t width = solver.get_bv_width(dstSort);
       auto srcSort = solver.get_sort(src);
-      assertFPFinite(src, solver, pc);
+      assertFPFinite(src, solver, ub);
       double lo = -std::ldexp(1.0, static_cast<int>(width) - 1);
       double hi = std::ldexp(1.0, static_cast<int>(width) - 1);
       auto loFp = solver.make_fp_value_from_real(srcSort, lo, smt::RoundingMode::RNE);
       auto hiFp = solver.make_fp_value_from_real(srcSort, hi, smt::RoundingMode::RNE);
-      pc.push_back(solver.make_term(smt::Kind::FP_GEQ, {src, loFp}));
-      pc.push_back(solver.make_term(smt::Kind::FP_LT, {src, hiFp}));
+      ub.push_back(solver.make_term(smt::Kind::FP_GEQ, {src, loFp}));
+      ub.push_back(solver.make_term(smt::Kind::FP_LT, {src, hiFp}));
       auto rmRTZ = solver.make_rm_value(smt::RoundingMode::RTZ);
       casted = solver.make_term(smt::Kind::FP_TO_SBV, {rmRTZ, src}, {width});
     } else if (!srcIsFp && dstIsFp) { // BV -> FP
       auto [exp, sig] = solver.get_fp_dims(dstSort);
       auto rmRNE = solver.make_rm_value(smt::RoundingMode::RNE);
       casted = solver.make_term(smt::Kind::FP_TO_FP_FROM_SBV, {rmRNE, src}, {exp, sig});
-      assertFPFinite(casted, solver, pc);
+      assertFPFinite(casted, solver, ub);
     } else if (srcIsFp && dstIsFp) { // FP -> FP
       auto [exp, sig] = solver.get_fp_dims(dstSort);
       auto rmRNE = solver.make_rm_value(smt::RoundingMode::RNE);
       casted = solver.make_term(smt::Kind::FP_TO_FP_FROM_FP, {rmRNE, src}, {exp, sig});
-      assertFPFinite(casted, solver, pc);
+      assertFPFinite(casted, solver, ub);
     } else {
       // BV -> BV resizing
       uint32_t srcWidth = solver.get_bv_width(solver.get_sort(src));
@@ -416,19 +422,20 @@ namespace refractir {
   }
 
   SymbolicValue SymbolicExecutor::evalCmpAtom(
-      const CmpAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+      const CmpAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
+      std::vector<smt::Term> &ub
   ) {
 
     auto getOperandSort = [&]() -> std::optional<smt::Sort> {
       if (auto rv = std::get_if<RValue>(&arg.lhs))
-        return solver.get_sort(evalLValue(*rv, solver, store, pc).term);
+        return solver.get_sort(evalLValue(*rv, solver, store, pc, ub).term);
       if (auto rv = std::get_if<RValue>(&arg.rhs))
-        return solver.get_sort(evalLValue(*rv, solver, store, pc).term);
+        return solver.get_sort(evalLValue(*rv, solver, store, pc, ub).term);
       return std::nullopt;
     };
     auto opSort = getOperandSort();
     auto loadOperand = [&](const SelectVal &sv) -> SymbolicValue {
-      return evalSelectVal(sv, solver, store, pc, opSort);
+      return evalSelectVal(sv, solver, store, pc, ub, opSort);
     };
 
     SymbolicValue lVal = loadOperand(arg.lhs);
@@ -446,9 +453,9 @@ namespace refractir {
         if (lVal.prov_base.internal && rVal.prov_base.internal) {
           auto eqBase = solver.make_term(smt::Kind::EQUAL, {lVal.prov_base, rVal.prov_base});
           auto nonZeroBase = solver.make_term(smt::Kind::DISTINCT, {lVal.prov_base, zero});
-          pc.push_back(solver.make_term(smt::Kind::AND, {eqBase, nonZeroBase}));
+          ub.push_back(solver.make_term(smt::Kind::AND, {eqBase, nonZeroBase}));
         } else {
-          pc.push_back(solver.make_false());
+          ub.push_back(solver.make_false());
         }
       }
     }
@@ -578,19 +585,19 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::evalPtrIndexAtom(
       const PtrIndexAtom &arg, smt::ISolver &solver, SymbolicStore &store,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
   ) {
 
     auto bv64 = solver.make_bv_sort(kPtrBits);
-    SymbolicValue ptrVal = evalLValue(arg.rval, solver, store, pc);
+    SymbolicValue ptrVal = evalLValue(arg.rval, solver, store, pc, ub);
     smt::Term ptrTerm = ptrVal.term;
 
     auto nullTerm = solver.make_bv_value_int64(bv64, 0);
-    pc.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullTerm}));
+    ub.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullTerm}));
 
     if (ptrVal.prov_base.internal && ptrVal.prov_size.internal) {
       auto endAddr = solver.make_term(smt::Kind::BV_ADD, {ptrVal.prov_base, ptrVal.prov_size});
-      pc.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, endAddr}));
+      ub.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, endAddr}));
     }
 
     smt::Term idxT;
@@ -622,8 +629,8 @@ namespace refractir {
     if (arrSize > 0) {
       auto zero = solver.make_bv_value_int64(bv64, 0);
       auto N = solver.make_bv_value_int64(bv64, static_cast<int64_t>(arrSize));
-      pc.push_back(solver.make_term(smt::Kind::BV_SLE, {zero, idxT}));
-      pc.push_back(solver.make_term(smt::Kind::BV_SLE, {idxT, N}));
+      ub.push_back(solver.make_term(smt::Kind::BV_SLE, {zero, idxT}));
+      ub.push_back(solver.make_term(smt::Kind::BV_SLE, {idxT, N}));
     }
 
     if (elemUnits != 1) {
@@ -644,21 +651,21 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::evalPtrFieldAtom(
       const PtrFieldAtom &arg, smt::ISolver &solver, SymbolicStore &store,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
   ) {
 
     if (!currentFun_)
       throw std::runtime_error("ptrfield encountered without active FunDecl");
     auto bv64 = solver.make_bv_sort(kPtrBits);
-    SymbolicValue ptrVal = evalLValue(arg.rval, solver, store, pc);
+    SymbolicValue ptrVal = evalLValue(arg.rval, solver, store, pc, ub);
     smt::Term ptrTerm = ptrVal.term;
 
     auto nullTerm = solver.make_bv_value_int64(bv64, 0);
-    pc.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullTerm}));
+    ub.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullTerm}));
 
     if (ptrVal.prov_base.internal && ptrVal.prov_size.internal) {
       auto endAddr = solver.make_term(smt::Kind::BV_ADD, {ptrVal.prov_base, ptrVal.prov_size});
-      pc.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, endAddr}));
+      ub.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, endAddr}));
     }
 
     TypePtr cur = resolveLValueType(arg.rval);
@@ -703,13 +710,14 @@ namespace refractir {
   }
 
   SymbolicValue SymbolicExecutor::evalLoadAtom(
-      const LoadAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+      const LoadAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
+      std::vector<smt::Term> &ub
   ) {
 
     if (!currentFun_)
       throw std::runtime_error("load encountered without active FunDecl");
 
-    SymbolicValue ptrVal = evalLValue(arg.rval, solver, store, pc);
+    SymbolicValue ptrVal = evalLValue(arg.rval, solver, store, pc, ub);
     smt::Term ptrTerm = ptrVal.term;
 
     const TypePtr baseType = resolveLValueType(arg.rval);
@@ -738,7 +746,7 @@ namespace refractir {
           smt::Kind::IMPLIES,
           {hasProv, solver.make_term(smt::Kind::AND, {inBoundsLower, inBoundsUpper})}
       );
-      pc.push_back(cond);
+      ub.push_back(cond);
     }
 
     smt::Term res_prov_base = zero;
@@ -808,12 +816,12 @@ namespace refractir {
       }
     }
     auto nullPtr = solver.make_bv_value_int64(bv64, 0);
-    pc.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullPtr}));
+    ub.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullPtr}));
     if (!matchConds.empty()) {
       smt::Term anyMatch = matchConds[0];
       for (size_t i = 1; i < matchConds.size(); ++i)
         anyMatch = solver.make_term(smt::Kind::OR, {anyMatch, matchConds[i]});
-      pc.push_back(anyMatch);
+      ub.push_back(anyMatch);
     }
     return SymbolicValue(
         SymbolicValue::Kind::Int, result, res_is_defined, res_prov_base, res_prov_size
@@ -823,7 +831,8 @@ namespace refractir {
   }
 
   SymbolicValue SymbolicExecutor::evalCallAtom(
-      const CallAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+      const CallAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
+      std::vector<smt::Term> &ub
   ) {
 
     // [v0.2.2] Phase 4 handles intrinsic calls only. Fun/decl
@@ -842,7 +851,7 @@ namespace refractir {
       std::optional<smt::Sort> expected;
       if (arg.resolvedIntrinsic && k < arg.resolvedIntrinsic->params.size())
         expected = getSort(arg.resolvedIntrinsic->params[k].type, solver);
-      argVals.push_back(evalExpr(*arg.args[k], solver, store, pc, expected));
+      argVals.push_back(evalExpr(*arg.args[k], solver, store, pc, ub, expected));
     }
     // [v0.2.2] Honour the overload pinned by the type checker
     // when available. The width-comparison fallback below is
@@ -877,7 +886,7 @@ namespace refractir {
       // on caller-side `let mut` targets per SPEC §9.6.1 step 4.
       for (const auto &f: prog_.funs)
         if (f.name.name == arg.callee.name) {
-          return callFunction(f, std::move(argVals), solver, pc, currentFun_, &store);
+          return callFunction(f, std::move(argVals), solver, pc, ub, currentFun_, &store);
         }
       // [v0.2.2 Phase 8] Contract-form `decl` target.
       for (const auto &d: prog_.extDecls)
@@ -886,14 +895,14 @@ namespace refractir {
             throw std::runtime_error(
                 "Solver: link-form `decl` has no body and no contract: " + arg.callee.name
             );
-          return callContract(d, arg.args, std::move(argVals), solver, store, pc);
+          return callContract(d, arg.args, std::move(argVals), solver, store, pc, ub);
         }
       throw std::runtime_error("Solver: call target not found: " + arg.callee.name);
     }
     // [v0.2.2] Delegate to the dedicated intrinsics module so
     // all solver-side intrinsic SMT lowering lives in one place.
     // See src/solver/intrinsics.cpp.
-    return callBuiltinIntrinsicSMT(*intr, argVals, solver, pc);
+    return callBuiltinIntrinsicSMT(*intr, argVals, solver, pc, ub);
 
     return SymbolicValue(SymbolicValue::Kind::Undef);
   }
@@ -920,20 +929,21 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::evalSelectVal(
       const SelectVal &sv, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
-      std::optional<smt::Sort> expectedSort
+      std::vector<smt::Term> &ub, std::optional<smt::Sort> expectedSort
   ) {
     if (auto rv = std::get_if<RValue>(&sv))
-      return evalLValue(*rv, solver, store, pc);
+      return evalLValue(*rv, solver, store, pc, ub);
     smt::Term t = evalCoef(std::get<Coef>(sv), solver, store, expectedSort);
     return SymbolicValue(SymbolicValue::Kind::Int, t, solver.make_true());
   }
 
   smt::Term SymbolicExecutor::evalCond(
-      const Cond &c, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+      const Cond &c, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
+      std::vector<smt::Term> &ub
   ) {
-    SymbolicValue lhsVal = evalExpr(c.lhs, solver, store, pc);
+    SymbolicValue lhsVal = evalExpr(c.lhs, solver, store, pc, ub);
     smt::Term lhs = lhsVal.term;
-    SymbolicValue rhsVal = evalExpr(c.rhs, solver, store, pc, solver.get_sort(lhs));
+    SymbolicValue rhsVal = evalExpr(c.rhs, solver, store, pc, ub, solver.get_sort(lhs));
     smt::Term rhs = rhsVal.term;
 
     // [v0.2.1] Dynamic Rule 14 Relational Comparison check
@@ -949,9 +959,9 @@ namespace refractir {
       if (lhsVal.prov_base.internal && rhsVal.prov_base.internal) {
         auto eqBase = solver.make_term(smt::Kind::EQUAL, {lhsVal.prov_base, rhsVal.prov_base});
         auto nonZeroBase = solver.make_term(smt::Kind::DISTINCT, {lhsVal.prov_base, zero});
-        pc.push_back(solver.make_term(smt::Kind::AND, {eqBase, nonZeroBase}));
+        ub.push_back(solver.make_term(smt::Kind::AND, {eqBase, nonZeroBase}));
       } else {
-        pc.push_back(solver.make_false());
+        ub.push_back(solver.make_false());
       }
     }
 

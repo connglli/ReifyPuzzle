@@ -130,11 +130,11 @@ namespace refractir {
 
   // Assert that a floating-point term is finite (not +/-inf, not NaN) by
   // pushing the guards onto the path condition.
-  inline void assertFPFinite(smt::Term t, smt::ISolver &solver, std::vector<smt::Term> &pc) {
+  inline void assertFPFinite(smt::Term t, smt::ISolver &solver, std::vector<smt::Term> &ub) {
     auto notInf = solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::FP_IS_INF, {t})});
     auto notNaN = solver.make_term(smt::Kind::NOT, {solver.make_term(smt::Kind::FP_IS_NAN, {t})});
-    pc.push_back(notInf);
-    pc.push_back(notNaN);
+    ub.push_back(notInf);
+    ub.push_back(notNaN);
   }
 
 } // namespace refractir

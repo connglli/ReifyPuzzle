@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path ^entry --require-ub
+// SKIP: INTERPRETER
+// Under --require-ub, the solver must find a value of %?b that triggers a division by zero (i.e. %?b = 0).
+fun @main() : i32 {
+  sym %?b : value i32;
+  let %a: i32 = 10;
+  let mut %b_local: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %b_local = %?b;
+  %r = %a / %b_local;
+  ret %r;
+}

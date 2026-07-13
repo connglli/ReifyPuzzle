@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path ^entry --require-ub
+// SKIP: INTERPRETER
+// Under --require-ub, the solver must find %?b that triggers shift-out-of-range UB (e.g. %?b >= 32).
+fun @main() : i32 {
+  sym %?b : value i32;
+  let mut %v: <4> i32 = {1, 2, 3, 4};
+  let mut %b_vec: <4> i32 = {0, 0, 0, 0};
+^entry:
+  %b_vec[0] = %?b;
+  %b_vec[1] = %?b;
+  %b_vec[2] = %?b;
+  %b_vec[3] = %?b;
+  %v = %v << %b_vec;
+  ret 0;
+}

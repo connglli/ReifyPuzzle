@@ -1,0 +1,15 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @main --path ^entry --require-ub
+// SKIP: INTERPRETER
+// Since %?b is constrained to [5, 10], it can never trigger div-by-zero or signed overflow.
+// Therefore, under --require-ub, no solution is possible -> UNSAT.
+fun @main() : i32 {
+  sym %?b : value i32 in [5, 10];
+  let %a: i32 = 10;
+  let mut %b_local: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %b_local = %?b;
+  %r = %a / %b_local;
+  ret %r;
+}

@@ -27,13 +27,15 @@ namespace refractir {
 
   void SymbolicExecutor::execInstr(
       const Instr &ins, smt::ISolver &solver, SymbolicStore &store,
-      std::vector<smt::Term> &pathConstraints, std::vector<smt::Term> &requirements
+      std::vector<smt::Term> &pathConstraints, std::vector<smt::Term> &ubGuards,
+      std::vector<smt::Term> &requirements
   ) {
     std::visit(
         [&](auto &&arg) {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, AssignInstr>) {
-            auto lhsVal = evalLValue(arg.lhs, solver, store, pathConstraints, /*forWrite=*/true);
+            auto lhsVal =
+                evalLValue(arg.lhs, solver, store, pathConstraints, ubGuards, /*forWrite=*/true);
             // [v0.2.1] Vector LHS: evaluate RHS as a SymbolicValue::Vec.
             if (lhsVal.kind == SymbolicValue::Kind::Vec && arg.lhs.accesses.empty()) {
               // Find the LHS local's declared VecType.
@@ -53,18 +55,19 @@ namespace refractir {
               }
               if (lhsType && std::holds_alternative<VecType>(lhsType->v)) {
                 auto &vt = std::get<VecType>(lhsType->v);
-                SymbolicValue rhsV = evalVecExpr(arg.rhs, vt, solver, store, pathConstraints);
-                setLValue(arg.lhs, rhsV, solver, store, pathConstraints);
+                SymbolicValue rhsV =
+                    evalVecExpr(arg.rhs, vt, solver, store, pathConstraints, ubGuards);
+                setLValue(arg.lhs, rhsV, solver, store, pathConstraints, ubGuards);
                 return;
               }
             }
             auto rhs = evalExpr(
-                arg.rhs, solver, store, pathConstraints,
+                arg.rhs, solver, store, pathConstraints, ubGuards,
                 lhsVal.kind == SymbolicValue::Kind::Int
                     ? std::optional(solver.get_sort(lhsVal.term))
                     : std::nullopt
             );
-            setLValue(arg.lhs, rhs, solver, store, pathConstraints);
+            setLValue(arg.lhs, rhs, solver, store, pathConstraints, ubGuards);
             // [v0.2.1] Track ptr provenance for cross-object and one-
             // past-end UB checks. The LHS is either a whole-local ptr
             // or a ptr-typed struct field path (`%s.p1`); we mirror
@@ -217,9 +220,9 @@ namespace refractir {
               }
             }
           } else if constexpr (std::is_same_v<T, AssumeInstr>) {
-            pathConstraints.push_back(evalCond(arg.cond, solver, store, pathConstraints));
+            pathConstraints.push_back(evalCond(arg.cond, solver, store, pathConstraints, ubGuards));
           } else if constexpr (std::is_same_v<T, RequireInstr>) {
-            requirements.push_back(evalCond(arg.cond, solver, store, pathConstraints));
+            requirements.push_back(evalCond(arg.cond, solver, store, pathConstraints, ubGuards));
           } else if constexpr (std::is_same_v<T, StoreInstr>) {
             // store %p, %v — mux-update every candidate target's value:
             //   for each %t of pointee type: %t := ite(p == tag_t, v, %t)
@@ -227,7 +230,7 @@ namespace refractir {
               throw std::runtime_error("store encountered without active FunDecl");
 
             // Evaluate ptr term (BV64) and stored value term.
-            SymbolicValue ptrVal = evalExpr(arg.ptr, solver, store, pathConstraints);
+            SymbolicValue ptrVal = evalExpr(arg.ptr, solver, store, pathConstraints, ubGuards);
             smt::Term ptrTerm = ptrVal.term;
 
             // [v0.2.1] Rule 9/11: store through null or OOB is UB.
@@ -236,7 +239,7 @@ namespace refractir {
             // where %pa was set earlier still needs a null check.
             auto bv64Store = solver.make_bv_sort(kPtrBits);
             auto nullStore = solver.make_bv_value_int64(bv64Store, 0);
-            pathConstraints.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullStore}));
+            ubGuards.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullStore}));
 
             if (ptrVal.prov_base.internal && ptrVal.prov_size.internal) {
               auto zero = solver.make_bv_value_int64(bv64Store, 0);
@@ -249,7 +252,7 @@ namespace refractir {
                   smt::Kind::IMPLIES,
                   {hasProv, solver.make_term(smt::Kind::AND, {inBoundsLower, inBoundsUpper})}
               );
-              pathConstraints.push_back(cond);
+              ubGuards.push_back(cond);
             }
 
             // Determine pointee type from the ptr expression's first atom.
@@ -269,8 +272,9 @@ namespace refractir {
               );
 
             auto pointeeSort = getSort(pointeeType, solver);
-            SymbolicValue valVal =
-                evalExpr(arg.val, solver, store, pathConstraints, std::optional(pointeeSort));
+            SymbolicValue valVal = evalExpr(
+                arg.val, solver, store, pathConstraints, ubGuards, std::optional(pointeeSort)
+            );
             smt::Term valTerm = valVal.term;
 
             auto bv64 = solver.make_bv_sort(kPtrBits);
@@ -346,7 +350,7 @@ namespace refractir {
               smt::Term anyMatch = storeMatchConds[0];
               for (size_t j = 1; j < storeMatchConds.size(); ++j)
                 anyMatch = solver.make_term(smt::Kind::OR, {anyMatch, storeMatchConds[j]});
-              pathConstraints.push_back(anyMatch);
+              ubGuards.push_back(anyMatch);
             }
           }
         },
@@ -385,6 +389,7 @@ namespace refractir {
 
     SymbolicStore store;
     std::vector<smt::Term> pathConstraints;
+    std::vector<smt::Term> ubGuards;
     std::vector<smt::Term> requirements;
 
     // [v0.2.2 Phase 6] Make `requirements` reachable from nested callees.
@@ -513,7 +518,7 @@ namespace refractir {
     }
     for (const auto &l: entry->lets) {
       if (l.init) {
-        store[l.name.name] = evalInit(*l.init, l.type, solver, store, pathConstraints);
+        store[l.name.name] = evalInit(*l.init, l.type, solver, store, pathConstraints, ubGuards);
       } else {
         store[l.name.name] = makeUndef(l.type, solver);
       }
@@ -534,7 +539,7 @@ namespace refractir {
       const Block &block = entry->blocks[cfg.indexOf.at(label)];
 
       for (const auto &ins: block.instrs) {
-        execInstr(ins, solver, store, pathConstraints, requirements);
+        execInstr(ins, solver, store, pathConstraints, ubGuards, requirements);
       }
 
       // Evaluate the terminator. For a conditional br on a non-final block
@@ -548,7 +553,7 @@ namespace refractir {
             using T = std::decay_t<decltype(term)>;
             if constexpr (std::is_same_v<T, BrTerm>) {
               if (term.isConditional) {
-                auto cond = evalCond(*term.cond, solver, store, pathConstraints);
+                auto cond = evalCond(*term.cond, solver, store, pathConstraints, ubGuards);
                 if (nextLabel) {
                   if (term.thenLabel.name == *nextLabel) {
                     pathConstraints.push_back(cond);
@@ -577,7 +582,7 @@ namespace refractir {
               // caller of this lambda) so the SOLVED header can extract
               // its model value.
               if (term.value) {
-                retTermLocal = evalExpr(*term.value, solver, store, pathConstraints).term;
+                retTermLocal = evalExpr(*term.value, solver, store, pathConstraints, ubGuards).term;
               }
             } else {
               if (nextLabel)
@@ -595,6 +600,22 @@ namespace refractir {
       solver.assert_formula(c);
     for (auto r: requirements)
       solver.assert_formula(r);
+
+    if (config_.mode == SolvingMode::UBFree) {
+      for (auto g: ubGuards)
+        solver.assert_formula(g);
+    } else if (config_.mode == SolvingMode::RequireUB) {
+      if (!ubGuards.empty()) {
+        smt::Term allSafe = ubGuards[0];
+        for (size_t i = 1; i < ubGuards.size(); ++i) {
+          allSafe = solver.make_term(smt::Kind::AND, {allSafe, ubGuards[i]});
+        }
+        solver.assert_formula(solver.make_term(smt::Kind::NOT, {allSafe}));
+      } else {
+        // No UB guards possible on this path — force UNSAT
+        solver.assert_formula(solver.make_false());
+      }
+    }
 
     smt::Result res = solver.check_sat();
     Result finalRes;

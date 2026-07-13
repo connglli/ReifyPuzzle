@@ -22,7 +22,8 @@ namespace refractir {
   // `Mem[T]` reflect callee stores.
   SymbolicValue SymbolicExecutor::callFunction(
       const FunDecl &callee, std::vector<SymbolicValue> args, smt::ISolver &solver,
-      std::vector<smt::Term> &pc, const FunDecl *callerFun, SymbolicStore *callerStore
+      std::vector<smt::Term> &pc, std::vector<smt::Term> &ub, const FunDecl *callerFun,
+      SymbolicStore *callerStore
   ) {
     // Save caller frame state.
     const FunDecl *prevFun = currentFun_;
@@ -72,7 +73,7 @@ namespace refractir {
       // Init lets.
       for (const auto &l: callee.lets) {
         if (l.init) {
-          calleeStore[l.name.name] = evalInit(*l.init, l.type, solver, calleeStore, pc);
+          calleeStore[l.name.name] = evalInit(*l.init, l.type, solver, calleeStore, pc, ub);
         } else {
           calleeStore[l.name.name] = makeUndef(l.type, solver);
         }
@@ -112,13 +113,13 @@ namespace refractir {
               [&](auto &&arg) {
                 using T = std::decay_t<decltype(arg)>;
                 if constexpr (std::is_same_v<T, AssignInstr>) {
-                  auto rhs = evalExpr(arg.rhs, solver, calleeStore, pc);
-                  setLValue(arg.lhs, rhs, solver, calleeStore, pc);
+                  auto rhs = evalExpr(arg.rhs, solver, calleeStore, pc, ub);
+                  setLValue(arg.lhs, rhs, solver, calleeStore, pc, ub);
                 } else if constexpr (std::is_same_v<T, AssumeInstr>) {
-                  pc.push_back(evalCond(arg.cond, solver, calleeStore, pc));
+                  pc.push_back(evalCond(arg.cond, solver, calleeStore, pc, ub));
                 } else if constexpr (std::is_same_v<T, RequireInstr>) {
                   if (currentReq_)
-                    currentReq_->push_back(evalCond(arg.cond, solver, calleeStore, pc));
+                    currentReq_->push_back(evalCond(arg.cond, solver, calleeStore, pc, ub));
                 } else if constexpr (std::is_same_v<T, StoreInstr>) {
                   // [v0.2.2] §9.6.1 step 4 — callee `store`s must update
                   // every reachable `let mut`, including caller-side
@@ -128,12 +129,12 @@ namespace refractir {
                   // (callee-local pointers) and the caller frame (so
                   // pointers passed in as parameters land their stores
                   // on the caller's view of memory).
-                  SymbolicValue ptrVal = evalExpr(arg.ptr, solver, calleeStore, pc);
+                  SymbolicValue ptrVal = evalExpr(arg.ptr, solver, calleeStore, pc, ub);
                   smt::Term ptrTerm = ptrVal.term;
 
                   auto bv64Store = solver.make_bv_sort(kPtrBits);
                   auto nullStore = solver.make_bv_value_int64(bv64Store, 0);
-                  pc.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullStore}));
+                  ub.push_back(solver.make_term(smt::Kind::DISTINCT, {ptrTerm, nullStore}));
                   if (ptrVal.prov_base.internal && ptrVal.prov_size.internal) {
                     auto zero = solver.make_bv_value_int64(bv64Store, 0);
                     auto hasProv = solver.make_term(smt::Kind::DISTINCT, {ptrVal.prov_base, zero});
@@ -145,7 +146,7 @@ namespace refractir {
                         smt::Kind::IMPLIES,
                         {hasProv, solver.make_term(smt::Kind::AND, {inLow, inHi})}
                     );
-                    pc.push_back(cond);
+                    ub.push_back(cond);
                   }
 
                   TypePtr pointeeType;
@@ -164,7 +165,7 @@ namespace refractir {
 
                   auto pointeeSort = getSort(pointeeType, solver);
                   SymbolicValue valVal =
-                      evalExpr(arg.val, solver, calleeStore, pc, std::optional(pointeeSort));
+                      evalExpr(arg.val, solver, calleeStore, pc, ub, std::optional(pointeeSort));
                   smt::Term valTerm = valVal.term;
 
                   auto bv64 = solver.make_bv_sort(kPtrBits);
@@ -247,7 +248,7 @@ namespace refractir {
                     smt::Term anyMatch = storeMatchConds[0];
                     for (size_t j = 1; j < storeMatchConds.size(); ++j)
                       anyMatch = solver.make_term(smt::Kind::OR, {anyMatch, storeMatchConds[j]});
-                    pc.push_back(anyMatch);
+                    ub.push_back(anyMatch);
                   }
                 }
               },
@@ -260,7 +261,7 @@ namespace refractir {
               using T = std::decay_t<decltype(t)>;
               if constexpr (std::is_same_v<T, RetTerm>) {
                 if (t.value) {
-                  retVal = evalExpr(*t.value, solver, calleeStore, pc);
+                  retVal = evalExpr(*t.value, solver, calleeStore, pc, ub);
                 }
                 returned = true;
               } else if constexpr (std::is_same_v<T, BrTerm>) {
@@ -272,7 +273,7 @@ namespace refractir {
                   // conjoined to PC so the SMT search stays consistent.
                   // SPEC §13 lists user-supplied sub-paths as planned
                   // future work; random sampling is the interim.
-                  smt::Term condTerm = evalCond(*t.cond, solver, calleeStore, pc);
+                  smt::Term condTerm = evalCond(*t.cond, solver, calleeStore, pc, ub);
                   bool takeThen = std::uniform_int_distribution<int>(0, 1)(calleeRng_) == 0;
                   if (takeThen) {
                     pc.push_back(condTerm);
@@ -283,7 +284,7 @@ namespace refractir {
                   }
                 }
               } else if constexpr (std::is_same_v<T, UnreachableTerm>) {
-                pc.push_back(solver.make_false());
+                ub.push_back(solver.make_false());
                 returned = true;
               }
             },
@@ -303,7 +304,7 @@ namespace refractir {
   SymbolicValue SymbolicExecutor::callContract(
       const ExtDecl &decl, const std::vector<std::shared_ptr<Expr>> &argExprs,
       std::vector<SymbolicValue> args, smt::ISolver &solver, SymbolicStore &callerStore,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
   ) {
     if (args.size() != decl.params.size())
       throw std::runtime_error(
@@ -435,7 +436,7 @@ namespace refractir {
       // Step 1 (§9.6.2.1): evaluate each pre clause; conjoin to PC.
       // Violation prunes the caller's path (rule 23).
       for (const auto &pre: decl.contract->pres) {
-        auto cond = evalCond(pre.cond, solver, contractStore, pc);
+        auto cond = evalCond(pre.cond, solver, contractStore, pc, ub);
         pc.push_back(cond);
       }
 
@@ -446,7 +447,7 @@ namespace refractir {
       // Step 3 (§9.6.2.3): assume each post clause with `ret` bound.
       contractStore["ret"] = retSym;
       for (const auto &post: decl.contract->posts) {
-        auto cond = evalCond(post.cond, solver, contractStore, pc);
+        auto cond = evalCond(post.cond, solver, contractStore, pc, ub);
         pc.push_back(cond);
       }
 

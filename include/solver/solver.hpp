@@ -14,6 +14,8 @@
 
 namespace refractir {
 
+  enum class SolvingMode { UBFree, RequireUB, Unconstrained };
+
   /**
    * Performs path-based symbolic execution on the RefractIR program.
    * Generates SMT constraints for a selected path and uses an SMT solver
@@ -26,6 +28,7 @@ namespace refractir {
       uint32_t seed = 0;
       uint32_t num_threads = 1;
       uint32_t num_smt_threads = 1; // Number of threads for the SMT solver backend
+      SolvingMode mode = SolvingMode::UBFree;
     };
 
     using SolverFactory = std::function<std::unique_ptr<smt::ISolver>(const Config &)>;
@@ -150,7 +153,7 @@ namespace refractir {
     // CmpAtom (vec→<N>i1), and mask-form SelectAtom.
     SymbolicValue evalVecExpr(
         const Expr &e, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
 
     // [v0.2.1] Per-atom evaluator for vector RHS. Pulled out so the
@@ -158,29 +161,29 @@ namespace refractir {
     // round-tripping through Expr (which is not copy-assignable).
     SymbolicValue evalVecExprAtom(
         const Atom &a, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
     // Per-Atom-kind lane-wise helpers for evalVecExprAtom (src/solver/vec.cpp).
     // CoefAtom / RValueAtom stay inline in the dispatcher.
     SymbolicValue evalVecOpAtom(
         const OpAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
     SymbolicValue evalVecUnaryAtom(
         const UnaryAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
     SymbolicValue evalVecSelectAtom(
         const SelectAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
     SymbolicValue evalVecCmpAtom(
         const CmpAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
     SymbolicValue evalVecCastAtom(
         const CastAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
 
     // Execute one instruction (assign / assume / require / store) of the
@@ -188,16 +191,17 @@ namespace refractir {
     // from solve()'s per-instruction std::visit.
     void execInstr(
         const Instr &ins, smt::ISolver &solver, SymbolicStore &store,
-        std::vector<smt::Term> &pathConstraints, std::vector<smt::Term> &requirements
+        std::vector<smt::Term> &pathConstraints, std::vector<smt::Term> &ubGuards,
+        std::vector<smt::Term> &requirements
     );
 
     SymbolicValue evalExpr(
         const Expr &e, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
-        std::optional<smt::Sort> expectedSort = std::nullopt
+        std::vector<smt::Term> &ub, std::optional<smt::Sort> expectedSort = std::nullopt
     );
     SymbolicValue evalAtom(
         const Atom &a, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
-        std::optional<smt::Sort> expectedSort = std::nullopt
+        std::vector<smt::Term> &ub, std::optional<smt::Sort> expectedSort = std::nullopt
     );
     // evalAtom dispatches on the Atom variant; each alternative's evaluation
     // lives in a dedicated evalXxxAtom helper (src/solver/expr.cpp). CoefAtom /
@@ -205,35 +209,41 @@ namespace refractir {
     // branch so no parameter is unused.
     SymbolicValue evalOpAtom(
         const OpAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
-        std::optional<smt::Sort> expectedSort
+        std::vector<smt::Term> &ub, std::optional<smt::Sort> expectedSort
     );
     SymbolicValue evalUnaryAtom(
-        const UnaryAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+        const UnaryAtom &arg, smt::ISolver &solver, SymbolicStore &store,
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
     SymbolicValue evalSelectAtom(
         const SelectAtom &arg, smt::ISolver &solver, SymbolicStore &store,
-        std::vector<smt::Term> &pc, std::optional<smt::Sort> expectedSort
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub,
+        std::optional<smt::Sort> expectedSort
     );
     SymbolicValue evalCastAtom(
-        const CastAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+        const CastAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
+        std::vector<smt::Term> &ub
     );
     SymbolicValue evalCmpAtom(
-        const CmpAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+        const CmpAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
+        std::vector<smt::Term> &ub
     );
     SymbolicValue evalAddrAtom(const AddrAtom &arg, smt::ISolver &solver, SymbolicStore &store);
     SymbolicValue evalPtrIndexAtom(
         const PtrIndexAtom &arg, smt::ISolver &solver, SymbolicStore &store,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
     SymbolicValue evalPtrFieldAtom(
         const PtrFieldAtom &arg, smt::ISolver &solver, SymbolicStore &store,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
     SymbolicValue evalLoadAtom(
-        const LoadAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+        const LoadAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
+        std::vector<smt::Term> &ub
     );
     SymbolicValue evalCallAtom(
-        const CallAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc
+        const CallAtom &arg, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
+        std::vector<smt::Term> &ub
     );
     smt::Term evalCoef(
         const Coef &c, smt::ISolver &solver, SymbolicStore &store,
@@ -241,16 +251,16 @@ namespace refractir {
     );
     SymbolicValue evalSelectVal(
         const SelectVal &sv, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
-        std::optional<smt::Sort> expectedSort = std::nullopt
+        std::vector<smt::Term> &ub, std::optional<smt::Sort> expectedSort = std::nullopt
     );
 
     SymbolicValue evalLValue(
         const LValue &lv, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
-        bool forWrite = false
+        std::vector<smt::Term> &ub, bool forWrite = false
     );
     void setLValue(
         const LValue &lv, const SymbolicValue &val, smt::ISolver &solver, SymbolicStore &store,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
 
     SymbolicValue muxSymbolicValue(
@@ -260,11 +270,13 @@ namespace refractir {
     SymbolicValue updateLValueRec(
         const SymbolicValue &cur, std::span<const Access> accesses, const SymbolicValue &val,
         smt::Term pathCond, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
-        int depth = 0
+        std::vector<smt::Term> &ub, int depth = 0
     );
 
-    smt::Term
-    evalCond(const Cond &c, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc);
+    smt::Term evalCond(
+        const Cond &c, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
+        std::vector<smt::Term> &ub
+    );
 
     smt::Sort getSort(const TypePtr &t, smt::ISolver &solver);
     SymbolicValue createSymbolicValue(
@@ -275,7 +287,7 @@ namespace refractir {
     SymbolicValue broadcast(const TypePtr &t, smt::Term val, smt::ISolver &solver);
     SymbolicValue evalInit(
         const InitVal &iv, const TypePtr &t, smt::ISolver &solver, SymbolicStore &store,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
 
     TypePtr resolveLValueType(const LValue &lv) const;
@@ -290,7 +302,7 @@ namespace refractir {
     // (e.g. x != 0 for @clz/@ctz) directly to `pc`.
     SymbolicValue callBuiltinIntrinsicSMT(
         const IntrinsicDecl &intr, std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
 
     std::unordered_map<std::string, const StructDecl *> structs_;
@@ -319,7 +331,7 @@ namespace refractir {
     // see SPEC §9.6.1 step 4 ("Mem[T] reflects callee `store`s").
     SymbolicValue callFunction(
         const FunDecl &callee, std::vector<SymbolicValue> args, smt::ISolver &solver,
-        std::vector<smt::Term> &pc, const FunDecl *callerFun = nullptr,
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub, const FunDecl *callerFun = nullptr,
         SymbolicStore *callerStore = nullptr
     );
 
@@ -333,7 +345,7 @@ namespace refractir {
     SymbolicValue callContract(
         const ExtDecl &decl, const std::vector<std::shared_ptr<Expr>> &argExprs,
         std::vector<SymbolicValue> args, smt::ISolver &solver, SymbolicStore &callerStore,
-        std::vector<smt::Term> &pc
+        std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
     );
 
     // [v0.2.2] Currently active requirements vector (so nested callees

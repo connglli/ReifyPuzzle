@@ -53,6 +53,7 @@ int main(int argc, char **argv) {
     ("emit-model", "Emit symbol assignments to a JSON-like file", cxxopts::value<std::string>())
     ("sym", "Fix a symbol to a value (name=val)", cxxopts::value<std::vector<std::string>>())
     ("I", "Include path for resolving link-form `decl`s (may repeat)", cxxopts::value<std::vector<std::string>>())
+    ("require-ub", "Force at least one UB to be triggered on the chosen path", cxxopts::value<bool>()->default_value("false"))
     ("h,help", "Print usage");
   options.parse_positional({"input"});
   // clang-format on
@@ -133,6 +134,9 @@ int main(int argc, char **argv) {
     config.seed = result["seed"].as<uint32_t>();
     config.num_threads = result["num-threads"].as<uint32_t>();
     config.num_smt_threads = result["num-smt-threads"].as<uint32_t>();
+    if (result["require-ub"].as<bool>()) {
+      config.mode = SolvingMode::RequireUB;
+    }
 
 #if defined(USE_ALIVESMT)
     // AliveSMT (Z3) uses a global context that is not thread-safe.

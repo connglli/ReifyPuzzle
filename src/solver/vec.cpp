@@ -22,7 +22,7 @@ namespace refractir {
   // when those patterns appear in user code).
   SymbolicValue SymbolicExecutor::evalVecExpr(
       const Expr &e, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
   ) {
 
     auto laneSort = getSort(vt.elem, solver);
@@ -51,7 +51,7 @@ namespace refractir {
       // chain. We dispatch by constructing a one-atom view through the
       // overloaded helper.
       auto dispatchAtom = [&](const Atom &a) -> SymbolicValue {
-        return evalVecExprAtom(a, vt, solver, store, pc);
+        return evalVecExprAtom(a, vt, solver, store, pc, ub);
       };
       auto rmRNE = fpLane ? solver.make_rm_value(smt::RoundingMode::RNE) : smt::Term();
       std::vector<smt::Term> acc = evalAtomToLanes(e.first, dispatchAtom);
@@ -67,14 +67,14 @@ namespace refractir {
             auto ovK =
                 term.op == AddOp::Plus ? smt::Kind::BV_SADD_OVERFLOW : smt::Kind::BV_SSUB_OVERFLOW;
             auto ov = solver.make_term(ovK, {acc[k], next[k]});
-            pc.push_back(solver.make_term(smt::Kind::NOT, {ov}));
+            ub.push_back(solver.make_term(smt::Kind::NOT, {ov}));
             opK = term.op == AddOp::Plus ? smt::Kind::BV_ADD : smt::Kind::BV_SUB;
           }
           acc[k] = fpLane ? solver.make_term(opK, {rmRNE, acc[k], next[k]})
                           : solver.make_term(opK, {acc[k], next[k]});
           // [v0.2.1] Per-lane FP result must be finite (rule 6/7 lifted).
           if (fpLane)
-            assertFPFinite(acc[k], solver, pc);
+            assertFPFinite(acc[k], solver, ub);
         }
       }
       std::vector<SymbolicValue> lanes;
@@ -84,12 +84,12 @@ namespace refractir {
       return buildVec(std::move(lanes));
     }
 
-    return evalVecExprAtom(e.first, vt, solver, store, pc);
+    return evalVecExprAtom(e.first, vt, solver, store, pc, ub);
   }
 
   SymbolicValue SymbolicExecutor::evalVecExprAtom(
       const Atom &a, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
   ) {
     return std::visit(
         [&](auto &&arg) -> SymbolicValue {
@@ -110,17 +110,17 @@ namespace refractir {
               lanes.emplace_back(SymbolicValue::Kind::Int, bv, solver.make_true());
             return buildVec(std::move(lanes));
           } else if constexpr (std::is_same_v<T, RValueAtom>) {
-            return evalLValue(arg.rval, solver, store, pc);
+            return evalLValue(arg.rval, solver, store, pc, ub);
           } else if constexpr (std::is_same_v<T, CmpAtom>) {
-            return evalVecCmpAtom(arg, vt, solver, store, pc);
+            return evalVecCmpAtom(arg, vt, solver, store, pc, ub);
           } else if constexpr (std::is_same_v<T, SelectAtom>) {
-            return evalVecSelectAtom(arg, vt, solver, store, pc);
+            return evalVecSelectAtom(arg, vt, solver, store, pc, ub);
           } else if constexpr (std::is_same_v<T, OpAtom>) {
-            return evalVecOpAtom(arg, vt, solver, store, pc);
+            return evalVecOpAtom(arg, vt, solver, store, pc, ub);
           } else if constexpr (std::is_same_v<T, CastAtom>) {
-            return evalVecCastAtom(arg, vt, solver, store, pc);
+            return evalVecCastAtom(arg, vt, solver, store, pc, ub);
           } else if constexpr (std::is_same_v<T, UnaryAtom>) {
-            return evalVecUnaryAtom(arg, vt, solver, store, pc);
+            return evalVecUnaryAtom(arg, vt, solver, store, pc, ub);
           } else {
             throw std::runtime_error("Solver: this vector RHS atom kind isn't yet lowered");
           }
@@ -131,7 +131,7 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::evalVecCmpAtom(
       const CmpAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
   ) {
 
     // Per-lane comparison → <N> i1.
@@ -139,7 +139,7 @@ namespace refractir {
     auto getOperandLaneSort = [&]() -> std::optional<smt::Sort> {
       auto getValSort = [&](const SelectVal &sv) -> std::optional<smt::Sort> {
         if (auto rv = std::get_if<RValue>(&sv)) {
-          auto val = evalLValue(*rv, solver, store, pc);
+          auto val = evalLValue(*rv, solver, store, pc, ub);
           if (val.kind == SymbolicValue::Kind::Vec && !val.arrayVal.empty())
             return solver.get_sort(val.arrayVal[0].term);
         }
@@ -163,7 +163,7 @@ namespace refractir {
     auto opLaneSort = getOperandLaneSort();
     auto getVecOperand = [&](const SelectVal &sv) -> SymbolicValue {
       if (auto rv = std::get_if<RValue>(&sv))
-        return evalLValue(*rv, solver, store, pc);
+        return evalLValue(*rv, solver, store, pc, ub);
       if (auto cf = std::get_if<Coef>(&sv)) {
         if (auto id = std::get_if<LocalOrSymId>(cf)) {
           std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
@@ -210,7 +210,7 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::evalVecSelectAtom(
       const SelectAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
   ) {
 
     // Mask form (cond form is scalar — wouldn't yield a vector).
@@ -220,7 +220,7 @@ namespace refractir {
     // bare sym/local reference (CoefAtom holding LocalOrSymId).
     SymbolicValue maskV;
     if (auto maskRv = std::get_if<RValueAtom>(&arg.maskExpr->first.v)) {
-      maskV = evalLValue(maskRv->rval, solver, store, pc);
+      maskV = evalLValue(maskRv->rval, solver, store, pc, ub);
     } else if (auto maskCf = std::get_if<CoefAtom>(&arg.maskExpr->first.v)) {
       auto id = std::get_if<LocalOrSymId>(&maskCf->coef);
       if (!id)
@@ -235,7 +235,7 @@ namespace refractir {
     }
     auto loadArm = [&](const SelectVal &sv) -> SymbolicValue {
       if (auto rv = std::get_if<RValue>(&sv))
-        return evalLValue(*rv, solver, store, pc);
+        return evalLValue(*rv, solver, store, pc, ub);
       if (auto cf = std::get_if<Coef>(&sv)) {
         if (auto id = std::get_if<LocalOrSymId>(cf)) {
           std::string nm = std::visit([](auto &&x) { return x.name; }, *id);
@@ -282,7 +282,7 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::evalVecOpAtom(
       const OpAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
   ) {
 
     // Per-lane scalar op with coef broadcast or coef-as-vector.
@@ -317,7 +317,7 @@ namespace refractir {
       throw std::runtime_error("Vec OpAtom: unsupported coef shape");
     }
     // Rval is a vector lvalue.
-    SymbolicValue rvalV = evalLValue(arg.rval, solver, store, pc);
+    SymbolicValue rvalV = evalLValue(arg.rval, solver, store, pc, ub);
     std::vector<SymbolicValue> lanes;
     lanes.reserve(vt.size);
     bool fpLane = solver.is_fp_sort(laneSort);
@@ -339,7 +339,7 @@ namespace refractir {
             throw std::runtime_error("Vec FP OpAtom: only mul/div supported on FP lanes");
         }
         // [v0.2.1] Per-lane FP rule 6/7: each lane must be finite.
-        assertFPFinite(out, solver, pc);
+        assertFPFinite(out, solver, ub);
       } else {
         // [v0.2.1] Per-lane shift UB: amount in [0, width) and Shl
         // requires non-negative operand (rule 4/5).
@@ -350,18 +350,18 @@ namespace refractir {
         uint32_t laneWidth = solver.get_bv_width(sortC);
         auto widthTerm = solver.make_bv_value(sortR, std::to_string(laneWidth), 10);
         auto addShiftBounds = [&]() {
-          pc.push_back(solver.make_term(smt::Kind::BV_SLE, {bvZeroR, r}));
-          pc.push_back(solver.make_term(smt::Kind::BV_ULT, {r, widthTerm}));
+          ub.push_back(solver.make_term(smt::Kind::BV_SLE, {bvZeroR, r}));
+          ub.push_back(solver.make_term(smt::Kind::BV_ULT, {r, widthTerm}));
         };
         switch (arg.op) {
           case AtomOpKind::Mul: {
             auto ov = solver.make_term(smt::Kind::BV_SMUL_OVERFLOW, {c, r});
-            pc.push_back(solver.make_term(smt::Kind::NOT, {ov}));
+            ub.push_back(solver.make_term(smt::Kind::NOT, {ov}));
             out = solver.make_term(smt::Kind::BV_MUL, {c, r});
             break;
           }
           case AtomOpKind::Div: {
-            pc.push_back(solver.make_term(smt::Kind::DISTINCT, {r, bvZeroR}));
+            ub.push_back(solver.make_term(smt::Kind::DISTINCT, {r, bvZeroR}));
             // [v0.2.1 fix] Per-lane INT_MIN / -1 overflow is UB
             // (rule 4 lifted to lanes by rule 21).
             auto min_signed = solver.make_bv_min_signed(solver.get_sort(c));
@@ -369,12 +369,12 @@ namespace refractir {
             auto is_min = solver.make_term(smt::Kind::EQUAL, {c, min_signed});
             auto is_minus_one = solver.make_term(smt::Kind::EQUAL, {r, minus_one});
             auto div_overflow = solver.make_term(smt::Kind::AND, {is_min, is_minus_one});
-            pc.push_back(solver.make_term(smt::Kind::NOT, {div_overflow}));
+            ub.push_back(solver.make_term(smt::Kind::NOT, {div_overflow}));
             out = solver.make_term(smt::Kind::BV_SDIV, {c, r});
             break;
           }
           case AtomOpKind::Mod: {
-            pc.push_back(solver.make_term(smt::Kind::DISTINCT, {r, bvZeroR}));
+            ub.push_back(solver.make_term(smt::Kind::DISTINCT, {r, bvZeroR}));
             // [v0.2.1 fix] Per-lane INT_MIN % -1 overflow is UB
             // (rule 4 lifted to lanes by rule 21).
             auto min_signed_m = solver.make_bv_min_signed(solver.get_sort(c));
@@ -382,7 +382,7 @@ namespace refractir {
             auto is_min_m = solver.make_term(smt::Kind::EQUAL, {c, min_signed_m});
             auto is_minus_one_m = solver.make_term(smt::Kind::EQUAL, {r, minus_one_m});
             auto mod_overflow = solver.make_term(smt::Kind::AND, {is_min_m, is_minus_one_m});
-            pc.push_back(solver.make_term(smt::Kind::NOT, {mod_overflow}));
+            ub.push_back(solver.make_term(smt::Kind::NOT, {mod_overflow}));
             out = solver.make_term(smt::Kind::BV_SREM, {c, r});
             break;
           }
@@ -397,10 +397,10 @@ namespace refractir {
             break;
           case AtomOpKind::Shl: {
             addShiftBounds();
-            pc.push_back(solver.make_term(smt::Kind::BV_SLE, {bvZeroC, c}));
+            ub.push_back(solver.make_term(smt::Kind::BV_SLE, {bvZeroC, c}));
             auto shifted = solver.make_term(smt::Kind::BV_SHL, {c, r});
             auto unshifted = solver.make_term(smt::Kind::BV_ASHR, {shifted, r});
-            pc.push_back(solver.make_term(smt::Kind::EQUAL, {unshifted, c}));
+            ub.push_back(solver.make_term(smt::Kind::EQUAL, {unshifted, c}));
             out = shifted;
             break;
           }
@@ -423,7 +423,7 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::evalVecCastAtom(
       const CastAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
   ) {
 
     // Per-lane cast. Src is a vector lvalue or sym; dst is the
@@ -433,7 +433,7 @@ namespace refractir {
         [&](auto &&s) {
           using S = std::decay_t<decltype(s)>;
           if constexpr (std::is_same_v<S, LValue>)
-            srcV = evalLValue(s, solver, store, pc);
+            srcV = evalLValue(s, solver, store, pc, ub);
           else if constexpr (std::is_same_v<S, SymId>) {
             auto it = store.find(s.name);
             if (it != store.end())
@@ -457,13 +457,13 @@ namespace refractir {
       smt::Term out;
       if (srcIsFp && !dstIsFp) { // FP -> BV (RTZ + range check per lane)
         uint32_t width = solver.get_bv_width(dstSort);
-        assertFPFinite(lane, solver, pc);
+        assertFPFinite(lane, solver, ub);
         double lo = -std::ldexp(1.0, static_cast<int>(width) - 1);
         double hi = std::ldexp(1.0, static_cast<int>(width) - 1);
         auto loFp = solver.make_fp_value_from_real(srcSort, lo, smt::RoundingMode::RNE);
         auto hiFp = solver.make_fp_value_from_real(srcSort, hi, smt::RoundingMode::RNE);
-        pc.push_back(solver.make_term(smt::Kind::FP_GEQ, {lane, loFp}));
-        pc.push_back(solver.make_term(smt::Kind::FP_LT, {lane, hiFp}));
+        ub.push_back(solver.make_term(smt::Kind::FP_GEQ, {lane, loFp}));
+        ub.push_back(solver.make_term(smt::Kind::FP_LT, {lane, hiFp}));
         auto rmRTZ = solver.make_rm_value(smt::RoundingMode::RTZ);
         out = solver.make_term(smt::Kind::FP_TO_SBV, {rmRTZ, lane}, {width});
       } else if (!srcIsFp && dstIsFp) {
@@ -471,14 +471,14 @@ namespace refractir {
         auto rmRNE = solver.make_rm_value(smt::RoundingMode::RNE);
         out = solver.make_term(smt::Kind::FP_TO_FP_FROM_SBV, {rmRNE, lane}, {exp, sig});
         // [v0.2.1] Per-lane finite (rule 6/7 lifted).
-        assertFPFinite(out, solver, pc);
+        assertFPFinite(out, solver, ub);
       } else if (srcIsFp && dstIsFp) {
         auto [exp, sig] = solver.get_fp_dims(dstSort);
         auto rmRNE = solver.make_rm_value(smt::RoundingMode::RNE);
         out = solver.make_term(smt::Kind::FP_TO_FP_FROM_FP, {rmRNE, lane}, {exp, sig});
         // [v0.2.1] Per-lane finite (rule 6/7 lifted) — catches
         // f64→f32 overflow producing ±inf.
-        assertFPFinite(out, solver, pc);
+        assertFPFinite(out, solver, ub);
       } else { // BV -> BV
         uint32_t sw = solver.get_bv_width(srcSort);
         uint32_t dw = solver.get_bv_width(dstSort);
@@ -498,11 +498,11 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::evalVecUnaryAtom(
       const UnaryAtom &arg, const VecType &vt, smt::ISolver &solver, SymbolicStore &store,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
   ) {
 
     // Per-lane bitwise NOT for vector operand.
-    SymbolicValue srcV = evalLValue(arg.rval, solver, store, pc);
+    SymbolicValue srcV = evalLValue(arg.rval, solver, store, pc, ub);
     if (srcV.kind != SymbolicValue::Kind::Vec)
       throw std::runtime_error("Vec UnaryAtom: src must be vector");
     std::vector<SymbolicValue> lanes;

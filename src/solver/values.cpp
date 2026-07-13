@@ -169,7 +169,7 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::evalInit(
       const InitVal &iv, const TypePtr &t, smt::ISolver &solver, SymbolicStore &store,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
   ) {
     if (iv.kind == InitVal::Kind::Undef)
       return makeUndef(t, solver);
@@ -178,9 +178,9 @@ namespace refractir {
     if (iv.kind == InitVal::Kind::Atom) {
       const auto &atom = *std::get<AtomPtr>(iv.value);
       if (auto vt = std::get_if<VecType>(&t->v)) {
-        return evalVecExprAtom(atom, *vt, solver, store, pc);
+        return evalVecExprAtom(atom, *vt, solver, store, pc, ub);
       }
-      return evalAtom(atom, solver, store, pc, getSort(t, solver));
+      return evalAtom(atom, solver, store, pc, ub, getSort(t, solver));
     }
 
     if (iv.kind == InitVal::Kind::Aggregate) {
@@ -189,13 +189,13 @@ namespace refractir {
         SymbolicValue res;
         res.kind = SymbolicValue::Kind::Array;
         for (size_t i = 0; i < elements.size(); ++i)
-          res.arrayVal.push_back(evalInit(*elements[i], at->elem, solver, store, pc));
+          res.arrayVal.push_back(evalInit(*elements[i], at->elem, solver, store, pc, ub));
         return res;
       } else if (auto vt = std::get_if<VecType>(&t->v)) {
         SymbolicValue res;
         res.kind = SymbolicValue::Kind::Vec;
         for (size_t i = 0; i < elements.size(); ++i)
-          res.arrayVal.push_back(evalInit(*elements[i], vt->elem, solver, store, pc));
+          res.arrayVal.push_back(evalInit(*elements[i], vt->elem, solver, store, pc, ub));
         return res;
       } else if (auto st = std::get_if<StructType>(&t->v)) {
         SymbolicValue res;
@@ -204,7 +204,7 @@ namespace refractir {
         if (it != structs_.end()) {
           for (size_t i = 0; i < elements.size(); ++i)
             res.structVal[it->second->fields[i].name] =
-                evalInit(*elements[i], it->second->fields[i].type, solver, store, pc);
+                evalInit(*elements[i], it->second->fields[i].type, solver, store, pc, ub);
         }
         return res;
       }

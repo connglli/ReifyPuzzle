@@ -1079,7 +1079,7 @@ namespace refractir {
 
   SymbolicValue SymbolicExecutor::callBuiltinIntrinsicSMT(
       const IntrinsicDecl &intr, std::vector<SymbolicValue> &argVals, smt::ISolver &solver,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> & /*pc*/, std::vector<smt::Term> &ub
   ) {
     auto kind = getIntrinsicKind(intr.name.name);
     if (!kind)
@@ -1094,7 +1094,7 @@ namespace refractir {
 
     if (anyFp) {
       if (auto fpImpl = SolverFpIntrinsicRegistry::get().lookup(*kind))
-        return fpImpl->solve(intr, argVals, solver, pc);
+        return fpImpl->solve(intr, argVals, solver, ub);
       throw std::runtime_error("Solver: unknown FP intrinsic " + intr.name.name);
     }
 
@@ -1103,7 +1103,7 @@ namespace refractir {
       N = *pb;
     auto bvN = solver.make_bv_sort(N);
     if (auto impl = IntrinsicRegistry::get().lookup(*kind))
-      return impl->solve(intr, N, argVals, bvN, solver, pc);
+      return impl->solve(intr, N, argVals, bvN, solver, ub);
 
     throw std::runtime_error("Solver: unknown intrinsic " + intr.name.name);
   }

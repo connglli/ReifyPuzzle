@@ -64,8 +64,8 @@ namespace refractir {
   }
 
   SymbolicValue SymbolicExecutor::evalLValue(
-      const LValue &lv, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
-      bool forWrite
+      const LValue &lv, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> & /*pc*/,
+      std::vector<smt::Term> &ub, bool forWrite
   ) {
     SymbolicValue res = store.at(lv.base.name);
     for (const auto &acc: lv.accesses) {
@@ -80,7 +80,7 @@ namespace refractir {
           // emit the bounds constraint (it'll be false → UNSAT) without
           // crashing in arrayVal.at().
           if (lit->value < 0 || static_cast<uint64_t>(lit->value) >= array_size) {
-            pc.push_back(solver.make_false());
+            ub.push_back(solver.make_false());
             // Use the last element as a dummy value (we won't be used).
             if (!res.arrayVal.empty())
               res = res.arrayVal.back();
@@ -105,8 +105,8 @@ namespace refractir {
         auto size_term =
             solver.make_bv_value(solver.make_bv_sort(32), std::to_string(array_size), 10);
         auto zero = solver.make_bv_zero(solver.make_bv_sort(32));
-        pc.push_back(solver.make_term(smt::Kind::BV_SLE, {zero, idx}));
-        pc.push_back(solver.make_term(smt::Kind::BV_SLT, {idx, size_term}));
+        ub.push_back(solver.make_term(smt::Kind::BV_SLE, {zero, idx}));
+        ub.push_back(solver.make_term(smt::Kind::BV_SLT, {idx, size_term}));
       } else if (auto af = std::get_if<AccessField>(&acc)) {
         if (res.kind != SymbolicValue::Kind::Struct)
           throw std::runtime_error("Field access on non-struct");
@@ -118,7 +118,7 @@ namespace refractir {
     // is_defined as a path constraint. Suppressed on the LHS-eval of
     // an AssignInstr (the caller is about to overwrite the value).
     if (!forWrite && res.kind == SymbolicValue::Kind::Int && res.is_defined.internal)
-      pc.push_back(res.is_defined);
+      ub.push_back(res.is_defined);
     return res;
   }
 
@@ -175,7 +175,7 @@ namespace refractir {
   SymbolicValue SymbolicExecutor::updateLValueRec(
       const SymbolicValue &cur, std::span<const Access> accesses, const SymbolicValue &val,
       smt::Term pathCond, smt::ISolver &solver, SymbolicStore &store, std::vector<smt::Term> &pc,
-      int depth
+      std::vector<smt::Term> &ub, int depth
   ) {
     if (depth > 100)
       throw std::runtime_error("Recursion depth exceeded in updateLValueRec");
@@ -213,10 +213,10 @@ namespace refractir {
       auto size_term = solver.make_bv_value(solver.make_bv_sort(32), std::to_string(size), 10);
       auto zero = solver.make_bv_zero(solver.make_bv_sort(32));
 
-      pc.push_back(solver.make_term(
+      ub.push_back(solver.make_term(
           smt::Kind::IMPLIES, {pathCond, solver.make_term(smt::Kind::BV_SLE, {zero, idx})}
       ));
-      pc.push_back(solver.make_term(
+      ub.push_back(solver.make_term(
           smt::Kind::IMPLIES, {pathCond, solver.make_term(smt::Kind::BV_SLT, {idx, size_term})}
       ));
 
@@ -225,7 +225,7 @@ namespace refractir {
         uint64_t k = lit->value;
         if (k < newCur.arrayVal.size()) {
           newCur.arrayVal[k] = updateLValueRec(
-              cur.arrayVal[k], nextAccesses, val, pathCond, solver, store, pc, depth + 1
+              cur.arrayVal[k], nextAccesses, val, pathCond, solver, store, pc, ub, depth + 1
           );
         }
       } else {
@@ -236,7 +236,7 @@ namespace refractir {
           auto match = solver.make_term(smt::Kind::EQUAL, {idx, k_term});
           auto cond = solver.make_term(smt::Kind::AND, {pathCond, match});
           newCur.arrayVal[k] = updateLValueRec(
-              cur.arrayVal[k], nextAccesses, val, cond, solver, store, pc, depth + 1
+              cur.arrayVal[k], nextAccesses, val, cond, solver, store, pc, ub, depth + 1
           );
         }
       }
@@ -248,7 +248,7 @@ namespace refractir {
         throw std::runtime_error("Field not found: " + af.field);
 
       newCur.structVal[af.field] = updateLValueRec(
-          cur.structVal.at(af.field), nextAccesses, val, pathCond, solver, store, pc, depth + 1
+          cur.structVal.at(af.field), nextAccesses, val, pathCond, solver, store, pc, ub, depth + 1
       );
     }
     return newCur;
@@ -256,11 +256,11 @@ namespace refractir {
 
   void SymbolicExecutor::setLValue(
       const LValue &lv, const SymbolicValue &val, smt::ISolver &solver, SymbolicStore &store,
-      std::vector<smt::Term> &pc
+      std::vector<smt::Term> &pc, std::vector<smt::Term> &ub
   ) {
     SymbolicValue &root = store.at(lv.base.name);
     // Use true condition because the instruction itself is unconditional *at this point in the
     // trace* The path constraints handle the reachability of the instruction.
-    root = updateLValueRec(root, lv.accesses, val, solver.make_true(), solver, store, pc, 0);
+    root = updateLValueRec(root, lv.accesses, val, solver.make_true(), solver, store, pc, ub, 0);
   }
 } // namespace refractir
