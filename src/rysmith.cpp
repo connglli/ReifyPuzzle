@@ -28,6 +28,7 @@
 #include "analysis/pass_manager.hpp"
 #include "ast/sir_printer.hpp"
 #include "cxxopts.hpp"
+#include "error.hpp"
 #include "frontend/diagnostics.hpp"
 #include "frontend/lexer.hpp"
 #include "frontend/parser.hpp"
@@ -97,7 +98,7 @@ static auto makeSolverFactory() {
 
 static bool validateWithSymiri(
     const fs::path &sirPath, const std::string &funcName, const std::vector<std::string> &paramArgs,
-    bool verbose
+    bool verbose, SolvingMode solMode = SolvingMode::UBFree
 ) {
   std::ifstream ifs(sirPath);
   if (!ifs)
@@ -122,14 +123,20 @@ static bool validateWithSymiri(
     std::stringstream sink;
     std::ostream &out = verbose ? std::cout : sink;
 
-    bool success = true;
     try {
       Interpreter interp(prog, out);
       interp.run(canonical, {}, paramArgs);
+      // Success (no exception) is correct only if we didn't require UB
+      return (solMode != SolvingMode::RequireUB);
+    } catch (const UndefinedBehaviorError &e) {
+      if (verbose) {
+        std::cout << "  (intercepted expected UB: " << e.what() << ")\n";
+      }
+      // UB exception is correct only if we required UB
+      return (solMode == SolvingMode::RequireUB);
     } catch (...) {
-      success = false;
+      return false;
     }
-    return success;
   } catch (...) {
     return false;
   }
@@ -163,7 +170,7 @@ static GenerateResult generateLeaf(
     int64_t valueHi, int64_t indexLo, int64_t indexHi, const ExprGenConfig &exprCfg,
     bool enableIntrinsics,
     // Solver params
-    uint32_t timeoutMs,
+    uint32_t timeoutMs, SolvingMode solMode,
     // Retry params
     int maxRetries, int nInits,
     // IO
@@ -291,6 +298,7 @@ static GenerateResult generateLeaf(
       solverCfg.seed = baseSeed + (uint32_t) (attempt * 100 + initIdx);
       solverCfg.num_threads = 1;
       solverCfg.num_smt_threads = 1;
+      solverCfg.mode = solMode;
 
       SymbolicExecutor executor(prog, solverCfg, makeSolverFactory());
       SymbolicExecutor::Result res;
@@ -545,6 +553,7 @@ int main(int argc, char **argv) {
     // Solver
     ("timeout",           "SMT solver timeout per attempt in ms",
                           cxxopts::value<uint32_t>()->default_value("2000"))
+    ("require-ub",        "Force at least one UB to be triggered on the chosen path")
     ("coef-domain",       "Domain for coef symbols",
                           cxxopts::value<std::string>()->default_value("[-2147483647, 2147483647]"))
     ("value-domain",      "Domain for value/constant symbols",
@@ -705,6 +714,7 @@ int main(int argc, char **argv) {
     return 2;
   }
   uint32_t timeoutMs = result["timeout"].as<uint32_t>();
+  SolvingMode solMode = result.count("require-ub") ? SolvingMode::RequireUB : SolvingMode::UBFree;
   // Wall-clock budget per function: covers all retries × inits plus 50 ms for non-solver overhead
   // (CFG gen, path sampling, formula construction, SIRPrinter). Compilation runs outside the
   // thread.
@@ -764,9 +774,9 @@ int main(int argc, char **argv) {
       state->result = generateLeaf(
           nBbls, pBranch, pBackedge, maxLoopIter, minLoopIter, fnVarCfg, funcName, nStmts,
           offPathMultiplier, enableInterestCoefs, pLargeCoef, largeCoefThreshold, coefLo, coefHi,
-          valueLo, valueHi, indexLo, indexHi, exprCfg, enableIntrinsics, timeoutMs, maxRetries,
-          nInits, outDir, keepSymbolic, verbose, state->rng, funcSeed, genId, emitDesc, emitMain,
-          noCrc32
+          valueLo, valueHi, indexLo, indexHi, exprCfg, enableIntrinsics, timeoutMs, solMode,
+          maxRetries, nInits, outDir, keepSymbolic, verbose, state->rng, funcSeed, genId, emitDesc,
+          emitMain, noCrc32
       );
       state->done.store(true, std::memory_order_release);
     });
@@ -854,18 +864,25 @@ int main(int argc, char **argv) {
         // crash.
         bool ok = false;
         std::string mismatchReason;
-        if (auto observed = runSymiriCaptureResult(p, baseFuncName, paramArgs)) {
-          if (cf.rz.retValue.empty()) {
-            // No oracle to compare against (e.g. the rewrite was
-            // skipped). Fall back to the exit-code check.
-            ok = validateWithSymiri(p, baseFuncName, paramArgs, verbose);
-          } else if (*observed == cf.rz.retValue) {
-            ok = true;
-          } else {
-            mismatchReason = "expected=" + cf.rz.retValue + " observed=" + *observed;
+        if (solMode == SolvingMode::RequireUB) {
+          ok = validateWithSymiri(p, baseFuncName, paramArgs, verbose, solMode);
+          if (!ok) {
+            mismatchReason = "Expected UB but program executed successfully or failed statically";
           }
         } else {
-          mismatchReason = "symiri produced no Result line";
+          if (auto observed = runSymiriCaptureResult(p, baseFuncName, paramArgs)) {
+            if (cf.rz.retValue.empty()) {
+              // No oracle to compare against (e.g. the rewrite was
+              // skipped). Fall back to the exit-code check.
+              ok = validateWithSymiri(p, baseFuncName, paramArgs, verbose, solMode);
+            } else if (*observed == cf.rz.retValue) {
+              ok = true;
+            } else {
+              mismatchReason = "expected=" + cf.rz.retValue + " observed=" + *observed;
+            }
+          } else {
+            mismatchReason = "symiri produced no Result line";
+          }
         }
         std::cout << "  validated: " << (ok ? "OK" : "FAIL") << " (" << p.filename() << ")";
         if (!ok && !mismatchReason.empty())
