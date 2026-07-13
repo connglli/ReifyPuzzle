@@ -43,6 +43,7 @@
 #include "reify/hyperparameters.hpp"
 #include "reify/id_gen.hpp"
 #include "reify/path_sampler.hpp"
+#include "reify/state_profile.hpp"
 #include "reify/var_catalogue.hpp"
 #include "solver/solver.hpp"
 #if defined(USE_BITWUZLA)
@@ -181,7 +182,10 @@ static GenerateResult generateLeaf(
     const std::string &genId,
     // [v0.2.2] When true, write the rylink-consumable func_<id>_<i>.json
     // sidecar next to each successful concrete .sir.
-    bool emitDesc, bool emitMain, bool noCrc32
+    bool emitDesc, bool emitMain, bool noCrc32,
+    // [rytwin] "" = off, "pbb" = per-block-entry state, "ppp" = per-program-point.
+    // Emits a func_<id>_<i>.state.json sidecar next to each concrete .sir.
+    const std::string &emitStateMode
 ) {
   // S1: CFG
   GenCFGParams cfgParams;
@@ -468,6 +472,42 @@ static GenerateResult generateLeaf(
           SIRPrinter printer(ofs, res.model);
           printer.print(prog);
         }
+
+        // [rytwin] --emit-state: record the concrete per-program-point state
+        // this program passes through under its solved input, next to the
+        // .sir as a func_<id>_<i>.state.json sidecar. rytwin consumes it to
+        // synthesize equivalence-preserving block twins. Best-effort: a
+        // program that traps (e.g. under --require-ub) yields no clean
+        // profile, so we skip the sidecar rather than abort the init.
+        if (!emitStateMode.empty()) {
+          try {
+            // Profile the just-written .sir (not the in-memory `prog`): its
+            // `%?` symbols are already substituted to literals by the
+            // SIRPrinter, so the interpreter needs only the parameter args,
+            // and the profile is authoritative — it describes exactly the
+            // program on disk that rytwin will read.
+            std::ifstream sirIn(concretePath);
+            std::stringstream sirBuf;
+            sirBuf << sirIn.rdbuf();
+            std::string sirSrc = sirBuf.str();
+            Lexer lx(sirSrc);
+            Parser ps(lx.lexAll());
+            Program diskProg = ps.parseProgram();
+            if (runAnalysisPasses(diskProg, /*verbose=*/false)) {
+              StateGranularity gran =
+                  emitStateMode == "ppp" ? StateGranularity::Ppp : StateGranularity::Pbb;
+              StateProfile profile = profileProgram(diskProg, "@" + funcName, paramVals, gran);
+              auto statePath = outDir / (concretePath.stem().string() + ".state.json");
+              std::ofstream sofs(statePath);
+              if (sofs)
+                writeStateProfileJson(sofs, profile);
+            }
+          } catch (const std::exception &e) {
+            if (verbose)
+              std::cerr << "[emit-state] init " << initIdx << ": profiling failed (" << e.what()
+                        << "); skipping sidecar\n";
+          }
+        }
         // [v0.2.2] Use the metadata we snapshotted above (entry may now
         // be dangling thanks to the @main push_back). Param values
         // are in declaration order — symiri positional args need that
@@ -583,6 +623,8 @@ int main(int argc, char **argv) {
     ("keep-require",      "Include require checks in compiled output (default: omitted)")
     ("keep-symbolic",     "Write intermediate symbolic .sir files to disk")
     ("emit-desc",         "Emit per-function descriptor JSON (func_<id>_<i>.json) — needed by rylink")
+    ("emit-state",        "Emit a func_<id>_<i>.state.json profile of the concrete state at each program point — consumed by rytwin. Value selects granularity: pbb (per basic block) or ppp (per program point)",
+                          cxxopts::value<std::string>())
     ("emit-main",         "Generate a main wrapper in the output program")
     // Validation
     ("validate",          "Run symiri on each concrete .sir to validate")
@@ -724,6 +766,12 @@ int main(int argc, char **argv) {
   bool doValidate = result.count("validate") > 0;
   bool emitMain = result.count("emit-main") > 0;
   bool verbose = result.count("verbose") > 0;
+  std::string emitStateMode =
+      result.count("emit-state") ? result["emit-state"].as<std::string>() : "";
+  if (!emitStateMode.empty() && emitStateMode != "pbb" && emitStateMode != "ppp") {
+    std::cerr << "error: --emit-state must be 'pbb' or 'ppp' (got '" << emitStateMode << "')\n";
+    return 2;
+  }
   // --require-ub implies --no-crc32. The solver sees the sum-form
   // checksum (`%_chk = %_chk + <leaf>` per leaf, emitted by
   // buildSumChecksum). In RequireUB mode it is free to satisfy the
@@ -790,7 +838,7 @@ int main(int argc, char **argv) {
           offPathMultiplier, enableInterestCoefs, pLargeCoef, largeCoefThreshold, coefLo, coefHi,
           valueLo, valueHi, indexLo, indexHi, exprCfg, enableIntrinsics, timeoutMs, solMode,
           maxRetries, nInits, outDir, keepSymbolic, verbose, state->rng, funcSeed, genId, emitDesc,
-          emitMain, noCrc32
+          emitMain, noCrc32, emitStateMode
       );
       state->done.store(true, std::memory_order_release);
     });

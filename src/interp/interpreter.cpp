@@ -385,6 +385,12 @@ namespace refractir {
         out_ << block.label.name << ":\n";
       }
 
+      // State-capture hook (see setStateHook): record the store the block
+      // sees on entry, before any of its instructions run.
+      if (stateHook_)
+        stateHook_(block.label.name, -1, store);
+
+      int instrIdx = 0;
       for (const auto &ins: block.instrs) {
         std::visit(
             [&](auto &&i) {
@@ -557,6 +563,10 @@ namespace refractir {
             },
             ins
         );
+        // pp-granularity capture: record the store after each instruction.
+        if (stateHook_ && stateHookPerInstr_)
+          stateHook_(block.label.name, instrIdx, store);
+        ++instrIdx;
       }
 
       bool jumped = false;

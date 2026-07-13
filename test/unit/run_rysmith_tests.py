@@ -2160,6 +2160,94 @@ def test_require_ub_programs_actually_trap(rysmith, symiri):
     )
 
 
+# ---------------------------------------------------------------------------
+# --emit-state tests
+# ---------------------------------------------------------------------------
+
+
+def test_emit_state_pbb_sidecar(rysmith):
+  """rysmith --emit-state pbb writes a well-formed func_<id>_<i>.state.json
+  sidecar: a per-block-entry trace of the concrete state under the solved
+  input."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run([rysmith, "--emit-state", "pbb", "--n-funcs", "1", "--seed", "5", "-o", d])
+    if r.returncode != 0:
+      check("emit-state pbb run setup", False, r.stderr[:300])
+      return
+    states = [f for f in os.listdir(d) if f.endswith(".state.json")]
+    check(
+      "emit-state pbb wrote a .state.json sidecar", len(states) > 0, str(os.listdir(d))
+    )
+    if not states:
+      return
+    prof = json.load(open(os.path.join(d, states[0])))
+    check(
+      "state profile func is canonical",
+      prof.get("func", "").startswith("@"),
+      str(prof.get("func")),
+    )
+    check(
+      "state profile granularity is pbb",
+      prof.get("granularity") == "pbb",
+      str(prof.get("granularity")),
+    )
+    trace = prof.get("trace") or []
+    check("state profile trace is non-empty", len(trace) > 0, str(len(trace)))
+    if not trace:
+      return
+    p0 = trace[0]
+    check(
+      "pbb points are block-entry (instr == -1)",
+      all(p.get("instr") == -1 for p in trace),
+      str([p.get("instr") for p in trace[:4]]),
+    )
+    check(
+      "first point carries variable state",
+      isinstance(p0.get("vars"), dict) and len(p0["vars"]) > 0,
+      str(p0.get("vars"))[:120],
+    )
+    # Spot-check the tagged value shape on some scalar var.
+    tagged = [
+      v for v in p0.get("vars", {}).values() if isinstance(v, dict) and "k" in v
+    ]
+    check(
+      "values use the tagged {k,...} shape", len(tagged) > 0, str(p0.get("vars"))[:120]
+    )
+
+
+def test_emit_state_ppp_and_validation(rysmith):
+  """--emit-state ppp adds per-instruction points; an invalid granularity
+  is rejected."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run([rysmith, "--emit-state", "ppp", "--n-funcs", "1", "--seed", "3", "-o", d])
+    states = (
+      [f for f in os.listdir(d) if f.endswith(".state.json")]
+      if r.returncode == 0
+      else []
+    )
+    if states:
+      prof = json.load(open(os.path.join(d, states[0])))
+      check(
+        "ppp granularity recorded",
+        prof.get("granularity") == "ppp",
+        str(prof.get("granularity")),
+      )
+      instrs = [p.get("instr") for p in prof.get("trace", [])]
+      check(
+        "ppp trace includes per-instruction points",
+        any(i is not None and i >= 0 for i in instrs),
+        str(instrs[:8]),
+      )
+    else:
+      check("emit-state ppp produced a sidecar", False, f"rc={r.returncode}")
+  # Invalid granularity must be rejected with a non-zero exit.
+  with tempfile.TemporaryDirectory() as d:
+    r = run([rysmith, "--emit-state", "xyz", "--n-funcs", "1", "-o", d])
+    check(
+      "invalid --emit-state value rejected", r.returncode != 0, f"rc={r.returncode}"
+    )
+
+
 def main():
   if len(sys.argv) != 3:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri>")
@@ -2269,6 +2357,10 @@ def main():
   test_no_crc32_descriptor_matches_solved_header(rysmith)
   print("=== --require-ub: emitted programs actually trap UB ===")
   test_require_ub_programs_actually_trap(rysmith, symiri)
+  print("=== --emit-state: pbb sidecar shape ===")
+  test_emit_state_pbb_sidecar(rysmith)
+  print("=== --emit-state: ppp granularity + validation ===")
+  test_emit_state_ppp_and_validation(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)
