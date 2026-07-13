@@ -6,16 +6,16 @@
  * its generated input, emitted by `rysmith --emit-state` — rytwin produces
  * an equivalent program `p2`. It does so by grafting, into selected basic
  * blocks, a synthesized twin block `B'` that reproduces `B`'s effect on the
- * exact state `B` sees, guarded by a checksum of that live-in state so `B'`
+ * exact state `B` sees, guarded by a check on that live-in state so `B'`
  * runs only on it and the original `B` runs otherwise. Thus `p1(i) == p2(i)`
  * for every input `i` (see docs/rytwin.md).
  *
- * This file is the scaffold: it wires the CLI, loads the program /
- * descriptor / state profile, and runs the Pass pipeline. With no passes
- * registered it round-trips p1 -> p2 unchanged, so the plumbing is
- * verifiable before TwinGraftPass lands.
+ * This driver wires the CLI, infers and loads the descriptor / state
+ * profile from the input path, runs the Pass pipeline (TwinPass), and
+ * optionally validates and compiles the result.
  */
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -31,6 +31,7 @@
 #include "reify/func_desc.hpp"
 #include "reify/pass.hpp"
 #include "reify/state_profile.hpp"
+#include "reify/twin_pass.hpp"
 #include "solver/solver.hpp"
 #if defined(USE_BITWUZLA)
 #include "solver/bitwuzla_impl.hpp"
@@ -49,6 +50,49 @@ static std::string readFile(const fs::path &p) {
   return ss.str();
 }
 
+// Format a scalar state value as a symiri positional argument (decimal int
+// or canonical bit-exact float).
+static std::string fmtStateVal(const StateValue &v) {
+  if (v.kind == StateValue::Kind::Float)
+    return formatDouble(v.floatVal);
+  return std::to_string(v.intVal);
+}
+
+// Resolve the entry function's parameter values for the profiled input, in
+// declaration order: prefer the descriptor realization for this .sir, and
+// fall back to the profile's entry-block state.
+static std::vector<std::string> profiledParamArgs(
+    const FunDecl &fn, const fs::path &sirFile, const std::optional<FuncDescriptor> &desc,
+    const StateProfile &profile
+) {
+  const FuncDescriptor::Realization *rz = nullptr;
+  if (desc)
+    for (const auto &r: desc->realizations)
+      if (r.file == sirFile.filename().string()) {
+        rz = &r;
+        break;
+      }
+  std::vector<std::string> args;
+  for (const auto &p: fn.params) {
+    std::string v = "0";
+    if (rz) {
+      for (const auto &pv: rz->paramValues)
+        if (pv.first == p.name.name) {
+          v = pv.second;
+          break;
+        }
+    } else if (!profile.trace.empty()) {
+      for (const auto &kv: profile.trace.front().vars)
+        if (kv.first == p.name.name) {
+          v = fmtStateVal(kv.second);
+          break;
+        }
+    }
+    args.push_back(v);
+  }
+  return args;
+}
+
 static SymbolicExecutor::SolverFactory makeSolverFactory() {
   return [](const SymbolicExecutor::Config &cfg) -> std::unique_ptr<smt::ISolver> {
 #if defined(USE_BITWUZLA)
@@ -60,6 +104,20 @@ static SymbolicExecutor::SolverFactory makeSolverFactory() {
     throw std::runtime_error("No solver backend compiled in");
 #endif
   };
+}
+
+// rysmith names a concrete file `func_<id>_<i>.sir` (single init) or
+// `func_<id>_<i><a..z>.sir` (multi-init); the shared descriptor is
+// `func_<id>_<i>.json`. Recover the descriptor stem by dropping a trailing
+// init letter when it follows a digit (so the `<i>` digit run is kept).
+static std::string descriptorStem(const std::string &sirStem) {
+  if (sirStem.size() >= 2) {
+    char last = sirStem.back();
+    char prev = sirStem[sirStem.size() - 2];
+    if (last >= 'a' && last <= 'z' && std::isdigit((unsigned char) prev))
+      return sirStem.substr(0, sirStem.size() - 1);
+  }
+  return sirStem;
 }
 
 // The entry function of a rysmith leaf program: the sole `fun` that isn't
@@ -78,16 +136,21 @@ int main(int argc, char **argv) {
   cxxopts::Options opts("rytwin", "rytwin — equivalence-preserving RefractIR transformer");
   // clang-format off
   opts.add_options()
-    ("input",   "Input concrete .sir (p1)", cxxopts::value<std::string>())
-    ("desc",    "Descriptor JSON for p1's function (func_<id>_<i>.json)",
-                cxxopts::value<std::string>())
-    ("state",   "State profile sidecar (.state.json); inferred from the input stem if omitted",
-                cxxopts::value<std::string>())
+    ("input",   "Input concrete .sir (p1). Its descriptor (func_<id>_<i>.json) and state "
+                "profile (<stem>.state.json) are read from the same directory, following "
+                "rysmith's naming.", cxxopts::value<std::string>())
     ("p-twin",  "Probability of grafting a twin for each candidate block",
                 cxxopts::value<double>()->default_value("0.5"))
-    ("guard",   "state() checksum used by the twin guard: sum|crc32",
-                cxxopts::value<std::string>()->default_value("sum"))
+    ("guard",   "twin guard: exact (per-variable equality; total, collision-free) or crc32 (checksum; planned)",
+                cxxopts::value<std::string>()->default_value("exact"))
     ("seed",    "RNG seed (default: random)", cxxopts::value<uint32_t>())
+    ("target",  "Compile p2 to a target (sir = no compilation)",
+                cxxopts::value<std::string>()->default_value("sir"))
+    ("keep-require", "Keep require checks in compiled output")
+    ("vec-lowering", "C-backend vector lowering strategy",
+                cxxopts::value<std::string>()->default_value("vecext"))
+    ("emit-main", "Keep @main un-mangled in compiled output (so p2 is runnable)")
+    ("validate", "Run symiri on p1 and p2 with the profiled input and assert they agree")
     ("o,output","Output .sir (p2)", cxxopts::value<std::string>())
     ("h,help",  "Print usage");
   opts.parse_positional({"input"});
@@ -114,10 +177,21 @@ int main(int argc, char **argv) {
       result.count("seed") ? result["seed"].as<uint32_t>() : (uint32_t) std::random_device{}();
   (void) pTwin; // consumed by TwinGraftPass (next chunk)
 
-  if (guard != "sum" && guard != "crc32") {
-    std::cerr << "rytwin: --guard must be 'sum' or 'crc32' (got '" << guard << "')\n";
+  if (guard != "exact" && guard != "crc32") {
+    std::cerr << "rytwin: --guard must be 'exact' or 'crc32' (got '" << guard << "')\n";
     return 2;
   }
+  TwinGuard twinGuard = guard == "crc32" ? TwinGuard::Crc32 : TwinGuard::Exact;
+
+  std::string target = result["target"].as<std::string>();
+  if (target != "sir" && target != "c" && target != "wasm") {
+    std::cerr << "rytwin: --target must be sir, c, or wasm (got '" << target << "')\n";
+    return 2;
+  }
+  bool keepRequire = result.count("keep-require") > 0;
+  bool emitMain = result.count("emit-main") > 0;
+  bool doValidate = result.count("validate") > 0;
+  std::string vecLowering = result["vec-lowering"].as<std::string>();
 
   // 1. Load p1. Keep the source alive: Lexer holds a std::string_view into
   // it, so a temporary would dangle.
@@ -136,13 +210,18 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // 2. Load the descriptor (optional) and resolve the entry function.
+  // 2. Load the descriptor and state profile, both inferred from the input
+  // path via rysmith's naming: `<dir>/func_<id>_<i>.json` for the shared
+  // descriptor and `<dir>/<input-stem>.state.json` for this init's profile.
+  const fs::path dir = inputPath.parent_path();
+  const std::string stem = inputPath.stem().string();
+
   std::optional<FuncDescriptor> desc;
-  if (result.count("desc")) {
-    desc = readFuncDescriptor(result["desc"].as<std::string>());
+  fs::path descPath = dir / (descriptorStem(stem) + ".json");
+  if (fs::exists(descPath)) {
+    desc = readFuncDescriptor(descPath);
     if (!desc)
-      std::cerr << "rytwin: warning: could not read descriptor " << result["desc"].as<std::string>()
-                << "\n";
+      std::cerr << "rytwin: warning: could not read descriptor " << descPath << "\n";
   }
   std::string entry = findEntry(prog, desc);
   if (entry.empty()) {
@@ -150,19 +229,12 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // 3. Load the state profile (inferred as <input-stem>.state.json when
-  // --state is omitted). rytwin needs it to synthesize twins; the scaffold
-  // still round-trips without one.
   std::optional<StateProfile> profile;
-  fs::path statePath = result.count("state")
-                           ? fs::path(result["state"].as<std::string>())
-                           : inputPath.parent_path() / (inputPath.stem().string() + ".state.json");
+  fs::path statePath = dir / (stem + ".state.json");
   if (fs::exists(statePath)) {
     profile = readStateProfileJson(readFile(statePath));
     if (!profile)
       std::cerr << "rytwin: warning: could not parse state profile " << statePath << "\n";
-  } else if (result.count("state")) {
-    std::cerr << "rytwin: warning: state profile " << statePath << " not found\n";
   }
 
   // 4. Assemble the pass context.
@@ -174,11 +246,34 @@ int main(int argc, char **argv) {
   if (profile)
     ctx.profiles[entry] = *profile;
 
-  // 5. Run the pipeline. (TwinGraftPass is added in the next chunk.)
+  // 5. Run the pipeline. TwinPass needs the state profile; without one it
+  // would have nothing to key its guards on, so require it.
+  if (!profile) {
+    std::cerr << "rytwin: no state profile found next to " << inputPath.filename() << " (expected "
+              << statePath.filename() << ") — regenerate p1 with `rysmith --emit-state`\n";
+    return 1;
+  }
   PassPipeline pipe;
+  pipe.add(makeTwinPass(pTwin, twinGuard));
   PassReport rep = pipe.run(prog, ctx);
   if (!rep.ok) {
     std::cerr << "rytwin: pass failed: " << rep.message << "\n";
+    return 1;
+  }
+
+  // No twin grafted means an unchanged copy of p1 — not a useful result, and
+  // silently emitting it would look like success. Report it and write
+  // nothing so callers can tell the two cases apart.
+  if (rep.sites == 0) {
+    std::cerr << "rytwin: no twin grafted for " << entry
+              << " (no eligible block, or --p-twin too low); nothing written\n";
+    return 1;
+  }
+
+  // Re-check the rewritten program so a malformed graft is caught here
+  // rather than downstream in symiri / the backends.
+  if (!runAnalysisPasses(prog, /*verbose=*/true)) {
+    std::cerr << "rytwin: internal error: rewritten program failed re-analysis\n";
     return 1;
   }
 
@@ -192,8 +287,45 @@ int main(int argc, char **argv) {
       << " twin(s) grafted)\n\n";
   SIRPrinter printer(ofs);
   printer.print(prog);
+  ofs.close(); // flush before symiri / symirc read the file back
 
   std::cout << "rytwin: wrote " << outputPath << " (" << rep.sites << " twin(s), entry " << entry
             << ")\n";
+
+  // 7. Validate equivalence: run p1 and p2 on the profiled input and assert
+  // they agree (same Result, or both trap).
+  if (doValidate) {
+    const FunDecl *entryFn = nullptr;
+    for (const auto &f: prog.funs)
+      if (f.name.name == entry) {
+        entryFn = &f;
+        break;
+      }
+    std::vector<std::string> args = entryFn ? profiledParamArgs(*entryFn, inputPath, desc, *profile)
+                                            : std::vector<std::string>{};
+    auto r1 = runSymiriCaptureResult(inputPath, entry, args);
+    auto r2 = runSymiriCaptureResult(outputPath, entry, args);
+    bool ok = (r1.has_value() == r2.has_value()) && (!r1.has_value() || *r1 == *r2);
+    std::cout << "rytwin: validated: " << (ok ? "OK" : "FAIL");
+    if (!ok)
+      std::cout << " (p1=" << (r1 ? *r1 : "<trap>") << " p2=" << (r2 ? *r2 : "<trap>") << ")";
+    std::cout << "\n";
+    if (!ok)
+      return 1;
+  }
+
+  // 8. Optionally compile p2 to C / WASM (in-process, like rysmith / rylink).
+  if (target != "sir") {
+    fs::path outCompiled = outputPath;
+    outCompiled.replace_extension(target == "c" ? ".c" : ".wat");
+    if (!compileSirInProcess(
+            outputPath, target, outCompiled, keepRequire, vecLowering, emitMain, /*verbose=*/false
+        )) {
+      std::cerr << "rytwin: compile of p2 to " << target << " failed\n";
+      return 1;
+    }
+    std::cout << "rytwin: compiled " << outCompiled << "\n";
+  }
+
   return 0;
 }
