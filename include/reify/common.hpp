@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include "ast/ast.hpp"
+#include "reify/state_profile.hpp"
 
 namespace refractir::reify {
 
@@ -217,9 +218,16 @@ namespace refractir::reify {
   //
   // `paramArgs` are forwarded as positional CLI args after `--` so
   // functions with parameters can be exercised deterministically.
+  //
+  // When `outProfile` is non-null it is filled with the per-program-point
+  // StateProfile of this very run (granularity `gran`), so a caller that
+  // needs both the `Result:` value and the state trace pays for a single
+  // interpret instead of two — e.g. rysmith captures the rytwin profile
+  // during the same run it uses to validate the emitted program.
   std::optional<std::string> runSymiriCaptureResult(
       const std::filesystem::path &sirPath, const std::string &funcName,
-      const std::vector<std::string> &paramArgs
+      const std::vector<std::string> &paramArgs, StateProfile *outProfile = nullptr,
+      StateGranularity gran = StateGranularity::Pbb
   );
 
   // ---------------------------------------------------------------------------

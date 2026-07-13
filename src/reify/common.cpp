@@ -58,7 +58,7 @@ namespace refractir::reify {
 
   std::optional<std::string> runSymiriCaptureResult(
       const fs::path &sirPath, const std::string &funcName,
-      const std::vector<std::string> &paramArgs
+      const std::vector<std::string> &paramArgs, StateProfile *outProfile, StateGranularity gran
   ) {
     std::ifstream ifs(sirPath);
     if (!ifs)
@@ -85,6 +85,12 @@ namespace refractir::reify {
       std::stringstream capturedStream;
       try {
         Interpreter interp(prog, capturedStream);
+        // Capture the state profile from this same run when requested.
+        if (outProfile) {
+          outProfile->func = canonical;
+          outProfile->granularity = gran;
+          attachStateProfile(interp, *outProfile, gran);
+        }
         interp.run(canonical, {}, paramArgs);
       } catch (...) {
         return std::nullopt;

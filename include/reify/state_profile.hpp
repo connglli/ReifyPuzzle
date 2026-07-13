@@ -29,7 +29,8 @@
 
 namespace refractir {
   class Program;
-}
+  class Interpreter;
+} // namespace refractir
 
 namespace refractir::reify {
 
@@ -71,6 +72,14 @@ namespace refractir::reify {
 
   // Convert one interpreter RuntimeValue into a StateValue tree.
   StateValue toStateValue(const RuntimeValue &rv);
+
+  // Install a state-capture hook on `interp` that appends each program
+  // point it sees to `out.trace` (at the granularity `gran`). The caller
+  // owns `out` and should have set `out.func` / `out.granularity`. This is
+  // the single place the capture hook is defined so both profileProgram
+  // (in-process on a Program) and runSymiriCaptureResult (file-based, in
+  // reify/common) fill a profile from the same run they already make.
+  void attachStateProfile(Interpreter &interp, StateProfile &out, StateGranularity gran);
 
   // Run `prog`'s entry `func` under `paramArgs` (one decimal-int / hex-float
   // string per parameter, declaration order) with the given granularity and

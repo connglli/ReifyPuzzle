@@ -182,10 +182,7 @@ static GenerateResult generateLeaf(
     const std::string &genId,
     // [v0.2.2] When true, write the rylink-consumable func_<id>_<i>.json
     // sidecar next to each successful concrete .sir.
-    bool emitDesc, bool emitMain, bool noCrc32,
-    // [rytwin] "" = off, "pbb" = per-block-entry state, "ppp" = per-program-point.
-    // Emits a func_<id>_<i>.state.json sidecar next to each concrete .sir.
-    const std::string &emitStateMode
+    bool emitDesc, bool emitMain, bool noCrc32
 ) {
   // S1: CFG
   GenCFGParams cfgParams;
@@ -473,41 +470,6 @@ static GenerateResult generateLeaf(
           printer.print(prog);
         }
 
-        // [rytwin] --emit-state: record the concrete per-program-point state
-        // this program passes through under its solved input, next to the
-        // .sir as a func_<id>_<i>.state.json sidecar. rytwin consumes it to
-        // synthesize equivalence-preserving block twins. Best-effort: a
-        // program that traps (e.g. under --require-ub) yields no clean
-        // profile, so we skip the sidecar rather than abort the init.
-        if (!emitStateMode.empty()) {
-          try {
-            // Profile the just-written .sir (not the in-memory `prog`): its
-            // `%?` symbols are already substituted to literals by the
-            // SIRPrinter, so the interpreter needs only the parameter args,
-            // and the profile is authoritative — it describes exactly the
-            // program on disk that rytwin will read.
-            std::ifstream sirIn(concretePath);
-            std::stringstream sirBuf;
-            sirBuf << sirIn.rdbuf();
-            std::string sirSrc = sirBuf.str();
-            Lexer lx(sirSrc);
-            Parser ps(lx.lexAll());
-            Program diskProg = ps.parseProgram();
-            if (runAnalysisPasses(diskProg, /*verbose=*/false)) {
-              StateGranularity gran =
-                  emitStateMode == "ppp" ? StateGranularity::Ppp : StateGranularity::Pbb;
-              StateProfile profile = profileProgram(diskProg, "@" + funcName, paramVals, gran);
-              auto statePath = outDir / (concretePath.stem().string() + ".state.json");
-              std::ofstream sofs(statePath);
-              if (sofs)
-                writeStateProfileJson(sofs, profile);
-            }
-          } catch (const std::exception &e) {
-            if (verbose)
-              std::cerr << "[emit-state] init " << initIdx << ": profiling failed (" << e.what()
-                        << "); skipping sidecar\n";
-          }
-        }
         // [v0.2.2] Use the metadata we snapshotted above (entry may now
         // be dangling thanks to the @main push_back). Param values
         // are in declaration order — symiri positional args need that
@@ -838,7 +800,7 @@ int main(int argc, char **argv) {
           offPathMultiplier, enableInterestCoefs, pLargeCoef, largeCoefThreshold, coefLo, coefHi,
           valueLo, valueHi, indexLo, indexHi, exprCfg, enableIntrinsics, timeoutMs, solMode,
           maxRetries, nInits, outDir, keepSymbolic, verbose, state->rng, funcSeed, genId, emitDesc,
-          emitMain, noCrc32, emitStateMode
+          emitMain, noCrc32
       );
       state->done.store(true, std::memory_order_release);
     });
@@ -890,7 +852,10 @@ int main(int argc, char **argv) {
       }
     }
 
-    if (doValidate) {
+    if (doValidate || !emitStateMode.empty()) {
+      const bool wantProfile = !emitStateMode.empty();
+      const StateGranularity stGran =
+          emitStateMode == "ppp" ? StateGranularity::Ppp : StateGranularity::Pbb;
       bool allOk = true;
       for (const auto &cf: genRes.produced) {
         const fs::path &p = cf.path;
@@ -916,47 +881,64 @@ int main(int argc, char **argv) {
         paramArgs.reserve(cf.rz.paramValues.size());
         for (const auto &pv: cf.rz.paramValues)
           paramArgs.push_back(pv.second);
-        // Validate by running the on-disk full program through symiri
-        // and asserting its result matches the descriptor's retValue
-        // (which was captured from the minimal oracle program at emit
-        // time). Equality across those two independent runs cross-
-        // checks the rewriter, the CFG body execution, and the
-        // interpreter's intrinsic dispatch in a single shot — exit
-        // code 0 on its own would only have proven that symiri didn't
-        // crash.
-        bool ok = false;
+        // Run the on-disk full program through symiri once. When
+        // validating, its Result is asserted equal to the descriptor's
+        // retValue (captured from the independent minimal oracle at emit
+        // time) — that cross-check exercises the rewriter, the CFG body
+        // execution, and intrinsic dispatch in one shot; exit code 0
+        // alone would only prove symiri didn't crash. When --emit-state
+        // is on, the SAME run also fills the rytwin state profile (see
+        // runSymiriCaptureResult), so profiling costs no extra interpret.
+        // A UB-triggering program (require-ub) traps before producing a
+        // clean trace, so it is validated via the trap and yields no
+        // sidecar.
+        bool ok = !doValidate; // nothing to fail when only profiling
         std::string mismatchReason;
         if (solMode == SolvingMode::RequireUB) {
-          ok = validateWithSymiri(p, baseFuncName, paramArgs, verbose, solMode);
-          if (!ok) {
-            mismatchReason = "Expected UB but program executed successfully or failed statically";
+          if (doValidate) {
+            ok = validateWithSymiri(p, baseFuncName, paramArgs, verbose, solMode);
+            if (!ok)
+              mismatchReason = "Expected UB but program executed successfully or failed statically";
           }
         } else {
-          if (auto observed = runSymiriCaptureResult(p, baseFuncName, paramArgs)) {
-            if (cf.rz.retValue.empty()) {
-              // No oracle to compare against (e.g. the rewrite was
-              // skipped). Fall back to the exit-code check.
-              ok = validateWithSymiri(p, baseFuncName, paramArgs, verbose, solMode);
-            } else if (*observed == cf.rz.retValue) {
-              ok = true;
+          StateProfile profile;
+          auto observed = runSymiriCaptureResult(
+              p, baseFuncName, paramArgs, wantProfile ? &profile : nullptr, stGran
+          );
+          if (wantProfile && observed) {
+            std::ofstream sofs(outDir / (p.stem().string() + ".state.json"));
+            if (sofs)
+              writeStateProfileJson(sofs, profile);
+          }
+          if (doValidate) {
+            if (observed) {
+              if (cf.rz.retValue.empty()) {
+                // No oracle to compare against (e.g. the rewrite was
+                // skipped). Fall back to the exit-code check.
+                ok = validateWithSymiri(p, baseFuncName, paramArgs, verbose, solMode);
+              } else if (*observed == cf.rz.retValue) {
+                ok = true;
+              } else {
+                mismatchReason = "expected=" + cf.rz.retValue + " observed=" + *observed;
+              }
             } else {
-              mismatchReason = "expected=" + cf.rz.retValue + " observed=" + *observed;
+              mismatchReason = "symiri produced no Result line";
             }
-          } else {
-            mismatchReason = "symiri produced no Result line";
           }
         }
-        std::cout << "  validated: " << (ok ? "OK" : "FAIL") << " (" << p.filename() << ")";
-        if (!ok && !mismatchReason.empty())
-          std::cout << " [" << mismatchReason << "]";
-        std::cout << "\n";
-        if (!ok) {
-          allOk = false;
-          nFail++;
-          break;
+        if (doValidate) {
+          std::cout << "  validated: " << (ok ? "OK" : "FAIL") << " (" << p.filename() << ")";
+          if (!ok && !mismatchReason.empty())
+            std::cout << " [" << mismatchReason << "]";
+          std::cout << "\n";
+          if (!ok) {
+            allOk = false;
+            nFail++;
+            break;
+          }
         }
       }
-      if (allOk)
+      if (!doValidate || allOk)
         nOk++;
     } else {
       nOk++;

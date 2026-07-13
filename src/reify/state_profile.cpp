@@ -59,22 +59,9 @@ namespace refractir::reify {
     return sv;
   }
 
-  StateProfile profileProgram(
-      const Program &prog, const std::string &func, const std::vector<std::string> &paramArgs,
-      StateGranularity granularity
-  ) {
-    StateProfile profile;
-    profile.func = func.empty() || func[0] == '@' ? func : "@" + func;
-    profile.granularity = granularity;
-
-    // Suppress the interpreter's "Result:" line — we only want the captured
-    // states, and touching the process-global std::cout would be unsafe
-    // under concurrency.
-    std::ostringstream sink;
-    Interpreter interp(prog, sink);
-
+  void attachStateProfile(Interpreter &interp, StateProfile &out, StateGranularity gran) {
     interp.setStateHook(
-        [&](const std::string &blockLabel, int instrIdx, const Store &store) {
+        [&out](const std::string &blockLabel, int instrIdx, const Store &store) {
           StatePoint pt;
           pt.block = blockLabel;
           pt.instr = instrIdx;
@@ -90,11 +77,26 @@ namespace refractir::reify {
           std::sort(names.begin(), names.end());
           for (const auto &n: names)
             pt.vars.emplace_back(n, toStateValue(store.at(n)));
-          profile.trace.push_back(std::move(pt));
+          out.trace.push_back(std::move(pt));
         },
-        /*perInstr=*/granularity == StateGranularity::Ppp
+        /*perInstr=*/gran == StateGranularity::Ppp
     );
+  }
 
+  StateProfile profileProgram(
+      const Program &prog, const std::string &func, const std::vector<std::string> &paramArgs,
+      StateGranularity granularity
+  ) {
+    StateProfile profile;
+    profile.func = func.empty() || func[0] == '@' ? func : "@" + func;
+    profile.granularity = granularity;
+
+    // Suppress the interpreter's "Result:" line — we only want the captured
+    // states, and touching the process-global std::cout would be unsafe
+    // under concurrency.
+    std::ostringstream sink;
+    Interpreter interp(prog, sink);
+    attachStateProfile(interp, profile, granularity);
     interp.run(profile.func, {}, paramArgs, /*dumpExec=*/false);
     return profile;
   }
