@@ -77,9 +77,28 @@ symirsolve template.sir --path '^entry,^b1,^b3,^b1,^b2,^exit' --sym %?c4=3 -o co
 3. **`assume` constraints** (feasibility constraints)
 4. **`require` constraints** (property constraints that must hold)
 
-Strict UB is enforced:
+Strict UB is enforced. Every operation with undefined behavior (division/modulo
+by zero, signed overflow, over-shift, OOB array/lane access, undef read,
+null/OOB/cross-object pointer deref, FP overflow/NaN, float→int out-of-range, …)
+contributes a **safety guard** — an SMT term that is true exactly when that
+operation is well-defined on the chosen path. How those guards are used depends
+on the solving mode:
 
-* Any UB encountered on the chosen path (e.g., division by zero or OOB) makes that path infeasible.
+* **Default (UB-free) mode.** Every safety guard is asserted **true**. The
+  solver returns a model under which the whole path executes without any UB; a
+  path whose guards are jointly unsatisfiable is reported UNSAT (infeasible).
+* **`--require-ub` mode.** The conjunction of all safety guards is **negated**
+  (`not (and g_1 … g_n)`), so any returned model **violates at least one**
+  guard — i.e. the concretized program is guaranteed to trigger UB somewhere on
+  the path. Path-feasibility constraints (branch conditions, `assume`,
+  `require`) are still asserted normally, so the interpreter follows the same
+  path and reaches the intended trap. A path with no UB-capable operation
+  (empty guard set) is reported UNSAT.
+
+`--require-ub` is used to synthesize UB-triggering programs — for example, to
+exercise a compiler's or analyzer's UB detection. Because the interpreter halts
+at the **first** UB it reaches, the emitted program traps rather than returning
+a value.
 
 
 ## Path Specification
@@ -176,6 +195,7 @@ Controls how many threads each SMT solver instance uses internally:
 | `--seed <n>`          | Seed for deterministic model selection                   |
 | `--emit-model <file>` | Emit symbol assignments in nested JSON format            |
 | `--sym sym=val`       | Fix a symbol to a concrete value before solving          |
+| `--require-ub`        | Solve for a model that **triggers** at least one UB on the path (see below) |
 | `-h, --help`          | Print usage                                              |
 
 

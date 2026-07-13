@@ -2094,6 +2094,72 @@ def test_no_crc32_descriptor_matches_solved_header(rysmith):
     )
 
 
+# ---------------------------------------------------------------------------
+# --require-ub tests
+# ---------------------------------------------------------------------------
+
+
+def test_require_ub_programs_actually_trap(rysmith, symiri):
+  """Every concrete .sir produced under --require-ub must actually trigger
+  UB when replayed through symiri with its SOLVED parameter values.
+
+  Regression guard for the crc32-vs-require-ub interaction: the solver
+  sees the sum-form `%_chk = %_chk + <leaf>` checksum and may satisfy the
+  "at least one UB on the path" obligation by overflowing that
+  accumulator. The crc32 rewrite would then replace the `+` with a total
+  @crc32_update call, deleting the very UB the solver proved — so the
+  emitted program came out UB-free. --require-ub now implies --no-crc32
+  so the program we emit is byte-identical to the one we solved. This
+  test fails if that guarantee regresses.
+  """
+  with tempfile.TemporaryDirectory() as d:
+    r = run([rysmith, "--require-ub", "--n-funcs", "6", "--seed", "1234", "-o", d])
+    if r.returncode != 0:
+      check("require-ub run setup", False, r.stderr[:300])
+      return
+    sirs = sorted(f for f in os.listdir(d) if f.endswith(".sir") and "_sym" not in f)
+    check("require-ub emitted at least one .sir", len(sirs) > 0, str(sirs))
+    if not sirs:
+      return
+    # A require-ub program that traps never reaches a clean `ret`, so the
+    # crc32 return-value oracle is vestigial: --require-ub implies
+    # --no-crc32 and the emitted checksum must stay sum-form.
+    with open(os.path.join(d, sirs[0])) as f:
+      first_body = f.read()
+    check(
+      "require-ub emits no crc32_update (implies --no-crc32)",
+      "crc32_update" not in first_body,
+      "crc32_update found in a --require-ub program",
+    )
+    ub_free = []
+    for name in sirs:
+      path = os.path.join(d, name)
+      src = open(path).read()
+      m = re.search(r"//\s*SOLVED:\s*(.*)", src)
+      kv = {}
+      if m:
+        for part in m.group(1).split(","):
+          part = part.strip()
+          if "=" in part:
+            k, v = part.split("=", 1)
+            kv[k.strip()] = v.strip()
+      fm = re.search(r"fun\s+(@\w+)\s*\(([^)]*)\)", src)
+      if not fm:
+        continue
+      fname = fm.group(1)
+      pnames = [p.split(":")[0].strip() for p in fm.group(2).split(",") if p.strip()]
+      args = [kv[p] for p in pnames if p in kv]
+      rr = run([symiri, "--main", fname, path, "--"] + args)
+      out = rr.stdout + rr.stderr
+      if "UB" not in out and "ndefined" not in out:
+        ub_free.append((name, out.strip().splitlines()[-1:] if out.strip() else []))
+    check(
+      "every --require-ub program traps UB in symiri",
+      len(ub_free) == 0,
+      f"{len(ub_free)} UB-free program(s): {ub_free}",
+    )
+
+
 def main():
   if len(sys.argv) != 3:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri>")
@@ -2201,6 +2267,8 @@ def main():
   test_no_crc32_solved_header_matches_sum(rysmith, symiri)
   print("=== --no-crc32: descriptor matches solved header ===")
   test_no_crc32_descriptor_matches_solved_header(rysmith)
+  print("=== --require-ub: emitted programs actually trap UB ===")
+  test_require_ub_programs_actually_trap(rysmith, symiri)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

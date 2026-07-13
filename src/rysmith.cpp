@@ -724,7 +724,21 @@ int main(int argc, char **argv) {
   bool doValidate = result.count("validate") > 0;
   bool emitMain = result.count("emit-main") > 0;
   bool verbose = result.count("verbose") > 0;
-  bool noCrc32 = result.count("no-crc32") > 0;
+  // --require-ub implies --no-crc32. The solver sees the sum-form
+  // checksum (`%_chk = %_chk + <leaf>` per leaf, emitted by
+  // buildSumChecksum). In RequireUB mode it is free to satisfy the
+  // "at least one UB on the path" obligation by overflowing that
+  // accumulator — a perfectly real signed-overflow UB in the program
+  // it solved. But rewriteExitToCrc32Checksum then replaces every
+  // `%_chk = %_chk + <leaf>` with a total `@crc32_update(...)` call,
+  // deleting exactly that overflow. The emitted program would then be
+  // UB-free even though the solver proved a UB, so symiri reports no
+  // UB. Keeping the sum form (no crc32 rewrite) makes the program we
+  // emit byte-identical to the one we solved, so a solver-found UB is
+  // guaranteed to trap. This costs nothing: a UB-triggering program
+  // aborts before it reaches a clean `ret`, so the crc32 return-value
+  // oracle is vestigial for it anyway.
+  bool noCrc32 = result.count("no-crc32") > 0 || solMode == SolvingMode::RequireUB;
   std::string target = result["target"].as<std::string>();
   bool noRequire = !result.count("keep-require");
   std::string vecLoweringOpt = result["vec-lowering"].as<std::string>();

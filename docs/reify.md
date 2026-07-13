@@ -221,6 +221,8 @@ rysmith [OPTIONS]
 |---|---|---|
 | `--timeout N` | 2000 | SMT solver timeout per attempt (ms) |
 | `--seed N` | random | Master RNG seed |
+| `--require-ub` | off | Generate programs that **trigger** UB on the sampled path instead of UB-free ones (see below). Implies `--no-crc32`. |
+| `--no-crc32` | off | Keep the sum-form checksum (`%_chk = %_chk + <leaf>`) in the emitted program instead of rewriting it to `@crc32_update` calls |
 
 #### Output
 
@@ -280,6 +282,12 @@ fun @func0(%pa0: i32) : i32 {
 The return value is the expected output $o$. Internally rysmith asks the solver for the cheaper sum-based contract (`%_chk = %_chk + atom`), then a post-solve rewriter replaces every accumulator step with a `@crc32_update` call before the .sir is written; the solver never has to encode the CRC32 recurrence. After lowering to C with `symirc -t c`, executing the function should always return this value regardless of compiler version or optimization level — the helper carries a function-local `static` lookup table and a `static __attribute__((noinline))` qualifier (see `docs/intrinsics.md` §12.7) so the optimizer cannot fold the chain.
 
 With `--emit-main`, rysmith additionally appends a `@main()` wrapper that calls `@func0` with the solver-synthesised parameter values and asserts the return matches the captured CRC32 via `@check_chksum(EXPECTED, %r);`. The C lowering of `@check_chksum` aborts on mismatch (`fprintf(stderr, …); abort();`) — that externally-visible side effect anchors the entire call chain against IPA-CP, so the compiler cannot fold the body away even at `-O3 -flto`.
+
+### Generating UB-triggering programs (`--require-ub`)
+
+By default every generated program is UB-free on its input: the solver asserts each operation's safety guard, so the concretization executes cleanly and returns the checksum. With `--require-ub`, rysmith instead asks the solver to **negate** the conjunction of those guards (delegated to `symirsolve`'s RequireUB mode — see [symirsolve.md](./symirsolve.md)), so the concretization is guaranteed to trigger at least one UB on the sampled path. This is used to exercise the UB-detection of downstream tools.
+
+`--require-ub` **implies `--no-crc32`.** The solver reasons about the *sum-form* checksum (`%_chk = %_chk + <leaf>`, the cheap contract above), and one legitimate way to satisfy "at least one UB on the path" is to overflow that signed accumulator. The post-solve CRC32 rewriter, however, replaces every `%_chk = %_chk + <leaf>` with a total `@crc32_update(...)` call — which cannot overflow — so it would silently *delete* the very UB the solver just proved, leaving the emitted program UB-free. Keeping the sum form (`--no-crc32`) makes the program rysmith emits byte-identical to the one it solved, so a solver-found UB is guaranteed to trap under the interpreter. This costs nothing: a UB-triggering program aborts before it reaches a clean `ret`, so its CRC32 return-value oracle is vestigial anyway.
 
 
 ## Tool: rylink
