@@ -1,0 +1,8 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// Signed overflow: INT32_MAX + INT32_MAX exceeds i32 range.
+// Literals are inferred as i32 from the return type context.
+fun @main() : i32 {
+^entry:
+  ret 2147483647 + 2147483647;
+}

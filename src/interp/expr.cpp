@@ -90,11 +90,12 @@ namespace refractir {
         v.intVal = static_cast<int64_t>(result);
         v.intVal = canonicalize(v.intVal, v.bits);
       } else if (v.kind == RuntimeValue::Kind::Float && right.kind == RuntimeValue::Kind::Float) {
-        // SPEC §6.7: FP expressions are homogeneous, but evalCoef tags
-        // FloatLit with bits=64 (it has no context). Take the narrower of the
-        // two operands so an Expr like `0.125 + (-268435449 as f32)` rounds
-        // at f32 precision instead of inheriting the literal's bits=64. The
-        // result's effective type also narrows for downstream chain steps.
+        // SPEC §6.7: FP expressions are homogeneous.  FloatLit::resolvedBits
+        // is now set by the type checker (32 for f32, 64 for f64), so both
+        // operands carry the correct precision.  We still take the narrower
+        // of the two as a belt-and-suspenders measure for any edge case where
+        // one operand's bits was not fully resolved (e.g. a cast-to-f32 whose
+        // bits=32 paired with a literal whose resolvedBits=64).
         uint32_t opBits = std::min(v.bits, right.bits);
         if (tail.op == AddOp::Plus)
           v.floatVal = checkFPResult(v.floatVal + right.floatVal, opBits);
@@ -1133,17 +1134,25 @@ namespace refractir {
 
   RuntimeValue Interpreter::evalCoef(const Coef &c, const Store &store) {
     if (std::holds_alternative<IntLit>(c)) {
+      const auto &lit = std::get<IntLit>(c);
       RuntimeValue rv;
       rv.kind = RuntimeValue::Kind::Int;
-      rv.intVal = std::get<IntLit>(c).value;
-      rv.bits = 64;
+      rv.intVal = lit.value;
+      // Use the bitwidth resolved by the type checker (i32 by default per
+      // SPEC §3.3.1).  A zero resolvedBits means the literal was never
+      // type-checked, which is a logic error — fall back to 64 defensively.
+      rv.bits = (lit.resolvedBits != 0) ? lit.resolvedBits : 64;
       return rv;
     }
     if (std::holds_alternative<FloatLit>(c)) {
+      const auto &flit = std::get<FloatLit>(c);
       RuntimeValue rv;
       rv.kind = RuntimeValue::Kind::Float;
-      rv.floatVal = std::get<FloatLit>(c).value;
-      rv.bits = 64;
+      rv.floatVal = flit.value;
+      // Use the bitwidth resolved by the type checker (32 for f32, 64 for
+      // f64; default f32 per SPEC §3.3.1).  A zero resolvedBits means the
+      // literal was never type-checked — fall back to 64 defensively.
+      rv.bits = (flit.resolvedBits != 0) ? flit.resolvedBits : 64;
       return rv;
     }
     if (std::holds_alternative<NullLit>(c)) {

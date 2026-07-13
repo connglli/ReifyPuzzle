@@ -1505,6 +1505,10 @@ namespace refractir {
     if (auto lit = std::get_if<IntLit>(&c)) {
       uint32_t bits = expectedBits.value_or(32);
       checkLiteralRange(lit->value, bits, lit->span, diags);
+      // Annotate the literal with its resolved bitwidth so the interpreter's
+      // evalCoef can apply the correct signed-range bounds.  Without this,
+      // evalCoef defaults to bits=64 and silently misses narrower overflows.
+      lit->resolvedBits = bits;
       auto t = std::make_shared<Type>();
       IntType it;
       if (bits == 32)
@@ -1522,6 +1526,10 @@ namespace refractir {
     }
     if (auto flit = std::get_if<FloatLit>(&c)) {
       uint32_t bits = expectedBits.value_or(32);
+      // Annotate with resolved precision so evalCoef passes the correct bits
+      // to checkFPResult; without this, evalCoef defaults to 64 and misses
+      // f32 overflow (e.g. 1e38 + 1e38 is finite as f64 but +inf as f32).
+      flit->resolvedBits = bits;
       auto t = std::make_shared<Type>();
       FloatType ft;
       ft.kind = (bits == 64) ? FloatType::Kind::F64 : FloatType::Kind::F32;

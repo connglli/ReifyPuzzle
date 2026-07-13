@@ -183,18 +183,34 @@ namespace refractir {
 
   /**
    * Literal integer value.
+   *
+   * `resolvedBits` is zero until the type checker populates it with the
+   * inferred bitwidth (from context, or the SPEC default of 32 for i32).
+   * The interpreter reads this field in `evalCoef` to apply the correct
+   * signed-overflow bounds; leaving it at the raw `int64_t` size (64) would
+   * silently bypass overflow detection for narrower types.
    */
   struct IntLit {
     std::int64_t value = 0;
     SourceSpan span;
+    // Populated by TypeChecker::typeOfCoef; 0 means "not yet resolved".
+    mutable uint32_t resolvedBits = 0;
   };
 
   /**
    * Literal floating-point value.
+   *
+   * `resolvedBits` is zero until the type checker populates it with the
+   * inferred bitwidth (32 for f32, 64 for f64; default per SPEC is 32).
+   * The interpreter's `evalCoef` uses this so `checkFPResult` applies the
+   * correct precision: with bits=64 it never truncates to float, so f32
+   * overflow (e.g., `1e38 + 1e38`) would silently pass.
    */
   struct FloatLit {
     double value = 0.0;
     SourceSpan span;
+    // Populated by TypeChecker::typeOfCoef; 0 means "not yet resolved".
+    mutable uint32_t resolvedBits = 0;
   };
 
   /**

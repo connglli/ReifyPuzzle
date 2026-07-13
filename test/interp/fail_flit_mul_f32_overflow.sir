@@ -1,0 +1,9 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// Float overflow: 4.0 * %y overflows f32 (4.0 * 1e38 ≈ 4e38 > FLT_MAX ≈ 3.4e38).
+// The coef literal 4.0 is inferred as f32 from the OpAtom rval's type.
+fun @main() : f32 {
+  let %y: f32 = 1e38;
+^entry:
+  ret 4.0 * %y;
+}

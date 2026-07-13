@@ -1,0 +1,8 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// Float overflow: 9e307 + 9e307 overflows f64 to +inf (DBL_MAX ≈ 1.8e308).
+// Literals inferred as f64 from return type.
+fun @main() : f64 {
+^entry:
+  ret 9e307 + 9e307;
+}

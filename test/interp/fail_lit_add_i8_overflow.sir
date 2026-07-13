@@ -1,0 +1,8 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// Signed overflow: 127 + 1 overflows i8.
+// Literals are inferred as i8 from the return type.
+fun @main() : i8 {
+^entry:
+  ret 127 + 1;
+}

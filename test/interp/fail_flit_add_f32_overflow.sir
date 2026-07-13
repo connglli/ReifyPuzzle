@@ -1,0 +1,8 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// Float overflow: 2e38 + 2e38 overflows f32 to +inf (FLT_MAX ≈ 3.4e38).
+// Literals inferred as f32 from return type; addition must be checked at f32 precision.
+fun @main() : f32 {
+^entry:
+  ret 2e38 + 2e38;
+}
