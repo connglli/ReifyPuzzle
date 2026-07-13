@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <iosfwd>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -93,5 +94,13 @@ namespace refractir::reify {
 
   // Serialize a StateProfile to JSON (bit-exact FP via formatDouble).
   void writeStateProfileJson(std::ostream &os, const StateProfile &profile);
+
+  // Parse a StateProfile from the JSON that writeStateProfileJson emits
+  // (rytwin reads the func_<id>_<i>.state.json sidecar). Floats are read
+  // back through refractir::parseFloatLiteral so the round-trip is
+  // bit-exact. Returns std::nullopt on malformed input. This is a focused
+  // parser for our own regular format — not a general JSON reader — in
+  // keeping with reify's no-JSON-dependency stance.
+  std::optional<StateProfile> readStateProfileJson(const std::string &json);
 
 } // namespace refractir::reify

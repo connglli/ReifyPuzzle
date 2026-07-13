@@ -88,7 +88,8 @@ REIFY_SRCS = src/reify/cfg_gen.cpp src/reify/path_sampler.cpp \
              src/reify/checksum.cpp \
              src/reify/common.cpp \
              src/reify/func_pool.cpp src/reify/cg_gen.cpp \
-             src/reify/rewrite.cpp src/reify/state_profile.cpp
+             src/reify/rewrite.cpp src/reify/state_profile.cpp \
+             src/reify/pass.cpp
 RYSMITH_SRCS = src/rysmith.cpp $(SOLVER_CORE_SRCS) $(REIFY_SRCS) $(BACKEND_SRCS) $(INTERP_IMPL_SRCS)
 # [v0.2.2] rylink links the C / WASM backends in-process so the bundle's
 # FunDecl::sourceStem survives all the way to emitSplit. Driving symirc
@@ -96,6 +97,9 @@ RYSMITH_SRCS = src/rysmith.cpp $(SOLVER_CORE_SRCS) $(REIFY_SRCS) $(BACKEND_SRCS)
 # and reset every sourceStem to "", collapsing --split-by-source to a
 # single program.c.
 RYLINK_SRCS = src/rylink.cpp $(REIFY_SRCS) $(BACKEND_SRCS) $(INTERP_IMPL_SRCS)
+# rytwin synthesizes twin blocks via the SMT solver, so — like rysmith —
+# it links the solver core + backend impl (SOLVER_IMPL_OBJ).
+RYTWIN_SRCS = src/rytwin.cpp $(SOLVER_CORE_SRCS) $(REIFY_SRCS) $(BACKEND_SRCS) $(INTERP_IMPL_SRCS)
 
 COMMON_OBJS = $(COMMON_SRCS:.cpp=.o)
 TEST_OBJS = $(TEST_SRCS:.cpp=.o)
@@ -104,12 +108,14 @@ COMPILER_OBJS = $(COMPILER_SRCS:.cpp=.o)
 SOLVER_OBJS = $(SOLVER_MAIN_SRCS:.cpp=.o) $(SOLVER_IMPL_OBJ)
 RYSMITH_OBJS = $(RYSMITH_SRCS:.cpp=.o) $(SOLVER_IMPL_OBJ)
 RYLINK_OBJS = $(RYLINK_SRCS:.cpp=.o)
+RYTWIN_OBJS = $(RYTWIN_SRCS:.cpp=.o) $(SOLVER_IMPL_OBJ)
 
 TARGET_INTERP = symiri
 TARGET_COMPILER = symirc
 TARGET_SOLVER = symirsolve
 TARGET_RYSMITH = rysmith
 TARGET_RYLINK = rylink
+TARGET_RYTWIN = rytwin
 
 BUILD_DIR = build
 BIN_DIR = $(BUILD_DIR)/bin
@@ -147,7 +153,7 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
 
 .PHONY: all clean test test-unit test-frontend test-interp test-backends test-cross-validation test-solver test-reify cross-validation build install
 
-all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK)
+all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 
 $(TARGET_INTERP): $(COMMON_OBJS) $(INTERP_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
@@ -166,6 +172,9 @@ $(TARGET_RYSMITH): $(COMMON_OBJS) $(RYSMITH_OBJS)
 # solver headers and reference its types, so the linker needs the
 # symbols. We don't link the Bitwuzla impl since rylink never solves.
 $(TARGET_RYLINK): $(COMMON_OBJS) $(RYLINK_OBJS) $(SOLVER_CORE_SRCS:.cpp=.o)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(TARGET_RYTWIN): $(COMMON_OBJS) $(RYTWIN_OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 %.o: %.cpp
@@ -189,7 +198,7 @@ $(LIB_DIR)/$(LIB_NAME): $(LIBRARY_OBJS)
 	$(AR) $(ARFLAGS) $@ $^
 
 clean:
-	rm -f $(COMMON_OBJS) $(TEST_OBJS) $(INTERP_OBJS) $(COMPILER_OBJS) $(SOLVER_OBJS) $(RYSMITH_OBJS) $(RYLINK_OBJS) $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK)
+	rm -f $(COMMON_OBJS) $(TEST_OBJS) $(INTERP_OBJS) $(COMPILER_OBJS) $(SOLVER_OBJS) $(RYSMITH_OBJS) $(RYLINK_OBJS) $(RYTWIN_OBJS) $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 	rm -rf $(BUILD_DIR)
 	find . -name "*.gcno" -delete
 	find . -name "*.gcda" -delete
@@ -200,10 +209,11 @@ clean:
 # split-by-source output, etc.). They don't go through the `.sir`
 # test runner in test/lib because they need to assert on the binary's
 # stdout / sidecar files / output directory layout.
-test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK)
+test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 	$(PY) -m test.unit.run_param_features_tests ./$(TARGET_INTERP) ./$(TARGET_COMPILER) ./$(TARGET_SOLVER)
 	$(PY) -m test.unit.run_rysmith_tests ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
 	$(PY) -m test.unit.run_rylink_tests ./$(TARGET_RYLINK) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
+	$(PY) -m test.unit.run_rytwin_tests ./$(TARGET_RYTWIN) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
 
 # Integration tests, grouped by the component under test. Each component
 # target is callable on its own (e.g. `make test-frontend`) so a developer

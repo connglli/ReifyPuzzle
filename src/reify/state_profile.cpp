@@ -1,6 +1,7 @@
 #include "reify/state_profile.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <ostream>
 #include <sstream>
 
@@ -159,6 +160,182 @@ namespace refractir::reify {
     }
 
   } // namespace
+
+  namespace {
+
+    // Focused recursive-descent reader for the regular JSON that
+    // writeStateProfileJson emits. Not a general JSON parser — it assumes
+    // the object-key order and value shapes this file produces, and only
+    // unescapes the `"` / `\` pairs writeString introduces.
+    struct JParser {
+      const std::string &s;
+      std::size_t i = 0;
+      bool ok = true;
+
+      explicit JParser(const std::string &str) : s(str) {}
+
+      void skip() {
+        while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i])))
+          ++i;
+      }
+
+      bool peek(char c) {
+        skip();
+        return i < s.size() && s[i] == c;
+      }
+
+      void eat(char c) {
+        if (peek(c))
+          ++i;
+        else
+          ok = false;
+      }
+
+      void comma() {
+        if (peek(','))
+          ++i;
+      }
+
+      std::string str() {
+        skip();
+        std::string out;
+        if (i >= s.size() || s[i] != '"') {
+          ok = false;
+          return out;
+        }
+        ++i;
+        while (i < s.size() && s[i] != '"') {
+          char c = s[i++];
+          if (c == '\\' && i < s.size())
+            out.push_back(s[i++]); // writeString only escapes the quote and backslash chars
+          else
+            out.push_back(c);
+        }
+        if (i < s.size() && s[i] == '"')
+          ++i;
+        else
+          ok = false;
+        return out;
+      }
+
+      long num() {
+        skip();
+        std::size_t st = i;
+        if (i < s.size() && (s[i] == '-' || s[i] == '+'))
+          ++i;
+        while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i])))
+          ++i;
+        if (st == i) {
+          ok = false;
+          return 0;
+        }
+        return std::stol(s.substr(st, i - st));
+      }
+    };
+
+    StateValue parseValue(JParser &p) {
+      StateValue v;
+      std::string kind, raw;
+      p.eat('{');
+      while (p.ok && !p.peek('}')) {
+        std::string key = p.str();
+        p.eat(':');
+        if (key == "k") {
+          kind = p.str();
+        } else if (key == "w") {
+          v.bits = static_cast<std::uint32_t>(p.num());
+        } else if (key == "v") {
+          raw = p.str();
+        } else if (key == "e") {
+          p.eat('[');
+          while (p.ok && !p.peek(']')) {
+            v.elems.push_back(parseValue(p));
+            p.comma();
+          }
+          p.eat(']');
+        } else if (key == "f") {
+          p.eat('{');
+          while (p.ok && !p.peek('}')) {
+            std::string fn = p.str();
+            p.eat(':');
+            v.fields.emplace_back(fn, parseValue(p));
+            p.comma();
+          }
+          p.eat('}');
+        }
+        p.comma();
+      }
+      p.eat('}');
+      if (kind == "i") {
+        v.kind = StateValue::Kind::Int;
+        v.intVal = raw.empty() ? 0 : std::stoll(raw);
+      } else if (kind == "f") {
+        v.kind = StateValue::Kind::Float;
+        v.floatVal = raw.empty() ? 0.0 : parseFloatLiteral(raw);
+      } else if (kind == "arr") {
+        v.kind = StateValue::Kind::Array;
+      } else if (kind == "vec") {
+        v.kind = StateValue::Kind::Vec;
+      } else if (kind == "st") {
+        v.kind = StateValue::Kind::Struct;
+      } else if (kind == "ptr") {
+        v.kind = StateValue::Kind::Ptr;
+      } else {
+        v.kind = StateValue::Kind::Undef;
+      }
+      return v;
+    }
+
+  } // namespace
+
+  std::optional<StateProfile> readStateProfileJson(const std::string &json) {
+    JParser p(json);
+    StateProfile prof;
+    p.eat('{');
+    while (p.ok && !p.peek('}')) {
+      std::string key = p.str();
+      p.eat(':');
+      if (key == "func") {
+        prof.func = p.str();
+      } else if (key == "granularity") {
+        prof.granularity = p.str() == "ppp" ? StateGranularity::Ppp : StateGranularity::Pbb;
+      } else if (key == "trace") {
+        p.eat('[');
+        while (p.ok && !p.peek(']')) {
+          StatePoint pt;
+          p.eat('{');
+          while (p.ok && !p.peek('}')) {
+            std::string k2 = p.str();
+            p.eat(':');
+            if (k2 == "block") {
+              pt.block = p.str();
+            } else if (k2 == "instr") {
+              pt.instr = static_cast<int>(p.num());
+            } else if (k2 == "vars") {
+              p.eat('{');
+              while (p.ok && !p.peek('}')) {
+                std::string vn = p.str();
+                p.eat(':');
+                pt.vars.emplace_back(vn, parseValue(p));
+                p.comma();
+              }
+              p.eat('}');
+            }
+            p.comma();
+          }
+          p.eat('}');
+          prof.trace.push_back(std::move(pt));
+          p.comma();
+        }
+        p.eat(']');
+      }
+      p.comma();
+    }
+    p.eat('}');
+    if (!p.ok)
+      return std::nullopt;
+    return prof;
+  }
 
   void writeStateProfileJson(std::ostream &os, const StateProfile &profile) {
     os << "{\n  \"func\": ";
