@@ -1,0 +1,20 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible
+
+// ^entry can bypass the loop header ^head and jump straight into the
+// loop body at ^mid, so the ^mid/^head cycle has two entry points.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br %i < 0, ^head, ^mid;
+
+^head:
+    br %i < 10, ^mid, ^exit;
+
+^mid:
+    %i = %i + 1;
+    br ^head;
+
+^exit:
+    ret %i;
+}

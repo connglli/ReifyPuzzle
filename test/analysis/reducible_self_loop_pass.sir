@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --require-reducible
+
+// A self loop is reducible: the block trivially dominates itself.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^spin;
+
+^spin:
+    %i = %i + 1;
+    br %i < 10, ^spin, ^exit;
+
+^exit:
+    ret %i;
+}

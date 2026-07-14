@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --require-reducible
+
+// The loop body appears before its header in source order, so a
+// naive label-order back-edge test would flag ^head -> ^body. The
+// dominance-based check must classify by RPO, not source position.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^head;
+
+^body:
+    %i = %i + 1;
+    br ^head;
+
+^head:
+    br %i < 10, ^body, ^exit;
+
+^exit:
+    ret %i;
+}

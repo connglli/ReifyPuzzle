@@ -8,6 +8,7 @@
 #include "analysis/dominators.hpp"
 #include "analysis/pass_manager.hpp"
 #include "analysis/reachability.hpp"
+#include "analysis/reducibility.hpp"
 #include "analysis/unused_name.hpp"
 #include "ast/ast_dumper.hpp"
 #include "backend/c_backend.hpp"
@@ -32,6 +33,7 @@ int main(int argc, char **argv) {
     ("target", "Backend target (c, wasm)", cxxopts::value<std::string>()->default_value("c"))
     ("dump-ast", "Dump AST to stdout and exit", cxxopts::value<bool>()->default_value("false"))
     ("dump-domtree", "Dump per-function dominator trees to stdout and exit", cxxopts::value<bool>()->default_value("false"))
+    ("require-reducible", "Reject functions with irreducible control flow", cxxopts::value<bool>()->default_value("false"))
     ("w", "Inhibit all warning messages", cxxopts::value<bool>()->default_value("false"))
     ("Werror", "Make all warnings into errors", cxxopts::value<bool>()->default_value("false"))
     ("no-module-tags", "Omit (module ...) tags in WASM output", cxxopts::value<bool>()->default_value("false"))
@@ -95,6 +97,9 @@ int main(int argc, char **argv) {
     pm.addFunctionPass(std::make_unique<ReachabilityAnalysis>());
     pm.addFunctionPass(std::make_unique<DefiniteInitAnalysis>());
     pm.addFunctionPass(std::make_unique<UnusedNameAnalysis>());
+    if (result["require-reducible"].as<bool>()) {
+      pm.addFunctionPass(std::make_unique<ReducibilityCheck>());
+    }
 
     bool werror = result["Werror"].as<bool>();
     bool nowarn = result["w"].as<bool>();
@@ -102,7 +107,10 @@ int main(int argc, char **argv) {
     if (pm.run(prog) == refractir::PassResult::Error || (werror && diags.hasWarnings())) {
       std::cerr << "Errors:\n";
       for (const auto &d: diags.diags) {
-        if (d.level == DiagLevel::Error || (werror && d.level == DiagLevel::Warning)) {
+        // Notes only ever accompany errors (e.g. ReducibilityCheck points
+        // at the multi-entry loop header), so print them alongside.
+        if (d.level == DiagLevel::Error || d.level == DiagLevel::Note ||
+            (werror && d.level == DiagLevel::Warning)) {
           printMessage(std::cerr, src, d.span, d.message, d.level);
         }
       }

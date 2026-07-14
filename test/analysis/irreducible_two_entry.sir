@@ -1,0 +1,22 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible
+
+// Classic irreducible shape: the ^a/^b cycle can be entered at both
+// ^a and ^b, so neither is a unique loop header. The retreating edge
+// ^b -> ^a has a target that does not dominate its source.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^a, ^b;
+
+^a:
+    %x = %x + 1;
+    br ^b;
+
+^b:
+    %x = %x + 2;
+    br %x < 100, ^a, ^exit;
+
+^exit:
+    ret %x;
+}

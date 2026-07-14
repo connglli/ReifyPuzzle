@@ -1,0 +1,30 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible
+
+// An irreducible region (^p/^q entered at both nodes) nested inside a
+// perfectly reducible outer loop headed at ^head.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^head;
+
+^head:
+    br %i < 10, ^body, ^exit;
+
+^body:
+    br %i < 5, ^p, ^q;
+
+^p:
+    %i = %i + 1;
+    br ^q;
+
+^q:
+    %i = %i + 2;
+    br %i < 8, ^p, ^latch;
+
+^latch:
+    br ^head;
+
+^exit:
+    ret %i;
+}
