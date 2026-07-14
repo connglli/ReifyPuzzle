@@ -163,13 +163,16 @@ def parse_entry(src):
 
 
 def test_twinpass_grafts_and_preserves_equivalence(rytwin, rysmith, symiri):
-  """On scalar-only programs, TwinPass grafts twins whose exact guard keeps
-  p1 === p2: identical results on the profiled input AND on other inputs."""
+  """On pointer-free programs (scalars, structs, arrays, vectors and pure
+  intrinsic calls — everything eligibility now covers), TwinPass grafts twins
+  whose exact guard keeps p1 === p2: identical results on the profiled input
+  AND on other inputs."""
   import random
 
   with tempfile.TemporaryDirectory() as d:
-    # Scalar-only generation maximizes twin eligibility (no pointers / vectors
-    # / aggregate-navigation / intrinsic calls in body blocks).
+    # Pointers/memory aren't twin candidates yet, so disable them; keep
+    # aggregates, vectors and intrinsic calls to exercise the lifted
+    # eligibility.
     r = run(
       [
         rysmith,
@@ -179,16 +182,13 @@ def test_twinpass_grafts_and_preserves_equivalence(rytwin, rysmith, symiri):
         "--n-funcs",
         "12",
         "--seed",
-        "100",
+        "202",
         "--n-params",
         "2",
         "--n-stmts",
-        "4",
+        "5",
         "--max-ptr-depth",
         "0",
-        "--no-vec",
-        "--no-agg-ptr",
-        "--no-intrinsics",
         "-o",
         d,
       ]

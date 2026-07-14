@@ -1,5 +1,6 @@
 #include "reify/twin_pass.hpp"
 
+#include <map>
 #include <random>
 #include <string>
 #include <unordered_map>
@@ -8,7 +9,6 @@
 
 #include "ast/ast.hpp"
 #include "reify/state_profile.hpp"
-#include "reify/type_gen.hpp"
 
 namespace refractir::reify {
 
@@ -36,7 +36,6 @@ namespace refractir::reify {
 
     Expr simpleExpr(Atom a) { return Expr{std::move(a), {}, {}}; }
 
-    // A concrete scalar state value as an atom / coef literal.
     Coef litCoef(const StateValue &v) {
       if (v.kind == StateValue::Kind::Float)
         return Coef{FloatLit{v.floatVal, {}}};
@@ -47,16 +46,19 @@ namespace refractir::reify {
       return Instr{AssignInstr{localLV(lhs), std::move(rhs), {}}};
     }
 
-    // `%dst = %var as <ty>` — a widening cast (lossless), used to bring a
-    // guard variable to a canonical comparison width.
-    Instr castInstr(const std::string &dst, const std::string &var, TypePtr ty) {
+    Instr assignLV(LValue lhs, Expr rhs) {
+      return Instr{AssignInstr{std::move(lhs), std::move(rhs), {}}};
+    }
+
+    // `%dst = <lvalue> as <ty>` — widen a (possibly sub-lvalue) leaf to a
+    // canonical width for comparison.
+    Instr castLVInstr(const std::string &dst, LValue src, TypePtr ty) {
       CastAtom c;
-      c.src = localLV(var);
+      c.src = std::move(src);
       c.dstType = std::move(ty);
       return assignInstr(dst, simpleExpr(Atom{std::move(c), {}}));
     }
 
-    // `%dst = cmp EQ %a, %b` — an i1 predicate over two same-width locals.
     Instr cmpEqInstr(const std::string &dst, const std::string &a, const std::string &b) {
       CmpAtom c;
       c.op = RelOp::EQ;
@@ -65,27 +67,22 @@ namespace refractir::reify {
       return assignInstr(dst, simpleExpr(Atom{std::move(c), {}}));
     }
 
-    // Append `%dst = (%var == k)` (i1) to `out`, normalizing both sides to a
-    // canonical width so the CmpAtom's operands agree: a bare literal in a
-    // cmp defaults to 32 bits and would mismatch a narrow/wide variable, so
-    // we widen the variable (i64 / f64 — lossless) and load the literal into
-    // a same-typed scratch (which gives the literal that width in the
-    // assignment's type context). The equality is therefore exact.
-    void emitEq(
-        std::vector<Instr> &out, const std::string &dst, const std::string &var, const StateValue &k
-    ) {
+    // Append `%dst = (<leaf> == k)` (i1). Both sides are widened to a
+    // canonical width (i64 / f64 — lossless) and the literal is loaded into a
+    // same-typed scratch so the CmpAtom's operands agree; a bare literal in a
+    // cmp otherwise defaults to 32 bits. The equality is therefore exact.
+    void emitEq(std::vector<Instr> &out, const std::string &dst, LValue leaf, const StateValue &k) {
       if (k.kind == StateValue::Kind::Float) {
-        out.push_back(castInstr("%__twfa", var, makeF64()));
+        out.push_back(castLVInstr("%__twfa", std::move(leaf), makeF64()));
         out.push_back(assignInstr("%__twfb", simpleExpr(coefAtom(litCoef(k)))));
         out.push_back(cmpEqInstr(dst, "%__twfa", "%__twfb"));
       } else {
-        out.push_back(castInstr("%__twa", var, makeI64()));
+        out.push_back(castLVInstr("%__twa", std::move(leaf), makeI64()));
         out.push_back(assignInstr("%__twb", simpleExpr(coefAtom(litCoef(k)))));
         out.push_back(cmpEqInstr(dst, "%__twa", "%__twb"));
       }
     }
 
-    // `%acc = %acc & %cur` — fold one more predicate into the conjunction.
     Instr andInstr(const std::string &acc, const std::string &cur) {
       OpAtom o;
       o.op = AtomOpKind::And;
@@ -103,7 +100,6 @@ namespace refractir::reify {
       return Terminator{std::move(b)};
     }
 
-    // `br %guard != 0, ^then, ^else`
     Terminator brIf(const std::string &guard, const std::string &thenL, const std::string &elseL) {
       Cond c;
       c.lhs = simpleExpr(rvalAtom(localLV(guard)));
@@ -118,14 +114,24 @@ namespace refractir::reify {
       return Terminator{std::move(b)};
     }
 
-    // --- eligibility scan ------------------------------------------------
+    // --- read-set scanning ----------------------------------------------
+    //
+    // Collect the base names an expression *reads* and reject any atom with a
+    // memory effect or call: load / addr / ptr-navigation / call are not v1
+    // twin candidates (they need pointer provenance we don't yet model). A
+    // block that reads or writes a pointer is likewise rejected downstream,
+    // when the profile value tree turns up a Ptr leaf.
 
-    void scanLV(const LValue &lv, std::unordered_set<std::string> &reads) {
-      reads.insert(lv.base.name);
+    void scanIndices(const LValue &lv, std::unordered_set<std::string> &reads) {
       for (const auto &acc: lv.accesses)
         if (auto ai = std::get_if<AccessIndex>(&acc))
           if (auto id = std::get_if<LocalOrSymId>(&ai->index))
             std::visit([&](auto &&v) { reads.insert(v.name); }, *id);
+    }
+
+    void scanLV(const LValue &lv, std::unordered_set<std::string> &reads) {
+      reads.insert(lv.base.name);
+      scanIndices(lv, reads);
     }
 
     void scanCoef(const Coef &c, std::unordered_set<std::string> &reads) {
@@ -149,6 +155,10 @@ namespace refractir::reify {
         if (!scanAtom(t.atom, reads))
           return false;
       return true;
+    }
+
+    bool scanCond(const Cond &c, std::unordered_set<std::string> &reads) {
+      return scanExpr(c.lhs, reads) && scanExpr(c.rhs, reads);
     }
 
     bool scanAtom(const Atom &a, std::unordered_set<std::string> &reads) {
@@ -179,17 +189,27 @@ namespace refractir::reify {
                 reads.insert(si->name);
               return true;
             } else if constexpr (std::is_same_v<T, SelectAtom>) {
-              if (arg.cond)
-                if (!scanExpr(arg.cond->lhs, reads) || !scanExpr(arg.cond->rhs, reads))
-                  return false;
+              if (arg.cond && !scanCond(*arg.cond, reads))
+                return false;
               if (arg.maskExpr && !scanExpr(*arg.maskExpr, reads))
                 return false;
               scanSelectVal(arg.vtrue, reads);
               scanSelectVal(arg.vfalse, reads);
               return true;
+            } else if constexpr (std::is_same_v<T, CallAtom>) {
+              // Intrinsic calls are pure value functions (no memory side
+              // effects, no pointer arguments), so a call's result is just
+              // another scalar the twin reconstructs — we only need to cover
+              // its argument reads. A non-intrinsic call (resolvedIntrinsic
+              // unset) could have effects, so reject it.
+              if (!arg.resolvedIntrinsic)
+                return false;
+              for (const auto &e: arg.args)
+                if (e && !scanExpr(*e, reads))
+                  return false;
+              return true;
             } else {
-              // AddrAtom / LoadAtom / PtrIndexAtom / PtrFieldAtom / CallAtom —
-              // memory effects or calls: not a v1 twin candidate.
+              // AddrAtom / LoadAtom / PtrIndexAtom / PtrFieldAtom
               return false;
             }
           },
@@ -197,59 +217,230 @@ namespace refractir::reify {
       );
     }
 
-    // A block is a v1 twin candidate iff every instruction is an assignment
-    // to a whole scalar local, with no memory / call effects, reading only
-    // scalars. Fills `reads` (scalar names read) and `defs` (distinct
-    // whole-scalar locals written, first-appearance order).
-    bool blockEligible(
-        const Block &b, const std::unordered_map<std::string, TypePtr> &vt,
-        std::unordered_set<std::string> &reads, std::vector<std::string> &defs
-    ) {
-      std::unordered_set<std::string> defSeen;
-      for (const auto &ins: b.instrs) {
-        const auto *ai = std::get_if<AssignInstr>(&ins);
-        if (!ai)
-          return false; // assume / require / store
-        if (!ai->lhs.accesses.empty())
-          return false; // sub-lvalue write (vec lane / field / index)
-        auto it = vt.find(ai->lhs.base.name);
-        if (it == vt.end() || !isScalarType(it->second))
-          return false;
-        if (!scanExpr(ai->rhs, reads))
-          return false;
-        if (!defSeen.count(ai->lhs.base.name)) {
-          defSeen.insert(ai->lhs.base.name);
-          defs.push_back(ai->lhs.base.name);
+    // --- profile value-tree helpers -------------------------------------
+
+    using StateMap = std::unordered_map<std::string, const StateValue *>;
+
+    StateMap toStateMap(const std::vector<std::pair<std::string, StateValue>> &vars) {
+      StateMap m;
+      for (const auto &kv: vars)
+        m[kv.first] = &kv.second;
+      return m;
+    }
+
+    // Navigate a value tree along `accs` (concrete accesses). Returns nullptr
+    // if the shape doesn't match (e.g. field/index missing).
+    const StateValue *navigate(const StateValue &root, const std::vector<Access> &accs) {
+      const StateValue *cur = &root;
+      for (const auto &acc: accs) {
+        if (auto af = std::get_if<AccessField>(&acc)) {
+          if (cur->kind != StateValue::Kind::Struct)
+            return nullptr;
+          const StateValue *next = nullptr;
+          for (const auto &f: cur->fields)
+            if (f.first == af->field) {
+              next = &f.second;
+              break;
+            }
+          if (!next)
+            return nullptr;
+          cur = next;
+        } else {
+          const auto &ai = std::get<AccessIndex>(acc);
+          auto il = std::get_if<IntLit>(&ai.index);
+          if (!il)
+            return nullptr; // must be concrete by now
+          if (cur->kind != StateValue::Kind::Array && cur->kind != StateValue::Kind::Vec)
+            return nullptr;
+          if (il->value < 0 || (std::size_t) il->value >= cur->elems.size())
+            return nullptr;
+          cur = &cur->elems[il->value];
         }
       }
-      if (defs.empty())
-        return false;
-      for (const auto &r: reads) {
-        auto it = vt.find(r);
-        if (it == vt.end() || !isScalarType(it->second))
-          return false;
+      return cur;
+    }
+
+    struct Leaf {
+      std::vector<Access> path; // from the root
+      StateValue val;
+    };
+
+    // Enumerate scalar leaves of `v`, appending each with its full access path
+    // (starting from `path`). Flags whether a pointer / undef leaf was seen.
+    void enumLeaves(
+        const StateValue &v, std::vector<Access> &path, std::vector<Leaf> &out, bool &hasPtr,
+        bool &hasUndef
+    ) {
+      switch (v.kind) {
+        case StateValue::Kind::Int:
+        case StateValue::Kind::Float:
+          out.push_back({path, v});
+          break;
+        case StateValue::Kind::Array:
+        case StateValue::Kind::Vec:
+          for (std::size_t i = 0; i < v.elems.size(); ++i) {
+            path.push_back(AccessIndex{Index{IntLit{(std::int64_t) i, {}}}, {}});
+            enumLeaves(v.elems[i], path, out, hasPtr, hasUndef);
+            path.pop_back();
+          }
+          break;
+        case StateValue::Kind::Struct:
+          for (const auto &f: v.fields) {
+            path.push_back(AccessField{f.first, {}});
+            enumLeaves(f.second, path, out, hasPtr, hasUndef);
+            path.pop_back();
+          }
+          break;
+        case StateValue::Kind::Ptr:
+          hasPtr = true;
+          break;
+        case StateValue::Kind::Undef:
+        default:
+          hasUndef = true;
+          break;
+      }
+    }
+
+    // Resolve any variable indices in `accs` to concrete IntLit indices using
+    // the entry state `s`. Returns false if an index var has no scalar-int
+    // value in `s`.
+    bool
+    resolveAccesses(const std::vector<Access> &accs, const StateMap &s, std::vector<Access> &out) {
+      for (const auto &acc: accs) {
+        if (auto af = std::get_if<AccessField>(&acc)) {
+          out.push_back(*af);
+        } else {
+          const auto &ai = std::get<AccessIndex>(acc);
+          if (auto il = std::get_if<IntLit>(&ai.index)) {
+            out.push_back(AccessIndex{Index{*il}, {}});
+          } else {
+            std::string nm;
+            std::visit([&](auto &&v) { nm = v.name; }, std::get<LocalOrSymId>(ai.index));
+            auto it = s.find(nm);
+            if (it == s.end() || it->second->kind != StateValue::Kind::Int)
+              return false;
+            out.push_back(AccessIndex{Index{IntLit{it->second->intVal, {}}}, {}});
+          }
+        }
       }
       return true;
     }
 
-    // A planned graft for one block.
-    struct TwinPlan {
-      // (var, value-at-B-entry) equality checks forming the guard.
-      std::vector<std::pair<std::string, StateValue>> guard;
-      // (var, value-at-B-exit) constant assignments forming B'.
-      std::vector<std::pair<std::string, StateValue>> defs;
-    };
-
-    const StateValue *
-    findVar(const std::vector<std::pair<std::string, StateValue>> &vars, const std::string &name) {
-      for (const auto &kv: vars)
-        if (kv.first == name)
-          return &kv.second;
-      return nullptr;
+    // Canonical key for a (root, path) leaf so repeated writes dedup.
+    std::string leafKey(const std::string &root, const std::vector<Access> &path) {
+      std::string k = root;
+      for (const auto &acc: path) {
+        if (auto af = std::get_if<AccessField>(&acc))
+          k += "." + af->field;
+        else
+          k += "[" + std::to_string(std::get<IntLit>(std::get<AccessIndex>(acc).index).value) + "]";
+      }
+      return k;
     }
 
-    bool isScalarStateValue(const StateValue &v) {
-      return v.kind == StateValue::Kind::Int || v.kind == StateValue::Kind::Float;
+    struct LeafRef {
+      std::string root;
+      std::vector<Access> path;
+      StateValue val;
+
+      LValue lvalue() const { return LValue{LocalId{root, {}}, path, {}}; }
+    };
+
+    struct TwinPlan {
+      std::vector<LeafRef> guard; // per-leaf equalities on the live-in state
+      std::vector<LeafRef> defs;  // per-leaf constant reconstruction of s'
+    };
+
+    // A block is a twin candidate iff it has no store, its assignment RHSs and
+    // any assume/require conditions are free of memory/call atoms, and every
+    // scalar leaf it reads or writes is concrete (no pointer / undef). Fills
+    // `plan` with the guard leaves (defined scalar leaves of every read root,
+    // compared to `s`) and the def leaves (exactly the leaves the block
+    // writes, reconstructed from `sPrime`).
+    bool planBlock(const Block &b, const StateMap &s, const StateMap &sPrime, TwinPlan &plan) {
+      std::unordered_set<std::string> reads;
+
+      struct WriteSite {
+        std::string root;
+        std::vector<Access> accesses;
+      };
+
+      std::vector<WriteSite> writes;
+
+      for (const auto &ins: b.instrs) {
+        bool ok = std::visit(
+            [&](auto &&i) -> bool {
+              using T = std::decay_t<decltype(i)>;
+              if constexpr (std::is_same_v<T, AssignInstr>) {
+                if (!scanExpr(i.rhs, reads))
+                  return false;
+                scanIndices(i.lhs, reads); // indices are read; the base is written
+                writes.push_back({i.lhs.base.name, i.lhs.accesses});
+                return true;
+              } else if constexpr (std::is_same_v<T, AssumeInstr>) {
+                return scanCond(i.cond, reads);
+              } else if constexpr (std::is_same_v<T, RequireInstr>) {
+                return scanCond(i.cond, reads);
+              } else {
+                return false; // StoreInstr — memory effect
+              }
+            },
+            ins
+        );
+        if (!ok)
+          return false;
+      }
+      if (writes.empty())
+        return false;
+
+      // Guard: every defined scalar leaf of every read root, compared to s.
+      for (const auto &root: reads) {
+        auto it = s.find(root);
+        if (it == s.end())
+          continue; // not in the live-in state (e.g. written-before-read)
+        std::vector<Leaf> leaves;
+        std::vector<Access> path;
+        bool hasPtr = false, hasUndef = false;
+        enumLeaves(*it->second, path, leaves, hasPtr, hasUndef);
+        if (hasPtr)
+          return false; // reads a pointer — not modeled
+        for (auto &lf: leaves)
+          plan.guard.push_back({root, std::move(lf.path), lf.val});
+      }
+      if (plan.guard.empty())
+        return false; // no live-in scalar to key the guard on
+
+      // Defs: exactly the leaves each write touches, from s'.
+      std::map<std::string, LeafRef> defMap;
+      for (const auto &w: writes) {
+        std::vector<Access> concrete;
+        if (!resolveAccesses(w.accesses, s, concrete))
+          return false;
+        auto it = sPrime.find(w.root);
+        if (it == sPrime.end())
+          return false;
+        const StateValue *sub = navigate(*it->second, concrete);
+        if (!sub)
+          return false;
+        std::vector<Leaf> leaves;
+        std::vector<Access> base = concrete;
+        bool hasPtr = false, hasUndef = false;
+        enumLeaves(*sub, base, leaves, hasPtr, hasUndef);
+        if (hasPtr || hasUndef)
+          return false; // can't reconstruct a pointer / undef leaf
+        for (auto &lf: leaves) {
+          // Compute the key before moving lf.path into the value — doing both
+          // in one statement would read a moved-from path and collapse the
+          // key to the bare root, silently dropping all but one leaf.
+          std::string key = leafKey(w.root, lf.path);
+          defMap[key] = {w.root, std::move(lf.path), lf.val};
+        }
+      }
+      if (defMap.empty())
+        return false;
+      for (auto &[k, v]: defMap)
+        plan.defs.push_back(std::move(v));
+      return true;
     }
 
     class TwinPass : public Pass {
@@ -279,17 +470,10 @@ namespace refractir::reify {
           if (!fn)
             continue;
 
-          std::unordered_map<std::string, TypePtr> vt;
-          for (const auto &p: fn->params)
-            vt[p.name.name] = p.type;
-          for (const auto &l: fn->lets)
-            vt[l.name.name] = l.type;
-
           std::unordered_map<std::string, const Block *> byLabel;
           for (const auto &b: fn->blocks)
             byLabel[b.label.name] = &b;
 
-          // Block-entry points, in execution order.
           std::vector<const StatePoint *> pts;
           for (const auto &pt: profile.trace)
             if (pt.instr == -1)
@@ -303,93 +487,21 @@ namespace refractir::reify {
             auto bit = byLabel.find(label);
             if (bit == byLabel.end())
               continue;
-            const Block &b = *bit->second;
 
-            std::unordered_set<std::string> reads;
-            std::vector<std::string> defs;
-            if (!blockEligible(b, vt, reads, defs))
-              continue;
-
-            // Guard = equality on each scalar the block reads (the live-in
-            // state it depends on), in the profile's stable name order.
+            StateMap s = toStateMap(pts[t]->vars);
+            StateMap sPrime = toStateMap(pts[t + 1]->vars);
             TwinPlan plan;
-            for (const auto &kv: pts[t]->vars) {
-              if (!isScalarStateValue(kv.second))
-                continue;
-              if (reads.count(kv.first))
-                plan.guard.emplace_back(kv.first, kv.second);
-            }
-            if (plan.guard.empty())
-              continue; // no live-in scalars to key on
-
-            // B' reconstructs each written scalar's exit value.
-            bool defsOk = true;
-            for (const auto &d: defs) {
-              const StateValue *sv = findVar(pts[t + 1]->vars, d);
-              if (!sv || !isScalarStateValue(*sv)) {
-                defsOk = false;
-                break;
-              }
-              plan.defs.emplace_back(d, *sv);
-            }
-            if (!defsOk)
+            if (!planBlock(*bit->second, s, sPrime, plan))
               continue;
-
             if (coin(ctx.rng) >= pTwin_)
               continue;
             decided.emplace(label, std::move(plan));
           }
-
           if (decided.empty())
             continue;
 
-          // Two i1 scratch locals suffice for every guard: each guard block
-          // fully computes %__twg before branching, so their live ranges
-          // never overlap across twins.
-          auto addScratch = [&](const std::string &nm, TypePtr ty, bool isFloat) {
-            for (const auto &l: fn->lets)
-              if (l.name.name == nm)
-                return;
-            LetDecl d;
-            d.isMutable = true;
-            d.name = LocalId{nm, {}};
-            d.type = std::move(ty);
-            InitVal iv;
-            if (isFloat) {
-              iv.kind = InitVal::Kind::Float;
-              iv.value = FloatLit{0.0, {}};
-            } else {
-              iv.kind = InitVal::Kind::Int;
-              iv.value = IntLit{0, {}};
-            }
-            d.init = iv;
-            fn->lets.push_back(std::move(d));
-          };
-          bool needInt = false, needFloat = false, needTwc = false;
-          for (const auto &[lbl, plan]: decided) {
-            if (plan.guard.size() > 1)
-              needTwc = true;
-            for (const auto &[var, val]: plan.guard) {
-              if (val.kind == StateValue::Kind::Float)
-                needFloat = true;
-              else
-                needInt = true;
-            }
-          }
-          addScratch("%__twg", makeI1(), false); // conjunction accumulator (i1)
-          if (needTwc)
-            addScratch("%__twc", makeI1(), false); // current predicate (i1)
-          if (needInt) {
-            addScratch("%__twa", makeI64(), false); // widened int operand
-            addScratch("%__twb", makeI64(), false); // int literal at i64
-          }
-          if (needFloat) {
-            addScratch("%__twfa", makeF64(), true); // widened float operand
-            addScratch("%__twfb", makeF64(), true); // float literal at f64
-          }
+          addScratch(*fn, decided);
 
-          // Rebuild the block list, expanding each decided block into the
-          // guard / twin / orig / merge quartet.
           std::vector<Block> nb;
           nb.reserve(fn->blocks.size() + 3 * decided.size());
           for (auto &b: fn->blocks) {
@@ -398,49 +510,7 @@ namespace refractir::reify {
               nb.push_back(std::move(b));
               continue;
             }
-            const TwinPlan &plan = dit->second;
-            const std::string base = b.label.name;
-            const std::string twinL = base + "__twin";
-            const std::string origL = base + "__orig";
-            const std::string mergeL = base + "__merge";
-
-            // Guard block keeps the original label so predecessors are
-            // untouched: compute the conjunction, then branch.
-            Block guard;
-            guard.label = BlockLabel{base, {}};
-            for (std::size_t i = 0; i < plan.guard.size(); ++i) {
-              const auto &[var, val] = plan.guard[i];
-              if (i == 0) {
-                emitEq(guard.instrs, "%__twg", var, val);
-              } else {
-                emitEq(guard.instrs, "%__twc", var, val);
-                guard.instrs.push_back(andInstr("%__twg", "%__twc"));
-              }
-            }
-            guard.term = brIf("%__twg", twinL, origL);
-
-            // Twin block: B' constant reconstruction, then to merge.
-            Block twin;
-            twin.label = BlockLabel{twinL, {}};
-            for (const auto &[var, val]: plan.defs)
-              twin.instrs.push_back(assignInstr(var, simpleExpr(coefAtom(litCoef(val)))));
-            twin.term = brTo(mergeL);
-
-            // Orig block: the original body, then to merge.
-            Block orig;
-            orig.label = BlockLabel{origL, {}};
-            orig.instrs = std::move(b.instrs);
-            orig.term = brTo(mergeL);
-
-            // Merge block: the original terminator (moved, not cloned).
-            Block merge;
-            merge.label = BlockLabel{mergeL, {}};
-            merge.term = std::move(b.term);
-
-            nb.push_back(std::move(guard));
-            nb.push_back(std::move(twin));
-            nb.push_back(std::move(orig));
-            nb.push_back(std::move(merge));
+            graft(b, dit->second, nb);
             ++rep.sites;
           }
           fn->blocks = std::move(nb);
@@ -449,6 +519,89 @@ namespace refractir::reify {
       }
 
     private:
+      // Two i1 scratch locals plus the widening operands. Their live ranges
+      // never overlap (each guard computes and consumes them before
+      // branching), so one set serves every twin. Only the kinds actually
+      // used are declared.
+      static void
+      addScratch(FunDecl &fn, const std::unordered_map<std::string, TwinPlan> &decided) {
+        bool needInt = false, needFloat = false, needTwc = false;
+        for (const auto &[lbl, plan]: decided) {
+          if (plan.guard.size() > 1)
+            needTwc = true;
+          for (const auto &g: plan.guard)
+            (g.val.kind == StateValue::Kind::Float ? needFloat : needInt) = true;
+        }
+        auto add = [&](const std::string &nm, TypePtr ty, bool isFloat) {
+          for (const auto &l: fn.lets)
+            if (l.name.name == nm)
+              return;
+          LetDecl d;
+          d.isMutable = true;
+          d.name = LocalId{nm, {}};
+          d.type = std::move(ty);
+          InitVal iv;
+          if (isFloat) {
+            iv.kind = InitVal::Kind::Float;
+            iv.value = FloatLit{0.0, {}};
+          } else {
+            iv.kind = InitVal::Kind::Int;
+            iv.value = IntLit{0, {}};
+          }
+          d.init = iv;
+          fn.lets.push_back(std::move(d));
+        };
+        add("%__twg", makeI1(), false);
+        if (needTwc)
+          add("%__twc", makeI1(), false);
+        if (needInt) {
+          add("%__twa", makeI64(), false);
+          add("%__twb", makeI64(), false);
+        }
+        if (needFloat) {
+          add("%__twfa", makeF64(), true);
+          add("%__twfb", makeF64(), true);
+        }
+      }
+
+      // Expand block `b` into the guard / twin / orig / merge quartet.
+      static void graft(Block &b, const TwinPlan &plan, std::vector<Block> &out) {
+        const std::string base = b.label.name;
+        const std::string twinL = base + "__twin";
+        const std::string origL = base + "__orig";
+        const std::string mergeL = base + "__merge";
+
+        Block guard;
+        guard.label = BlockLabel{base, {}};
+        for (std::size_t i = 0; i < plan.guard.size(); ++i) {
+          const std::string dst = i == 0 ? "%__twg" : "%__twc";
+          emitEq(guard.instrs, dst, plan.guard[i].lvalue(), plan.guard[i].val);
+          if (i > 0)
+            guard.instrs.push_back(andInstr("%__twg", "%__twc"));
+        }
+        guard.term = brIf("%__twg", twinL, origL);
+
+        Block twin;
+        twin.label = BlockLabel{twinL, {}};
+        for (const auto &d: plan.defs)
+          twin.instrs.push_back(assignLV(d.lvalue(), simpleExpr(coefAtom(litCoef(d.val)))));
+        twin.term = brTo(mergeL);
+
+        Block orig;
+        orig.label = BlockLabel{origL, {}};
+        orig.instrs = std::move(b.instrs);
+        orig.term = brTo(mergeL);
+
+        Block merge;
+        merge.label = BlockLabel{mergeL, {}};
+        merge.term = std::move(b.term);
+
+        out.push_back(std::move(guard));
+        out.push_back(std::move(twin));
+        out.push_back(std::move(orig));
+        out.push_back(std::move(merge));
+      }
+
       double pTwin_;
       TwinGuard guard_;
     };
