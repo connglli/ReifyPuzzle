@@ -1,0 +1,29 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-control-tree
+
+// ^ib is a latch of BOTH loops: its back edge to ^oh continues the
+// outer loop from inside the inner one, crossing one loop context
+// (`continue ^oh levels=1` — a flag + break in the python emitter).
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+^entry:
+    br ^oh;
+
+^oh:
+    br %i < 10, ^ih, ^done;
+
+^ih:
+    br %j < 10, ^ib, ^ol;
+
+^ib:
+    %j = %j + 1;
+    br %j > 5, ^oh, ^ih;
+
+^ol:
+    %i = %i + 1;
+    br ^oh;
+
+^done:
+    ret %i;
+}

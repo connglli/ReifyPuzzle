@@ -1,0 +1,32 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-control-tree
+
+// A diamond inside the loop body joining at the latch: ^latch is a
+// merge follower of ^body placed inside the loop, and both arms fall
+// through to it.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^head;
+
+^head:
+    br %i < 10, ^body, ^exit;
+
+^body:
+    br %i < 5, ^a, ^b;
+
+^a:
+    %i = %i + 1;
+    br ^latch;
+
+^b:
+    %i = %i + 2;
+    br ^latch;
+
+^latch:
+    %i = %i + 1;
+    br ^head;
+
+^exit:
+    ret %i;
+}

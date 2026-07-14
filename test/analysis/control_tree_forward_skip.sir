@@ -1,0 +1,26 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-control-tree
+
+// ^entry dominates two merge joins ^f1 and ^f2 (RPO-ordered follower
+// sequence). The edge ^a -> ^f2 skips the pending ^f1 subtree, which
+// no native construct expresses: it becomes a jumpjoin (flag in the
+// python emitter).
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 0, ^a, ^b;
+
+^a:
+    br %x < 5, ^f1, ^f2;
+
+^b:
+    %x = 1;
+    br ^f1;
+
+^f1:
+    %x = %x + 10;
+    br ^f2;
+
+^f2:
+    ret %x;
+}

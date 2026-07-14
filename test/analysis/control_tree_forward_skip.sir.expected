@@ -1,0 +1,17 @@
+control-tree @main:
+  block ^entry
+  if ^entry
+    then:
+      block ^a
+      if ^a
+        then:
+          fallthrough ^f1
+        else:
+          jumpjoin ^f2 levels=0
+    else:
+      block ^b
+      fallthrough ^f1
+  block ^f1
+  fallthrough ^f2
+  block ^f2
+  return ^f2

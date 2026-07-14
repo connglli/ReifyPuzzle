@@ -1,0 +1,29 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-control-tree
+
+// Early return from inside a loop: ^early has a unique forward
+// predecessor, so its `ret` inlines straight into the branch arm — no
+// flags, no break.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^head;
+
+^head:
+    br %i < 10, ^body, ^done;
+
+^body:
+    %acc = %acc + %i;
+    br %acc > 100, ^early, ^next;
+
+^early:
+    ret %acc;
+
+^next:
+    %i = %i + 1;
+    br ^head;
+
+^done:
+    ret %acc;
+}

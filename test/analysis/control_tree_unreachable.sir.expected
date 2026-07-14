@@ -1,0 +1,9 @@
+control-tree @main:
+  block ^entry
+  if ^entry
+    then:
+      block ^a
+      return ^a
+    else:
+      block ^b
+      trap ^b

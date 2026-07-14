@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-control-tree
+
+// If/else diamond: the join is a merge follower of ^entry; both arms
+// reach it by plain fallthrough.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^then, ^else;
+
+^then:
+    %x = 1;
+    br ^join;
+
+^else:
+    %x = 2;
+    br ^join;
+
+^join:
+    ret %x;
+}

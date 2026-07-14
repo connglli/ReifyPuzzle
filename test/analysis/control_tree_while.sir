@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-control-tree
+
+// Simple while loop: the exit block is an out-of-loop follower of the
+// header, reached by a single-level break.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^head;
+
+^head:
+    br %i < 10, ^body, ^exit;
+
+^body:
+    %i = %i + 1;
+    br ^head;
+
+^exit:
+    ret %i;
+}

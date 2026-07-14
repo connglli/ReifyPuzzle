@@ -1,0 +1,18 @@
+control-tree @main:
+  block ^entry
+  loop 0 header=^head
+    block ^head
+    if ^head
+      then:
+        block ^body
+        if ^body
+          then:
+            block ^early
+            return ^early
+          else:
+            block ^next
+            continue ^head levels=0
+      else:
+        break ^done levels=1
+  block ^done
+  return ^done

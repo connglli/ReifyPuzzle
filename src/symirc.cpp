@@ -10,6 +10,7 @@
 #include "analysis/pass_manager.hpp"
 #include "analysis/reachability.hpp"
 #include "analysis/reducibility.hpp"
+#include "analysis/structurizer.hpp"
 #include "analysis/unused_name.hpp"
 #include "ast/ast_dumper.hpp"
 #include "backend/c_backend.hpp"
@@ -36,6 +37,7 @@ int main(int argc, char **argv) {
     ("dump-domtree", "Dump per-function dominator trees to stdout and exit", cxxopts::value<bool>()->default_value("false"))
     ("require-reducible", "Reject functions with irreducible control flow", cxxopts::value<bool>()->default_value("false"))
     ("dump-loops", "Dump per-function loop nesting forests to stdout and exit", cxxopts::value<bool>()->default_value("false"))
+    ("dump-control-tree", "Dump per-function structured control trees to stdout and exit (implies --require-reducible)", cxxopts::value<bool>()->default_value("false"))
     ("w", "Inhibit all warning messages", cxxopts::value<bool>()->default_value("false"))
     ("Werror", "Make all warnings into errors", cxxopts::value<bool>()->default_value("false"))
     ("no-module-tags", "Omit (module ...) tags in WASM output", cxxopts::value<bool>()->default_value("false"))
@@ -99,7 +101,9 @@ int main(int argc, char **argv) {
     pm.addFunctionPass(std::make_unique<ReachabilityAnalysis>());
     pm.addFunctionPass(std::make_unique<DefiniteInitAnalysis>());
     pm.addFunctionPass(std::make_unique<UnusedNameAnalysis>());
-    if (result["require-reducible"].as<bool>()) {
+    // The structurizer is only total on reducible CFGs, so --dump-control-tree
+    // implies the check.
+    if (result["require-reducible"].as<bool>() || result["dump-control-tree"].as<bool>()) {
       pm.addFunctionPass(std::make_unique<ReducibilityCheck>());
     }
 
@@ -132,7 +136,8 @@ int main(int argc, char **argv) {
     // program (so every CFG is well-formed) and exit without emitting.
     bool dumpDomtree = result["dump-domtree"].as<bool>();
     bool dumpLoops = result["dump-loops"].as<bool>();
-    if (dumpDomtree || dumpLoops) {
+    bool dumpControlTree = result["dump-control-tree"].as<bool>();
+    if (dumpDomtree || dumpLoops || dumpControlTree) {
       bool first = true;
       for (const auto &f: prog.funs) {
         if (!first)
@@ -142,8 +147,13 @@ int main(int argc, char **argv) {
         DomTree dt = DomTree::build(cfg);
         if (dumpDomtree)
           dt.dump(std::cout, cfg, f.name.name);
-        if (dumpLoops)
-          LoopInfo::build(cfg, dt).dump(std::cout, cfg, f.name.name);
+        if (dumpLoops || dumpControlTree) {
+          LoopInfo li = LoopInfo::build(cfg, dt);
+          if (dumpLoops)
+            li.dump(std::cout, cfg, f.name.name);
+          if (dumpControlTree)
+            Structurizer::build(f, cfg, dt, li).dump(std::cout, cfg, f.name.name);
+        }
       }
       return 0;
     }

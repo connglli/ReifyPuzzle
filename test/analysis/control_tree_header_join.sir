@@ -1,0 +1,27 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-control-tree
+
+// The merge join ^join is the header's own dominator child *inside*
+// the loop (an in-loop follower of ^head), and the loop's only exit
+// hangs off ^join, so ^exit and its `ret` inline inside the loop.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^head;
+
+^head:
+    %i = %i + 1;
+    br %i < 5, ^a, ^b;
+
+^a:
+    br ^join;
+
+^b:
+    br ^join;
+
+^join:
+    br %i < 10, ^head, ^exit;
+
+^exit:
+    ret %i;
+}

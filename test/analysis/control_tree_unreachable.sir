@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-control-tree -w
+
+// An `unreachable` terminator becomes a trap node; the dead block
+// ^dead is dropped from the tree entirely (and must not count as a
+// forward predecessor of ^a).
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^a, ^b;
+
+^a:
+    ret 1;
+
+^b:
+    unreachable;
+
+^dead:
+    br ^a;
+}
