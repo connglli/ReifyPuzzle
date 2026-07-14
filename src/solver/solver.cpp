@@ -428,7 +428,7 @@ namespace refractir {
 
     // 1. Declare symbols and fix values if requested
     for (const auto &s: entry->syms) {
-      auto sv = createSymbolicValue(s.type, s.name.name, solver, true, &pathConstraints);
+      auto sv = createSymbolicValue(s.type, s.name.name, solver, &pathConstraints);
       store[s.name.name] = sv;
 
       // [v0.2.1] Vector sym: collect the per-lane terms so the domain/fix
@@ -514,8 +514,7 @@ namespace refractir {
 
     // 2. Declare locals (parameters are also in store)
     for (const auto &p: entry->params) {
-      store[p.name.name] =
-          createSymbolicValue(p.type, p.name.name, solver, false, &pathConstraints);
+      store[p.name.name] = createSymbolicValue(p.type, p.name.name, solver, &pathConstraints);
     }
     for (const auto &l: entry->lets) {
       if (l.init) {

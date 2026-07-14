@@ -289,7 +289,7 @@ namespace refractir {
     // negation can trigger a genuine finite→∞ overflow but can never select a
     // non-finite input, which is not a representable RefractIR value.
     SymbolicValue createSymbolicValue(
-        const TypePtr &t, const std::string &name, smt::ISolver &solver, bool isSymbol = false,
+        const TypePtr &t, const std::string &name, smt::ISolver &solver,
         std::vector<smt::Term> *finiteSink = nullptr
     );
 

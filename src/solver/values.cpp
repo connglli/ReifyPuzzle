@@ -50,16 +50,16 @@ namespace refractir {
   }
 
   SymbolicValue SymbolicExecutor::createSymbolicValue(
-      const TypePtr &t, const std::string &name, smt::ISolver &solver, bool,
+      const TypePtr &t, const std::string &name, smt::ISolver &solver,
       std::vector<smt::Term> *finiteSink
   ) {
     SymbolicValue res;
     if (auto at = std::get_if<ArrayType>(&t->v)) {
       res.kind = SymbolicValue::Kind::Array;
       for (size_t i = 0; i < at->size; ++i) {
-        res.arrayVal.push_back(createSymbolicValue(
-            at->elem, name + "[" + std::to_string(i) + "]", solver, false, finiteSink
-        ));
+        res.arrayVal.push_back(
+            createSymbolicValue(at->elem, name + "[" + std::to_string(i) + "]", solver, finiteSink)
+        );
       }
     } else if (auto vt = std::get_if<VecType>(&t->v)) {
       // [v0.2.1] Vector sym: N independent lane-symbolic constants
@@ -67,9 +67,9 @@ namespace refractir {
       // dispatch picks the lane-wise UB path.
       res.kind = SymbolicValue::Kind::Vec;
       for (size_t i = 0; i < vt->size; ++i) {
-        res.arrayVal.push_back(createSymbolicValue(
-            vt->elem, name + "[" + std::to_string(i) + "]", solver, false, finiteSink
-        ));
+        res.arrayVal.push_back(
+            createSymbolicValue(vt->elem, name + "[" + std::to_string(i) + "]", solver, finiteSink)
+        );
       }
     } else if (auto st = std::get_if<StructType>(&t->v)) {
       res.kind = SymbolicValue::Kind::Struct;
@@ -77,7 +77,7 @@ namespace refractir {
       if (it != structs_.end()) {
         for (const auto &f: it->second->fields) {
           res.structVal[f.name] =
-              createSymbolicValue(f.type, name + "." + f.name, solver, false, finiteSink);
+              createSymbolicValue(f.type, name + "." + f.name, solver, finiteSink);
         }
       }
     } else {
