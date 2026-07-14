@@ -1,0 +1,39 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+// Nested loops with a two-level break (flag cascade in the emitted
+// python): acc sums j per inner pass and bails out of both loops the
+// moment it exceeds 50. i=0 contributes 45; i=1 stops at acc=51.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^oh;
+
+^oh:
+    br %i < 10, ^ipre, ^done;
+
+^ipre:
+    %j = 0;
+    br ^ih;
+
+^ih:
+    br %j < 10, ^ib, ^ol;
+
+^ib:
+    %acc = %acc + %j;
+    br %acc > 50, ^done, ^il;
+
+^il:
+    %j = %j + 1;
+    br ^ih;
+
+^ol:
+    %i = %i + 1;
+    br ^oh;
+
+^done:
+    require %acc == 51, "two-level break lands with acc=51";
+    ret %acc;
+}

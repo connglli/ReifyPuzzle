@@ -1,0 +1,163 @@
+#include <stdexcept>
+#include "backend/py_backend.hpp"
+
+namespace refractir {
+
+  std::uint32_t PyBackend::intWidth(const TypePtr &t) {
+    if (!t)
+      return 0;
+    if (auto it = std::get_if<IntType>(&t->v)) {
+      switch (it->kind) {
+        case IntType::Kind::I32:
+          return 32;
+        case IntType::Kind::I64:
+          return 64;
+        case IntType::Kind::ICustom:
+          return static_cast<std::uint32_t>(it->bits.value_or(32));
+      }
+    }
+    return 0;
+  }
+
+  std::uint32_t PyBackend::floatWidth(const TypePtr &t) {
+    if (!t)
+      return 0;
+    if (auto ft = std::get_if<FloatType>(&t->v))
+      return ft->kind == FloatType::Kind::F32 ? 32 : 64;
+    return 0;
+  }
+
+  void PyBackend::requireSupportedType(const TypePtr &t, const char *what) const {
+    if (!t)
+      return;
+    if (std::holds_alternative<IntType>(t->v) || std::holds_alternative<FloatType>(t->v))
+      return;
+    if (std::holds_alternative<PtrType>(t->v) || std::holds_alternative<ArrayType>(t->v) ||
+        std::holds_alternative<StructType>(t->v))
+      throw std::runtime_error(
+          std::string("python target: pointer/aggregate ") + what + " not yet supported"
+      );
+    throw std::runtime_error(std::string("python target: vector ") + what + " not yet supported");
+  }
+
+  TypePtr PyBackend::getLValueType(const LValue &lv) {
+    auto it = varTypes_.find(lv.base.name);
+    if (it == varTypes_.end())
+      return nullptr;
+    TypePtr cur = it->second;
+    for (const auto &acc: lv.accesses) {
+      if (!cur)
+        return nullptr;
+      if (std::holds_alternative<AccessIndex>(acc)) {
+        if (auto at = std::get_if<ArrayType>(&cur->v))
+          cur = at->elem;
+        else if (auto vt = std::get_if<VecType>(&cur->v))
+          cur = vt->elem;
+        else if (auto pt = std::get_if<PtrType>(&cur->v))
+          cur = pt->pointee;
+        else
+          return nullptr;
+      } else if (std::get_if<AccessField>(&acc)) {
+        // Struct fields arrive with the aggregate model (stage 7).
+        return nullptr;
+      }
+    }
+    return cur;
+  }
+
+  TypePtr PyBackend::getCoefType(const Coef &coef) {
+    return std::visit(
+        [this](auto &&arg) -> TypePtr {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, IntLit>) {
+            auto t = std::make_shared<Type>();
+            // Prefer the width the type checker pinned; fall back to
+            // the value-range heuristic for un-typechecked input.
+            std::uint32_t bits = arg.resolvedBits;
+            if (bits == 0)
+              bits = (arg.value > 2147483647LL || arg.value < -2147483648LL) ? 64 : 32;
+            t->v = IntType{IntType::Kind::ICustom, static_cast<int>(bits), {}};
+            return t;
+          } else if constexpr (std::is_same_v<T, FloatLit>) {
+            auto t = std::make_shared<Type>();
+            t->v =
+                FloatType{arg.resolvedBits == 32 ? FloatType::Kind::F32 : FloatType::Kind::F64, {}};
+            return t;
+          } else if constexpr (std::is_same_v<T, NullLit>) {
+            auto t = std::make_shared<Type>();
+            t->v = PtrType{nullptr, {}};
+            return t;
+          } else {
+            return std::visit(
+                [this](auto &&id) -> TypePtr {
+                  auto it = varTypes_.find(id.name);
+                  return it != varTypes_.end() ? it->second : nullptr;
+                },
+                arg
+            );
+          }
+        },
+        coef
+    );
+  }
+
+  TypePtr PyBackend::getSelectValType(const SelectVal &sv) {
+    if (std::holds_alternative<RValue>(sv))
+      return getLValueType(std::get<RValue>(sv));
+    return getCoefType(std::get<Coef>(sv));
+  }
+
+  TypePtr PyBackend::getAtomType(const Atom &atom) {
+    return std::visit(
+        [this](auto &&arg) -> TypePtr {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, OpAtom>) {
+            return getLValueType(arg.rval);
+          } else if constexpr (std::is_same_v<T, UnaryAtom>) {
+            return getLValueType(arg.rval);
+          } else if constexpr (std::is_same_v<T, SelectAtom>) {
+            return getSelectValType(arg.vtrue);
+          } else if constexpr (std::is_same_v<T, CmpAtom>) {
+            auto t = std::make_shared<Type>();
+            t->v = IntType{IntType::Kind::ICustom, 1, {}};
+            return t;
+          } else if constexpr (std::is_same_v<T, CoefAtom>) {
+            return getCoefType(arg.coef);
+          } else if constexpr (std::is_same_v<T, RValueAtom>) {
+            return getLValueType(arg.rval);
+          } else if constexpr (std::is_same_v<T, CastAtom>) {
+            return arg.dstType;
+          } else if constexpr (std::is_same_v<T, CallAtom>) {
+            if (arg.resolvedIntrinsic)
+              return arg.resolvedIntrinsic->retType;
+            for (const auto &f: prog_->funs)
+              if (f.name.name == arg.callee.name)
+                return f.retType;
+            for (const auto &d: prog_->extDecls)
+              if (d.name.name == arg.callee.name)
+                return d.retType;
+            return nullptr;
+          } else if constexpr (std::is_same_v<T, LoadAtom>) {
+            auto pt = getLValueType(arg.rval);
+            if (pt)
+              if (auto ptr = std::get_if<PtrType>(&pt->v))
+                return ptr->pointee;
+            return nullptr;
+          } else if constexpr (std::is_same_v<T, AddrAtom>) {
+            auto t = std::make_shared<Type>();
+            t->v = PtrType{getLValueType(arg.lv), {}};
+            return t;
+          } else {
+            // PtrIndexAtom / PtrFieldAtom: pointer navigation lands in
+            // stage 7; their uses throw before the type matters.
+            return nullptr;
+          }
+        },
+        atom.v
+    );
+  }
+
+  // Every atom in an Expr shares one type, so the first atom decides.
+  TypePtr PyBackend::getExprType(const Expr &expr) { return getAtomType(expr.first); }
+
+} // namespace refractir

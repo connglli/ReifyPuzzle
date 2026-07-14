@@ -1,0 +1,11 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+// f32 multiply overflows single precision: non-finite result is UB.
+fun @main(): f32 {
+    let mut %a: f32 = 3.0e38;
+    let mut %r: f32 = 0.0;
+^entry:
+    %r = 10.0 * %a;
+    ret %r;
+}

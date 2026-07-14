@@ -1,0 +1,30 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+// select, i1 = {0,-1} cmp results, sign-extension and truncation
+// through casts.
+fun @main(): i32 {
+    let mut %a: i32 = 3;
+    let mut %b: i32 = 5;
+    let mut %r: i32 = 0;
+    let mut %m: i1 = 0;
+    let mut %w: i64 = 0;
+    let mut %n: i8 = 0;
+^entry:
+    %r = select %a < %b, %a, %b;
+    require %r == 3, "select picks the then arm";
+    %r = select %b < %a, 100, 200;
+    require %r == 200, "select picks the else arm";
+    %m = cmp < %a, %b;
+    %r = %m as i32;
+    require %r == 0 - 1, "cmp true is -1 after sign-extension";
+    %w = %m as i64;
+    require %w == 0 - 1, "i1 -> i64 sign-extends";
+    %m = cmp > %a, %b;
+    %r = %m as i32;
+    require %r == 0, "cmp false is 0";
+    %r = 300;
+    %n = %r as i8;
+    require %n == 44, "i32 -> i8 truncates mod 256";
+    ret %r;
+}

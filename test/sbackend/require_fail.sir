@@ -1,0 +1,9 @@
+// EXPECT: FAIL:RequireViolation
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+fun @main(): i32 {
+    let mut %a: i32 = 3;
+^entry:
+    require %a == 4, "three is not four";
+    ret %a;
+}

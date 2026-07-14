@@ -1,0 +1,11 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+// i32 signed-add overflow is UB and must trap at runtime.
+fun @main(): i32 {
+    let mut %a: i32 = 2147483647;
+    let mut %r: i32 = 0;
+^entry:
+    %r = %a + 1;
+    ret %r;
+}

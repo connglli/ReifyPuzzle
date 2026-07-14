@@ -1,0 +1,41 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+// Integer semantics: truncating division/remainder, shifts, bitwise.
+fun @main(): i32 {
+    let mut %a: i32 = 100;
+    let mut %b: i32 = 7;
+    let mut %r: i32 = 0;
+    let mut %n: i32 = 0;
+    let %two: i32 = 2;
+    let %k28: i32 = 28;
+^entry:
+    %r = %a / %b;
+    require %r == 14, "sdiv";
+    %r = %a % %b;
+    require %r == 2, "srem";
+    %n = 0 - 100;
+    %r = %n / %b;
+    require %r == 0 - 14, "sdiv truncates toward zero";
+    %r = %n % %b;
+    require %r == 0 - 2, "srem sign follows dividend";
+    %r = 1 << %b;
+    require %r == 128, "shl";
+    %r = %n >> %two;
+    require %r == 0 - 25, "ashr";
+    %n = 0 - 1;
+    %r = %n >>> %k28;
+    require %r == 15, "lshr re-signs from the top bit";
+    %r = 12 & %b;
+    require %r == 4, "and";
+    %r = 12 | %b;
+    require %r == 15, "or";
+    %r = 12 ^ %b;
+    require %r == 11, "xor";
+    %r = ~%b;
+    require %r == 0 - 8, "not";
+    br ^done;
+
+^done:
+    ret %r;
+}

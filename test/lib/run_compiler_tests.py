@@ -1,5 +1,6 @@
 import os
 import shutil
+import sys
 
 from test.lib.framework import TestResult, run_command, run_test_suite, strip_sigil
 from test.lib.run_interp_tests import FAIL_EXIT_CODES
@@ -115,14 +116,20 @@ def run_refractirc_test(refractirc_path, target="c"):
     if "COMPILER" in skips:
       return TestResult.SKIP, "Skipped by COMPILER tag"
 
+    if target == "c" and "C" in skips:
+      return TestResult.SKIP, "Skipped by C tag"
+
     if target == "wasm" and "WASM" in skips:
       return TestResult.SKIP, "Skipped by WASM tag"
+
+    if target == "python" and "PYTHON" in skips:
+      return TestResult.SKIP, "Skipped by PYTHON tag"
 
     if target == "wasm" and not wasm_runtime:
       return TestResult.SKIP, "No WASM runtime found (wasmtime or wasmer)"
 
     base_name = os.path.basename(file_path)
-    output_ext = ".c" if target == "c" else ".wat"
+    output_ext = {"c": ".c", "wasm": ".wat", "python": ".py"}[target]
     gen_out = os.path.join(temp_dir, base_name + output_ext)
     exe_out = os.path.join(temp_dir, base_name + ".exe")
 
@@ -150,6 +157,7 @@ def run_refractirc_test(refractirc_path, target="c"):
       or "test/compile" in file_path
       or "test/complex" in file_path
       or "test/solver" in file_path
+      or "test/sbackend" in file_path
     )
 
     if result.returncode != 0:
@@ -343,6 +351,70 @@ def run_refractirc_test(refractirc_path, target="c"):
         "ASAN_OPTIONS=detect_invalid_pointer_pairs=2",
         exe_out,
       ]
+    elif target == "python":
+      # Python execution: synthesize a driver that installs symbol
+      # providers into the module globals, execs the generated module,
+      # and calls the entry function. An uncaught RefractIRTrap exits
+      # non-zero, matching the PASS/FAIL exit-code contract used by
+      # the C and WASM branches.
+      sir_info = extract_sir_info(file_path, entry_func)
+      if "test/solver/" in file_path and (sir_info["syms"] or sir_info.get("vec_syms")):
+        bound = {strip_sigil(k) for k in bindings.keys()}
+        unbound_syms = [s for s in sir_info["syms"] if s not in bound]
+        unbound_vec = [s for s in sir_info.get("vec_syms", {}) if s not in bound]
+        if unbound_syms or unbound_vec:
+          return TestResult.PASS, ""
+
+      vec_syms = sir_info.get("vec_syms", {})
+      bound = {strip_sigil(k) for k in bindings.keys()}
+      driver_py = os.path.join(temp_dir, base_name + "_driver.py")
+      with open(driver_py, "w") as f:
+        f.write("import sys\n\ng = {}\n")
+
+        def provider(sk, expr):
+          f.write(f'g["{entry_func}__{sk}"] = lambda: {expr}\n')
+
+        def scalar_expr(t, v):
+          if t == "f32":
+            # Round through the generated module's _f32 so the provider
+            # returns a canonical single-precision value.
+            return f'g["_f32"](float("{v}"))'
+          if t == "f64":
+            return f'float("{v}")'
+          return f'int("{v}", 0)'
+
+        for k, v in bindings.items():
+          sk = strip_sigil(k)
+          if sk in vec_syms:
+            shape = vec_syms[sk]
+            lane_vals = [s.strip() for s in v.split(",")]
+            while len(lane_vals) < shape["n"]:
+              lane_vals.append("0")
+            lanes = ", ".join(
+              scalar_expr(shape["elem"], x) for x in lane_vals[: shape["n"]]
+            )
+            provider(sk, f"[{lanes}]")
+          else:
+            t = sir_info["syms"].get(sk, "i32")
+            provider(sk, scalar_expr(t, v))
+
+        for sk, shape in vec_syms.items():
+          if sk in bound:
+            continue
+          zero = "0.0" if shape["elem"] in ("f32", "f64") else "0"
+          provider(sk, "[" + ", ".join([zero] * shape["n"]) + "]")
+        for sk, t in sir_info["syms"].items():
+          if sk in bound:
+            continue
+          provider(sk, "0.0" if t in ("f32", "f64") else "0")
+
+        f.write(f'\nwith open("{gen_out}") as src:\n')
+        f.write(f'  code = compile(src.read(), "{gen_out}", "exec")\n')
+        f.write("exec(code, g)\n")
+        f.write(f'g["refractir_{entry_func}"]()\n')
+        f.write("sys.exit(0)\n")
+
+      run_cmd = [sys.executable, driver_py]
     else:
       # WASM execution
       sir_info = extract_sir_info(file_path, entry_func)
@@ -467,7 +539,7 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument("test_dir")
   parser.add_argument("refractirc_path")
-  parser.add_argument("--target", choices=["c", "wasm"], default="c")
+  parser.add_argument("--target", choices=["c", "wasm", "python"], default="c")
   args = parser.parse_args()
 
   test_func, temp_dir = run_refractirc_test(args.refractirc_path, args.target)

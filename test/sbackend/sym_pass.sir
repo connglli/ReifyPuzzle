@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+// COMPILER_ARGS: --sym %?x=7
+
+// Symbol reads lower to main__x() provider calls injected by the
+// test driver.
+fun @main(): i32 {
+    sym %?x : value i32;
+    let %t: i32 = %?x;
+    let mut %r: i32 = 0;
+^entry:
+    %r = 2 * %t;
+    require %r == 14, "sym binding";
+    ret %r;
+}

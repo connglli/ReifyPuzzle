@@ -15,6 +15,7 @@
 #include "analysis/unused_name.hpp"
 #include "ast/ast_dumper.hpp"
 #include "backend/c_backend.hpp"
+#include "backend/py_backend.hpp"
 #include "backend/wasm_backend.hpp"
 #include "cxxopts.hpp"
 #include "error.hpp"
@@ -33,7 +34,7 @@ int main(int argc, char **argv) {
   options.add_options()
     ("input", "Input .sir file", cxxopts::value<std::string>())
     ("o,output", "Output file (default: stdout)", cxxopts::value<std::string>())
-    ("target", "Backend target (c, wasm)", cxxopts::value<std::string>()->default_value("c"))
+    ("target", "Backend target (c, wasm, python)", cxxopts::value<std::string>()->default_value("c"))
     ("require-reducible", "Reject functions with irreducible control flow", cxxopts::value<bool>()->default_value("false"))
     ("dump-ast", "Dump AST to stdout and exit", cxxopts::value<bool>()->default_value("false"))
     ("dump-domtree", "Dump per-function dominator trees to stdout and exit", cxxopts::value<bool>()->default_value("false"))
@@ -106,9 +107,10 @@ int main(int argc, char **argv) {
     pm.addFunctionPass(std::make_unique<DefiniteInitAnalysis>());
     pm.addFunctionPass(std::make_unique<UnusedNameAnalysis>());
     // The structurizer is only total on reducible CFGs, so the
-    // control-tree dump flags imply the check.
+    // control-tree dump flags and the python target (which has no
+    // goto to fall back on) imply the check.
     if (result["require-reducible"].as<bool>() || result["dump-control-tree"].as<bool>() ||
-        result["dump-lowered-tree"].as<bool>()) {
+        result["dump-lowered-tree"].as<bool>() || target == "python") {
       pm.addFunctionPass(std::make_unique<ReducibilityCheck>());
     }
 
@@ -243,6 +245,11 @@ int main(int argc, char **argv) {
       wb.setNoRequire(noRequire);
       wb.setNoMainMangle(emitMain);
       wb.emit(prog);
+    } else if (target == "python") {
+      PyBackend pb(*outStream);
+      pb.setNoRequire(noRequire);
+      pb.setNoMainMangle(emitMain);
+      pb.emit(prog);
     } else {
       std::cerr << "Error: Unsupported target: " << target << "\n";
       return 1;

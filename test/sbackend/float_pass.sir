@@ -1,0 +1,32 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+// f64 arithmetic, f32 rounding, float remainder, and casts.
+fun @main(): i32 {
+    let mut %x: f64 = 1.5;
+    let mut %y: f64 = 0.25;
+    let mut %r: f64 = 0.0;
+    let mut %s: f32 = 0.1;
+    let mut %t: f32 = 0.0;
+    let mut %i: i32 = 0;
+^entry:
+    %r = %x + %y;
+    require %r == 1.75, "f64 add";
+    %r = %x / %y;
+    require %r == 6.0, "f64 div";
+    %r = %x % %y;
+    require %r == 0.0, "f64 fmod";
+    // f32 arithmetic must round to single precision per operation:
+    // 0.1f + 0.2f != 0.3 in f64 land, but rounds to a stable f32.
+    %t = %s + 0.2;
+    require %t > 0.29, "f32 add lo";
+    require %t < 0.31, "f32 add hi";
+    %i = %x as i32;
+    require %i == 1, "f64->i32 truncates toward zero";
+    %r = 7 as f64;
+    require %r == 7.0, "i32->f64";
+    br ^done;
+
+^done:
+    ret %i;
+}
