@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-domtree
+
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^then, ^else;
+
+^then:
+    %x = 1;
+    br ^join;
+
+^else:
+    %x = 2;
+    br ^join;
+
+// The join is dominated by the branch block, not by either arm.
+^join:
+    ret %x;
+}

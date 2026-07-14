@@ -1,0 +1,4 @@
+domtree @main:
+  ^entry: (root)
+  ^dead: (unreachable)
+  ^exit: idom=^entry

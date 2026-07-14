@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-domtree
+
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    %x = 1;
+    br ^mid;
+
+^mid:
+    %x = %x + 1;
+    br ^exit;
+
+^exit:
+    ret %x;
+}

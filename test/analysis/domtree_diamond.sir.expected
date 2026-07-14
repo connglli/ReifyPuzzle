@@ -1,0 +1,5 @@
+domtree @main:
+  ^entry: (root)
+  ^then: idom=^entry
+  ^else: idom=^entry
+  ^join: idom=^entry

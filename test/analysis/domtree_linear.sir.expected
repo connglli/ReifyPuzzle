@@ -1,0 +1,4 @@
+domtree @main:
+  ^entry: (root)
+  ^mid: idom=^entry
+  ^exit: idom=^mid

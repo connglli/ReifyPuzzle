@@ -1,0 +1,8 @@
+domtree @helper:
+  ^entry: (root)
+  ^neg: idom=^entry
+  ^pos: idom=^entry
+
+domtree @main:
+  ^entry: (root)
+  ^exit: idom=^entry

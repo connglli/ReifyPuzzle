@@ -5,6 +5,7 @@
 #include <string>
 
 #include "analysis/definite_init.hpp"
+#include "analysis/dominators.hpp"
 #include "analysis/pass_manager.hpp"
 #include "analysis/reachability.hpp"
 #include "analysis/unused_name.hpp"
@@ -30,6 +31,7 @@ int main(int argc, char **argv) {
     ("o,output", "Output file (default: stdout)", cxxopts::value<std::string>())
     ("target", "Backend target (c, wasm)", cxxopts::value<std::string>()->default_value("c"))
     ("dump-ast", "Dump AST to stdout and exit", cxxopts::value<bool>()->default_value("false"))
+    ("dump-domtree", "Dump per-function dominator trees to stdout and exit", cxxopts::value<bool>()->default_value("false"))
     ("w", "Inhibit all warning messages", cxxopts::value<bool>()->default_value("false"))
     ("Werror", "Make all warnings into errors", cxxopts::value<bool>()->default_value("false"))
     ("no-module-tags", "Omit (module ...) tags in WASM output", cxxopts::value<bool>()->default_value("false"))
@@ -114,6 +116,20 @@ int main(int argc, char **argv) {
           printMessage(std::cerr, src, d.span, d.message, d.level);
         }
       }
+    }
+
+    // Analysis dump flags: print after the pipeline has validated the
+    // program (so every CFG is well-formed) and exit without emitting.
+    if (result["dump-domtree"].as<bool>()) {
+      bool first = true;
+      for (const auto &f: prog.funs) {
+        if (!first)
+          std::cout << "\n";
+        first = false;
+        CFG cfg = CFG::build(f, diags);
+        DomTree::build(cfg).dump(std::cout, cfg, f.name.name);
+      }
+      return 0;
     }
 
     // 3. Backend

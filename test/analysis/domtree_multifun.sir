@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-domtree
+
+// Two functions in one program: one domtree section each, separated
+// by a blank line, in declaration order.
+fun @helper(%n: i32): i32 {
+^entry:
+    br %n < 0, ^neg, ^pos;
+
+^neg:
+    ret 0;
+
+^pos:
+    ret %n;
+}
+
+fun @main(): i32 {
+    let mut %x: i32 = 3;
+^entry:
+    %x = call @helper(%x);
+    br ^exit;
+
+^exit:
+    ret %x;
+}

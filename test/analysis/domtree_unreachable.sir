@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-domtree -w
+
+// ^dead is not reachable from ^entry (warning, suppressed with -w);
+// the dominator tree marks it instead of inventing an idom for it.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br ^exit;
+
+^dead:
+    %x = 42;
+    br ^exit;
+
+^exit:
+    ret %x;
+}

@@ -1,0 +1,31 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-domtree
+
+// A loop whose body contains an if/else diamond: the diamond's join
+// (^latch) is dominated by the diamond's branch block (^body), and the
+// loop exit is dominated by the loop header.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^head;
+
+^head:
+    br %i < 10, ^body, ^exit;
+
+^body:
+    br %i < 5, ^small, ^big;
+
+^small:
+    %i = %i + 1;
+    br ^latch;
+
+^big:
+    %i = %i + 2;
+    br ^latch;
+
+^latch:
+    br ^head;
+
+^exit:
+    ret %i;
+}
