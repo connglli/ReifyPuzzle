@@ -1,0 +1,14 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @m --path ^entry --require-ub
+// SKIP: COMPILER, INTERPRETER
+// `%p + 0.0` is finite for every finite %p, so the FP-add finiteness guard
+// can only be violated by a non-finite INPUT. Inputs are RefractIR values and
+// must be finite (SPEC v0.2.2 §5), so --require-ub has no valid concretization
+// on this path -> UNSAT. Before the input-finiteness fix the solver picked
+// %p=nan and emitted an unparseable literal.
+fun @m(%p: f32) : f32 {
+  let mut %v: f32 = 0.0;
+^entry:
+  %v = %p + 0.0;
+  ret %v;
+}

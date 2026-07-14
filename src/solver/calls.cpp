@@ -62,7 +62,8 @@ namespace refractir {
       for (const auto &s: callee.syms) {
         auto it = symCache.find(s.name.name);
         if (it == symCache.end()) {
-          auto sv = createSymbolicValue(s.type, callee.name.name + "$" + s.name.name, solver, true);
+          auto sv =
+              createSymbolicValue(s.type, callee.name.name + "$" + s.name.name, solver, true, &pc);
           symCache[s.name.name] = sv;
           calleeStore[s.name.name] = sv;
         } else {
@@ -380,7 +381,7 @@ namespace refractir {
       static std::atomic<uint64_t> havocCounter{0};
       uint64_t n = havocCounter.fetch_add(1, std::memory_order_relaxed);
       std::string freshName = decl.name.name + "$havoc$" + name + "$" + std::to_string(n);
-      it->second = createSymbolicValue(ty, freshName, solver, /*isSymbol=*/false);
+      it->second = createSymbolicValue(ty, freshName, solver, /*isSymbol=*/false, &pc);
     };
 
     for (size_t i = 0; i < decl.params.size(); ++i) {
@@ -441,8 +442,9 @@ namespace refractir {
       }
 
       // Step 2 (§9.6.2.2): fresh symbolic ret_sym.
-      SymbolicValue retSym =
-          createSymbolicValue(decl.retType, decl.name.name + "$ret", solver, /*isSymbol=*/false);
+      SymbolicValue retSym = createSymbolicValue(
+          decl.retType, decl.name.name + "$ret", solver, /*isSymbol=*/false, &pc
+      );
 
       // Step 3 (§9.6.2.3): assume each post clause with `ret` bound.
       contractStore["ret"] = retSym;

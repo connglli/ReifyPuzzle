@@ -279,8 +279,18 @@ namespace refractir {
     );
 
     smt::Sort getSort(const TypePtr &t, smt::ISolver &solver);
+    // Creates a fresh symbolic value for an *input* to the modeled
+    // computation (a parameter, a `sym`, a havoc'd memory cell, or an
+    // external-decl return). Because every RefractIR floating-point value is
+    // finite (SPEC v0.2.2 §5), each scalar FP leaf is constrained finite by
+    // pushing `notInf ∧ notNaN` onto `finiteSink` when a sink is supplied.
+    // This is a *hard* domain invariant (path constraint), distinct from the
+    // negatable FP-overflow guards on computed *results* — so RequireUB
+    // negation can trigger a genuine finite→∞ overflow but can never select a
+    // non-finite input, which is not a representable RefractIR value.
     SymbolicValue createSymbolicValue(
-        const TypePtr &t, const std::string &name, smt::ISolver &solver, bool isSymbol = false
+        const TypePtr &t, const std::string &name, smt::ISolver &solver, bool isSymbol = false,
+        std::vector<smt::Term> *finiteSink = nullptr
     );
 
     SymbolicValue makeUndef(const TypePtr &t, smt::ISolver &solver);

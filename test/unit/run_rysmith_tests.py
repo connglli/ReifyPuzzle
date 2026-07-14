@@ -2160,6 +2160,59 @@ def test_require_ub_programs_actually_trap(rysmith, symiri):
     )
 
 
+def test_require_ub_emit_main_reparses(rysmith, symiri):
+  """Every --require-ub --emit-main whole-program .sir must re-parse.
+
+  The trap check in test_require_ub_programs_actually_trap replays SOLVED
+  values as CLI positional args, where symiri's parser routes through strtod
+  and silently accepts `inf`/`nan`. That masks a distinct failure mode: when an
+  FP overflow's UB is satisfied by a non-finite *input*, the @main wrapper
+  concretizes the leaf call to `call @f(inf, ...)` (and any FP `sym` to a bare
+  `nan` literal in the body) — tokens the RefractIR lexer cannot start (a
+  number must begin with a digit), so the emitted program no longer parses.
+
+  Inputs are RefractIR values and thus finite (SPEC v0.2.2 §5), so a correct
+  --require-ub program always re-parses and reaches real UB, never a frontend
+  "Expected atom" parse error. Run the whole @main program through symiri and
+  require it to reach UB rather than fail to parse.
+  """
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--require-ub",
+        "--emit-main",
+        "--n-funcs",
+        "6",
+        "--seed",
+        "1234",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("require-ub --emit-main run setup", False, r.stderr[:300])
+      return
+    sirs = sorted(
+      f
+      for f in os.listdir(d)
+      if f.endswith(".sir") and "@main" in open(os.path.join(d, f)).read()
+    )
+    check("require-ub --emit-main emitted @main programs", len(sirs) > 0, str(sirs))
+    unparseable = []
+    for name in sirs:
+      path = os.path.join(d, name)
+      rr = run([symiri, "--main", "@main", path])
+      out = rr.stdout + rr.stderr
+      if "UB" not in out and "ndefined" not in out:
+        unparseable.append((name, out.strip().splitlines()[-2:]))
+    check(
+      "every --require-ub --emit-main program re-parses (no inf/nan literal leak)",
+      len(unparseable) == 0,
+      f"{len(unparseable)} unparseable program(s): {unparseable}",
+    )
+
+
 # ---------------------------------------------------------------------------
 # --emit-state tests
 # ---------------------------------------------------------------------------
@@ -2357,6 +2410,8 @@ def main():
   test_no_crc32_descriptor_matches_solved_header(rysmith)
   print("=== --require-ub: emitted programs actually trap UB ===")
   test_require_ub_programs_actually_trap(rysmith, symiri)
+  print("=== --require-ub --emit-main: whole programs re-parse (no inf/nan leak) ===")
+  test_require_ub_emit_main_reparses(rysmith, symiri)
   print("=== --emit-state: pbb sidecar shape ===")
   test_emit_state_pbb_sidecar(rysmith)
   print("=== --emit-state: ppp granularity + validation ===")

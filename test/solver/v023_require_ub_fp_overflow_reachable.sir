@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @m --path ^entry --require-ub
+// SKIP: COMPILER, INTERPRETER
+// Companion to v023_require_ub_fp_input_finite_*: input-finiteness must not
+// over-constrain away *genuine* overflows. `%?x + %?x` overflows f32 for a
+// finite %?x near FLT_MAX/2, so --require-ub stays SAT and concretizes %?x to
+// a finite literal (~1.7e38) whose sum traps `UB: Floating-point result is
+// infinity` at runtime. (Interp is skipped here because the concretized
+// program traps by design; the re-parse + finite-literal guarantee is covered
+// by run_rysmith_tests.py.)
+fun @m() : f32 {
+  sym %?x : value f32;
+  let mut %v: f32 = 0.0;
+^entry:
+  %v = %?x + %?x;
+  ret %v;
+}

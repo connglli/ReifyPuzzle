@@ -1,0 +1,12 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @m --path ^entry --require-ub
+// SKIP: COMPILER, INTERPRETER
+// `1.0 * %p` is finite for every finite %p; the FP-mul finiteness guard is
+// only violable by a non-finite input. Inputs must be finite, so --require-ub
+// is UNSAT on this path. Pre-fix the solver chose %p=nan.
+fun @m(%p: f32) : f32 {
+  let mut %v: f32 = 0.0;
+^entry:
+  %v = 1.0 * %p;
+  ret %v;
+}

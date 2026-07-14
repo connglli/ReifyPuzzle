@@ -1,0 +1,14 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @m --path ^entry --require-ub
+// SKIP: COMPILER, INTERPRETER
+// FP symbols are model-emitted values and must be finite (SPEC v0.2.2 §5).
+// `%?x + 0.0` is finite for every finite %?x, so the finiteness guard is only
+// violable by a non-finite symbol -> --require-ub is UNSAT. Pre-fix the solver
+// chose %?x=nan and concretized `%v = nan + 0.0;`, which does not re-parse.
+fun @m() : f32 {
+  sym %?x : value f32;
+  let mut %v: f32 = 0.0;
+^entry:
+  %v = %?x + 0.0;
+  ret %v;
+}

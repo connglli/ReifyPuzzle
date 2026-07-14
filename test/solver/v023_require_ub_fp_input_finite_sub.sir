@@ -1,0 +1,13 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @m --path ^entry --require-ub
+// SKIP: COMPILER, INTERPRETER
+// `%p - 0.0` is finite for every finite %p; the FP-sub finiteness guard is
+// only violable by a non-finite input, which is not a valid RefractIR value.
+// --require-ub therefore has no valid concretization -> UNSAT. Pre-fix the
+// solver chose %p=nan.
+fun @m(%p: f32) : f32 {
+  let mut %v: f32 = 0.0;
+^entry:
+  %v = %p - 0.0;
+  ret %v;
+}

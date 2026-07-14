@@ -50,15 +50,16 @@ namespace refractir {
   }
 
   SymbolicValue SymbolicExecutor::createSymbolicValue(
-      const TypePtr &t, const std::string &name, smt::ISolver &solver, bool
+      const TypePtr &t, const std::string &name, smt::ISolver &solver, bool,
+      std::vector<smt::Term> *finiteSink
   ) {
     SymbolicValue res;
     if (auto at = std::get_if<ArrayType>(&t->v)) {
       res.kind = SymbolicValue::Kind::Array;
       for (size_t i = 0; i < at->size; ++i) {
-        res.arrayVal.push_back(
-            createSymbolicValue(at->elem, name + "[" + std::to_string(i) + "]", solver)
-        );
+        res.arrayVal.push_back(createSymbolicValue(
+            at->elem, name + "[" + std::to_string(i) + "]", solver, false, finiteSink
+        ));
       }
     } else if (auto vt = std::get_if<VecType>(&t->v)) {
       // [v0.2.1] Vector sym: N independent lane-symbolic constants
@@ -66,22 +67,30 @@ namespace refractir {
       // dispatch picks the lane-wise UB path.
       res.kind = SymbolicValue::Kind::Vec;
       for (size_t i = 0; i < vt->size; ++i) {
-        res.arrayVal.push_back(
-            createSymbolicValue(vt->elem, name + "[" + std::to_string(i) + "]", solver)
-        );
+        res.arrayVal.push_back(createSymbolicValue(
+            vt->elem, name + "[" + std::to_string(i) + "]", solver, false, finiteSink
+        ));
       }
     } else if (auto st = std::get_if<StructType>(&t->v)) {
       res.kind = SymbolicValue::Kind::Struct;
       auto it = structs_.find(st->name.name);
       if (it != structs_.end()) {
         for (const auto &f: it->second->fields) {
-          res.structVal[f.name] = createSymbolicValue(f.type, name + "." + f.name, solver);
+          res.structVal[f.name] =
+              createSymbolicValue(f.type, name + "." + f.name, solver, false, finiteSink);
         }
       }
     } else {
       res.kind = SymbolicValue::Kind::Int;
       res.term = solver.make_const(getSort(t, solver), name);
       res.is_defined = solver.make_true();
+      // Domain invariant: a fresh FP input is a RefractIR value, so it is
+      // finite (SPEC v0.2.2 §5). Assert it as a hard path constraint — never a
+      // negatable ubGuard — so RequireUB cannot satisfy "trigger UB" by
+      // choosing a non-finite (thus non-representable) input/sym. Overflow to
+      // ±∞ from *finite* inputs stays a genuine, negatable result guard.
+      if (finiteSink && std::holds_alternative<FloatType>(t->v))
+        assertFPFinite(res.term, solver, *finiteSink);
     }
     return res;
   }
