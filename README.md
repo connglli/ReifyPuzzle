@@ -39,6 +39,7 @@ It provides a robust foundation for building tools that need to reason about pro
 | `symirsolve` | **Solver**: Concretize symbolic programs by solving path constraints via SMT. |
 | `rysmith` | **Reifier**: Generate random RefractIR leaf functions for compiler testing. |
 | `rylink` | **Reifier**: Generate random RefractIR whole programs for compiler testing. |
+| `rytwin` | **Reifier**: Transform a generated program into a semantically-equivalent variant. |
 
 ## 🚀 Getting Started
 
@@ -120,8 +121,17 @@ Automatically find values for symbols that satisfy a specific execution path:
 
 #### Generate Random Programs
 ```bash
-./rysmith -n 100
+# --emit-desc is required for rylink to generate a program.
+./rysmith --emit-desc -n 100
 ./rylink -n 100
+```
+
+#### Emit an Equivalent Twin
+```bash
+# Generate a program with its state profile, then emit an equivalent variant.
+# Currently, the twin transform does not support pointers and memory operations.
+./rysmith -n 1 --max-ptr-depth 0 --emit-state pbb --emit-desc -o out/
+./rytwin --p-twin 0.5 --validate -o out/<func>.twin.sir out/<func>.sir
 ```
 
 ### Switching SMT Backends
@@ -267,7 +277,7 @@ Find more examples in [./examples](./examples/) and [./test/](./test/).
 │   ├── analysis/     # CFG, Dataflow, Pass Manager
 │   ├── backend/      # C and WASM backends
 │   ├── solver/       # SMT integration
-│   └── reify/        # Reify generator
+│   └── reify/        # Reify generators (rysmith/rylink/rytwin)
 ├── src/              # Implementation files
 ├── docs/             # Tool and language documentation
 ├── test/             # Test suite and regression tests
@@ -286,7 +296,7 @@ Find more examples in [./examples](./examples/) and [./test/](./test/).
 - **[symiri User Guide](./docs/symiri.md)**
 - **[symirc User Guide](./docs/symirc.md)**
 - **[symirsolve User Guide](./docs/symirsolve.md)**
-- **[rysmith/rylink User Guide](./docs/reify.md)**
+- **[rysmith/rylink/rytwin User Guide](./docs/reify.md)**
 
 ## 📋 License
 

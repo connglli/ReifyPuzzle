@@ -85,6 +85,9 @@ Key characteristics:
 | `symirc` | Translate `.sir` to C / WebAssembly |
 | `symiri` | Interpret `.sir` programs |
 | `symirsolve` | Concretize symbolic programs using SMT |
+| `rysmith` | Generate random RefractIR leaf functions (reify) |
+| `rylink` | Compose leaf functions into whole programs (reify) |
+| `rytwin` | Transform a generated program into a semantically-equivalent variant (reify) |
 
 Documentation of each tool: [./docs/](./docs).
 

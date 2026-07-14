@@ -15,7 +15,7 @@ Given an *arbitrary* control flow graph (CFG) $g$ to capture compile-time semant
 
 Given $g$ and $\pi$, Reify populates each basic block with random statements and jump terminators, then uses *symbolic execution* to derive a path condition and compute an input $i$ that forces $P$ to follow $\pi$ and produce $o$. The symbolic execution explores only the single EP $\pi$, avoiding the path explosion of full symbolic execution.
 
-Reify separates *leaf function generation* (compact functions with no calls) from *whole-program generation* (combining leaf functions into programs with arbitrary call graphs). This document describes the current leaf function generation pipeline and the `rysmith` tool that implements it.
+Reify separates *leaf function generation* (compact functions with no calls) from *whole-program generation* (combining leaf functions into programs with arbitrary call graphs). This document describes the current leaf function generation pipeline and the `rysmith` tool that implements it and the `rylink` whole-program generator.
 
 
 ## Leaf Function Generation
@@ -170,6 +170,22 @@ W6. Validation         — symiri runs the bundled entry with its solved params;
 
 Each chosen leaf function brings its own solved realization (one of the `--n-inits` rysmith concretizations) so the rewrite expression `call + (c − o)` is semantically equivalent to the original literal at runtime. The rewrite engine consumes each rewrite site at most once across the entire program; composing two rewrites on the same literal would produce a left-to-right call chain (`f1() + f2() + …`) whose prefix sums can wrap in unintended ways even though each individual rewrite is BV-sound.
 
+## Twin-Program Generation
+
+A twin program of a given program is its equivalent variant. Twin-program generation is based on leaf functions, too.
+
+Given a leaf function `f1` together with the exact input `i` that concretizes it, the whole execution is deterministic and known. `--emit-state` records, for each on-path program point, the concrete value of every initialized local/parameter — the state the program passes through. For a chosen basic block `B`, let `s` be the state at `B`'s entry and `s' = B(s)` the state at its exit. Twin-program generation synthesizes a **twin block** `B'` that reproduces `s'` from `s` and grafts a guarded diamond:
+
+```
+^X  (guard):  if state() == s  ->  ^X__twin  else  ^X__orig
+^X__twin:     B'   ->  ^X__merge      (reproduces B's effect at s)
+^X__orig:     B    ->  ^X__merge      (the original block body)
+^X__merge:    <B's original terminator>
+```
+
+The guard fires only when the live-in state equals `s`, so on the profiled input the twin runs (producing exactly what `B` would) and on every other state the original runs — hence full equivalence. A simplest **exact** guard is a conjunction of per-variable equalities over the live-in scalar leaves; being total (no UB) and collision-free, it preserves the equivalence on all inputs, not just the profiled one. Each candidate block is twinned with probability `--p-twin`.
+
+**Limitations**. Eligible blocks currently cover scalars, structs, arrays, vectors (guard and `B'` operate leaf-by-leaf off the state profile), `require`/`assume`, and pure intrinsic calls. Pointers and memory (`load`/`store`/`addr`/`ptr`-navigation) are not yet twinned — that needs the state profile to carry pointer targets.
 
 ## Tool: rysmith
 
@@ -240,6 +256,7 @@ rysmith [OPTIONS]
 | `--validate` | off | Run `symiri` on each concrete `.sir` and check its `Result:` line matches the descriptor's captured CRC32 retValue |
 | `--emit-main` | off | Append a `@main()` wrapper that calls the entry with its solver-synthesised params and asserts the CRC32 retValue via `@check_chksum` |
 | `--emit-desc` | off | Emit per-function descriptor JSON (`func_<id>_<i>.json`) used by `rylink` |
+| `--emit-state pbb\|ppp` | off | Emit a `func_<id>_<i>.state.json` profile of the concrete state at each program point (`pbb` = per basic-block entry, `ppp` = per program point) — consumed by `rytwin` |
 | `-v, --verbose` | off | Verbose progress output |
 
 ### Example
@@ -343,6 +360,43 @@ rylink -n 10 --n-nodes 4 --validate -i pool/ -o progs/
 
 # 3. C target with require checks kept
 rylink -n 5 --target c --keep-require -i pool/ -o progs/
+```
+
+## Tool: rytwin
+
+`rytwin` is an **equivalence-preserving program transformer**. Given a rysmith program `f1` (a concrete `.sir`) together with its state profile (`rysmith --emit-state`), it emits an equivalent program `f2` such that `f1(i) == f2(i)` for **every** input `i` — same result, same undefined-behaviour outcome.
+
+### Usage
+
+```sh
+rytwin <f1.sir> [OPTIONS]
+```
+
+The descriptor (`func_<id>_<i>.json`) and state profile (`<stem>.state.json`) are read from `f1`'s directory following rysmith's naming, so only `f1` is passed positionally.
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output PATH` | — | Output `.sir` (`f2`) |
+| `--p-twin P` | 0.5 | Probability of grafting a twin for each candidate block |
+| `--guard exact\|crc32` | `exact` | Twin guard (`exact` = per-variable equality; `crc32` planned) |
+| `--seed N` | random | RNG seed |
+| `--target sir\|c\|wasm` | `sir` | Optionally compile `f2` via the in-process backend |
+| `--validate` | off | Run `symiri` on `f1` and `f2` with the profiled input and assert they agree |
+| `--keep-require` | off | Keep `require` checks in compiled output |
+| `--emit-main` | off | Keep `@main` un-mangled in compiled output |
+
+### Example
+
+```sh
+# 1. Generate a program with its state profile (pointer-free here, so more
+#    blocks are twin-eligible)
+rysmith -n 1 --emit-state pbb --emit-desc --emit-main --max-ptr-depth 0 -o out/
+
+# 2. Emit an equivalent twin, twinning every eligible block, and self-validate
+rytwin out/func_<id>_0.sir --p-twin 1.0 --validate -o out/twin.sir
+
+# 3. Differential test: compile both and compare
+rytwin out/func_<id>_0.sir --p-twin 1.0 --target c --emit-main -o out/twin.sir
 ```
 
 ## Known Issues
