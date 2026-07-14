@@ -1,0 +1,15 @@
+lowered-tree @main:
+  block ^entry
+  if ^entry
+    then:
+      block ^a
+      if-not ^a
+        then:
+          setflag _go_f2
+    else:
+      block ^b
+  guarded _go_f2:
+    block ^f1
+  resetflag _go_f2
+  block ^f2
+  return ^f2

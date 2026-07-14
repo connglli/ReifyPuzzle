@@ -1,0 +1,6 @@
+lowered-tree @main:
+  block ^entry
+  while 0 header=^head
+    block ^body
+  block ^exit
+  return ^exit

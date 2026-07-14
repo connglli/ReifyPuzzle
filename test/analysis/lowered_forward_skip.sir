@@ -1,0 +1,26 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-lowered-tree
+
+// jumpjoin ^f2 lowers to a flag set; the skipped ^f1 subtree is
+// guarded and the flag resets at the ^f2 subtree. The arm whose only
+// content was the flag set keeps it via if-negation (the fallthrough
+// arm empties out).
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 0, ^a, ^b;
+
+^a:
+    br %x < 5, ^f1, ^f2;
+
+^b:
+    %x = 1;
+    br ^f1;
+
+^f1:
+    %x = %x + 10;
+    br ^f2;
+
+^f2:
+    ret %x;
+}

@@ -171,25 +171,35 @@ namespace refractir {
       std::vector<int> fwdPreds_;
     };
 
-    void dumpNode(std::ostream &os, const Node &node, const CFG &cfg, int indent) {
+    void dumpNode(
+        std::ostream &os, const Node &node, const ControlTree &tree, const CFG &cfg, int indent
+    ) {
       const std::string pad(static_cast<std::size_t>(indent) * 2, ' ');
       std::visit(
           [&](const auto &n) {
             using T = std::decay_t<decltype(n)>;
             if constexpr (std::is_same_v<T, ControlTree::Seq>) {
               for (const auto &item: n.items)
-                dumpNode(os, *item, cfg, indent);
+                if (item)
+                  dumpNode(os, *item, tree, cfg, indent);
             } else if constexpr (std::is_same_v<T, ControlTree::BlockStmts>) {
               os << pad << "block " << cfg.blocks[n.block] << "\n";
             } else if constexpr (std::is_same_v<T, ControlTree::If>) {
-              os << pad << "if " << cfg.blocks[n.block] << "\n";
+              os << pad << (n.negate ? "if-not " : "if ") << cfg.blocks[n.block] << "\n";
               os << pad << "  then:\n";
-              dumpNode(os, *n.thenBr, cfg, indent + 2);
-              os << pad << "  else:\n";
-              dumpNode(os, *n.elseBr, cfg, indent + 2);
+              if (n.thenBr)
+                dumpNode(os, *n.thenBr, tree, cfg, indent + 2);
+              if (n.elseBr) {
+                os << pad << "  else:\n";
+                dumpNode(os, *n.elseBr, tree, cfg, indent + 2);
+              }
             } else if constexpr (std::is_same_v<T, ControlTree::Loop>) {
               os << pad << "loop " << n.loopId << " header=" << cfg.blocks[n.header] << "\n";
-              dumpNode(os, *n.body, cfg, indent + 1);
+              dumpNode(os, *n.body, tree, cfg, indent + 1);
+            } else if constexpr (std::is_same_v<T, ControlTree::CondLoop>) {
+              os << pad << (n.negate ? "while-not " : "while ") << n.loopId
+                 << " header=" << cfg.blocks[n.header] << "\n";
+              dumpNode(os, *n.body, tree, cfg, indent + 1);
             } else if constexpr (std::is_same_v<T, ControlTree::Break>) {
               os << pad << "break " << cfg.blocks[n.target] << " levels=" << n.levels << "\n";
             } else if constexpr (std::is_same_v<T, ControlTree::Continue>) {
@@ -200,6 +210,21 @@ namespace refractir {
               os << pad << "jumpjoin " << cfg.blocks[n.target] << " levels=" << n.levels << "\n";
             } else if constexpr (std::is_same_v<T, ControlTree::Return>) {
               os << pad << "return " << cfg.blocks[n.block] << "\n";
+            } else if constexpr (std::is_same_v<T, ControlTree::SetFlag>) {
+              os << pad << "setflag " << tree.flagNames[n.flag] << "\n";
+            } else if constexpr (std::is_same_v<T, ControlTree::FlagBreak>) {
+              os << pad << "flagbreak " << tree.flagNames[n.flag]
+                 << " final=" << (n.isFinal ? 1 : 0) << "\n";
+            } else if constexpr (std::is_same_v<T, ControlTree::FlagContinue>) {
+              os << pad << "flagcontinue " << tree.flagNames[n.flag] << "\n";
+            } else if constexpr (std::is_same_v<T, ControlTree::Guarded>) {
+              os << pad << "guarded";
+              for (int f: n.flags)
+                os << " " << tree.flagNames[f];
+              os << ":\n";
+              dumpNode(os, *n.body, tree, cfg, indent + 1);
+            } else if constexpr (std::is_same_v<T, ControlTree::ResetFlag>) {
+              os << pad << "resetflag " << tree.flagNames[n.flag] << "\n";
             } else {
               static_assert(std::is_same_v<T, ControlTree::Trap>);
               os << pad << "trap " << cfg.blocks[n.block] << "\n";
@@ -219,9 +244,9 @@ namespace refractir {
   }
 
   void ControlTree::dump(std::ostream &os, const CFG &cfg, const std::string &funName) const {
-    os << "control-tree " << funName << ":\n";
+    os << (lowered ? "lowered-tree " : "control-tree ") << funName << ":\n";
     if (root)
-      dumpNode(os, *root, cfg, 1);
+      dumpNode(os, *root, *this, cfg, 1);
   }
 
 } // namespace refractir

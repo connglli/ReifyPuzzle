@@ -1,0 +1,33 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-lowered-tree
+
+// break ^done levels=2 lowers to a flag set + single-level break,
+// with a final cascade (reset + break) after the inner loop.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^oh;
+
+^oh:
+    br %i < 10, ^ih, ^done;
+
+^ih:
+    br %j < 10, ^ib, ^ol;
+
+^ib:
+    %acc = %acc + %j;
+    br %acc > 50, ^done, ^il;
+
+^il:
+    %j = %j + 1;
+    br ^ih;
+
+^ol:
+    %i = %i + 1;
+    br ^oh;
+
+^done:
+    ret %acc;
+}

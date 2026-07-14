@@ -1,0 +1,28 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-lowered-tree
+
+// continue ^oh levels=1 lowers to a flag set + break out of the inner
+// loop, then a flag-continue right after it (inside the outer loop).
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+^entry:
+    br ^oh;
+
+^oh:
+    br %i < 10, ^ih, ^done;
+
+^ih:
+    br %j < 10, ^ib, ^ol;
+
+^ib:
+    %j = %j + 1;
+    br %j > 5, ^oh, ^ih;
+
+^ol:
+    %i = %i + 1;
+    br ^oh;
+
+^done:
+    ret %i;
+}

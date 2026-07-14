@@ -52,6 +52,7 @@ COMMON_SRCS = src/frontend/lexer.cpp src/frontend/parser.cpp src/frontend/ast_du
               src/analysis/cfgbuilder.cpp src/analysis/definite_init.cpp \
               src/analysis/dominators.cpp src/analysis/reducibility.cpp \
               src/analysis/loop_info.cpp src/analysis/structurizer.cpp \
+              src/analysis/structured_lowering.cpp \
               src/frontend/typechecker.cpp src/frontend/semchecker.cpp \
               src/analysis/pass_manager.cpp src/analysis/reachability.cpp \
               src/analysis/unused_name.cpp src/analysis/type_utils.cpp \

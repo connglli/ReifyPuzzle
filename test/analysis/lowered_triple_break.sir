@@ -1,0 +1,34 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-lowered-tree
+
+// break ^done levels=3: one flag, a non-final cascade after the
+// innermost loop, and a final cascade (reset) after the middle loop.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^h1;
+
+^h1:
+    br %i < 100, ^h2, ^done;
+
+^h2:
+    br %i < 90, ^h3, ^l1;
+
+^h3:
+    br %i < 80, ^body, ^l2;
+
+^body:
+    %i = %i + 1;
+    br %i > 5, ^done, ^h3;
+
+^l2:
+    %i = %i + 2;
+    br ^h2;
+
+^l1:
+    %i = %i + 3;
+    br ^h1;
+
+^done:
+    ret %i;
+}

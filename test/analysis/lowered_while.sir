@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-lowered-tree
+
+// The classic while shape: header has no instructions and its else
+// arm is a single-level break to the loop's follower, so the loop
+// lowers to a condition loop; the tail continue is dropped.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^head;
+
+^head:
+    br %i < 10, ^body, ^exit;
+
+^body:
+    %i = %i + 1;
+    br ^head;
+
+^exit:
+    ret %i;
+}

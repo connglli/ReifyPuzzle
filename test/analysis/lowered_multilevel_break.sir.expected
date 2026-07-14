@@ -1,0 +1,15 @@
+lowered-tree @main:
+  block ^entry
+  while 0 header=^oh
+    while 1 header=^ih
+      block ^ib
+      if ^ib
+        then:
+          setflag _brk_done
+          break ^done levels=1
+        else:
+          block ^il
+    flagbreak _brk_done final=1
+    block ^ol
+  block ^done
+  return ^done

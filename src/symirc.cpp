@@ -10,6 +10,7 @@
 #include "analysis/pass_manager.hpp"
 #include "analysis/reachability.hpp"
 #include "analysis/reducibility.hpp"
+#include "analysis/structured_lowering.hpp"
 #include "analysis/structurizer.hpp"
 #include "analysis/unused_name.hpp"
 #include "ast/ast_dumper.hpp"
@@ -33,11 +34,12 @@ int main(int argc, char **argv) {
     ("input", "Input .sir file", cxxopts::value<std::string>())
     ("o,output", "Output file (default: stdout)", cxxopts::value<std::string>())
     ("target", "Backend target (c, wasm)", cxxopts::value<std::string>()->default_value("c"))
+    ("require-reducible", "Reject functions with irreducible control flow", cxxopts::value<bool>()->default_value("false"))
     ("dump-ast", "Dump AST to stdout and exit", cxxopts::value<bool>()->default_value("false"))
     ("dump-domtree", "Dump per-function dominator trees to stdout and exit", cxxopts::value<bool>()->default_value("false"))
-    ("require-reducible", "Reject functions with irreducible control flow", cxxopts::value<bool>()->default_value("false"))
     ("dump-loops", "Dump per-function loop nesting forests to stdout and exit", cxxopts::value<bool>()->default_value("false"))
     ("dump-control-tree", "Dump per-function structured control trees to stdout and exit (implies --require-reducible)", cxxopts::value<bool>()->default_value("false"))
+    ("dump-lowered-tree", "Dump per-function control trees after structured lowering and exit (implies --require-reducible)", cxxopts::value<bool>()->default_value("false"))
     ("w", "Inhibit all warning messages", cxxopts::value<bool>()->default_value("false"))
     ("Werror", "Make all warnings into errors", cxxopts::value<bool>()->default_value("false"))
     ("no-module-tags", "Omit (module ...) tags in WASM output", cxxopts::value<bool>()->default_value("false"))
@@ -93,6 +95,8 @@ int main(int argc, char **argv) {
       return 0;
     }
 
+    std::string target = result["target"].as<std::string>();
+
     // 2. Analysis
     DiagBag diags;
     refractir::PassManager pm(diags);
@@ -101,9 +105,10 @@ int main(int argc, char **argv) {
     pm.addFunctionPass(std::make_unique<ReachabilityAnalysis>());
     pm.addFunctionPass(std::make_unique<DefiniteInitAnalysis>());
     pm.addFunctionPass(std::make_unique<UnusedNameAnalysis>());
-    // The structurizer is only total on reducible CFGs, so --dump-control-tree
-    // implies the check.
-    if (result["require-reducible"].as<bool>() || result["dump-control-tree"].as<bool>()) {
+    // The structurizer is only total on reducible CFGs, so the
+    // control-tree dump flags imply the check.
+    if (result["require-reducible"].as<bool>() || result["dump-control-tree"].as<bool>() ||
+        result["dump-lowered-tree"].as<bool>()) {
       pm.addFunctionPass(std::make_unique<ReducibilityCheck>());
     }
 
@@ -137,7 +142,8 @@ int main(int argc, char **argv) {
     bool dumpDomtree = result["dump-domtree"].as<bool>();
     bool dumpLoops = result["dump-loops"].as<bool>();
     bool dumpControlTree = result["dump-control-tree"].as<bool>();
-    if (dumpDomtree || dumpLoops || dumpControlTree) {
+    bool dumpLoweredTree = result["dump-lowered-tree"].as<bool>();
+    if (dumpDomtree || dumpLoops || dumpControlTree || dumpLoweredTree) {
       bool first = true;
       for (const auto &f: prog.funs) {
         if (!first)
@@ -147,19 +153,23 @@ int main(int argc, char **argv) {
         DomTree dt = DomTree::build(cfg);
         if (dumpDomtree)
           dt.dump(std::cout, cfg, f.name.name);
-        if (dumpLoops || dumpControlTree) {
+        if (dumpLoops || dumpControlTree || dumpLoweredTree) {
           LoopInfo li = LoopInfo::build(cfg, dt);
           if (dumpLoops)
             li.dump(std::cout, cfg, f.name.name);
           if (dumpControlTree)
             Structurizer::build(f, cfg, dt, li).dump(std::cout, cfg, f.name.name);
+          if (dumpLoweredTree) {
+            ControlTree lowered =
+                StructuredLowering::run(Structurizer::build(f, cfg, dt, li), f, cfg);
+            lowered.dump(std::cout, cfg, f.name.name);
+          }
         }
       }
       return 0;
     }
 
     // 3. Backend
-    std::string target = result["target"].as<std::string>();
     std::ostream *outStream = &std::cout;
     std::ofstream ofs;
 
