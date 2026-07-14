@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --require-reducible --dump-loops
+
+// Forward cross edges only (^a -> ^b where ^b is also reached from
+// ^entry): no cycle, so this is reducible and loop-free even though
+// ^b has two forward predecessors.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 0, ^a, ^b;
+
+^a:
+    br %x < 5, ^b, ^c;
+
+^b:
+    %x = %x + 1;
+    br ^c;
+
+^c:
+    ret %x;
+}

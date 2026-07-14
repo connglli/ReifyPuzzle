@@ -1,0 +1,27 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// Two back edges targeting the same header form ONE loop with two
+// latches (merged), not two loops.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^head;
+
+^head:
+    br %i < 10, ^body, ^exit;
+
+^body:
+    br %i < 5, ^cont, ^tail;
+
+^cont:
+    %i = %i + 1;
+    br ^head;
+
+^tail:
+    %i = %i + 3;
+    br ^head;
+
+^exit:
+    ret %i;
+}

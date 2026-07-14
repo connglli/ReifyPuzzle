@@ -1,0 +1,29 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible
+
+// Two otherwise-reducible sibling loops, but the first loop's body
+// jumps straight into the second loop's body, giving the second loop
+// a second entry point past its header.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+^entry:
+    br ^h1;
+
+^h1:
+    br %i < 10, ^b1, ^h2;
+
+^b1:
+    %i = %i + 1;
+    br %i > 5, ^b2, ^h1;
+
+^h2:
+    br %j < 10, ^b2, ^done;
+
+^b2:
+    %j = %j + 1;
+    br ^h2;
+
+^done:
+    ret %j;
+}

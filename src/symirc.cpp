@@ -6,6 +6,7 @@
 
 #include "analysis/definite_init.hpp"
 #include "analysis/dominators.hpp"
+#include "analysis/loop_info.hpp"
 #include "analysis/pass_manager.hpp"
 #include "analysis/reachability.hpp"
 #include "analysis/reducibility.hpp"
@@ -34,6 +35,7 @@ int main(int argc, char **argv) {
     ("dump-ast", "Dump AST to stdout and exit", cxxopts::value<bool>()->default_value("false"))
     ("dump-domtree", "Dump per-function dominator trees to stdout and exit", cxxopts::value<bool>()->default_value("false"))
     ("require-reducible", "Reject functions with irreducible control flow", cxxopts::value<bool>()->default_value("false"))
+    ("dump-loops", "Dump per-function loop nesting forests to stdout and exit", cxxopts::value<bool>()->default_value("false"))
     ("w", "Inhibit all warning messages", cxxopts::value<bool>()->default_value("false"))
     ("Werror", "Make all warnings into errors", cxxopts::value<bool>()->default_value("false"))
     ("no-module-tags", "Omit (module ...) tags in WASM output", cxxopts::value<bool>()->default_value("false"))
@@ -128,14 +130,20 @@ int main(int argc, char **argv) {
 
     // Analysis dump flags: print after the pipeline has validated the
     // program (so every CFG is well-formed) and exit without emitting.
-    if (result["dump-domtree"].as<bool>()) {
+    bool dumpDomtree = result["dump-domtree"].as<bool>();
+    bool dumpLoops = result["dump-loops"].as<bool>();
+    if (dumpDomtree || dumpLoops) {
       bool first = true;
       for (const auto &f: prog.funs) {
         if (!first)
           std::cout << "\n";
         first = false;
         CFG cfg = CFG::build(f, diags);
-        DomTree::build(cfg).dump(std::cout, cfg, f.name.name);
+        DomTree dt = DomTree::build(cfg);
+        if (dumpDomtree)
+          dt.dump(std::cout, cfg, f.name.name);
+        if (dumpLoops)
+          LoopInfo::build(cfg, dt).dump(std::cout, cfg, f.name.name);
       }
       return 0;
     }

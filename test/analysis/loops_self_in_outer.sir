@@ -1,0 +1,24 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// A self loop nested in an outer loop: ^ih is simultaneously the
+// inner loop's header, its only latch, and its entire body. The inner
+// exit lands on the outer loop's latch.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^oh;
+
+^oh:
+    br %i < 10, ^ih, ^done;
+
+^ih:
+    %i = %i + 1;
+    br %i < 5, ^ih, ^back;
+
+^back:
+    br ^oh;
+
+^done:
+    ret %i;
+}

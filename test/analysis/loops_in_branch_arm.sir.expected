@@ -1,0 +1,5 @@
+loops @main:
+  loop 0: header=^lh depth=1 parent=none
+    latches: ^lb
+    blocks: ^lh ^lb
+    exits: ^lh->^join

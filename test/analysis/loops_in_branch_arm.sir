@@ -1,0 +1,28 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// A loop confined to one arm of a diamond; the other arm and the join
+// stay outside every loop.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+    let mut %i: i32 = 0;
+^entry:
+    br %x < 0, ^left, ^right;
+
+^left:
+    br ^lh;
+
+^lh:
+    br %i < 10, ^lb, ^join;
+
+^lb:
+    %i = %i + 1;
+    br ^lh;
+
+^right:
+    %x = 1;
+    br ^join;
+
+^join:
+    ret %x;
+}

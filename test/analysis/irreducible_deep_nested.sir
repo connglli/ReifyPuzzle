@@ -1,0 +1,38 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible
+
+// An irreducible ^p/^q cycle buried inside a doubly-nested reducible
+// loop: the two enclosing loops are fine, the innermost region is not.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+^entry:
+    br ^oh;
+
+^oh:
+    br %i < 6, ^mh, ^done;
+
+^mh:
+    br %j < 6, ^arm, ^ol;
+
+^arm:
+    br %j < 3, ^p, ^q;
+
+^p:
+    %j = %j + 1;
+    br ^q;
+
+^q:
+    %j = %j + 2;
+    br %j < 5, ^p, ^ml;
+
+^ml:
+    br ^mh;
+
+^ol:
+    %i = %i + 1;
+    br ^oh;
+
+^done:
+    ret %j;
+}

@@ -1,0 +1,23 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// A break-style loop: both the header and the body have an edge out
+// of the loop, so the exit-edge set has two entries.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^head;
+
+^head:
+    br %i < 10, ^body, ^done;
+
+^body:
+    br %i > 7, ^done, ^latch;
+
+^latch:
+    %i = %i + 1;
+    br ^head;
+
+^done:
+    ret %i;
+}

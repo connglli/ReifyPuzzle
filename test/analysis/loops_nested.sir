@@ -1,0 +1,34 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// Two-deep nest: the inner loop is a child of the outer one, and the
+// inner loop's exit edge lands in the outer loop's latch.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^outer_head;
+
+^outer_head:
+    br %i < 10, ^inner_init, ^done;
+
+^inner_init:
+    %j = 0;
+    br ^inner_head;
+
+^inner_head:
+    br %j < 10, ^inner_body, ^outer_latch;
+
+^inner_body:
+    %acc = %acc + %j;
+    %j = %j + 1;
+    br ^inner_head;
+
+^outer_latch:
+    %i = %i + 1;
+    br ^outer_head;
+
+^done:
+    ret %acc;
+}

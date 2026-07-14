@@ -1,0 +1,28 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// Two sequential sibling loops: both top-level, neither contains the
+// other, and the first loop's exit is the second loop's header.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+^entry:
+    br ^h1;
+
+^h1:
+    br %i < 10, ^b1, ^h2;
+
+^b1:
+    %i = %i + 1;
+    br ^h1;
+
+^h2:
+    br %j < 10, ^b2, ^done;
+
+^b2:
+    %j = %j + 1;
+    br ^h2;
+
+^done:
+    ret %j;
+}

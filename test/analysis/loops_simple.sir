@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^head;
+
+^head:
+    br %i < 10, ^body, ^exit;
+
+^body:
+    %i = %i + 1;
+    br ^head;
+
+^exit:
+    ret %i;
+}

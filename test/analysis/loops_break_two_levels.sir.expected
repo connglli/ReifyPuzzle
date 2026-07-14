@@ -1,0 +1,9 @@
+loops @main:
+  loop 0: header=^oh depth=1 parent=none
+    latches: ^ol
+    blocks: ^oh ^ih ^ol ^ib ^il
+    exits: ^oh->^done ^ib->^done
+  loop 1: header=^ih depth=2 parent=0
+    latches: ^il
+    blocks: ^ih ^ib ^il
+    exits: ^ih->^ol ^ib->^done

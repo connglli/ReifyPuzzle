@@ -1,0 +1,5 @@
+loops @main:
+  loop 0: header=^spin depth=1 parent=none
+    latches: ^spin
+    blocks: ^spin
+    exits: ^spin->^exit

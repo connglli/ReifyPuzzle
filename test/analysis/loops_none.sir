@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// No back edges at all: the forest is empty.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^then, ^else;
+
+^then:
+    %x = 1;
+    br ^join;
+
+^else:
+    %x = 2;
+    br ^join;
+
+^join:
+    ret %x;
+}

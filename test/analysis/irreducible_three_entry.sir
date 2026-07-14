@@ -1,0 +1,25 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible
+
+// A three-block cycle ^a -> ^b -> ^c -> ^a entered at two distinct
+// points (^a and ^c): no block of the cycle dominates the others.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 0, ^a, ^c;
+
+^a:
+    %x = %x + 1;
+    br ^b;
+
+^b:
+    %x = %x + 2;
+    br ^c;
+
+^c:
+    %x = %x + 3;
+    br %x < 10, ^a, ^exit;
+
+^exit:
+    ret %x;
+}

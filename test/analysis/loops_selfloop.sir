@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// A self loop: the block is header, latch, and entire body at once.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+^entry:
+    br ^spin;
+
+^spin:
+    %i = %i + 1;
+    br %i < 10, ^spin, ^exit;
+
+^exit:
+    ret %i;
+}
