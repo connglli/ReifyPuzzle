@@ -151,7 +151,7 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                $(SOLVER_CORE_SRCS:.cpp=.o) \
                $(SOLVER_IMPL_OBJ)
 
-.PHONY: all clean test test-unit test-frontend test-interp test-backends test-cross-validation test-solver test-reify cross-validation build install
+.PHONY: all clean test test-unit test-frontend test-analysis test-interp test-backends test-cross-validation test-solver test-reify cross-validation build install
 
 all: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 
@@ -230,6 +230,12 @@ test-frontend: $(TARGET_INTERP)
 	$(PY) -m test.lib.run_interp_tests test/typechecker ./$(TARGET_INTERP) --check
 	$(PY) -m test.lib.run_interp_tests test/semchecker ./$(TARGET_INTERP) --check
 
+# Analysis: dominator tree / reducibility / loop / control-tree dumps.
+# Fixtures pass `// COMPILER_ARGS:` (e.g. --dump-domtree) through to
+# symirc; a sibling `.sir.expected` file pins the dump output.
+test-analysis: $(TARGET_COMPILER)
+	$(PY) -m test.lib.run_analysis_tests test/analysis ./$(TARGET_COMPILER)
+
 # Interpreter: end-to-end .sir execution.
 test-interp: $(TARGET_INTERP)
 	$(PY) -m test.lib.run_interp_tests test/interp ./$(TARGET_INTERP)
@@ -277,6 +283,7 @@ test-reify: $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_INTERP) $(TARGET_COMPILE
 test: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK)
 	$(MAKE) test-unit
 	$(MAKE) test-frontend
+	$(MAKE) test-analysis
 	$(MAKE) test-interp
 	$(MAKE) test-backends
 	$(MAKE) cross-validation
