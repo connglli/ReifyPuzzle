@@ -254,6 +254,7 @@ test-interp: $(TARGET_INTERP)
 test-backends: $(TARGET_INTERP) $(TARGET_COMPILER)
 	$(PY) -m test.lib.run_c_preamble_test ./$(TARGET_COMPILER)
 	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target c
+	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target c --structured
 	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target wasm
 	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target python
 
@@ -264,6 +265,7 @@ test-backends: $(TARGET_INTERP) $(TARGET_COMPILER)
 # want to run it on its own (`make cross-validation`).
 test-cross-validation cross-validation: $(TARGET_INTERP) $(TARGET_COMPILER)
 	$(PY) -m test.lib.run_xval_tests test/xval ./$(TARGET_INTERP) ./$(TARGET_COMPILER)
+	$(PY) -m test.lib.run_xval_tests test/xval ./$(TARGET_INTERP) ./$(TARGET_COMPILER) --symirc-extra=--structured-lowering
 
 # Solver: symirsolve + curated examples that depend on solving.
 test-solver: $(TARGET_SOLVER) $(TARGET_INTERP)

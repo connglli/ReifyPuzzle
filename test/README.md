@@ -31,7 +31,7 @@ Each `.sir` file should contain metadata tags in the first few lines to guide th
 | `// COMPILER_ARGS: <args>` | CLI arguments passed to `symirc`. |
 | `// INTERP_ARGS: <args>` | CLI arguments passed to `symiri`. |
 | `// SOLVER_ARGS: <args>` | CLI arguments passed to `symirsolve` (e.g., `--path '^entry,^exit'`). |
-| `// SKIP: <TOOL>` | Skip this test for a specific tool or backend target (`INTERPRETER`, `COMPILER`, `SOLVER`, `REDUCIBILITY`, `WASM`, `PYTHON`, or `ALL`). |
+| `// SKIP: <TOOL>` | Skip this test for a specific tool or backend target (`INTERPRETER`, `COMPILER`, `SOLVER`, `REDUCIBILITY`, `WASM`, `PYTHON`, `STRUCTURED`, or `ALL`). |
 
 ## Writing Tests
 
@@ -57,7 +57,7 @@ These tests validate the runtime evaluation and execution semantics of concrete 
 
 ### 4. Compiler & Structured Backend Tests
 These tests validate target code generation (C, WASM, Python) by compiling `.sir` files and executing them.
-- **C Target**: Compiles via `symirc --target c`, links with a test driver, and executes with ASan and UBSan enabled.
+- **C Target**: Compiles via `symirc --target c`, links with a test driver, and executes with ASan and UBSan enabled. A second run adds `--structured-lowering` (runner flag `--structured`), emitting while/do-while loops instead of goto; irreducible fixtures carry `// SKIP: STRUCTURED`.
 - **WASM Target**: Compiles to WebAssembly Text (`symirc --target wasm`) and executes using local WebAssembly runtimes (`wasmtime` or `wasmer`).
 - **Python Target**: Compiles to Python scripts (`symirc --target python`) and executes using `python3`.
 
@@ -67,7 +67,7 @@ The core structured backend tests reside in `test/sbackend/` and verify loops, v
 These tests validate the symbolic execution and constraint generation of the `symirsolve` tool, checking that path assumptions and required properties compile down to correct SMT assertions.
 
 ### 6. Cross-Validation (xval) Tests
-Located in `test/xval/`, these tests compare the output of the interpreter (`symiri`) with the compiled C binary (`symirc`). Any difference in return values, outputs, or UB detection constitutes a cross-validation failure.
+Located in `test/xval/`, these tests compare the output of the interpreter (`symiri`) with the compiled C binary (`symirc`), once with the default goto emission and once with `--structured-lowering`. Any difference in return values, outputs, or UB detection constitutes a cross-validation failure.
 
 ### 7. Unit & CLI Tests
 Located in `test/unit/`, these are Python unit tests validating parameter formats, rysmith/rylink generation CLI logic, twin passes, and JSON descriptor files.

@@ -98,7 +98,7 @@ def extract_sir_info(file_path, entry_func="main"):
   return info
 
 
-def run_refractirc_test(refractirc_path, target="c"):
+def run_refractirc_test(refractirc_path, target="c", structured=False):
   temp_dir = "build/test_tmp"
   os.makedirs(temp_dir, exist_ok=True)
 
@@ -125,6 +125,9 @@ def run_refractirc_test(refractirc_path, target="c"):
     if target == "python" and "PYTHON" in skips:
       return TestResult.SKIP, "Skipped by PYTHON tag"
 
+    if structured and "STRUCTURED" in skips:
+      return TestResult.SKIP, "Skipped by STRUCTURED tag"
+
     if target == "wasm" and not wasm_runtime:
       return TestResult.SKIP, "No WASM runtime found (wasmtime or wasmer)"
 
@@ -137,6 +140,8 @@ def run_refractirc_test(refractirc_path, target="c"):
     cmd = [refractirc_path, file_path, "--target", target, "-o", gen_out, "-w"]
     if target == "wasm":
       cmd.append("--no-module-tags")
+    if structured and target == "c":
+      cmd.append("--structured-lowering")
     # [v0.2.2] Pass through -I include paths from COMPILER_ARGS so tests
     # that consume the test/lib/std library can find their bodies.
     compiler_args_pass = args.get("COMPILER_ARGS", [])
@@ -540,9 +545,16 @@ if __name__ == "__main__":
   parser.add_argument("test_dir")
   parser.add_argument("refractirc_path")
   parser.add_argument("--target", choices=["c", "wasm", "python"], default="c")
+  parser.add_argument(
+    "--structured",
+    action="store_true",
+    help="C target: compile with --structured-lowering (while/do-while instead of goto)",
+  )
   args = parser.parse_args()
 
-  test_func, temp_dir = run_refractirc_test(args.refractirc_path, args.target)
+  test_func, temp_dir = run_refractirc_test(
+    args.refractirc_path, args.target, args.structured
+  )
   try:
     run_test_suite("compiler_tests", args.test_dir, test_func)
   finally:
