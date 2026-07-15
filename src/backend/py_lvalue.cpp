@@ -65,20 +65,28 @@ namespace refractir {
     std::string hi = std::to_string(leafCount(cur));
     for (const auto &acc: lv.accesses) {
       if (auto ai = std::get_if<AccessIndex>(&acc)) {
-        auto at = std::get_if<ArrayType>(&cur->v);
-        if (!at)
+        std::uint64_t size;
+        TypePtr elem;
+        if (auto at = std::get_if<ArrayType>(&cur->v)) {
+          size = at->size;
+          elem = at->elem;
+        } else if (auto vt = std::get_if<VecType>(&cur->v)) {
+          size = vt->size; // lane subscript
+          elem = vt->elem;
+        } else {
           throw std::runtime_error("python target: subscript on non-array not yet supported");
-        const std::uint64_t elemLeaves = leafCount(at->elem);
+        }
+        const std::uint64_t elemLeaves = leafCount(elem);
         lo = off.str();
-        hi = off.plusConst(at->size * elemLeaves);
+        hi = off.plusConst(size * elemLeaves);
         if (auto lit = std::get_if<IntLit>(&ai->index)) {
           // Literal indices are validated statically by the checker.
           off.addConst(static_cast<std::uint64_t>(lit->value) * elemLeaves);
         } else {
-          std::string idx = "_idx(" + indexStr(ai->index) + ", " + std::to_string(at->size) + ")";
+          std::string idx = "_idx(" + indexStr(ai->index) + ", " + std::to_string(size) + ")";
           off.addDyn(elemLeaves == 1 ? idx : idx + " * " + std::to_string(elemLeaves));
         }
-        cur = at->elem;
+        cur = elem;
       } else {
         const auto &af = std::get<AccessField>(acc);
         auto st = std::get_if<StructType>(&cur->v);
@@ -126,6 +134,11 @@ namespace refractir {
     PathInfo p = resolvePath(lv);
     if (!p.boxed)
       return p.buf;
+    if (p.type && std::holds_alternative<VecType>(p.type->v)) {
+      // Whole-vector value: a fresh, undef-checked lane list (vectors
+      // are value types; every consumer computes with lane values).
+      return "_vrd(" + p.buf + ", " + p.off + ", " + std::to_string(leafCount(p.type)) + ")";
+    }
     const bool aggregate = p.type && (std::holds_alternative<ArrayType>(p.type->v) ||
                                       std::holds_alternative<StructType>(p.type->v));
     if (aggregate) {
@@ -176,6 +189,27 @@ namespace refractir {
 
   void PyBackend::emitAssign(const AssignInstr &ins) {
     PathInfo p = resolvePath(ins.lhs);
+    if (p.type && std::holds_alternative<VecType>(p.type->v)) {
+      const std::string n = std::to_string(leafCount(p.type));
+      // Whole-vector copy from another vector lvalue transfers raw
+      // slots (undef lanes stay undef — copying is not a read).
+      std::string rhs;
+      if (ins.rhs.rest.empty()) {
+        if (auto rv = std::get_if<RValueAtom>(&ins.rhs.first.v)) {
+          PathInfo s = resolvePath(rv->rval);
+          rhs = s.buf + "[" + s.off + ":" + s.off + " + " + n + "]";
+          if (s.off == "0")
+            rhs = "list(" + s.buf + ")";
+        }
+      }
+      if (rhs.empty())
+        rhs = exprStr(ins.rhs); // lane comprehension: already a fresh list
+      if (p.off == "0" && !p.buf.empty() && p.lo == "0")
+        line(p.buf + " = " + rhs);
+      else
+        line(p.buf + "[" + p.off + ":" + p.off + " + " + n + "] = " + rhs);
+      return;
+    }
     if (p.type && (std::holds_alternative<ArrayType>(p.type->v) ||
                    std::holds_alternative<StructType>(p.type->v)))
       throw std::runtime_error("python target: aggregate assignment not supported");
@@ -243,8 +277,9 @@ namespace refractir {
 
     std::function<void(const InitVal &, const TypePtr &)> flatten = [&](const InitVal &v,
                                                                         const TypePtr &t) {
-      const bool aggregateTy = t && (std::holds_alternative<ArrayType>(t->v) ||
-                                     std::holds_alternative<StructType>(t->v));
+      const bool aggregateTy =
+          t && (std::holds_alternative<ArrayType>(t->v) ||
+                std::holds_alternative<StructType>(t->v) || std::holds_alternative<VecType>(t->v));
       if (v.kind != InitVal::Kind::Aggregate) {
         if (!aggregateTy) {
           run.push_back(v.kind == InitVal::Kind::Undef ? "_UNDEF" : scalarInit(v, t));
@@ -262,6 +297,9 @@ namespace refractir {
       if (auto at = std::get_if<ArrayType>(&t->v)) {
         for (const auto &e: elems)
           flatten(*e, at->elem);
+      } else if (auto vt = std::get_if<VecType>(&t->v)) {
+        for (const auto &e: elems)
+          flatten(*e, vt->elem);
       } else if (auto st = std::get_if<StructType>(&t->v)) {
         auto sit = structFields_.find(st->name.name);
         if (sit == structFields_.end())
@@ -290,7 +328,8 @@ namespace refractir {
     boxedRoots_.clear();
     auto isAggregate = [](const TypePtr &t) {
       return t &&
-             (std::holds_alternative<ArrayType>(t->v) || std::holds_alternative<StructType>(t->v));
+             (std::holds_alternative<ArrayType>(t->v) || std::holds_alternative<StructType>(t->v) ||
+              std::holds_alternative<VecType>(t->v));
     };
     for (const auto &p: f.params)
       if (isAggregate(p.type))

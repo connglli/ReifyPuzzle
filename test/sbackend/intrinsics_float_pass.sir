@@ -1,0 +1,43 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+intrinsic @fabs(%x: f64) : f64;
+intrinsic @copysign(%x: f64, %y: f64) : f64;
+intrinsic @signbit(%x: f64) : i1;
+intrinsic @sqrt(%x: f64) : f64;
+intrinsic @floor(%x: f64) : f64;
+intrinsic @ceil(%x: f64) : f64;
+intrinsic @fmin(%a: f64, %b: f64) : f64;
+intrinsic @fmax(%a: f64, %b: f64) : f64;
+intrinsic @to_bits(%x: f64) : i64;
+intrinsic @from_bits(%x: i64) : f64;
+
+fun @main(): i32 {
+    let mut %r: f64 = 0.0;
+    let mut %m: i1 = 0;
+    let mut %t: i32 = 0;
+    let mut %bits: i64 = 0;
+    let %negpi: f64 = -3.5;
+^entry:
+    %r = call @fabs(%negpi);
+    require %r == 3.5, "fabs";
+    %r = call @copysign(2.0, %negpi);
+    require %r == 0.0 - 2.0, "copysign";
+    %m = call @signbit(%negpi);
+    %t = %m as i32;
+    require %t == 0 - 1, "signbit true is -1";
+    %r = call @sqrt(16.0);
+    require %r == 4.0, "sqrt";
+    %r = call @floor(%negpi);
+    require %r == 0.0 - 4.0, "floor";
+    %r = call @ceil(%negpi);
+    require %r == 0.0 - 3.0, "ceil";
+    %r = call @fmin(1.5, %negpi);
+    require %r == %negpi, "fmin";
+    %r = call @fmax(1.5, %negpi);
+    require %r == 1.5, "fmax";
+    %bits = call @to_bits(1.0);
+    %r = call @from_bits(%bits);
+    require %r == 1.0, "to_bits/from_bits round-trip";
+    ret 0;
+}

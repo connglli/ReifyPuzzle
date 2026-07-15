@@ -30,8 +30,6 @@ namespace refractir {
   void PyBackend::requireSupportedType(const TypePtr &t, const char *what) const {
     if (!t)
       return;
-    if (std::holds_alternative<VecType>(t->v))
-      throw std::runtime_error(std::string("python target: vector ") + what + " not yet supported");
     if (auto pt = std::get_if<PtrType>(&t->v))
       requireSupportedType(pt->pointee, what);
     else if (auto at = std::get_if<ArrayType>(&t->v))
@@ -55,7 +53,7 @@ namespace refractir {
               n += leafCount(fty);
             return n;
           } else if constexpr (std::is_same_v<T, VecType>) {
-            throw std::runtime_error("python target: vectors in aggregates not yet supported");
+            return arg.size; // one slot per lane
           } else {
             return 1; // int / float / ptr leaves occupy one slot
           }
@@ -164,9 +162,17 @@ namespace refractir {
           } else if constexpr (std::is_same_v<T, SelectAtom>) {
             return getSelectValType(arg.vtrue);
           } else if constexpr (std::is_same_v<T, CmpAtom>) {
-            auto t = std::make_shared<Type>();
-            t->v = IntType{IntType::Kind::ICustom, 1, {}};
-            return t;
+            auto i1 = std::make_shared<Type>();
+            i1->v = IntType{IntType::Kind::ICustom, 1, {}};
+            auto lt = getSelectValType(arg.lhs);
+            if (lt) {
+              if (auto vt = std::get_if<VecType>(&lt->v)) {
+                auto t = std::make_shared<Type>();
+                t->v = VecType{vt->size, i1, {}};
+                return t;
+              }
+            }
+            return i1;
           } else if constexpr (std::is_same_v<T, CoefAtom>) {
             return getCoefType(arg.coef);
           } else if constexpr (std::is_same_v<T, RValueAtom>) {

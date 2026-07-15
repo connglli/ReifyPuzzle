@@ -10,6 +10,8 @@
 
 namespace refractir {
 
+  struct PyIntrinsicRegistry;
+
   /**
    * Generates Python code from a RefractIR program.
    *
@@ -33,6 +35,8 @@ namespace refractir {
    * globals before invoking the entry function.
    */
   class PyBackend {
+    friend struct PyIntrinsicRegistry;
+
   public:
     explicit PyBackend(std::ostream &out) : out_(out) {}
 
@@ -96,6 +100,12 @@ namespace refractir {
     std::string condStr(const Cond &cond);
     std::string coefStr(const Coef &coef);
     std::string selectValStr(const SelectVal &sv);
+    // Vector-context operands: a lane list, broadcasting scalars.
+    std::string vecCoefStr(const Coef &coef, std::uint64_t n);
+    std::string vecSelectValStr(const SelectVal &sv, std::uint64_t n);
+    // Scalar conversion of the lane variable `src` (shared by scalar
+    // and per-lane cast emission).
+    std::string castValueStr(const std::string &src, const TypePtr &srcTy, const TypePtr &dstTy);
 
     // --- LValues and the memory model (src/backend/py_lvalue.cpp) ---
     // A resolved access path into a (possibly boxed) root: `buf` is

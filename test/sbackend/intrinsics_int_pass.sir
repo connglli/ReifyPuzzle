@@ -1,0 +1,47 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+intrinsic @abs(%x: i32) : i32;
+intrinsic @min(%a: i32, %b: i32) : i32;
+intrinsic @max(%a: i32, %b: i32) : i32;
+intrinsic @popcount(%x: i32) : i32;
+intrinsic @clz(%x: i32) : i32;
+intrinsic @ctz(%x: i32) : i32;
+intrinsic @signum(%x: i32) : i32;
+intrinsic @clamp(%v: i32, %lo: i32, %hi: i32) : i32;
+intrinsic @rotl(%x: i32, %n: i32) : i32;
+intrinsic @is_pow2(%x: i32) : i1;
+intrinsic @ilog2(%x: i32) : i32;
+
+fun @main(): i32 {
+    let mut %r: i32 = 0;
+    let mut %m: i1 = 0;
+    let mut %t: i32 = 0;
+    let %neg: i32 = -40;
+    let %minv: i32 = -2147483648;
+^entry:
+    %r = call @abs(%neg);
+    require %r == 40, "abs";
+    %r = call @min(3, 8);
+    require %r == 3, "min";
+    %r = call @max(3, 8);
+    require %r == 8, "max";
+    %r = call @popcount(255);
+    require %r == 8, "popcount";
+    %r = call @clz(1);
+    require %r == 31, "clz";
+    %r = call @ctz(8);
+    require %r == 3, "ctz";
+    %r = call @signum(%neg);
+    require %r == 0 - 1, "signum";
+    %r = call @clamp(100, 0, 50);
+    require %r == 50, "clamp";
+    %r = call @rotl(1, 31);
+    require %r == %minv, "rotl into the sign bit";
+    %m = call @is_pow2(64);
+    %t = %m as i32;
+    require %t == 0 - 1, "is_pow2 true is -1";
+    %r = call @ilog2(1000);
+    require %r == 9, "ilog2";
+    ret %r;
+}

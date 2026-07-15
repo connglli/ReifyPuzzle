@@ -1,0 +1,33 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+intrinsic @wrapping_add(%a: i32, %b: i32) : i32;
+intrinsic @wrapping_mul(%a: i32, %b: i32) : i32;
+intrinsic @wrapping_neg(%x: i32) : i32;
+intrinsic @saturating_add(%a: i32, %b: i32) : i32;
+intrinsic @saturating_neg(%x: i32) : i32;
+intrinsic @div_euclid(%a: i32, %b: i32) : i32;
+intrinsic @rem_euclid(%a: i32, %b: i32) : i32;
+
+fun @main(): i32 {
+    let mut %r: i32 = 0;
+    let %big: i32 = 2147483647;
+    let %minv: i32 = -2147483648;
+    let %neg7: i32 = -7;
+^entry:
+    %r = call @wrapping_add(%big, 1);
+    require %r == %minv, "wrapping_add wraps to INT_MIN";
+    %r = call @wrapping_mul(%big, 2);
+    require %r == 0 - 2, "wrapping_mul";
+    %r = call @wrapping_neg(%minv);
+    require %r == %minv, "wrapping_neg of INT_MIN is itself";
+    %r = call @saturating_add(%big, 5);
+    require %r == %big, "saturating_add clamps at INT_MAX";
+    %r = call @saturating_neg(%minv);
+    require %r == %big, "saturating_neg clamps at INT_MAX";
+    %r = call @div_euclid(%neg7, 2);
+    require %r == 0 - 4, "div_euclid rounds toward -inf";
+    %r = call @rem_euclid(%neg7, 2);
+    require %r == 1, "rem_euclid is non-negative";
+    ret %r;
+}

@@ -67,6 +67,7 @@ BACKEND_SRCS = src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
                src/backend/py_backend.cpp src/backend/py_expr.cpp \
                src/backend/py_types.cpp src/backend/py_lvalue.cpp \
                src/backend/intrinsics_c.cpp src/backend/intrinsics_wasm.cpp \
+               src/backend/intrinsics_py.cpp \
                src/backend/vec_lowering_vecext.cpp \
                src/backend/vec_lowering_array.cpp \
                src/backend/vec_lowering_scalars.cpp \
@@ -157,6 +158,7 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                src/backend/py_expr.o \
                src/backend/py_types.o \
                src/backend/py_lvalue.o \
+               src/backend/intrinsics_py.o \
                $(SOLVER_CORE_SRCS:.cpp=.o) \
                $(SOLVER_IMPL_OBJ)
 

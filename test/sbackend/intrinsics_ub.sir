@@ -1,0 +1,12 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+intrinsic @clz(%x: i32) : i32;
+
+fun @main(): i32 {
+    let mut %r: i32 = 0;
+    let %z: i32 = 0;
+^entry:
+    %r = call @clz(%z);
+    ret %r;
+}

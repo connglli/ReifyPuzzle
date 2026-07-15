@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+// COMPILER_ARGS: --sym %?v=1,2,3,4
+
+// Vector symbol: the driver provides the lanes as a list.
+fun @main(): i32 {
+    sym %?v : value <4> i32;
+    let mut %w: <4> i32 = %?v;
+    let mut %r: <4> i32 = 0;
+^entry:
+    %r = %w + %w;
+    require %r[2] == 6, "vector sym lanes doubled";
+    ret %r[3];
+}
