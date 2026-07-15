@@ -22,7 +22,7 @@ namespace refractir::reify {
    * name for the C backend.  If `requested == "random"`, picks one of
    * `{vecext, scalars, array, structscalars, structarray}` uniformly
    * via `rng`; otherwise returns `requested` verbatim so the caller
-   * can hand it straight to `makeVecLowering`.  Shared between
+   * can hand it straight to `makeCVecLowering`.  Shared between
    * rysmith and rylink so both tools sweep the same strategy set with
    * the same odds.
    */

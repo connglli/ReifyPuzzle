@@ -9,16 +9,14 @@
 namespace refractir {
 
   /**
-   * VecLowering — abstract strategy that controls how the C backend lowers
+   * CVecLowering — abstract strategy that controls how the C backend lowers
    * `<N> T` vector locals and operations. Four built-in strategies are
-   * provided via `makeVecLowering`; external tools may subclass for custom
+   * provided via `makeCVecLowering`; external tools may subclass for custom
    * lowerings (the interface is stable enough for rysmith mutation).
-   *
-   * See `tmp/vecplan.md` for the plan and per-strategy notes.
    */
-  class VecLowering {
+  class CVecLowering {
   public:
-    virtual ~VecLowering() = default;
+    virtual ~CVecLowering() = default;
 
     /// Human-readable name (`"vecext"`, `"struct"`, ...). Stamped into the
     /// emitted C file as a traceability comment.
@@ -82,11 +80,12 @@ namespace refractir {
    * `symirc` is "vecext".
    *
    * Built-in names:
-   *   "vecext"  — GCC/Clang vector_size attribute (Phase 1)
-   *   "struct"  — packed struct { T lanes[N]; }   (Phase 2)
-   *   "scalars" — N separate scalars               (Phase 2)
-   *   "array"   — T[N]                              (Phase 2)
+   *   "vecext"        — GCC/Clang vector_size attribute (Phase 1)
+   *   "array"         — T[N]                            (Phase 2)
+   *   "scalars"       — N separate scalars              (Phase 2)
+   *   "structarray"   — packed struct { T lanes[N]; }   (Phase 2)
+   *   "structscalars" — packed struct { T l1, .., lN; } (Phase 2)
    */
-  std::unique_ptr<VecLowering> makeVecLowering(const std::string &name);
+  std::unique_ptr<CVecLowering> makeCVecLowering(const std::string &name);
 
 } // namespace refractir

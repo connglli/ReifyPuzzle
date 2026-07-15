@@ -53,7 +53,7 @@ namespace refractir {
 
   } // namespace
 
-  class ScalarsLowering : public VecLowering {
+  class CScalarsLowering : public CVecLowering {
   public:
     std::string name() const override { return "scalars"; }
 
@@ -122,6 +122,8 @@ namespace refractir {
     bool needsLaneUnroll() const override { return true; }
   };
 
-  std::unique_ptr<VecLowering> makeScalarsLowering() { return std::make_unique<ScalarsLowering>(); }
+  std::unique_ptr<CVecLowering> makeCScalarsLowering() {
+    return std::make_unique<CScalarsLowering>();
+  }
 
 } // namespace refractir

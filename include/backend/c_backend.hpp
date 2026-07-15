@@ -46,7 +46,7 @@ namespace refractir {
 
     /// [v0.2.1] Set the vector-lowering strategy. Takes ownership. If
     /// never called, the backend defaults to "vecext" on first emit.
-    void setVecLowering(std::unique_ptr<VecLowering> vl) { vecLowering_ = std::move(vl); }
+    void setVecLowering(std::unique_ptr<CVecLowering> vl) { vecLowering_ = std::move(vl); }
 
   private:
     std::ostream &out_;
@@ -64,7 +64,7 @@ namespace refractir {
     bool noMainMangle_ = false;
     const Program *prog_ = nullptr; // [v0.2.2] for callee lookup in emitAtom
     std::string curFuncName_;
-    std::unique_ptr<VecLowering> vecLowering_; // [v0.2.1] strategy, see c_vec_lowering.hpp
+    std::unique_ptr<CVecLowering> vecLowering_; // [v0.2.1] strategy, see c_vec_lowering.hpp
     std::unordered_map<std::string, std::uint32_t> varWidths_;
     TypePtr curFuncRetType_;
     // ``isDoubleCtx_`` is the lowering-time evaluation context for float

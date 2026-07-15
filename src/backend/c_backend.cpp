@@ -157,7 +157,7 @@ namespace refractir {
             }
           } else if constexpr (std::is_same_v<T, VecType>) {
             // [v0.2.1] Vector type — delegated to the lowering strategy.
-            // VecLowering produces a C type-string (a typedef name for
+            // CVecLowering produces a C type-string (a typedef name for
             // vecext, a struct name for structscalars / structarray, etc.).
             out_ << vecLowering_->typeString(arg);
           }
@@ -316,7 +316,7 @@ namespace refractir {
       CBackend hdr(cofs);
       hdr.noRequire_ = noRequire_;
       hdr.noMainMangle_ = noMainMangle_;
-      hdr.vecLowering_ = makeVecLowering(vecLowering_ ? vecLowering_->name() : "vecext");
+      hdr.vecLowering_ = makeCVecLowering(vecLowering_ ? vecLowering_->name() : "vecext");
       hdr.emitOnlySourceStem_ = "__refractir_no_fun_bodies__";
       hdr.emit(prog);
       written.push_back(commonPath);
@@ -339,7 +339,7 @@ namespace refractir {
       CBackend body(cofs);
       body.noRequire_ = noRequire_;
       body.noMainMangle_ = noMainMangle_;
-      body.vecLowering_ = makeVecLowering(vecLowering_ ? vecLowering_->name() : "vecext");
+      body.vecLowering_ = makeCVecLowering(vecLowering_ ? vecLowering_->name() : "vecext");
       body.suppressPreamble_ = true;
       // Map the primary stem to "" (empty sourceStem on FunDecl).
       body.emitOnlySourceStem_ = (stem == primaryStem) ? std::string{} : stem;
@@ -414,7 +414,7 @@ namespace refractir {
 
       // [v0.2.1] Vector-lowering strategy. Default to vecext.
       if (!vecLowering_) {
-        vecLowering_ = makeVecLowering("vecext");
+        vecLowering_ = makeCVecLowering("vecext");
       }
       out_ << "// vec-lowering: " << vecLowering_->name() << "\n";
       auto vecShapes = collectVecShapes(prog);

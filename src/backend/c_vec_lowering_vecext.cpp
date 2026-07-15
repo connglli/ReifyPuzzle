@@ -72,7 +72,7 @@ namespace refractir {
 
   } // namespace
 
-  class VecExtLowering : public VecLowering {
+  class CVecExtLowering : public CVecLowering {
   public:
     std::string name() const override { return "vecext"; }
 
@@ -140,22 +140,22 @@ namespace refractir {
   };
 
   // Phase-2 strategy constructors live in their own translation units.
-  std::unique_ptr<VecLowering> makeArrayLowering();
-  std::unique_ptr<VecLowering> makeScalarsLowering();
-  std::unique_ptr<VecLowering> makeStructArrayLowering();
-  std::unique_ptr<VecLowering> makeStructScalarsLowering();
+  std::unique_ptr<CVecLowering> makeCArrayLowering();
+  std::unique_ptr<CVecLowering> makeCScalarsLowering();
+  std::unique_ptr<CVecLowering> makeCStructArrayLowering();
+  std::unique_ptr<CVecLowering> makeCStructScalarsLowering();
 
-  std::unique_ptr<VecLowering> makeVecLowering(const std::string &name) {
+  std::unique_ptr<CVecLowering> makeCVecLowering(const std::string &name) {
     if (name == "vecext")
-      return std::make_unique<VecExtLowering>();
+      return std::make_unique<CVecExtLowering>();
     if (name == "array")
-      return makeArrayLowering();
+      return makeCArrayLowering();
     if (name == "scalars")
-      return makeScalarsLowering();
+      return makeCScalarsLowering();
     if (name == "structarray")
-      return makeStructArrayLowering();
+      return makeCStructArrayLowering();
     if (name == "structscalars")
-      return makeStructScalarsLowering();
+      return makeCStructScalarsLowering();
     return nullptr;
   }
 

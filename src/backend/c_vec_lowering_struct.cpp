@@ -73,7 +73,7 @@ namespace refractir {
   } // namespace
 
   /// structarray: `struct { T lanes[N]; }`
-  class StructArrayLowering : public VecLowering {
+  class CStructArrayLowering : public CVecLowering {
   public:
     std::string name() const override { return "structarray"; }
 
@@ -134,7 +134,7 @@ namespace refractir {
   };
 
   /// structscalars: `struct { T l0; T l1; ...; T l_{N-1}; }`
-  class StructScalarsLowering : public VecLowering {
+  class CStructScalarsLowering : public CVecLowering {
   public:
     std::string name() const override { return "structscalars"; }
 
@@ -205,12 +205,12 @@ namespace refractir {
     bool needsLaneUnroll() const override { return true; }
   };
 
-  std::unique_ptr<VecLowering> makeStructArrayLowering() {
-    return std::make_unique<StructArrayLowering>();
+  std::unique_ptr<CVecLowering> makeCStructArrayLowering() {
+    return std::make_unique<CStructArrayLowering>();
   }
 
-  std::unique_ptr<VecLowering> makeStructScalarsLowering() {
-    return std::make_unique<StructScalarsLowering>();
+  std::unique_ptr<CVecLowering> makeCStructScalarsLowering() {
+    return std::make_unique<CStructScalarsLowering>();
   }
 
 } // namespace refractir

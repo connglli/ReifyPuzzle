@@ -119,7 +119,7 @@ namespace refractir::reify {
   ) {
     if (!runAnalysisPasses(prog, verbose))
       return false;
-    auto vl = makeVecLowering(vecLowering.empty() ? "vecext" : vecLowering);
+    auto vl = makeCVecLowering(vecLowering.empty() ? "vecext" : vecLowering);
     if (splitBySource) {
       std::ofstream sink;
       CBackend cb(sink);

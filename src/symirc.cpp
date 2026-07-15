@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
     ("Werror", "Make all warnings into errors", cxxopts::value<bool>()->default_value("false"))
     ("no-module-tags", "Omit (module ...) tags in WASM output", cxxopts::value<bool>()->default_value("false"))
     ("no-require", "Omit require checks from emitted code (useful for compiler testing)", cxxopts::value<bool>()->default_value("false"))
-    ("vec-lowering", "C-backend vector lowering: vecext|scalars|array|structscalars|structarray", cxxopts::value<std::string>()->default_value("vecext"))
+    ("vec-lowering", "Vector lowering strategy: vecext|scalars|array|structscalars|structarray (default: target specific)", cxxopts::value<std::string>())
     ("I", "Include path for resolving link-form `decl`s (may repeat)", cxxopts::value<std::vector<std::string>>())
     ("split-by-source", "C target: emit one <stem>.c per source file plus common.h into the directory given by -o (instead of a single bundled .c)", cxxopts::value<bool>()->default_value("false"))
     ("emit-main", "Do not mangle @main function in emitted target code", cxxopts::value<bool>()->default_value("false"))
@@ -191,6 +191,18 @@ int main(int argc, char **argv) {
 
     bool noRequire = result["no-require"].as<bool>();
     bool emitMain = result["emit-main"].as<bool>();
+    std::string vlName;
+    if (result.count("vec-lowering") > 0) {
+      vlName = result["vec-lowering"].as<std::string>();
+      if (target != "c" && vlName != "array") {
+        std::cerr << "Error: Target '" << target << "' does not support vector lowering strategy '"
+                  << vlName << "' (only 'array' is supported)\n";
+        return 1;
+      }
+    } else {
+      vlName = (target == "c") ? "vecext" : "array";
+    }
+
     if (target == "c") {
       // [v0.2.2] --split-by-source: emit one <stem>.c per source file
       // + common.h into the directory specified by -o.
@@ -209,8 +221,8 @@ int main(int argc, char **argv) {
         CBackend cb(std::cout); // sink; unused — emitSplit opens its own streams
         cb.setNoRequire(noRequire);
         cb.setNoMainMangle(emitMain);
-        std::string vlName = result["vec-lowering"].as<std::string>();
-        auto vl = makeVecLowering(vlName);
+        // [v0.2.1] Set up the vector-lowering strategy.
+        auto vl = makeCVecLowering(vlName);
         if (!vl) {
           std::cerr << "Error: unknown --vec-lowering '" << vlName << "'\n";
           return 1;
@@ -227,8 +239,7 @@ int main(int argc, char **argv) {
         cb.setNoRequire(noRequire);
         cb.setNoMainMangle(emitMain);
         // [v0.2.1] Set up the vector-lowering strategy.
-        std::string vlName = result["vec-lowering"].as<std::string>();
-        auto vl = makeVecLowering(vlName);
+        auto vl = makeCVecLowering(vlName);
         if (!vl) {
           std::cerr << "Error: unknown --vec-lowering '" << vlName
                     << "' (try vecext|scalars|array|structscalars|structarray)\n";
