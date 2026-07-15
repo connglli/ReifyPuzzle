@@ -845,36 +845,40 @@ namespace refractir {
         }
       }
 
-      // 3d. Blocks
-      for (const auto &b: f.blocks) {
-        out_ << mangleName(b.label.name) << ": ;\n"; // semicolon for empty label case
+      // 3d. Blocks — while/if reconstructed from the control tree
+      // under --structured-lowering, labels+goto otherwise.
+      if (structuredLowering_)
+        emitStructuredBody(f);
+      else
+        for (const auto &b: f.blocks) {
+          out_ << mangleName(b.label.name) << ": ;\n"; // semicolon for empty label case
 
-        for (const auto &ins: b.instrs)
-          emitInstr(ins);
+          for (const auto &ins: b.instrs)
+            emitInstr(ins);
 
-        indent();
-        std::visit(
-            [this](auto &&arg) {
-              using T = std::decay_t<decltype(arg)>;
-              if constexpr (std::is_same_v<T, BrTerm>) {
-                if (arg.isConditional) {
-                  out_ << "if (";
-                  emitCond(*arg.cond);
-                  out_ << ") goto " << mangleName(arg.thenLabel.name) << ";\n";
-                  indent();
-                  out_ << "else goto " << mangleName(arg.elseLabel.name) << ";\n";
-                } else {
-                  out_ << "goto " << mangleName(arg.dest.name) << ";\n";
+          indent();
+          std::visit(
+              [this](auto &&arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, BrTerm>) {
+                  if (arg.isConditional) {
+                    out_ << "if (";
+                    emitCond(*arg.cond);
+                    out_ << ") goto " << mangleName(arg.thenLabel.name) << ";\n";
+                    indent();
+                    out_ << "else goto " << mangleName(arg.elseLabel.name) << ";\n";
+                  } else {
+                    out_ << "goto " << mangleName(arg.dest.name) << ";\n";
+                  }
+                } else if constexpr (std::is_same_v<T, RetTerm>) {
+                  emitRetTerm(arg);
+                } else if constexpr (std::is_same_v<T, UnreachableTerm>) {
+                  out_ << "// unreachable\n";
                 }
-              } else if constexpr (std::is_same_v<T, RetTerm>) {
-                emitRetTerm(arg);
-              } else if constexpr (std::is_same_v<T, UnreachableTerm>) {
-                out_ << "// unreachable\n";
-              }
-            },
-            b.term
-        );
-      }
+              },
+              b.term
+          );
+        }
 
       indent_level_--;
       out_ << "}\n\n";

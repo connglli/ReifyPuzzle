@@ -36,6 +36,7 @@ int main(int argc, char **argv) {
     ("o,output", "Output file (default: stdout)", cxxopts::value<std::string>())
     ("target", "Backend target (c, wasm, python)", cxxopts::value<std::string>()->default_value("c"))
     ("require-reducible", "Reject functions with irreducible control flow", cxxopts::value<bool>()->default_value("false"))
+    ("structured-lowering", "Emit structured control flow (loops/ifs) instead of goto; implies --require-reducible (C target)", cxxopts::value<bool>()->default_value("false"))
     ("dump-ast", "Dump AST to stdout and exit", cxxopts::value<bool>()->default_value("false"))
     ("dump-domtree", "Dump per-function dominator trees to stdout and exit", cxxopts::value<bool>()->default_value("false"))
     ("dump-loops", "Dump per-function loop nesting forests to stdout and exit", cxxopts::value<bool>()->default_value("false"))
@@ -107,10 +108,11 @@ int main(int argc, char **argv) {
     pm.addFunctionPass(std::make_unique<DefiniteInitAnalysis>());
     pm.addFunctionPass(std::make_unique<UnusedNameAnalysis>());
     // The structurizer is only total on reducible CFGs, so the
-    // control-tree dump flags and the python target (which has no
-    // goto to fall back on) imply the check.
-    if (result["require-reducible"].as<bool>() || result["dump-control-tree"].as<bool>() ||
-        result["dump-lowered-tree"].as<bool>() || target == "python") {
+    // control-tree dump flags, --structured-lowering, and the python
+    // target (which has no goto to fall back on) imply the check.
+    if (result["require-reducible"].as<bool>() || result["structured-lowering"].as<bool>() ||
+        result["dump-control-tree"].as<bool>() || result["dump-lowered-tree"].as<bool>() ||
+        target == "python") {
       pm.addFunctionPass(std::make_unique<ReducibilityCheck>());
     }
 
@@ -191,6 +193,13 @@ int main(int argc, char **argv) {
 
     bool noRequire = result["no-require"].as<bool>();
     bool emitMain = result["emit-main"].as<bool>();
+    bool structuredLowering = result["structured-lowering"].as<bool>();
+    // The python backend always emits structured control flow; the
+    // flag is meaningful for C and deferred for wasm.
+    if (structuredLowering && target == "wasm") {
+      std::cerr << "Error: --structured-lowering is not supported for the wasm target yet\n";
+      return 1;
+    }
     std::string vlName;
     if (result.count("vec-lowering") > 0) {
       vlName = result["vec-lowering"].as<std::string>();
@@ -221,6 +230,7 @@ int main(int argc, char **argv) {
         CBackend cb(std::cout); // sink; unused — emitSplit opens its own streams
         cb.setNoRequire(noRequire);
         cb.setNoMainMangle(emitMain);
+        cb.setStructuredLowering(structuredLowering);
         // [v0.2.1] Set up the vector-lowering strategy.
         auto vl = makeCVecLowering(vlName);
         if (!vl) {
@@ -238,6 +248,7 @@ int main(int argc, char **argv) {
         CBackend cb(*outStream);
         cb.setNoRequire(noRequire);
         cb.setNoMainMangle(emitMain);
+        cb.setStructuredLowering(structuredLowering);
         // [v0.2.1] Set up the vector-lowering strategy.
         auto vl = makeCVecLowering(vlName);
         if (!vl) {

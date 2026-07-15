@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include "analysis/structurizer.hpp"
 #include "ast/ast.hpp"
 #include "backend/c_vec_lowering.hpp"
 
@@ -48,6 +49,11 @@ namespace refractir {
     /// never called, the backend defaults to "vecext" on first emit.
     void setVecLowering(std::unique_ptr<CVecLowering> vl) { vecLowering_ = std::move(vl); }
 
+    /// [v0.2.3] Emit structured control flow (while/if reconstructed
+    /// from the lowered control tree) instead of labels+goto. The
+    /// caller must have verified reducibility (ReducibilityCheck).
+    void setStructuredLowering(bool val) { structuredLowering_ = val; }
+
   private:
     std::ostream &out_;
     // [v0.2.2] When non-empty, restrict per-fun body emission to funs
@@ -62,7 +68,8 @@ namespace refractir {
     int indent_level_ = 0;
     bool noRequire_ = false;
     bool noMainMangle_ = false;
-    const Program *prog_ = nullptr; // [v0.2.2] for callee lookup in emitAtom
+    bool structuredLowering_ = false; // [v0.2.3] see setStructuredLowering
+    const Program *prog_ = nullptr;   // [v0.2.2] for callee lookup in emitAtom
     std::string curFuncName_;
     std::unique_ptr<CVecLowering> vecLowering_; // [v0.2.1] strategy, see c_vec_lowering.hpp
     std::unordered_map<std::string, std::uint32_t> varWidths_;
@@ -87,6 +94,16 @@ namespace refractir {
     void emitInstr(const Instr &ins);
     // `ret` terminator emission (the caller indents).
     void emitRetTerm(const RetTerm &ret);
+
+    // --- Structured emission (src/backend/c_structured.cpp) ---
+    // [v0.2.3] Function-body emission for --structured-lowering:
+    // structure the (reducible) CFG and print the lowered control
+    // tree as genuine while/if statements — no labels, no goto.
+    void emitStructuredBody(const FunDecl &f);
+    void emitCTreeNode(const ControlTree &tree, const ControlTree::Node &n, const FunDecl &f);
+    // The `if (`/`while (` condition of `block`'s conditional BrTerm,
+    // wrapped in `!(...)` when negate is set.
+    void emitBranchCond(const FunDecl &f, std::size_t block, bool negate);
     void emitType(const TypePtr &type);
     void emitExpr(const Expr &expr);
     void emitAtom(const Atom &atom);

@@ -62,6 +62,7 @@ TEST_SRCS =
 BACKEND_SRCS = src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
                src/backend/c_expr.cpp src/backend/c_vec.cpp \
                src/backend/c_lvalue.cpp src/backend/c_types.cpp \
+               src/backend/c_structured.cpp \
                src/backend/wasm_expr.cpp src/backend/wasm_vec.cpp \
                src/backend/wasm_lvalue.cpp src/backend/wasm_types.cpp \
                src/backend/py_backend.cpp src/backend/py_expr.cpp \
@@ -222,6 +223,7 @@ clean:
 # stdout / sidecar files / output directory layout.
 test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 	$(PY) -m test.unit.run_param_features_tests ./$(TARGET_INTERP) ./$(TARGET_COMPILER) ./$(TARGET_SOLVER)
+	$(PY) -m test.unit.run_structured_c_tests ./$(TARGET_COMPILER)
 	$(PY) -m test.unit.run_rysmith_tests ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
 	$(PY) -m test.unit.run_rylink_tests ./$(TARGET_RYLINK) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
 	$(PY) -m test.unit.run_rytwin_tests ./$(TARGET_RYTWIN) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
