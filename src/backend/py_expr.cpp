@@ -1,6 +1,5 @@
 #include <stdexcept>
 #include "backend/py_backend.hpp"
-#include "backend/py_intrinsics.hpp"
 #include "py_internal.hpp"
 
 namespace refractir {
@@ -366,7 +365,7 @@ namespace refractir {
         );
         args.push_back(exprStr(*arg.args[i]));
       }
-      return PyIntrinsicRegistry::call(*this, *intr, args);
+      return callIntrinsic(*intr, args);
     }
     std::vector<TypePtr> paramTypes;
     for (const auto &fd: prog_->funs) {

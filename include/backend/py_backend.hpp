@@ -10,8 +10,6 @@
 
 namespace refractir {
 
-  struct PyIntrinsicRegistry;
-
   /**
    * Generates Python code from a RefractIR program.
    *
@@ -35,8 +33,6 @@ namespace refractir {
    * globals before invoking the entry function.
    */
   class PyBackend {
-    friend struct PyIntrinsicRegistry;
-
   public:
     explicit PyBackend(std::ostream &out) : out_(out) {}
 
@@ -169,6 +165,10 @@ namespace refractir {
     std::string pyLocal(const std::string &sigiled);
     void buildNameMap(const FunDecl &f, const ControlTree &tree);
     static std::string stripSigil(const std::string &name);
+
+    // --- Intrinsics ---
+    void emitIntrinsicHelpers(const Program &prog);
+    std::string callIntrinsic(const IntrinsicDecl &intr, const std::vector<std::string> &args);
   };
 
 } // namespace refractir

@@ -11,7 +11,7 @@
 // (include/analysis/intrinsics.hpp), a helper snippet in
 // `helperSource`, and a call-shape case in `call`.
 
-#include "backend/py_intrinsics.hpp"
+
 #include <set>
 #include <stdexcept>
 #include "analysis/intrinsics.hpp"
@@ -400,7 +400,7 @@ def _in_check_chksum(expected, actual):
 
   } // namespace
 
-  void PyIntrinsicRegistry::emitHelpers(std::ostream &out, const Program &prog) {
+  void PyBackend::emitIntrinsicHelpers(const Program &prog) {
     std::set<IntrinsicKind> kinds;
     for (const auto &intr: prog.intrinsics) {
       auto k = getIntrinsicKind(intr.name.name);
@@ -409,12 +409,11 @@ def _in_check_chksum(expected, actual):
       kinds.insert(*k);
     }
     for (IntrinsicKind k: kinds)
-      out << "\n" << helperSource(k);
+      out_ << "\n" << helperSource(k);
   }
 
-  std::string PyIntrinsicRegistry::call(
-      const PyBackend & /*backend*/, const IntrinsicDecl &intr, const std::vector<std::string> &args
-  ) {
+  std::string
+  PyBackend::callIntrinsic(const IntrinsicDecl &intr, const std::vector<std::string> &args) {
     auto kindOpt = getIntrinsicKind(intr.name.name);
     if (!kindOpt)
       throw std::runtime_error("python target: unknown intrinsic " + intr.name.name);
