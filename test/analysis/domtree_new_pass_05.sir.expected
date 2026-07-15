@@ -1,0 +1,8 @@
+domtree @main:
+  ^entry: (root)
+  ^outer_head: idom=^entry
+  ^inner_init: idom=^outer_head
+  ^inner_head: idom=^inner_init
+  ^inner_body: idom=^inner_head
+  ^outer_latch: idom=^inner_head
+  ^exit: idom=^outer_head

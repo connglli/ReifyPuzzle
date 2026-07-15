@@ -1,0 +1,5 @@
+loops @main:
+  loop 0: header=^head depth=1 parent=none
+    latches: ^body
+    blocks: ^head ^body
+    exits: ^head->^exit1 ^body->^exit2

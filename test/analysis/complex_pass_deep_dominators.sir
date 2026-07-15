@@ -1,0 +1,42 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --require-reducible
+
+// A complex tree of conditional branches with two levels of nesting and intermediate
+// join blocks (^join_a, ^join_b, and a final ^join_all).
+// This is used to test the dominator tree analysis on deeply nested forward-branching structures.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x == 0, ^a, ^b;
+
+^a:
+    br %x < 5, ^a1, ^a2;
+
+^a1:
+    %x = %x + 1;
+    br ^join_a;
+
+^a2:
+    %x = %x + 2;
+    br ^join_a;
+
+^join_a:
+    br ^join_all;
+
+^b:
+    br %x < 10, ^b1, ^b2;
+
+^b1:
+    %x = %x + 3;
+    br ^join_b;
+
+^b2:
+    %x = %x + 4;
+    br ^join_b;
+
+^join_b:
+    br ^join_all;
+
+^join_all:
+    ret %x;
+}

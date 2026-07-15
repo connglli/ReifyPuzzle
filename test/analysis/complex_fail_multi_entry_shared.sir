@@ -1,0 +1,25 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible
+
+// Two loops sharing a body block (^shared_body) but entered from different
+// heads (^loop1_head and ^loop2_head). The back-edge from ^shared_body
+// goes to ^loop1_head, which then enters ^shared_body, but ^shared_body
+// is also entered from ^loop2_head. This is irreducible.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^loop1_head, ^loop2_head;
+
+^loop1_head:
+    br ^shared_body;
+
+^loop2_head:
+    br ^shared_body;
+
+^shared_body:
+    %x = %x + 1;
+    br %x < 100, ^loop1_head, ^exit;
+
+^exit:
+    ret %x;
+}

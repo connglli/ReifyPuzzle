@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// Test 3: Loop with multiple exit paths.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br ^head;
+^head:
+    br %x < 10, ^body, ^exit1;
+^body:
+    %x = %x + 1;
+    br %x == 5, ^exit2, ^head;
+^exit1:
+    ret 1;
+^exit2:
+    ret 2;
+}

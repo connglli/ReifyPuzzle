@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// Test 9: Infinite loop.
+fun @main(): i32 {
+^entry:
+    br ^head;
+^head:
+    br ^head;
+}

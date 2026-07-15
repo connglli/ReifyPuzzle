@@ -1,0 +1,10 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-domtree
+
+// Fail 4: Assigning a float literal to an i32 variable.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    %x = 1.5;
+    ret %x;
+}

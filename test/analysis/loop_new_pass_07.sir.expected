@@ -1,0 +1,9 @@
+loops @main:
+  loop 0: header=^right_head depth=1 parent=none
+    latches: ^right_body
+    blocks: ^right_head ^right_body
+    exits: ^right_head->^merge
+  loop 1: header=^left_head depth=1 parent=none
+    latches: ^left_body
+    blocks: ^left_head ^left_body
+    exits: ^left_head->^merge

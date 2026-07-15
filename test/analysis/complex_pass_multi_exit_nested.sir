@@ -1,0 +1,43 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --require-reducible
+
+// Nested loops where:
+// 1. The inner loop can exit to the outer latch (^outer_latch).
+// 2. The inner loop can break all the way out of both loops to ^exit.
+// 3. The outer loop can exit to ^exit.
+// This is fully reducible and tests multi-level/multi-exit structuring.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^outer_head;
+
+^outer_head:
+    br %i < 10, ^inner_init, ^exit;
+
+^inner_init:
+    %j = 0;
+    br ^inner_head;
+
+^inner_head:
+    br %j < 10, ^inner_body, ^outer_latch;
+
+^inner_body:
+    %acc = %acc + %j;
+    br %acc > 100, ^outer_latch, ^inner_check_exit;
+
+^inner_check_exit:
+    br %acc > 200, ^exit, ^inner_latch;
+
+^inner_latch:
+    %j = %j + 1;
+    br ^inner_head;
+
+^outer_latch:
+    %i = %i + 1;
+    br ^outer_head;
+
+^exit:
+    ret %acc;
+}

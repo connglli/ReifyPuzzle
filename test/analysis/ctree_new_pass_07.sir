@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-control-tree -w
+
+// Test 7: Unreachable blocks.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br ^exit;
+^dead:
+    br ^exit;
+^exit:
+    ret %x;
+}

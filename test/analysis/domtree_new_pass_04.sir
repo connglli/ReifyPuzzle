@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-domtree
+
+// Test 4: Simple loop.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br ^head;
+^head:
+    br %x < 10, ^body, ^exit;
+^body:
+    %x = %x + 1;
+    br ^head;
+^exit:
+    ret %x;
+}

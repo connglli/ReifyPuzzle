@@ -1,0 +1,19 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-control-tree
+
+// Fail 5: Interlocking cycles with multiple entry points.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^a, ^b;
+^a:
+    %x = %x + 1;
+    br ^c;
+^b:
+    %x = %x + 2;
+    br ^c;
+^c:
+    br %x < 100, ^a, ^exit;
+^exit:
+    ret %x;
+}

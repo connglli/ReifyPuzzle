@@ -1,0 +1,18 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-control-tree
+
+// Fail 9: Double-entry cycle which is irreducible.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^head1, ^head2;
+^head1:
+    br ^body;
+^head2:
+    br ^body;
+^body:
+    %x = %x + 1;
+    br %x < 100, ^head1, ^exit;
+^exit:
+    ret %x;
+}

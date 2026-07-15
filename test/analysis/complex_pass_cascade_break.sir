@@ -1,0 +1,58 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --require-reducible
+
+// A 3-deep loop nest with various break levels:
+// 1. A break out of the innermost loop to the middle loop's latch (^loop2_latch).
+// 2. A multi-level break out of two loops to the outer loop's latch (^loop1_latch).
+// 3. A multi-level break out of all three loops directly to the end (^done).
+// This is fully reducible and challenges the structurizer's escape handling.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+    let mut %k: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^loop1_head;
+
+^loop1_head:
+    br %i < 10, ^loop2_init, ^done;
+
+^loop2_init:
+    %j = 0;
+    br ^loop2_head;
+
+^loop2_head:
+    br %j < 10, ^loop3_init, ^loop1_latch;
+
+^loop3_init:
+    %k = 0;
+    br ^loop3_head;
+
+^loop3_head:
+    br %k < 10, ^loop3_body, ^loop2_latch;
+
+^loop3_body:
+    %acc = %acc + %k;
+    br %acc > 50, ^loop2_latch, ^check_break_two;
+
+^check_break_two:
+    br %acc > 100, ^loop1_latch, ^check_break_three;
+
+^check_break_three:
+    br %acc > 150, ^done, ^loop3_latch;
+
+^loop3_latch:
+    %k = %k + 1;
+    br ^loop3_head;
+
+^loop2_latch:
+    %j = %j + 1;
+    br ^loop2_head;
+
+^loop1_latch:
+    %i = %i + 1;
+    br ^loop1_head;
+
+^done:
+    ret %acc;
+}

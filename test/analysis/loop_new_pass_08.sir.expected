@@ -1,0 +1,13 @@
+loops @main:
+  loop 0: header=^outer_head depth=1 parent=none
+    latches: ^outer_latch
+    blocks: ^outer_head ^inner1_init ^inner1_head ^inner2_init ^inner2_head ^outer_latch ^inner2_body ^inner1_body
+    exits: ^outer_head->^exit
+  loop 1: header=^inner1_head depth=2 parent=0
+    latches: ^inner1_body
+    blocks: ^inner1_head ^inner1_body
+    exits: ^inner1_head->^inner2_init
+  loop 2: header=^inner2_head depth=2 parent=0
+    latches: ^inner2_body
+    blocks: ^inner2_head ^inner2_body
+    exits: ^inner2_head->^outer_latch

@@ -1,0 +1,41 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --require-reducible
+
+// A loop containing a nested conditional structure. One path (^else_then)
+// performs an early continue by branching back to ^head directly, while
+// other paths (^then_arm, ^else_else) merge at ^latch before branching back.
+// This is fully reducible.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^head;
+
+^head:
+    br %i < 20, ^body, ^exit;
+
+^body:
+    br %i < 10, ^then_arm, ^else_arm;
+
+^then_arm:
+    %acc = %acc + 1;
+    br ^latch;
+
+^else_arm:
+    br %i < 15, ^else_then, ^else_else;
+
+^else_then:
+    %i = %i + 1;
+    br ^head;
+
+^else_else:
+    %acc = %acc + 2;
+    br ^latch;
+
+^latch:
+    %i = %i + 1;
+    br ^head;
+
+^exit:
+    ret %acc;
+}

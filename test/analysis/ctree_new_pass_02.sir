@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-control-tree
+
+// Test 2: Control tree for a simple diamond branch.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^then, ^else;
+^then:
+    br ^join;
+^else:
+    br ^join;
+^join:
+    ret %x;
+}

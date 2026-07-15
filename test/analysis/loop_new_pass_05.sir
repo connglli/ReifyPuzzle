@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// Test 5: Simple self-loop.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br ^head;
+^head:
+    %x = %x + 1;
+    br %x < 10, ^head, ^exit;
+^exit:
+    ret %x;
+}

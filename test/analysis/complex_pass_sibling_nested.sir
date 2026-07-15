@@ -1,0 +1,49 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --require-reducible
+
+// An outer loop containing two sequential sibling loops inside its body.
+// 1. Sibling loop 1 (^loop1_head) runs and then branches to initialize sibling loop 2.
+// 2. Sibling loop 2 (^loop2_head) runs and then branches to the outer loop's latch.
+// This is fully reducible.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+    let mut %k: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^outer_head;
+
+^outer_head:
+    br %i < 10, ^loop1_init, ^exit;
+
+^loop1_init:
+    %j = 0;
+    br ^loop1_head;
+
+^loop1_head:
+    br %j < 5, ^loop1_body, ^loop2_init;
+
+^loop1_body:
+    %acc = %acc + %j;
+    %j = %j + 1;
+    br ^loop1_head;
+
+^loop2_init:
+    %k = 0;
+    br ^loop2_head;
+
+^loop2_head:
+    br %k < 5, ^loop2_body, ^outer_latch;
+
+^loop2_body:
+    %acc = %acc + %k;
+    %k = %k + 1;
+    br ^loop2_head;
+
+^outer_latch:
+    %i = %i + 1;
+    br ^outer_head;
+
+^exit:
+    ret %acc;
+}

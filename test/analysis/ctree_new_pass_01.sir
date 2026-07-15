@@ -1,0 +1,10 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-control-tree
+
+// Test 1: Simple linear chain of blocks.
+fun @main(): i32 {
+^entry:
+    br ^done;
+^done:
+    ret 0;
+}

@@ -1,0 +1,28 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible --dump-loops
+
+// Fail 3: A branch from inside loop 1 body jumps directly to loop 2 body.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^loop1_head;
+^loop1_head:
+    br %i < 10, ^loop1_body, ^loop2_init;
+^loop1_body:
+    %acc = %acc + %i;
+    %i = %i + 1;
+    br %acc > 50, ^loop2_body, ^loop1_head;
+^loop2_init:
+    %j = 0;
+    br ^loop2_head;
+^loop2_head:
+    br %j < 10, ^loop2_body, ^exit;
+^loop2_body:
+    %acc = %acc + %j;
+    %j = %j + 1;
+    br ^loop2_head;
+^exit:
+    ret %acc;
+}

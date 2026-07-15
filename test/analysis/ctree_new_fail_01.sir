@@ -1,0 +1,17 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-control-tree
+
+// Fail 1: Classic irreducible loop with two entry points (^a and ^b).
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^a, ^b;
+^a:
+    %x = %x + 1;
+    br ^b;
+^b:
+    %x = %x + 2;
+    br %x < 100, ^a, ^exit;
+^exit:
+    ret %x;
+}

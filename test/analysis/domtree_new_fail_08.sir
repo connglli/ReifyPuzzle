@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-domtree
+
+// Fail 8: Return type mismatch: function returns i32 but ret statement returns i64.
+fun @main(): i32 {
+    let %x: i64 = 0;
+^entry:
+    ret %x;
+}

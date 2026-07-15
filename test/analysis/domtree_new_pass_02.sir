@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-domtree
+
+// Test 2: Single diamond structure.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^left, ^right;
+^left:
+    br ^merge;
+^right:
+    br ^merge;
+^merge:
+    ret %x;
+}

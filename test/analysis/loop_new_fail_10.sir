@@ -1,0 +1,19 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible --dump-loops
+
+// Fail 10: Triple-entry cycle which is irreducible.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^a, ^b_or_c;
+^b_or_c:
+    br %x < 10, ^b, ^c;
+^a:
+    br ^b;
+^b:
+    br ^c;
+^c:
+    br %x < 100, ^a, ^exit;
+^exit:
+    ret %x;
+}

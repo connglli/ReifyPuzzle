@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// Test 4: Loop with two latches.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br ^head;
+^head:
+    br %x < 10, ^body, ^exit;
+^body:
+    br %x < 5, ^latch1, ^latch2;
+^latch1:
+    %x = %x + 1;
+    br ^head;
+^latch2:
+    %x = %x + 2;
+    br ^head;
+^exit:
+    ret %x;
+}

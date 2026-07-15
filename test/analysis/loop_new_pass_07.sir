@@ -1,0 +1,26 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// Test 7: Loops in separate branch arms.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+    let mut %y: i32 = 0;
+^entry:
+    br %x < 5, ^left, ^right;
+^left:
+    br ^left_head;
+^left_head:
+    br %x < 10, ^left_body, ^merge;
+^left_body:
+    %x = %x + 1;
+    br ^left_head;
+^right:
+    br ^right_head;
+^right_head:
+    br %y < 10, ^right_body, ^merge;
+^right_body:
+    %y = %y + 1;
+    br ^right_head;
+^merge:
+    ret 0;
+}

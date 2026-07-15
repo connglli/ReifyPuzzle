@@ -1,0 +1,5 @@
+domtree @main:
+  ^entry: (root)
+  ^left: idom=^entry
+  ^right: idom=^entry
+  ^merge: idom=^entry

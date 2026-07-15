@@ -1,0 +1,10 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-domtree
+
+// Fail 3: Duplicate variable declarations in the same function scope.
+fun @main(): i32 {
+    let %x: i32 = 0;
+    let %x: i32 = 1;
+^entry:
+    ret %x;
+}

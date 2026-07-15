@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-control-tree
+
+// Test 8: Control tree with forward cross edges.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 0, ^a, ^b;
+^a:
+    br %x < 5, ^b, ^c;
+^b:
+    br ^c;
+^c:
+    ret %x;
+}

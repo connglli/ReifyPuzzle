@@ -1,0 +1,27 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible
+
+// A loop with header ^head and latch ^latch.
+// The entry block can branch directly to ^latch, bypassing ^head.
+// Since ^head does not dominate ^latch, the retreating edge ^latch -> ^head
+// is from a non-dominated source. This is irreducible.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br %i < 5, ^head, ^latch;
+
+^head:
+    br %i < 10, ^body, ^exit;
+
+^body:
+    %acc = %acc + %i;
+    br ^latch;
+
+^latch:
+    %i = %i + 1;
+    br ^head;
+
+^exit:
+    ret %acc;
+}

@@ -1,0 +1,6 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-domtree
+
+// Fail 10: Parse error: function has no basic blocks.
+fun @main(): i32 {
+}

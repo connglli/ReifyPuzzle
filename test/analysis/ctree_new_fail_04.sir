@@ -1,0 +1,17 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-control-tree
+
+// Fail 4: Cycle of three blocks ^a -> ^b -> ^c -> ^a that has two entry points.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^a, ^b;
+^a:
+    br ^b;
+^b:
+    br ^c;
+^c:
+    br %x < 100, ^a, ^exit;
+^exit:
+    ret %x;
+}

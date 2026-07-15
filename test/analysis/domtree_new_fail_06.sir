@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-domtree
+
+// Fail 6: Definite initialization check: reading an uninitialized variable.
+fun @main(): i32 {
+    let mut %x: i32 = undef;
+^entry:
+    ret %x;
+}

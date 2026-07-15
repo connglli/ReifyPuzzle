@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-domtree
+
+// Test 1: Simple linear chain of blocks.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br ^b1;
+^b1:
+    %x = %x + 1;
+    br ^b2;
+^b2:
+    %x = %x + 2;
+    br ^b3;
+^b3:
+    ret %x;
+}

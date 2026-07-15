@@ -1,0 +1,26 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible
+
+// A structure containing cycle ^head1 -> ^body -> ^head1.
+// The entry block can branch to either ^head1 or ^head2.
+// Both ^head1 and ^head2 branch to ^body.
+// Because ^body can be entered from ^head2 (bypassing ^head1), the cycle
+// has multiple entry points. This is irreducible.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^head1, ^head2;
+
+^head1:
+    br ^body;
+
+^head2:
+    br ^body;
+
+^body:
+    %x = %x + 1;
+    br %x < 100, ^head1, ^exit;
+
+^exit:
+    ret %x;
+}

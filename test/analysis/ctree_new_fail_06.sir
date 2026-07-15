@@ -1,0 +1,20 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-control-tree
+
+// Fail 6: Loop latch can be reached directly from entry bypassing the header.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br %i < 5, ^head, ^latch;
+^head:
+    br %i < 10, ^body, ^exit;
+^body:
+    %acc = %acc + %i;
+    br ^latch;
+^latch:
+    %i = %i + 1;
+    br ^head;
+^exit:
+    ret %acc;
+}

@@ -1,0 +1,10 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-domtree
+
+// Fail 7: Bitwidth mismatch in integer addition (i32 + i64).
+fun @main(): i32 {
+    let %a: i32 = 1;
+    let %b: i64 = 2;
+^entry:
+    ret %a + %b;
+}

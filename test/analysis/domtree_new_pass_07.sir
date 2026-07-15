@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-domtree -w
+
+// Test 7: Unreachable blocks.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br ^exit;
+^dead:
+    br ^dead_latch;
+^dead_latch:
+    br ^dead;
+^exit:
+    ret %x;
+}

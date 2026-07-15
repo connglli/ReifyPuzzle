@@ -1,0 +1,8 @@
+// EXPECT: FAIL:ParseError
+// COMPILER_ARGS: --dump-domtree
+
+// Fail 9: Parse error: block ^entry is missing a terminator (like br or ret).
+fun @main(): i32 {
+^entry:
+    let %x: i32 = 0;
+}

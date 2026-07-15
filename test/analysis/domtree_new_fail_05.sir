@@ -1,0 +1,10 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-domtree
+
+// Fail 5: Assigning to an immutable variable (declared with let instead of let mut).
+fun @main(): i32 {
+    let %x: i32 = 0;
+^entry:
+    %x = 1;
+    ret %x;
+}

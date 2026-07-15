@@ -1,0 +1,32 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --require-reducible -w
+
+// A program containing a completely unreachable section (^dead_head onwards)
+// that actually forms an irreducible control-flow cycle between ^dead_body_a
+// and ^dead_body_b. Since the analysis checks skip unreachable blocks (where
+// rpoNumber is kNone), this is accepted as reducible.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br ^exit;
+
+^dead_head:
+    br ^dead_body;
+
+^dead_body:
+    br %x < 10, ^dead_body_a, ^dead_body_b;
+
+^dead_body_a:
+    %x = 1;
+    br ^dead_body_b;
+
+^dead_body_b:
+    %x = 2;
+    br %x < 5, ^dead_body_a, ^dead_exit;
+
+^dead_exit:
+    br ^exit;
+
+^exit:
+    ret %x;
+}

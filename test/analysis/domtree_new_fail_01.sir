@@ -1,0 +1,8 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-domtree
+
+// Fail 1: Reference to an undeclared block label in a branch instruction.
+fun @main(): i32 {
+^entry:
+    br ^non_existent;
+}

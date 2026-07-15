@@ -1,0 +1,11 @@
+control-tree @main:
+  block ^entry
+  if ^entry
+    then:
+      block ^then
+      fallthrough ^join
+    else:
+      block ^else
+      fallthrough ^join
+  block ^join
+  return ^join

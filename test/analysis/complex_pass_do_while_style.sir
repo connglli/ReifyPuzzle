@@ -1,0 +1,23 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --require-reducible
+
+// A classic do-while loop structure.
+// The entry block jumps directly to the body (^body).
+// The body does its work, then conditionally branches back to ^body (the back edge)
+// or exits to ^exit.
+// This is fully reducible and tests a loop where the header is also the entry point of the body.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    %i = 0;
+    br ^body;
+
+^body:
+    %acc = %acc + %i;
+    %i = %i + 1;
+    br %i < 10, ^body, ^exit;
+
+^exit:
+    ret %acc;
+}

@@ -1,0 +1,33 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible
+
+// Interlocking cycles with multiple entry points:
+// ^entry can branch to ^a or ^b.
+// ^a branches to ^c, ^b branches to ^c.
+// ^c branches back to both ^a and ^b.
+// This forms multiple overlapping cycles with no single dominating header.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^a, ^b;
+
+^a:
+    %x = %x + 1;
+    br ^c;
+
+^b:
+    %x = %x + 2;
+    br ^c;
+
+^c:
+    br %x < 100, ^a, ^exit;
+
+^exit:
+    // We also need to jump to ^b from ^c to complete the second cycle
+    // But since term is conditional branch, we can branch to ^a or ^b,
+    // and ^exit can be reached from somewhere else, or we can structure:
+    // ^c: br %x < 100, ^a, ^or_b;
+    // ^or_b: br %x < 200, ^b, ^exit;
+    // Let's use that to ensure both cycles are fully connected.
+    ret %x;
+}

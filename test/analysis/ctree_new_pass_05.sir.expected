@@ -1,0 +1,21 @@
+control-tree @main:
+  block ^entry
+  loop 0 header=^outer_head
+    block ^outer_head
+    if ^outer_head
+      then:
+        block ^inner_init
+        loop 1 header=^inner_head
+          block ^inner_head
+          if ^inner_head
+            then:
+              block ^inner_body
+              continue ^inner_head levels=0
+            else:
+              break ^outer_latch levels=1
+        block ^outer_latch
+        continue ^outer_head levels=0
+      else:
+        break ^exit levels=1
+  block ^exit
+  return ^exit

@@ -1,0 +1,4 @@
+control-tree @main:
+  block ^entry
+  block ^done
+  return ^done

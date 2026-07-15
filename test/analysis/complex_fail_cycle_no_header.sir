@@ -1,0 +1,24 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible
+
+// A cycle of three blocks: ^a -> ^b -> ^c -> ^a.
+// The entry block branches to both ^a and ^b.
+// This means the cycle has two entries, so no single block dominates
+// all blocks in the cycle. It is irreducible.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^a, ^b;
+
+^a:
+    br ^b;
+
+^b:
+    br ^c;
+
+^c:
+    br %x < 100, ^a, ^exit;
+
+^exit:
+    ret %x;
+}

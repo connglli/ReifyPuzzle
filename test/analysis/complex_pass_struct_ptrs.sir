@@ -1,0 +1,41 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --require-reducible
+
+// A program that traverses an array of structs via aggregate pointers,
+// using ptr, ptrindex, ptrfield, and load. The control flow is a standard
+// reducible loop that aggregates values.
+struct @Node {
+    val: i32;
+    next_idx: i32;
+}
+
+fun @main(): i32 {
+    let mut %nodes: [3] @Node = { { 10, 1 }, { 20, 2 }, { 30, 0 } };
+    let mut %p_nodes: ptr [3] @Node = null;
+    let mut %p_curr: ptr @Node = null;
+    let mut %p_val: ptr i32 = null;
+    let mut %p_next: ptr i32 = null;
+    let mut %curr_idx: i32 = 0;
+    let mut %acc: i32 = 0;
+    let mut %val: i32 = 0;
+    let mut %i: i32 = 0;
+^entry:
+    %p_nodes = addr %nodes;
+    br ^loop_head;
+
+^loop_head:
+    br %i < 3, ^loop_body, ^exit;
+
+^loop_body:
+    %p_curr = ptrindex %p_nodes, %curr_idx;
+    %p_val = ptrfield %p_curr, val;
+    %val = load %p_val;
+    %acc = %acc + %val;
+    %p_next = ptrfield %p_curr, next_idx;
+    %curr_idx = load %p_next;
+    %i = %i + 1;
+    br ^loop_head;
+
+^exit:
+    ret %acc;
+}

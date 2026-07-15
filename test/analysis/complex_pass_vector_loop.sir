@@ -1,0 +1,24 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --require-reducible
+
+// A loop containing lane-wise vector arithmetic.
+// The vector %c is accumulated by adding vector %a in each iteration.
+// This is fully reducible.
+fun @main(): i32 {
+    let %a: <4> i32 = {1, 2, 3, 4};
+    let mut %c: <4> i32 = {0, 0, 0, 0};
+    let mut %i: i32 = 0;
+^entry:
+    br ^loop_head;
+
+^loop_head:
+    br %i < 10, ^loop_body, ^exit;
+
+^loop_body:
+    %c = %c + %a;
+    %i = %i + 1;
+    br ^loop_head;
+
+^exit:
+    ret %c[0] + %c[1] + %c[2] + %c[3];
+}

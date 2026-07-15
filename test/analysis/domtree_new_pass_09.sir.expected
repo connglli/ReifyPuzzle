@@ -1,0 +1,7 @@
+domtree @main:
+  ^entry: (root)
+  ^a: idom=^entry
+  ^a1: idom=^a
+  ^a2: idom=^a
+  ^b: idom=^entry
+  ^join: idom=^entry

@@ -1,0 +1,18 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-control-tree
+
+// Fail 7: The retreating edge ^latch -> ^a has a target ^a that does not dominate the source ^latch.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^a, ^b;
+^a:
+    br ^latch;
+^b:
+    br ^latch;
+^latch:
+    %x = %x + 1;
+    br %x < 100, ^a, ^exit;
+^exit:
+    ret %x;
+}

@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-domtree
+
+// Test 9: Multiple joins.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^a, ^b;
+^a:
+    br %x < 2, ^a1, ^a2;
+^a1:
+    br ^join;
+^a2:
+    br ^join;
+^b:
+    br ^join;
+^join:
+    ret %x;
+}

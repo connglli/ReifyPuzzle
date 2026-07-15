@@ -1,0 +1,29 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --require-reducible
+
+// A cycle of three blocks (^a -> ^b -> ^c -> ^a) that can be entered at any
+// of the three nodes from outside:
+// 1. Entered at ^a from ^entry.
+// 2. Entered at ^b from ^b_or_c.
+// 3. Entered at ^c from ^b_or_c.
+// This is irreducible.
+fun @main(): i32 {
+    let mut %x: i32 = 0;
+^entry:
+    br %x < 5, ^a, ^b_or_c;
+
+^b_or_c:
+    br %x < 10, ^b, ^c;
+
+^a:
+    br ^b;
+
+^b:
+    br ^c;
+
+^c:
+    br %x < 100, ^a, ^exit;
+
+^exit:
+    ret %x;
+}

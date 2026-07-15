@@ -1,0 +1,19 @@
+control-tree @main:
+  block ^entry
+  if ^entry
+    then:
+      block ^left
+      if ^left
+        then:
+          block ^left_left
+          fallthrough ^left_merge
+        else:
+          block ^left_right
+          fallthrough ^left_merge
+      block ^left_merge
+      fallthrough ^merge
+    else:
+      block ^right
+      fallthrough ^merge
+  block ^merge
+  return ^merge

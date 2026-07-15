@@ -1,0 +1,34 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-loops
+
+// Test 10: 3-level nested loops.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+    let mut %k: i32 = 0;
+^entry:
+    br ^L1_head;
+^L1_head:
+    br %i < 5, ^L2_init, ^exit;
+^L2_init:
+    %j = 0;
+    br ^L2_head;
+^L2_head:
+    br %j < 5, ^L3_init, ^L1_latch;
+^L3_init:
+    %k = 0;
+    br ^L3_head;
+^L3_head:
+    br %k < 5, ^L3_body, ^L2_latch;
+^L3_body:
+    %k = %k + 1;
+    br ^L3_head;
+^L2_latch:
+    %j = %j + 1;
+    br ^L2_head;
+^L1_latch:
+    %i = %i + 1;
+    br ^L1_head;
+^exit:
+    ret 0;
+}

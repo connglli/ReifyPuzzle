@@ -1,0 +1,12 @@
+// EXPECT: FAIL:StaticError
+// COMPILER_ARGS: --dump-domtree
+
+// Fail 2: Duplicate block labels in the same function.
+fun @main(): i32 {
+^entry:
+    br ^dup;
+^dup:
+    br ^dup;
+^dup:
+    ret 0;
+}
