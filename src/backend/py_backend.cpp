@@ -374,6 +374,25 @@ def _pfield(p, foff, flen, slen):
       out_ << "\n\n";
       emitFunction(f);
     }
+
+    // [v0.2.3] Module driver: --emit-main output is directly
+    // executable (`python3 prog.py`), mirroring the C target where
+    // main() is the process entry point. main()'s i32 becomes the
+    // exit status (truncated mod 256 by the OS, exactly like a C
+    // binary). Embedders stay inert: importing the module (or the
+    // test driver's exec with bare globals) never trips the guard.
+    // A parameterized @main gets no driver — nothing could supply
+    // its arguments.
+    if (noMainMangle_) {
+      for (const auto &f: prog.funs) {
+        if (f.name.name == "@main" && f.params.empty()) {
+          out_ << "\n\nif __name__ == \"__main__\":\n"
+               << "    import sys\n\n"
+               << "    sys.exit(main())\n";
+          break;
+        }
+      }
+    }
   }
 
   void PyBackend::emitFunction(const FunDecl &f) {
