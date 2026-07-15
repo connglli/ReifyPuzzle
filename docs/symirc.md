@@ -1,6 +1,6 @@
 # symirc — RefractIR Translator
 
-`symirc` translates RefractIR (`.sir`) programs into **C** or **WebAssembly**.
+`symirc` translates RefractIR (`.sir`) programs into **C**, **WebAssembly**, or **Python**.
 
 It supports both:
 - **concrete programs**, and
@@ -11,7 +11,7 @@ It supports both:
 
 ## Goals
 
-- Provide first-class translation to C and WebAssembly
+- Provide first-class translation to C, WebAssembly, and Python
 - Preserve precise RefractIR semantics
 - Allow symbolic programs to be linked with external providers of symbol values
 - Act as a backend-independent lowering stage for future targets
@@ -20,7 +20,7 @@ It supports both:
 ## Usage
 
 ```bash
-symirc <input.sir> --target <c|wasm> [-o output]
+symirc <input.sir> --target <c|wasm|python> [-o output]
 ````
 
 ### Examples
@@ -35,6 +35,12 @@ Translate to WebAssembly (text format):
 
 ```bash
 symirc prog.sir --target wasm -o prog.wat
+```
+
+Translate to Python (requires reducible control flow, see below):
+
+```bash
+symirc prog.sir --target python -o prog.py
 ```
 
 
@@ -70,6 +76,27 @@ Symbol references become:
 (call $f0__c4)
 ```
 
+### Python target
+
+Each symbol becomes a call to a **provider function** that the module
+itself does not define:
+
+```python
+f0__c4()
+```
+
+The embedding must inject the providers into the module's globals
+before invoking the entry function (this is what the test driver
+does):
+
+```python
+import prog
+prog.f0__c4 = lambda: 7
+print(prog.refractir_f0())
+```
+
+Vector-typed symbols must return a list with one element per lane.
+
 ### Name Mangling
 
 RefractIR symbols may appear as global symbols (`@?name`) or local symbols (`%?name`). For translation targets,
@@ -83,6 +110,95 @@ Examples:
 - `@f0` + `@?c4` → `f0__c4`
 - `@f0` + `%?k`  → `f0__k`
 
+Function names are mangled `refractir_<name>` in all targets (e.g.,
+`@sum` → `refractir_sum`); `--emit-main` keeps `@main` unmangled.
+
+
+## Python Target (v0.2.3)
+
+Python has neither `goto` nor labeled `break`, so — unlike the C
+backend (labels + `goto`) and the WASM backend (`loop` + `br_table`
+PC-dispatch) — the Python backend **reconstructs genuine structured
+control flow**: loops become `while` statements, branches become
+`if`/`else`, and block labels survive as `# ^label` comments.
+
+This is only possible when the CFG is **reducible** (every cycle has
+a unique header block that dominates the whole cycle).
+`--target python` therefore registers a reducibility check that
+rejects irreducible functions with a static error naming the
+offending branch; the same check is available on any target via
+`--require-reducible`. The reconstruction pipeline — dominator tree,
+loop nesting forest, control-tree builder, structured lowering — is
+documented in [reducibility.md](./reducibility.md), together with the
+`--dump-domtree` / `--dump-loops` / `--dump-control-tree` /
+`--dump-lowered-tree` inspection flags.
+
+### Runtime semantics
+
+RefractIR's strict UB is checked **eagerly at runtime** by a small
+helper preamble emitted once per module:
+
+- `class RefractIRTrap(Exception)` — every UB event raises it, so an
+  executed UB path exits nonzero with a traceback instead of
+  continuing silently.
+- Checked signed arithmetic `_iadd`/`_isub`/`_imul` — Python integers
+  are unbounded, so overflow outside `iN` traps explicitly rather
+  than wrapping.
+- `_sdiv`/`_srem` — truncate toward zero and trap on division by zero
+  and `INT_MIN % -1`; Python's flooring `//` and `%` are never used
+  raw.
+- Shifts trap on out-of-range amounts per spec §7.1.
+- `f32` arithmetic round-trips each operation through
+  `struct.pack/unpack('<f', …)` (RNE per IEEE 754); every FP result
+  passes a finiteness check (`±∞`/NaN are UB).
+- `i1` uses the spec's canonical `{0, -1}` values; vector `cmp`
+  yields a `{0, -1}` mask list.
+
+Aggregates and address-taken scalars lower to flat leaf-slot lists
+with a provenance-tracked `_Ptr(buf, off, stride, lo, hi)` pointer
+class: null/uninitialized/out-of-bounds dereference, cross-object
+arithmetic, and cross-object relational comparison all trap. `undef`
+slots hold a unique sentinel that traps on read. Non-addressable
+scalars stay plain Python variables for readability. Vectors are
+plain lists with lane-wise operations.
+
+### Example
+
+```sir
+fun @sum(%n: i32) : i32 {
+  sym %?step : value i32;
+  let mut %i: i32 = 0;
+  let mut %acc: i32 = 0;
+^head:
+  br %i < %n, ^body, ^done;
+^body:
+  %acc = %acc + %?step;
+  %i = %i + 1;
+  br ^head;
+^done:
+  ret %acc;
+}
+```
+
+emits (after the preamble):
+
+```python
+def refractir_sum(n):
+    i = 0
+    acc = 0
+    while (i) < (n):
+        # ^body
+        acc = _iadd(acc, sum__step(), 32)
+        i = _iadd(i, 1, 32)
+    return acc
+```
+
+Branches that leave several nested loops at once cannot use a native
+Python statement; they lower to one-shot guard flags with cascaded
+`break`s (`_brk_*`, `_cnt_*`, `_go_*`), hoisted to function entry.
+Common shapes — single-level breaks, early `return` from any depth —
+emit zero flags.
+
 
 ## Options
 
@@ -90,31 +206,44 @@ Examples:
 | ------------------ | ------------------------------------------ |
 | `--target c`       | Emit C source (default)                    |
 | `--target wasm`    | Emit WebAssembly (WAT)                     |
+| `--target python`  | Emit Python (requires reducible control flow) |
 | `-o <file>`        | Output file (default: stdout)              |
-| `--vec-lowering <s>` | Vector lowering strategy for the C backend |
+| `-I <path>`        | Include path for resolving link-form `decl`s (may repeat) |
+| `--require-reducible` | Reject functions with irreducible control flow (any target) |
+| `--vec-lowering <s>` | Vector lowering strategy: `vecext\|scalars\|array\|structscalars\|structarray` (C target; other targets accept only `array`, their default) |
+| `--split-by-source` | C target: emit one `<stem>.c` per source file plus `common.h` into the directory given by `-o` |
+| `--emit-main`      | Do not mangle `@main` in emitted target code |
+| `--no-module-tags` | Omit `(module ...)` tags in WASM output    |
 | `--dump-ast`       | Dump the AST to stdout and exit            |
+| `--dump-domtree`   | Dump per-function dominator trees and exit (see [reducibility.md](./reducibility.md)) |
+| `--dump-loops`     | Dump per-function loop nesting forests and exit |
+| `--dump-control-tree` | Dump per-function structured control trees and exit (implies `--require-reducible`) |
+| `--dump-lowered-tree` | Dump control trees after structured lowering and exit (implies `--require-reducible`) |
 | `-w`               | Inhibit all warning messages               |
 | `--Werror`         | Make all warnings into errors              |
 | `--no-require`     | Omit `require` checks from emitted code (useful for compiler testing) |
 | `-h, --help`       | Print usage                                |
 
 
-## Limitations (v0.2.2)
+## Limitations (v0.2.3)
 
-* `i1`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, arrays, structs, and pointers (`ptr T`) lower to both C and WASM.
-* Function calls (`call`), link-form `decl` resolution (`-I`), and the standard intrinsics (§12) lower to both C and WASM, with two exceptions: the reify checksum intrinsics `@crc32_update` and `@check_chksum` lower to C only — `symirc --target wasm` rejects a program that declares them (see `docs/intrinsics.md` §12.7).
+* `i1`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, arrays, structs, and pointers (`ptr T`) lower to all three targets (C, WASM, Python).
+* Function calls (`call`), link-form `decl` resolution (`-I`), and the standard intrinsics (§12) lower to all three targets, with one exception: the reify checksum intrinsics `@crc32_update` and `@check_chksum` lower to C and Python only — `symirc --target wasm` rejects a program that declares them (see `docs/intrinsics.md` §12.7).
+* The Python target only accepts **reducible** control flow; irreducible functions are rejected with a static error (see [reducibility.md](./reducibility.md)). C and WASM accept arbitrary CFGs.
 * Heap allocation is still out of scope; pointers always refer to stack-resident `let mut` locals (see spec §2.8).
-* No optimization passes — the lowered C/WASM follows the source closely.
-* In WASM, pointers are 32-bit addresses into the linear memory; in C they are native C pointers. Pointer arithmetic and `ptr - ptr` (element distance) are both supported, but cross-object arithmetic remains UB per spec §7.5.
-* WASM vector support currently unrolls operations lane-by-lane on the shadow stack (as aggregates). Native WebAssembly SIMD-128 lowering (using the `v128` type and instructions) is a non-goal for v0.2.2, planned for v0.2.3 (SPEC §13).
+* No optimization passes — the lowered C/WASM/Python follows the source closely.
+* In WASM, pointers are 32-bit addresses into the linear memory; in C they are native C pointers; in Python they are provenance-tracked `_Ptr` objects over flat leaf-slot lists. Pointer arithmetic and `ptr - ptr` (element distance) are supported everywhere, but cross-object arithmetic remains UB per spec §7.5.
+* WASM vector support currently unrolls operations lane-by-lane on the shadow stack (as aggregates). Native WebAssembly SIMD-128 lowering (using the `v128` type and instructions) is a non-goal for v0.2.2, planned for a later version (SPEC §13). Python lowers vectors to plain lists with lane-wise comprehensions.
+* The Python target does not yet participate in cross-validation (`make cross-validation`) — bit-exact `Result:` line parity (`printf %a` vs `float.hex()`) is a planned follow-up. It is covered by `make test-backends` (exit-code semantics over the compile corpus).
 
 ## Refinement and Undefined Behavior Semantics
 
 The compilers perform **semantic refinement** over the input RefractIR program. Under refinement:
-- The compiled target program (C or WebAssembly) must not exhibit any observable behavior that was not allowed by the original source program.
+- The compiled target program (C, WebAssembly, or Python) must not exhibit any observable behavior that was not allowed by the original source program.
 - This semantic equivalence is guaranteed only when the input program is **UB-free** (free of Undefined Behavior).
 - If the input program executes a path containing Undefined Behavior (such as signed integer overflow, division/modulo by zero, or invalid pointer navigation/comparison), the behavior of the target program is **not guaranteed** and may deviate from strict RefractIR interpreter/solver checks (which model UB as a fatal execution constraint).
-- **C Target vs. WASM Target**:
+- **Per-target UB strictness**:
+  - The **Python target** is the strictest: the emitted helper preamble checks every UB-capable operation eagerly at runtime and raises `RefractIRTrap` (nonzero exit) the moment UB is executed — signed overflow, division/remainder by zero, shift-range violations, non-finite FP results, out-of-bounds indices and lane accesses, `undef` reads, and null/out-of-bounds/cross-object pointer operations are all trapped without any external tooling.
   - For the **C target**, we try our best to preserve the trapping semantics of RefractIR undefined behaviors. Because many of RefractIR's undefined behaviors map cleanly to native C undefined behaviors, compiling the output C code with GCC and enabling sanitizers (e.g., `-fsanitize=address,undefined,float-cast-overflow,pointer-compare,pointer-subtract`) allows the runtime to catch and trap these events.
   - However, **this effort is not put on the WebAssembly (WASM) target**. The WASM backend lowers RefractIR constructs to clean, native WASM instructions without inserting safety checks or runtime sanitizer assertions. Any executed undefined behavior on WASM will follow standard WASM instruction behavior (e.g. wrapping on signed overflow, returning 0 on modulo overflow, or ignoring relational pointer provenance).
 

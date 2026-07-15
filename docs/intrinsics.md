@@ -21,6 +21,14 @@ the RefractIR toolchain — not delegated to the target language. Each intrinsic
 - A fixed SMT encoding in the **solver** (`symirsolve`)
 - A widening-and-mask lowering rule in the **compiler** (`symirc` → C and WASM)
 
+The Python backend (v0.2.3) lowers every shipped intrinsic as a helper
+function in the emitted module's preamble
+(`src/backend/py_intrinsics.cpp`), mirroring the interpreter's
+semantics; the per-intrinsic sections below spell out C/WASM because
+those lowerings need width- and grammar-specific rules, while the
+Python helpers compute directly in Python (unbounded integers, the
+`math` module for FP) and trap per the same UB preconditions.
+
 Intrinsics are declared in source with the `intrinsic` keyword before use:
 
 ```text
@@ -1194,6 +1202,10 @@ own copy of the 1 KB lookup table; for the typical i8 / i16 / i32 / i64
 quartet that's ~4 KB of `.bss` per .c file — the explicit cost of the
 "no shared globals" design choice in R1.
 
+**Python** (`src/backend/py_intrinsics.cpp::_in_crc32_update`): same
+table-driven recurrence over unbounded Python integers, masked to
+uint32 per step; the table is built lazily at module level.
+
 **WASM**: not lowered. R1 targets the C backend; `symirc --target wasm`
 errors out cleanly when the input declares `@crc32_update`.
 
@@ -1237,6 +1249,10 @@ options. Note that the program as a whole should be linked with
 `-lm`: generated code may call libm functions (`fmod` / `fmodf` from
 floating-point `%`, and the FP intrinsic helpers), which live in a
 separate library on toolchains older than glibc 2.35 and on musl.
+
+**Python** (`src/backend/py_intrinsics.cpp::_in_check_chksum`):
+raises `RefractIRTrap("@check_chksum mismatch")` on mismatch (nonzero
+exit), returns `actual` on equality.
 
 **WASM**: not lowered (matches `@crc32_update`).
 

@@ -35,7 +35,7 @@ It provides a robust foundation for building tools that need to reason about pro
 | Tool | Purpose |
 | :--- | :--- |
 | `symiri` | **Interpreter**: Execute `.sir` programs directly with concrete values or symbol bindings. |
-| `symirc` | **Compiler**: Translate `.sir` programs into optimized C or WebAssembly (WASM). |
+| `symirc` | **Compiler**: Translate `.sir` programs into optimized C, WebAssembly (WASM), or Python. |
 | `symirsolve` | **Solver**: Concretize symbolic programs by solving path constraints via SMT. |
 | `rysmith` | **Reifier**: Generate random RefractIR leaf functions for compiler testing. |
 | `rylink` | **Reifier**: Generate random RefractIR whole programs for compiler testing. |
@@ -69,7 +69,7 @@ To run RefractIR in **a local environment** instead, the following tools are req
   - Install: https://github.com/bitwuzla/bitwuzla
 - **Z3** (Optional)
   - Install: https://github.com/Z3Prover/z3
-- **Python 3** (for the test suite)
+- **Python 3** (Optional, for the test suite and for running Python-target output)
 - **WASM runtime** (Optional, for running WASM backend tests such as Wasmtime, Wasmer, or Node.js)
 
 ### Building
@@ -99,13 +99,16 @@ Provide concrete values for symbols at runtime:
 ./symiri examples/template.sir --sym %?a=10 --dump-trace
 ```
 
-#### Compile to C or WebAssembly
+#### Compile to C, WebAssembly, or Python
 ```bash
 # Compile to C
 ./symirc input.sir --target c -o out.c
 
 # Compile to WebAssembly
 ./symirc input.sir --target wasm -o out.wat
+
+# Compile to Python (requires reducible control flow)
+./symirc input.sir --target python -o out.py
 ```
 
 #### Solve for Symbolic Values
@@ -274,8 +277,8 @@ Find more examples in [./examples](./examples/) and [./test/](./test/).
 ├── include/          # Header files
 │   ├── ast/          # AST definitions
 │   ├── frontend/     # Lexer, Parser, TypeChecker
-│   ├── analysis/     # CFG, Dataflow, Pass Manager
-│   ├── backend/      # C and WASM backends
+│   ├── analysis/     # CFG, Dataflow, Dominators/Loops/Structurizer, Pass Manager
+│   ├── backend/      # C, WASM, and Python backends
 │   ├── solver/       # SMT integration
 │   └── reify/        # Reify generators (rysmith/rylink/rytwin)
 ├── src/              # Implementation files
@@ -293,6 +296,7 @@ Find more examples in [./examples](./examples/) and [./test/](./test/).
 - **[Standard Intrinsics reference](./docs/intrinsics.md)** — per-intrinsic signatures, SMT encodings, UB conditions, and C/WASM lowering rules.
 - **[Floating-point model](./docs/float.md)** — the finite-only IEEE 754 value model and bit-exact text serialization.
 - **[Undefined Behaviour reference](./docs/undefined.md)** — the strict UB model and list of UBs.
+- **[CFG Reducibility & Structured Control Flow](./docs/reducibility.md)** — dominator trees, the reducibility check, loop forests, and the control-tree structuring behind the Python target.
 - **[symiri User Guide](./docs/symiri.md)**
 - **[symirc User Guide](./docs/symirc.md)**
 - **[symirsolve User Guide](./docs/symirsolve.md)**

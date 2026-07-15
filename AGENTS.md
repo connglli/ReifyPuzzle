@@ -82,7 +82,7 @@ Key characteristics:
 
 | Tool | Role |
 |------|------|
-| `symirc` | Translate `.sir` to C / WebAssembly |
+| `symirc` | Translate `.sir` to C / WebAssembly / Python |
 | `symiri` | Interpret `.sir` programs |
 | `symirsolve` | Concretize symbolic programs using SMT |
 | `rysmith` | Generate random RefractIR leaf functions (reify) |
@@ -115,9 +115,9 @@ Semantic Checker
 ```
 Checked AST + CFG
   ↓
-Lowering
+Lowering (+ reducibility check & control-tree structuring for Python)
   ↓
-C / WASM Code Generation
+C / WASM / Python Code Generation
 ```
 
 `symiri`:
@@ -198,10 +198,12 @@ Ensures program well-formedness beyond typing:
 
 ### 7. Language Lower / Translator
 - Translate a symbolic or concrete program into an existing language
-- First-class support are C and WebAssembly.
+- First-class support are C, WebAssembly, and Python.
+- The Python target accepts only **reducible** CFGs and reconstructs genuine `while`/`if` control flow (dominator tree → reducibility check → loop forest → control tree → structured lowering; see [./docs/reducibility.md](./docs/reducibility.md)).
 - For symbolic program translation, use external function declarations to indicate symbols.
   - C: `extern int func_name_symbol_name(...);`
   - WASM: `import func_name symbol_name (func func_name_symbol_name (....))`
+  - Python: `func_name__symbol_name()` provider calls injected into module globals by the embedding
 
 
 ## Project Structure
