@@ -81,14 +81,6 @@ namespace refractir {
     std::string dst = mangleName(lhs.base.name);
     if (!s.maskExpr->rest.empty())
       throw std::runtime_error("Mask-form select: complex mask expressions not yet lowered to C");
-    auto maskRv = std::get_if<RValueAtom>(&s.maskExpr->first.v);
-    if (!maskRv)
-      throw std::runtime_error("Mask-form select: mask must be a vector local for codegen");
-    auto maskTy = getLValueType(maskRv->rval);
-    if (!maskTy || !std::holds_alternative<VecType>(maskTy->v))
-      throw std::runtime_error("Mask-form select: mask must have vector type");
-    auto &maskVt = std::get<VecType>(maskTy->v);
-    std::string maskName = mangleName(maskRv->rval.base.name);
 
     VecType armVt = vt;
     if (auto rv = std::get_if<RValue>(&s.vtrue)) {
@@ -100,14 +92,38 @@ namespace refractir {
     for (std::uint64_t k = 0; k < vt.size; ++k) {
       std::string kS = std::to_string(k);
       std::string dstLane = vecLowering_->emitLaneRead(dst, vt, kS);
-      std::string maskLane = vecLowering_->emitLaneRead(maskName, maskVt, kS);
+
+      std::string ml;
+      if (auto maskRv = std::get_if<RValueAtom>(&s.maskExpr->first.v)) {
+        auto &maskVt = std::get<VecType>(getLValueType(maskRv->rval)->v);
+        ml = vecLowering_->emitLaneRead(mangleName(maskRv->rval.base.name), maskVt, kS);
+      } else if (auto maskCmp = std::get_if<CmpAtom>(&s.maskExpr->first.v)) {
+        VecType cmpVt = vt;
+        if (auto rv = std::get_if<RValue>(&maskCmp->lhs)) {
+          if (auto t = getLValueType(*rv))
+            if (std::holds_alternative<VecType>(t->v))
+              cmpVt = std::get<VecType>(t->v);
+        }
+        std::string l = sirSelectValLane(maskCmp->lhs, cmpVt, kS);
+        std::string r = sirSelectValLane(maskCmp->rhs, cmpVt, kS);
+        const char *op = (maskCmp->op == RelOp::EQ)   ? "=="
+                         : (maskCmp->op == RelOp::NE) ? "!="
+                         : (maskCmp->op == RelOp::LT) ? "<"
+                         : (maskCmp->op == RelOp::LE) ? "<="
+                         : (maskCmp->op == RelOp::GT) ? ">"
+                                                      : ">=";
+        ml = "((" + l + ") " + op + " (" + r + "))";
+      } else {
+        throw std::runtime_error("Unsupported mask atom in select");
+      }
+
       std::string vtLane = sirSelectValLane(s.vtrue, armVt, kS);
       std::string vfLane = sirSelectValLane(s.vfalse, armVt, kS);
       if (k) {
         out_ << ";\n";
         indent();
       }
-      out_ << dstLane << " = (" << maskLane << ") ? (" << vtLane << ") : (" << vfLane << ")";
+      out_ << dstLane << " = (" << ml << ") ? (" << vtLane << ") : (" << vfLane << ")";
     }
     out_ << ";\n";
   }

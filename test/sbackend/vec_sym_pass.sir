@@ -1,5 +1,4 @@
 // EXPECT: PASS
-// SKIP: C — A bug in C compiler causes this to fail
 // COMPILER_ARGS: --sym %?v=1,2,3,4
 
 // Vector symbol: the driver provides the lanes as a list.

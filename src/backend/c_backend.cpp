@@ -684,15 +684,60 @@ namespace refractir {
               TypePtr initType = getInitValType(*l.init);
               if (initType && std::holds_alternative<VecType>(initType->v)) {
                 if (l.init->kind == InitVal::Kind::Local || l.init->kind == InitVal::Kind::Sym) {
-                  std::string srcName;
                   if (l.init->kind == InitVal::Kind::Local) {
-                    srcName = mangleName(std::get<LocalId>(l.init->value).name);
+                    // Local → plain variable name; emitWholeCopy handles all strategies.
+                    std::string srcName = mangleName(std::get<LocalId>(l.init->value).name);
+                    indent();
+                    vecLowering_->emitWholeCopy(out_, vName, srcName, vt);
+                    out_ << ";\n";
                   } else {
-                    srcName = mangleName(std::get<SymId>(l.init->value).name);
+                    // [v0.2.1] Sym → extern function `funcName__symName(void)`.
+                    // Every sym reference becomes a call (per symirc.md §"Symbol
+                    // references become calls"). curFuncName_ tracks the enclosing
+                    // function currently being emitted.
+                    const SymId &sym = std::get<SymId>(l.init->value);
+                    const std::string callExpr =
+                        getMangledSymbolName(curFuncName_, sym.name) + "()";
+                    if (!vecLowering_->needsLaneUnroll()) {
+                      // vecext / structarray / structscalars: extern returns the full
+                      // vector type, so one call + one whole-vector assignment.
+                      indent();
+                      vecLowering_->emitWholeCopy(out_, vName, callExpr, vt);
+                      out_ << ";\n";
+                    } else {
+                      // array / scalars: cannot return a vector type across a C function
+                      // boundary.  The test harness always generates a vecext-ABI stub
+                      // (typedef T[N] __attribute__((vector_size(...)))), so we capture
+                      // the call into a vecext-typed temp and copy per-lane into the
+                      // strategy's representation.  The vecext typedef for this shape
+                      // was already emitted in the file preamble (collectVecShapes).
+                      const std::string tmpName = "_sym_tmp_" + stripSigil(sym.name);
+                      const std::string vecextTy = vecLowering_->typeString(vt);
+                      // typeString() returns "" for scalars/array — fall back to the
+                      // canonical _vec_N_elem name (matches the vecext preamble typedef).
+                      const std::string tmpTy =
+                          vecextTy.empty()
+                              ? ("_vec_" + std::to_string(vt.size) + "_" + [&]() -> std::string {
+                                  if (auto *it = std::get_if<IntType>(&vt.elem->v)) {
+                                    int b =
+                                        it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
+                                    return "i" + std::to_string(b);
+                                  }
+                                  if (auto *ft = std::get_if<FloatType>(&vt.elem->v))
+                                    return ft->kind == FloatType::Kind::F32 ? "f32" : "f64";
+                                  return "i32";
+                                }())
+                              : vecextTy;
+                      indent();
+                      out_ << tmpTy << " " << tmpName << " = " << callExpr << ";\n";
+                      for (std::uint64_t k = 0; k < vt.size; ++k) {
+                        indent();
+                        std::string dstLn =
+                            vecLowering_->emitLaneRead(vName, vt, std::to_string(k));
+                        out_ << dstLn << " = " << tmpName << "[" << k << "];\n";
+                      }
+                    }
                   }
-                  indent();
-                  vecLowering_->emitWholeCopy(out_, vName, srcName, vt);
-                  out_ << ";\n";
                 } else if (l.init->kind == InitVal::Kind::Atom) {
                   if (vecLowering_->needsLaneUnroll()) {
                     for (std::uint64_t k = 0; k < vt.size; ++k) {
@@ -708,7 +753,7 @@ namespace refractir {
                     emitInitVal(*l.init, l.type);
                     out_ << ";\n";
                   }
-                }
+                } // if (initType && holds VecType)
               } else {
                 // Broadcast scalar.
                 for (std::uint64_t k = 0; k < vt.size; ++k) {

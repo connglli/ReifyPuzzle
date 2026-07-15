@@ -1,14 +1,12 @@
-// EXPECT: FAIL
-// SKIP: PYTHON — the FAIL expectation encodes a C-backend crash on inline mask select; the python target handles it
+// EXPECT: PASS
 // SKIP: INTERPRETER
 // SKIP: SOLVER
 // SKIP: WASM
 // Reason: WASM doesn't support ASan/UBSan style runtime trapping for vector select mask failures.
 //
-// Intention: Expose compiler abort/crash on vector select with an inline comparison mask.
-// Exposes: C backend limitation in emitVecMaskSelectAssign where mask is expected to be an RValueAtom.
-// Expected Behavior: Compilation succeeds.
-// Actual Behavior: Compiler crashes with "Mask-form select: mask must be a vector local for codegen" exception.
+// Tests: vector select with an inline comparison mask (CmpAtom).
+// The C backend expands the mask per-lane inline instead of requiring a
+// pre-materialised vector local (RValueAtom).
 
 fun @main() : i32 {
   let mut %v1: <4> i32 = {10, 20, 30, 40};
