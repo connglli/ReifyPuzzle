@@ -1,0 +1,23 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+// Element pointers: arithmetic within the array and pointer distance.
+fun @main(): i32 {
+    let mut %a: [5] i32 = 0;
+    let mut %p: ptr i32 = null;
+    let mut %q: ptr i32 = null;
+    let mut %v: i32 = 0;
+    let mut %d: i64 = 0;
+^entry:
+    %p = addr %a[0];
+    %q = %p + 3;
+    store %q, 70;
+    %v = %a[3];
+    require %v == 70, "store through advanced pointer";
+    %d = %q - %p;
+    require %d == 3, "pointer distance in elements";
+    %q = %q - 2;
+    %v = load %q;
+    require %v == 0, "load a[1] after moving back";
+    ret %v;
+}

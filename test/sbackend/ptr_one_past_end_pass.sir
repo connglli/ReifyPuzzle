@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+// Forming a one-past-end pointer is legal; only dereferencing it is
+// UB. Walking it back yields a valid element pointer.
+fun @main(): i32 {
+    let mut %a: [3] i32 = {1, 2, 3};
+    let mut %p: ptr i32 = null;
+    let mut %v: i32 = 0;
+^entry:
+    %p = addr %a[0];
+    %p = %p + 3;
+    %p = %p - 1;
+    %v = load %p;
+    require %v == 3, "one past end walked back to the last element";
+    ret %v;
+}

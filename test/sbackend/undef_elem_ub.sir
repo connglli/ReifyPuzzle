@@ -1,0 +1,14 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+// Reading an element of an undef-initialized aggregate is UB at
+// runtime (the static definite-init check tracks whole locals only).
+fun @main(): i32 {
+    let mut %a: [3] i32 = undef;
+    let mut %i: i32 = 1;
+    let mut %v: i32 = 0;
+^entry:
+    %a[0] = 10;
+    %v = %a[%i];
+    ret %v;
+}

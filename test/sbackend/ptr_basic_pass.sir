@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+// addr / load / store on a boxed scalar local.
+fun @main(): i32 {
+    let mut %x: i32 = 5;
+    let mut %p: ptr i32 = null;
+    let mut %v: i32 = 0;
+^entry:
+    %p = addr %x;
+    store %p, 42;
+    %v = load %p;
+    require %v == 42, "store then load through pointer";
+    require %x == 42, "store is visible through the local";
+    ret %v;
+}

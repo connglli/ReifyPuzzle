@@ -1,0 +1,12 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+// Direct out-of-bounds element access with a dynamic index.
+fun @main(): i32 {
+    let mut %a: [3] i32 = 0;
+    let mut %i: i32 = 5;
+    let mut %v: i32 = 0;
+^entry:
+    %v = %a[%i];
+    ret %v;
+}

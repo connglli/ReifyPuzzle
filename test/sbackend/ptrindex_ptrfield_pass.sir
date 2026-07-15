@@ -1,0 +1,23 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+struct @Pair {
+    a: i32;
+    b: i32;
+}
+
+fun @main(): i32 {
+    let mut %arr: [3] @Pair = 0;
+    let mut %pa: ptr [3] @Pair = null;
+    let mut %pe: ptr @Pair = null;
+    let mut %pf: ptr i32 = null;
+    let mut %v: i32 = 0;
+^entry:
+    %pa = addr %arr;
+    %pe = ptrindex %pa, 1;
+    %pf = ptrfield %pe, b;
+    store %pf, 9;
+    require %arr[1].b == 9, "ptrindex + ptrfield navigation";
+    %v = load %pf;
+    ret %v;
+}

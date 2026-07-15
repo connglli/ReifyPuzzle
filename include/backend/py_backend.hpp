@@ -53,6 +53,12 @@ namespace refractir {
     std::unordered_map<std::string, TypePtr> varTypes_;
     std::unordered_map<std::string, std::string> pyNames_; // sigiled name -> python identifier
     std::unordered_set<std::string> takenNames_;
+    // Locals lowered to flat leaf-slot lists: aggregate-typed lets and
+    // params, plus scalars whose address is taken. Everything else
+    // stays a plain python variable for readability.
+    std::unordered_set<std::string> boxedRoots_;
+    // Struct fields in declaration order, keyed by sigiled name (@S).
+    std::unordered_map<std::string, std::vector<std::pair<std::string, TypePtr>>> structFields_;
 
     // --- Statement emission (src/backend/py_backend.cpp) ---
     void line(const std::string &s);
@@ -89,8 +95,44 @@ namespace refractir {
     std::string callAtomStr(const CallAtom &arg);
     std::string condStr(const Cond &cond);
     std::string coefStr(const Coef &coef);
-    std::string lvalueStr(const LValue &lv);
     std::string selectValStr(const SelectVal &sv);
+
+    // --- LValues and the memory model (src/backend/py_lvalue.cpp) ---
+    // A resolved access path into a (possibly boxed) root: `buf` is
+    // the python list expression, `off` the leaf-slot offset
+    // expression, and [lo, hi) the extent of the innermost enclosing
+    // object (used as _Ptr provenance bounds).
+    struct PathInfo {
+      std::string buf;
+      std::string off;
+      std::string lo, hi;
+      TypePtr type;
+      bool boxed = false;
+    };
+
+    PathInfo resolvePath(const LValue &lv);
+    // Scalar (or whole-aggregate) read of an lvalue as a python value.
+    std::string lvalueStr(const LValue &lv);
+    std::string indexStr(const Index &idx);
+    std::string addrAtomStr(const AddrAtom &arg);
+    std::string loadAtomStr(const LoadAtom &arg);
+    std::string ptrIndexAtomStr(const PtrIndexAtom &arg);
+    std::string ptrFieldAtomStr(const PtrFieldAtom &arg);
+    void emitAssign(const AssignInstr &ins);
+    void emitStore(const StoreInstr &ins);
+    // Flat leaf-slot initializer list for an aggregate local.
+    std::string flattenInit(const InitVal &iv, const TypePtr &type);
+    // Scalar initializer element (with f32 rounding per target type).
+    std::string scalarInit(const InitVal &iv, const TypePtr &elemType);
+    void collectBoxedRoots(const FunDecl &f);
+
+    // --- Packed leaf layout (src/backend/py_types.cpp) ---
+    // Number of scalar/pointer leaf slots a type occupies.
+    std::uint64_t leafCount(const TypePtr &t) const;
+    // Leaf offset of a struct field; also yields its type.
+    std::uint64_t fieldLeafOffset(
+        const std::string &structName, const std::string &field, TypePtr *fieldType
+    ) const;
 
     // --- Type queries (src/backend/py_types.cpp) ---
     TypePtr getLValueType(const LValue &lv);

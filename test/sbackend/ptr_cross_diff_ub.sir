@@ -1,0 +1,16 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+// Subtracting pointers into different objects is UB.
+fun @main(): i64 {
+    let mut %a: [3] i32 = 0;
+    let mut %b: [3] i32 = 0;
+    let mut %p: ptr i32 = null;
+    let mut %q: ptr i32 = null;
+    let mut %d: i64 = 0;
+^entry:
+    %p = addr %a[0];
+    %q = addr %b[0];
+    %d = %p - %q;
+    ret %d;
+}

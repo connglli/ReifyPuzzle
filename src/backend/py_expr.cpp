@@ -38,9 +38,29 @@ namespace refractir {
       }
       return acc;
     }
+    if (t && std::holds_alternative<PtrType>(t->v)) {
+      // ptr ± iN walks elements; ptr - ptr yields the element distance
+      // (i64), after which any remaining terms are integer arithmetic.
+      bool isPtr = true;
+      for (const auto &tail: expr.rest) {
+        TypePtr tt = getAtomType(tail.atom);
+        bool tailPtr = tt && std::holds_alternative<PtrType>(tt->v);
+        if (isPtr && tailPtr && tail.op == AddOp::Minus) {
+          acc = "_pdiff(" + acc + ", " + atomStr(tail.atom) + ")";
+          isPtr = false;
+        } else if (isPtr) {
+          std::string n = atomStr(tail.atom);
+          acc = "_padd(" + acc + ", " + (tail.op == AddOp::Plus ? n : "-(" + n + ")") + ")";
+        } else {
+          acc = std::string(tail.op == AddOp::Plus ? "_iadd(" : "_isub(") + acc + ", " +
+                atomStr(tail.atom) + ", 64)";
+        }
+      }
+      return acc;
+    }
     std::uint32_t n = intWidth(t);
     if (n == 0)
-      throw std::runtime_error("python target: pointer arithmetic not yet supported");
+      n = 32; // defensive: post-typecheck every non-ptr/float expr is integral
     for (const auto &tail: expr.rest) {
       acc = std::string(tail.op == AddOp::Plus ? "_iadd(" : "_isub(") + acc + ", " +
             atomStr(tail.atom) + ", " + std::to_string(n) + ")";
@@ -68,9 +88,15 @@ namespace refractir {
             return castAtomStr(arg);
           } else if constexpr (std::is_same_v<T, CallAtom>) {
             return callAtomStr(arg);
+          } else if constexpr (std::is_same_v<T, AddrAtom>) {
+            return addrAtomStr(arg);
+          } else if constexpr (std::is_same_v<T, LoadAtom>) {
+            return loadAtomStr(arg);
+          } else if constexpr (std::is_same_v<T, PtrIndexAtom>) {
+            return ptrIndexAtomStr(arg);
           } else {
-            // AddrAtom / LoadAtom / PtrIndexAtom / PtrFieldAtom
-            throw std::runtime_error("python target: pointers not yet supported");
+            static_assert(std::is_same_v<T, PtrFieldAtom>);
+            return ptrFieldAtomStr(arg);
           }
         },
         atom.v
@@ -96,7 +122,7 @@ namespace refractir {
     }
     std::uint32_t bits = intWidth(t);
     if (bits == 0)
-      throw std::runtime_error("python target: pointers not yet supported");
+      throw std::runtime_error("python target: atom operator on non-scalar operands");
     const std::string n = std::to_string(bits);
     switch (arg.op) {
       case AtomOpKind::Mul:
@@ -133,12 +159,34 @@ namespace refractir {
     return "(" + vt + " if (" + exprStr(*arg.maskExpr) + ") != 0 else " + vf + ")";
   }
 
+  namespace {
+
+    // Pointer comparisons: equality is always legal (identity + offset);
+    // relational compares go through _prel, which traps on cross-object
+    // or null operands per spec rule 14.
+    std::string ptrCompare(const std::string &l, const std::string &r, RelOp op) {
+      switch (op) {
+        case RelOp::EQ:
+          return "_peq(" + l + ", " + r + ")";
+        case RelOp::NE:
+          return "not _peq(" + l + ", " + r + ")";
+        default:
+          return "_prel(" + l + ", " + r + ") " + relOpStr(op) + " 0";
+      }
+    }
+
+  } // namespace
+
   std::string PyBackend::cmpAtomStr(const CmpAtom &arg) {
     auto lt = getSelectValType(arg.lhs);
-    if (lt && std::holds_alternative<VecType>(lt->v))
+    auto rt = getSelectValType(arg.rhs);
+    if ((lt && std::holds_alternative<VecType>(lt->v)) ||
+        (rt && std::holds_alternative<VecType>(rt->v)))
       throw std::runtime_error("python target: vectors not yet supported");
-    if (lt && std::holds_alternative<PtrType>(lt->v))
-      throw std::runtime_error("python target: pointers not yet supported");
+    if ((lt && std::holds_alternative<PtrType>(lt->v)) ||
+        (rt && std::holds_alternative<PtrType>(rt->v)))
+      return "(-1 if " + ptrCompare(selectValStr(arg.lhs), selectValStr(arg.rhs), arg.op) +
+             " else 0)";
     return "(-1 if (" + selectValStr(arg.lhs) + ") " + relOpStr(arg.op) + " (" +
            selectValStr(arg.rhs) + ") else 0)";
   }
@@ -210,9 +258,9 @@ namespace refractir {
   std::string PyBackend::condStr(const Cond &cond) {
     auto lt = getExprType(cond.lhs);
     auto rt = getExprType(cond.rhs);
-    if ((lt && std::holds_alternative<PtrType>(lt->v)) ||
+    if ((lt && std::holds_alternative<PtrType>(lt->v)) &&
         (rt && std::holds_alternative<PtrType>(rt->v)))
-      throw std::runtime_error("python target: pointers not yet supported");
+      return ptrCompare(exprStr(cond.lhs), exprStr(cond.rhs), cond.op);
     return "(" + exprStr(cond.lhs) + ") " + relOpStr(cond.op) + " (" + exprStr(cond.rhs) + ")";
   }
 
@@ -230,7 +278,7 @@ namespace refractir {
               return "_f32(" + s + ")";
             return s;
           } else if constexpr (std::is_same_v<T, NullLit>) {
-            throw std::runtime_error("python target: pointers not yet supported");
+            return "_NULL";
           } else {
             return std::visit(
                 [this](auto &&id) -> std::string {
@@ -246,12 +294,6 @@ namespace refractir {
         },
         coef
     );
-  }
-
-  std::string PyBackend::lvalueStr(const LValue &lv) {
-    if (!lv.accesses.empty())
-      throw std::runtime_error("python target: aggregate/vector element access not yet supported");
-    return pyLocal(lv.base.name);
   }
 
   std::string PyBackend::selectValStr(const SelectVal &sv) {

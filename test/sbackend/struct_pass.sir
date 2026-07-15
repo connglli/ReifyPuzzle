@@ -1,0 +1,26 @@
+// EXPECT: PASS
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+struct @Point {
+    x: i32;
+    y: i32;
+}
+
+struct @Box {
+    tag: i32;
+    pts: [2] @Point;
+    w: f64;
+}
+
+fun @main(): i32 {
+    let mut %b: @Box = {1, {{2, 3}, {4, 5}}, 6.5};
+    let mut %v: i32 = 0;
+^entry:
+    require %b.tag == 1, "scalar field";
+    require %b.pts[1].y == 5, "nested field through array";
+    require %b.w == 6.5, "float field";
+    %b.pts[0].x = 20;
+    %v = %b.pts[0].x + %b.pts[1].x;
+    require %v == 24, "field write then read";
+    ret %v;
+}

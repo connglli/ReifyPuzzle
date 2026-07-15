@@ -30,14 +30,56 @@ namespace refractir {
   void PyBackend::requireSupportedType(const TypePtr &t, const char *what) const {
     if (!t)
       return;
-    if (std::holds_alternative<IntType>(t->v) || std::holds_alternative<FloatType>(t->v))
-      return;
-    if (std::holds_alternative<PtrType>(t->v) || std::holds_alternative<ArrayType>(t->v) ||
-        std::holds_alternative<StructType>(t->v))
-      throw std::runtime_error(
-          std::string("python target: pointer/aggregate ") + what + " not yet supported"
-      );
-    throw std::runtime_error(std::string("python target: vector ") + what + " not yet supported");
+    if (std::holds_alternative<VecType>(t->v))
+      throw std::runtime_error(std::string("python target: vector ") + what + " not yet supported");
+    if (auto pt = std::get_if<PtrType>(&t->v))
+      requireSupportedType(pt->pointee, what);
+    else if (auto at = std::get_if<ArrayType>(&t->v))
+      requireSupportedType(at->elem, what);
+  }
+
+  std::uint64_t PyBackend::leafCount(const TypePtr &t) const {
+    if (!t)
+      return 1;
+    return std::visit(
+        [this](const auto &arg) -> std::uint64_t {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, ArrayType>) {
+            return arg.size * leafCount(arg.elem);
+          } else if constexpr (std::is_same_v<T, StructType>) {
+            auto it = structFields_.find(arg.name.name);
+            if (it == structFields_.end())
+              throw std::runtime_error("python target: unknown struct type");
+            std::uint64_t n = 0;
+            for (const auto &[_, fty]: it->second)
+              n += leafCount(fty);
+            return n;
+          } else if constexpr (std::is_same_v<T, VecType>) {
+            throw std::runtime_error("python target: vectors in aggregates not yet supported");
+          } else {
+            return 1; // int / float / ptr leaves occupy one slot
+          }
+        },
+        t->v
+    );
+  }
+
+  std::uint64_t PyBackend::fieldLeafOffset(
+      const std::string &structName, const std::string &field, TypePtr *fieldType
+  ) const {
+    auto it = structFields_.find(structName);
+    if (it == structFields_.end())
+      throw std::runtime_error("python target: unknown struct type");
+    std::uint64_t off = 0;
+    for (const auto &[name, fty]: it->second) {
+      if (name == field) {
+        if (fieldType)
+          *fieldType = fty;
+        return off;
+      }
+      off += leafCount(fty);
+    }
+    throw std::runtime_error("python target: unknown struct field " + field);
   }
 
   TypePtr PyBackend::getLValueType(const LValue &lv) {
@@ -57,9 +99,13 @@ namespace refractir {
           cur = pt->pointee;
         else
           return nullptr;
-      } else if (std::get_if<AccessField>(&acc)) {
-        // Struct fields arrive with the aggregate model (stage 7).
-        return nullptr;
+      } else if (auto af = std::get_if<AccessField>(&acc)) {
+        auto st = std::get_if<StructType>(&cur->v);
+        if (!st)
+          return nullptr;
+        TypePtr fieldTy;
+        fieldLeafOffset(st->name.name, af->field, &fieldTy);
+        cur = fieldTy;
       }
     }
     return cur;

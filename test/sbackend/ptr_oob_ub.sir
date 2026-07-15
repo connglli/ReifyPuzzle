@@ -1,0 +1,12 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
+// Advancing an element pointer past the array object is UB.
+fun @main(): i32 {
+    let mut %a: [3] i32 = 0;
+    let mut %p: ptr i32 = null;
+^entry:
+    %p = addr %a[0];
+    %p = %p + 7;
+    ret 0;
+}
