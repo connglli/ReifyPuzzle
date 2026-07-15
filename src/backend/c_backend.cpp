@@ -849,163 +849,9 @@ namespace refractir {
       for (const auto &b: f.blocks) {
         out_ << mangleName(b.label.name) << ": ;\n"; // semicolon for empty label case
 
-        for (const auto &ins: b.instrs) {
-          indent();
-          std::visit(
-              [this](auto &&arg) {
-                using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<T, AssignInstr>) {
-                  CtxGuard ctx(isDoubleCtx_, isOrContainsF64(getLValueType(arg.lhs)));
-                  // [v0.2.1] Vector LHS goes through strategy-aware paths.
-                  auto lhsTy = getLValueType(arg.lhs);
-                  if (lhsTy && std::holds_alternative<VecType>(lhsTy->v) &&
-                      arg.lhs.accesses.empty()) {
-                    auto &vt = std::get<VecType>(lhsTy->v);
-                    // CmpAtom and mask-form SelectAtom are always lane-unroll.
-                    if (arg.rhs.rest.empty()) {
-                      if (auto cmpA = std::get_if<CmpAtom>(&arg.rhs.first.v)) {
-                        emitVecCmpAssign(arg.lhs, *cmpA, vt);
-                        return;
-                      }
-                      if (auto sel = std::get_if<SelectAtom>(&arg.rhs.first.v)) {
-                        if (sel->maskExpr) {
-                          emitVecMaskSelectAssign(arg.lhs, *sel, vt);
-                          return;
-                        }
-                      }
-                    }
-                    // [v0.2.1] LShr can't be expressed inline on a vec-ext
-                    // type — the signed-to-unsigned reinterpret is illegal on
-                    // GCC vector types. Float `%` likewise has no inline form
-                    // (GCC vector types don't define `%` for floats, and the
-                    // semantics require a per-lane fmod call with the §2.9
-                    // intermediate-overflow UB check). Force lane-unroll for
-                    // either op regardless of strategy.
-                    bool forceLaneUnroll = false;
-                    if (arg.rhs.rest.empty()) {
-                      if (auto op = std::get_if<OpAtom>(&arg.rhs.first.v)) {
-                        if (op->op == AtomOpKind::LShr)
-                          forceLaneUnroll = true;
-                        else if (op->op == AtomOpKind::Mod && vt.elem &&
-                                 std::holds_alternative<FloatType>(vt.elem->v))
-                          forceLaneUnroll = true;
-                      }
-                    }
-                    if (vecLowering_->needsLaneUnroll() || forceLaneUnroll) {
-                      emitVecAssign(arg.lhs, arg.rhs, vt);
-                      return;
-                    }
-                    // vecext: fall through to the inline expression path.
-                  }
-                  // [v0.2.1] Scalar `cmp` assignment: emit `(l op r) ? 1 : 0`.
-                  // CmpAtom can't lower as an inline expression (see emitAtom),
-                  // so we special-case it at AssignInstr level for scalars too.
-                  if (arg.rhs.rest.empty()) {
-                    if (auto cmpA = std::get_if<CmpAtom>(&arg.rhs.first.v)) {
-                      emitLValue(arg.lhs);
-                      out_ << " = ((";
-                      emitSelectVal(cmpA->lhs);
-                      const char *op = "==";
-                      switch (cmpA->op) {
-                        case RelOp::EQ:
-                          op = "==";
-                          break;
-                        case RelOp::NE:
-                          op = "!=";
-                          break;
-                        case RelOp::LT:
-                          op = "<";
-                          break;
-                        case RelOp::LE:
-                          op = "<=";
-                          break;
-                        case RelOp::GT:
-                          op = ">";
-                          break;
-                        case RelOp::GE:
-                          op = ">=";
-                          break;
-                      }
-                      out_ << ") " << op << " (";
-                      emitSelectVal(cmpA->rhs);
-                      out_ << ")) ? 1 : 0;\n";
-                      return;
-                    }
-                  }
-                  if (lhsTy && std::holds_alternative<ArrayType>(lhsTy->v)) {
-                    out_ << "memcpy(&(";
-                    emitLValue(arg.lhs);
-                    out_ << "), &(";
-                    emitExpr(arg.rhs);
-                    out_ << "), sizeof(";
-                    emitLValue(arg.lhs);
-                    out_ << "));\n";
-                  } else {
-                    emitLValue(arg.lhs);
-                    out_ << " = ";
-                    emitExpr(arg.rhs);
-                    out_ << ";\n";
-                  }
-                  // [v0.2.1] FP vector lanes: per-lane finite check (rule 21
-                  // lifted to FP rules 6/7 — any lane producing ±∞ or NaN
-                  // is UB). The native vec-ext division won't trap on its
-                  // own and UBSan doesn't catch SIMD div-by-zero, so we
-                  // emit an explicit check.
-                  if (lhsTy && std::holds_alternative<VecType>(lhsTy->v) &&
-                      arg.lhs.accesses.empty()) {
-                    auto &vtFp = std::get<VecType>(lhsTy->v);
-                    if (vtFp.elem && std::holds_alternative<FloatType>(vtFp.elem->v)) {
-                      std::string base = mangleName(arg.lhs.base.name);
-                      for (std::uint64_t k = 0; k < vtFp.size; ++k) {
-                        indent();
-                        std::string lane =
-                            vecLowering_->emitLaneRead(base, vtFp, std::to_string(k));
-                        out_ << "if (!__builtin_isfinite(" << lane << ")) __builtin_trap();\n";
-                      }
-                    }
-                  }
-                  // [v0.2.1] Scalar FP UB: any ±∞ or NaN result is UB
-                  // (rules 6/7). UBSan catches some FP issues but not NaN
-                  // from 0.0/0.0; emit an explicit `isfinite` check after
-                  // FP assignments so the spec's semantics are enforced.
-                  // Also fires for FP element writes (array element / struct
-                  // field / vector lane) — the check uses the LHS in place.
-                  bool lhsIsFp = lhsTy && std::holds_alternative<FloatType>(lhsTy->v);
-                  if (lhsIsFp) {
-                    indent();
-                    out_ << "if (!__builtin_isfinite(";
-                    emitLValue(arg.lhs);
-                    out_ << ")) __builtin_trap();\n";
-                  }
-                } else if constexpr (std::is_same_v<T, AssumeInstr>) {
-                  out_ << "// assume ";
-                  emitCond(arg.cond);
-                  out_ << "\n";
-                } else if constexpr (std::is_same_v<T, RequireInstr>) {
-                  if (!noRequire_) {
-                    out_ << "assert(";
-                    emitCond(arg.cond);
-                    if (arg.message)
-                      out_ << " && \"" << *arg.message << "\"";
-                    out_ << ");\n";
-                  }
-                } else if constexpr (std::is_same_v<T, StoreInstr>) {
-                  TypePtr pointeeTy = nullptr;
-                  if (auto ptrTy = getExprType(arg.ptr)) {
-                    if (auto pt = std::get_if<PtrType>(&ptrTy->v))
-                      pointeeTy = pt->pointee;
-                  }
-                  CtxGuard ctx(isDoubleCtx_, isOrContainsF64(pointeeTy));
-                  out_ << "*";
-                  emitExpr(arg.ptr);
-                  out_ << " = ";
-                  emitExpr(arg.val);
-                  out_ << ";\n";
-                }
-              },
-              ins
-          );
-        }
+        for (const auto &ins: b.instrs)
+          emitInstr(ins);
+
         indent();
         std::visit(
             [this](auto &&arg) {
@@ -1021,13 +867,7 @@ namespace refractir {
                   out_ << "goto " << mangleName(arg.dest.name) << ";\n";
                 }
               } else if constexpr (std::is_same_v<T, RetTerm>) {
-                out_ << "return";
-                if (arg.value) {
-                  CtxGuard ctx(isDoubleCtx_, isOrContainsF64(curFuncRetType_));
-                  out_ << " ";
-                  emitExpr(*arg.value);
-                }
-                out_ << ";\n";
+                emitRetTerm(arg);
               } else if constexpr (std::is_same_v<T, UnreachableTerm>) {
                 out_ << "// unreachable\n";
               }
@@ -1039,6 +879,176 @@ namespace refractir {
       indent_level_--;
       out_ << "}\n\n";
     }
+  }
+
+  // Statement-level emission of one instruction, indentation included.
+  // Shared by the goto block loop in emit() and the structured
+  // control-tree emitter (src/backend/c_structured.cpp).
+  void CBackend::emitInstr(const Instr &ins) {
+    indent();
+    std::visit(
+        [this](auto &&arg) {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, AssignInstr>) {
+            CtxGuard ctx(isDoubleCtx_, isOrContainsF64(getLValueType(arg.lhs)));
+            // [v0.2.1] Vector LHS goes through strategy-aware paths.
+            auto lhsTy = getLValueType(arg.lhs);
+            if (lhsTy && std::holds_alternative<VecType>(lhsTy->v) && arg.lhs.accesses.empty()) {
+              auto &vt = std::get<VecType>(lhsTy->v);
+              // CmpAtom and mask-form SelectAtom are always lane-unroll.
+              if (arg.rhs.rest.empty()) {
+                if (auto cmpA = std::get_if<CmpAtom>(&arg.rhs.first.v)) {
+                  emitVecCmpAssign(arg.lhs, *cmpA, vt);
+                  return;
+                }
+                if (auto sel = std::get_if<SelectAtom>(&arg.rhs.first.v)) {
+                  if (sel->maskExpr) {
+                    emitVecMaskSelectAssign(arg.lhs, *sel, vt);
+                    return;
+                  }
+                }
+              }
+              // [v0.2.1] LShr can't be expressed inline on a vec-ext
+              // type — the signed-to-unsigned reinterpret is illegal on
+              // GCC vector types. Float `%` likewise has no inline form
+              // (GCC vector types don't define `%` for floats, and the
+              // semantics require a per-lane fmod call with the §2.9
+              // intermediate-overflow UB check). Force lane-unroll for
+              // either op regardless of strategy.
+              bool forceLaneUnroll = false;
+              if (arg.rhs.rest.empty()) {
+                if (auto op = std::get_if<OpAtom>(&arg.rhs.first.v)) {
+                  if (op->op == AtomOpKind::LShr)
+                    forceLaneUnroll = true;
+                  else if (op->op == AtomOpKind::Mod && vt.elem &&
+                           std::holds_alternative<FloatType>(vt.elem->v))
+                    forceLaneUnroll = true;
+                }
+              }
+              if (vecLowering_->needsLaneUnroll() || forceLaneUnroll) {
+                emitVecAssign(arg.lhs, arg.rhs, vt);
+                return;
+              }
+              // vecext: fall through to the inline expression path.
+            }
+            // [v0.2.1] Scalar `cmp` assignment: emit `(l op r) ? 1 : 0`.
+            // CmpAtom can't lower as an inline expression (see emitAtom),
+            // so we special-case it at AssignInstr level for scalars too.
+            if (arg.rhs.rest.empty()) {
+              if (auto cmpA = std::get_if<CmpAtom>(&arg.rhs.first.v)) {
+                emitLValue(arg.lhs);
+                out_ << " = ((";
+                emitSelectVal(cmpA->lhs);
+                const char *op = "==";
+                switch (cmpA->op) {
+                  case RelOp::EQ:
+                    op = "==";
+                    break;
+                  case RelOp::NE:
+                    op = "!=";
+                    break;
+                  case RelOp::LT:
+                    op = "<";
+                    break;
+                  case RelOp::LE:
+                    op = "<=";
+                    break;
+                  case RelOp::GT:
+                    op = ">";
+                    break;
+                  case RelOp::GE:
+                    op = ">=";
+                    break;
+                }
+                out_ << ") " << op << " (";
+                emitSelectVal(cmpA->rhs);
+                out_ << ")) ? 1 : 0;\n";
+                return;
+              }
+            }
+            if (lhsTy && std::holds_alternative<ArrayType>(lhsTy->v)) {
+              out_ << "memcpy(&(";
+              emitLValue(arg.lhs);
+              out_ << "), &(";
+              emitExpr(arg.rhs);
+              out_ << "), sizeof(";
+              emitLValue(arg.lhs);
+              out_ << "));\n";
+            } else {
+              emitLValue(arg.lhs);
+              out_ << " = ";
+              emitExpr(arg.rhs);
+              out_ << ";\n";
+            }
+            // [v0.2.1] FP vector lanes: per-lane finite check (rule 21
+            // lifted to FP rules 6/7 — any lane producing ±∞ or NaN
+            // is UB). The native vec-ext division won't trap on its
+            // own and UBSan doesn't catch SIMD div-by-zero, so we
+            // emit an explicit check.
+            if (lhsTy && std::holds_alternative<VecType>(lhsTy->v) && arg.lhs.accesses.empty()) {
+              auto &vtFp = std::get<VecType>(lhsTy->v);
+              if (vtFp.elem && std::holds_alternative<FloatType>(vtFp.elem->v)) {
+                std::string base = mangleName(arg.lhs.base.name);
+                for (std::uint64_t k = 0; k < vtFp.size; ++k) {
+                  indent();
+                  std::string lane = vecLowering_->emitLaneRead(base, vtFp, std::to_string(k));
+                  out_ << "if (!__builtin_isfinite(" << lane << ")) __builtin_trap();\n";
+                }
+              }
+            }
+            // [v0.2.1] Scalar FP UB: any ±∞ or NaN result is UB
+            // (rules 6/7). UBSan catches some FP issues but not NaN
+            // from 0.0/0.0; emit an explicit `isfinite` check after
+            // FP assignments so the spec's semantics are enforced.
+            // Also fires for FP element writes (array element / struct
+            // field / vector lane) — the check uses the LHS in place.
+            bool lhsIsFp = lhsTy && std::holds_alternative<FloatType>(lhsTy->v);
+            if (lhsIsFp) {
+              indent();
+              out_ << "if (!__builtin_isfinite(";
+              emitLValue(arg.lhs);
+              out_ << ")) __builtin_trap();\n";
+            }
+          } else if constexpr (std::is_same_v<T, AssumeInstr>) {
+            out_ << "// assume ";
+            emitCond(arg.cond);
+            out_ << "\n";
+          } else if constexpr (std::is_same_v<T, RequireInstr>) {
+            if (!noRequire_) {
+              out_ << "assert(";
+              emitCond(arg.cond);
+              if (arg.message)
+                out_ << " && \"" << *arg.message << "\"";
+              out_ << ");\n";
+            }
+          } else if constexpr (std::is_same_v<T, StoreInstr>) {
+            TypePtr pointeeTy = nullptr;
+            if (auto ptrTy = getExprType(arg.ptr)) {
+              if (auto pt = std::get_if<PtrType>(&ptrTy->v))
+                pointeeTy = pt->pointee;
+            }
+            CtxGuard ctx(isDoubleCtx_, isOrContainsF64(pointeeTy));
+            out_ << "*";
+            emitExpr(arg.ptr);
+            out_ << " = ";
+            emitExpr(arg.val);
+            out_ << ";\n";
+          }
+        },
+        ins
+    );
+  }
+
+  // `ret` terminator emission. The caller indents; shared by the goto
+  // block loop and the structured emitter.
+  void CBackend::emitRetTerm(const RetTerm &ret) {
+    out_ << "return";
+    if (ret.value) {
+      CtxGuard ctx(isDoubleCtx_, isOrContainsF64(curFuncRetType_));
+      out_ << " ";
+      emitExpr(*ret.value);
+    }
+    out_ << ";\n";
   }
 
 } // namespace refractir

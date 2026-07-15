@@ -81,6 +81,12 @@ namespace refractir {
 
     // --- Emission helpers ---
     void indent();
+    // Statement-level emission of one instruction, indentation
+    // included. Shared by the goto block loop and the structured
+    // control-tree emitter (src/backend/c_structured.cpp).
+    void emitInstr(const Instr &ins);
+    // `ret` terminator emission (the caller indents).
+    void emitRetTerm(const RetTerm &ret);
     void emitType(const TypePtr &type);
     void emitExpr(const Expr &expr);
     void emitAtom(const Atom &atom);
