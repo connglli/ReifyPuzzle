@@ -100,6 +100,17 @@ namespace refractir {
             indent_level_--;
             indent();
             out_ << "}\n";
+          } else if constexpr (std::is_same_v<T, ControlTree::DoWhile>) {
+            indent();
+            out_ << "do {\n";
+            indent_level_++;
+            if (node.body)
+              emitCTreeNode(tree, *node.body, f);
+            indent_level_--;
+            indent();
+            out_ << "} while (";
+            emitBranchCond(f, node.latch, node.negate);
+            out_ << ");\n";
           } else if constexpr (std::is_same_v<T, ControlTree::Break>) {
             assert(node.levels == 1 && "multi-level break survived lowering");
             indent();

@@ -524,6 +524,16 @@ def _pfield(p, foff, flen, slen):
           } else if constexpr (std::is_same_v<T, ControlTree::CondLoop>) {
             line("while " + condText(f, node.header, node.negate) + ":");
             suite([&] { emitNode(tree, *node.body, f, cfg); });
+          } else if constexpr (std::is_same_v<T, ControlTree::DoWhile>) {
+            // Python has no do-while; re-expand to the exact
+            // pre-peephole form (`while True:` + tail `if c: break`).
+            line("while True:");
+            suite([&] {
+              if (node.body)
+                emitNode(tree, *node.body, f, cfg);
+              line("if " + condText(f, node.latch, !node.negate) + ":");
+              suite([&] { line("break"); });
+            });
           } else if constexpr (std::is_same_v<T, ControlTree::Break>) {
             assert(node.levels == 1 && "multi-level break survived lowering");
             line("break");

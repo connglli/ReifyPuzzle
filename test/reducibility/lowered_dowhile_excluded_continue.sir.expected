@@ -1,0 +1,25 @@
+lowered-tree @main:
+  block ^entry
+  loop 0 header=^oh
+    block ^oh
+    if ^oh
+      then:
+        block ^ihead
+        while 1 header=^ih
+          block ^ib
+          if ^ib
+            then:
+              setflag _cnt_oh
+              break ^oh levels=1
+        flagcontinue _cnt_oh
+      else:
+        block ^skip
+        if-not ^skip
+          then:
+            break ^done levels=1
+    block ^m
+    if-not ^m
+      then:
+        break ^done levels=1
+  block ^done
+  return ^done

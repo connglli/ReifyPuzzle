@@ -80,6 +80,9 @@ namespace refractir {
                 return alt.header;
               } else if constexpr (std::is_same_v<T, ControlTree::CondLoop>) {
                 return alt.header;
+              } else if constexpr (std::is_same_v<T, ControlTree::DoWhile>) {
+                // The loop's header is the first block of the body.
+                return alt.body ? firstBlock(*alt.body) : kNoBlock;
               } else {
                 return kNoBlock;
               }
@@ -105,6 +108,39 @@ namespace refractir {
           return false;
         auto br = std::get_if<ControlTree::Break>(&n->v);
         return br && br->levels == 1;
+      }
+
+      // Does this subtree contain a continue site binding to the
+      // innermost enclosing loop (a bare `continue` or FlagContinue
+      // not nested in an inner loop)? Such a site vetoes the do-while
+      // peephole: C's `continue` inside do-while evaluates the
+      // condition instead of unconditionally re-entering the body.
+      static bool hasLoopContinueSite(const NodePtr &n) {
+        if (!n)
+          return false;
+        return std::visit(
+            [](const auto &alt) -> bool {
+              using T = std::decay_t<decltype(alt)>;
+              if constexpr (std::is_same_v<T, ControlTree::Continue> ||
+                            std::is_same_v<T, ControlTree::FlagContinue>) {
+                return true;
+              } else if constexpr (std::is_same_v<T, ControlTree::Seq>) {
+                for (const auto &item: alt.items)
+                  if (hasLoopContinueSite(item))
+                    return true;
+                return false;
+              } else if constexpr (std::is_same_v<T, ControlTree::If>) {
+                return hasLoopContinueSite(alt.thenBr) || hasLoopContinueSite(alt.elseBr);
+              } else if constexpr (std::is_same_v<T, ControlTree::Guarded>) {
+                return hasLoopContinueSite(alt.body);
+              } else {
+                // Loop / CondLoop / DoWhile bodies rebind continue;
+                // the remaining leaves contain none.
+                return false;
+              }
+            },
+            n->v
+        );
       }
 
       // Lowers `n` in place. May null `n` out entirely (dropped
@@ -244,6 +280,7 @@ namespace refractir {
         auto esc = lowerNode(loop.body, /*tail=*/true);
 
         tryCondLoopPeephole(n);
+        tryDoWhilePeephole(n);
 
         // Unwind escapes crossing this loop: each owes one cascade
         // right after the loop construct.
@@ -316,6 +353,29 @@ namespace refractir {
             body = make(ControlTree::Seq{});
           n = make(ControlTree::CondLoop{loop.loopId, loop.header, !iff->negate, std::move(body)});
         }
+      }
+
+      // Loop{ body = Seq[..., If{L, then=Break lvl1, else=∅}] } whose
+      // remaining body has no continue site binding to this loop →
+      // DoWhile ("do { body } while (cond);"). The body always runs
+      // once, then repeats while the break arm is *not* taken.
+      void tryDoWhilePeephole(NodePtr &n) {
+        auto *loop = std::get_if<ControlTree::Loop>(&n->v);
+        if (!loop || !loop->body)
+          return;
+        auto *seq = std::get_if<ControlTree::Seq>(&loop->body->v);
+        if (!seq || seq->items.empty() || !seq->items.back())
+          return;
+        auto *iff = std::get_if<ControlTree::If>(&seq->items.back()->v);
+        if (!iff || iff->elseBr || !isSingleLevelBreak(iff->thenBr))
+          return;
+        for (std::size_t i = 0; i + 1 < seq->items.size(); ++i)
+          if (hasLoopContinueSite(seq->items[i]))
+            return;
+        const std::size_t latch = iff->block;
+        const bool negate = !iff->negate;
+        seq->items.pop_back();
+        n = make(ControlTree::DoWhile{loop->loopId, latch, negate, std::move(loop->body)});
       }
 
       ControlTree &tree_;

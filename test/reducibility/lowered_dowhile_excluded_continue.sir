@@ -1,0 +1,41 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-lowered-tree
+
+// The outer loop ends in a latch-style `if ...: break`, but its body
+// still contains a flagcontinue (from the two-level continue out of
+// the inner loop). C's `continue` inside do-while evaluates the
+// condition instead of unconditionally re-entering the body, so the
+// do-while peephole must leave this loop in `loop` form.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^oh;
+
+^oh:
+    %acc = %acc + 1;
+    br %acc < 5, ^ihead, ^skip;
+
+^ihead:
+    %j = 0;
+    br ^ih;
+
+^ih:
+    br %j < 3, ^ib, ^m;
+
+^ib:
+    %j = %j + 1;
+    br %j == 2, ^oh, ^ih;
+
+^skip:
+    %acc = %acc + 2;
+    br %acc < 50, ^m, ^done;
+
+^m:
+    %i = %i + 1;
+    br %i < 4, ^oh, ^done;
+
+^done:
+    ret %acc;
+}

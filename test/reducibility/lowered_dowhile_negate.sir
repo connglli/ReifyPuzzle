@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-lowered-tree
+
+// Latch branch with the exit on the then-arm: the loop repeats while
+// the condition is false, so the do-while condition is negated.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^body;
+
+^body:
+    %i = %i + 1;
+    %acc = %acc + %i;
+    br %i == 10, ^done, ^body;
+
+^done:
+    ret %acc;
+}

@@ -200,6 +200,11 @@ namespace refractir {
               os << pad << (n.negate ? "while-not " : "while ") << n.loopId
                  << " header=" << cfg.blocks[n.header] << "\n";
               dumpNode(os, *n.body, tree, cfg, indent + 1);
+            } else if constexpr (std::is_same_v<T, ControlTree::DoWhile>) {
+              os << pad << (n.negate ? "dowhile-not " : "dowhile ") << n.loopId
+                 << " latch=" << cfg.blocks[n.latch] << "\n";
+              if (n.body)
+                dumpNode(os, *n.body, tree, cfg, indent + 1);
             } else if constexpr (std::is_same_v<T, ControlTree::Break>) {
               os << pad << "break " << cfg.blocks[n.target] << " levels=" << n.levels << "\n";
             } else if constexpr (std::is_same_v<T, ControlTree::Continue>) {

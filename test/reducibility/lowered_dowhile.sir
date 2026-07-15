@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-lowered-tree
+
+// A single-block loop whose branch sits at the latch: the body always
+// runs once before the condition is evaluated, so it lowers to a
+// do-while rather than a `while True` with a tail `if ...: break`.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^body;
+
+^body:
+    %acc = %acc + %i;
+    %i = %i + 1;
+    br %i < 10, ^body, ^done;
+
+^done:
+    ret %acc;
+}

@@ -1,0 +1,6 @@
+lowered-tree @main:
+  block ^entry
+  dowhile-not 0 latch=^body
+    block ^body
+  block ^done
+  return ^done

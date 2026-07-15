@@ -118,6 +118,22 @@ namespace refractir {
       NodePtr body;
     };
 
+    // A do-while loop (peepholed `while True` whose body *ends* with a
+    // single-level `if cond: break` and contains no other continue
+    // site binding to this loop — C's `continue` inside do-while
+    // evaluates the condition instead of re-entering the body). The
+    // body always runs once, then repeats while the condition holds.
+    // `latch` is the block whose BrTerm supplies the condition;
+    // `negate` applies to the *repeat* condition (`while (!(c))`).
+    // Targets without do-while (python) re-expand it to the exact
+    // pre-peephole form.
+    struct DoWhile {
+      int loopId;
+      std::size_t latch;
+      bool negate;
+      NodePtr body;
+    };
+
     // `<flag> = True`.
     struct SetFlag {
       int flag;
@@ -150,7 +166,7 @@ namespace refractir {
     struct Node {
       std::variant<
           Seq, BlockStmts, If, Loop, Break, Continue, FallThrough, JumpJoin, Return, Trap, CondLoop,
-          SetFlag, FlagBreak, FlagContinue, Guarded, ResetFlag>
+          DoWhile, SetFlag, FlagBreak, FlagContinue, Guarded, ResetFlag>
           v;
     };
 

@@ -24,6 +24,11 @@ namespace refractir {
    *   - `while True` loops whose header has no instructions and whose
    *     header If has a single-level-break arm become CondLoop
    *     ("while cond:").
+   *   - `while True` loops whose body *ends* with a single-level
+   *     `if cond: break` and contains no other continue site binding
+   *     to the loop become DoWhile ("do { body } while (cond);").
+   *     Targets without do-while (python) re-expand the node to the
+   *     exact pre-peephole form, so their output is unchanged.
    *
    * The result contains no FallThrough / JumpJoin nodes, every Break
    * has levels == 1, and every Continue has levels == 0 — i.e. only

@@ -131,6 +131,52 @@ MULTILEVEL_BREAK = """fun @main() : i32 {
 """
 
 
+# Latch-branch loop: the body always runs once -> do-while form.
+# Sums 0..9 -> 45.
+DO_WHILE = """fun @main() : i32 {
+  let mut %i: i32 = 0;
+  let mut %acc: i32 = 0;
+^body:
+  %acc = %acc + %i;
+  %i = %i + 1;
+  br %i < 10, ^body, ^done;
+^done:
+  ret %acc;
+}
+"""
+
+# do-while-shaped outer loop whose body contains a flagcontinue (from a
+# two-level continue): C `continue` inside do-while evaluates the
+# condition, so the peephole must NOT fire. Interpreter result: 16.
+DO_WHILE_EXCLUDED = """fun @main() : i32 {
+  let mut %i: i32 = 0;
+  let mut %j: i32 = 0;
+  let mut %acc: i32 = 0;
+^entry:
+  br ^oh;
+^oh:
+  %acc = %acc + 1;
+  br %acc < 5, ^ihead, ^skip;
+^ihead:
+  %j = 0;
+  br ^ih;
+^ih:
+  br %j < 3, ^ib, ^m;
+^ib:
+  %j = %j + 1;
+  br %j == 2, ^oh, ^ih;
+^skip:
+  %acc = %acc + 2;
+  br %acc < 50, ^m, ^done;
+^m:
+  %i = %i + 1;
+  br %i < 4, ^oh, ^done;
+^done:
+  ret %acc;
+}
+"""
+
+
 def test_structured_shape(symirc):
   """(A) --structured-lowering emits while/if, no goto, no labels."""
   path = write_sir(LOOP_SUM)
@@ -227,6 +273,52 @@ def test_multilevel_break_flags(symirc):
     os.unlink(path)
 
 
+def test_do_while(symirc):
+  """(F) latch-branch loop emits `do { ... } while (...)` and computes 45."""
+  path = write_sir(DO_WHILE)
+  try:
+    with tempfile.TemporaryDirectory() as d:
+      r = run([symirc, path, "--structured-lowering", "--emit-main"])
+      if r.returncode != 0:
+        check("structured C: do-while emission", False, f"symirc rc={r.returncode}")
+        return
+      has_do = "do {" in r.stdout and "} while (" in r.stdout
+      rc, err = gcc_run(r.stdout, d)
+      ok = has_do and rc == 45
+      check(
+        "structured C: do-while emission", ok, err or f"do-while={has_do}, exit={rc}"
+      )
+  finally:
+    os.unlink(path)
+
+
+def test_do_while_excluded_on_continue(symirc):
+  """(G) a continue site in the body vetoes do-while; result matches goto (16)."""
+  path = write_sir(DO_WHILE_EXCLUDED)
+  try:
+    with tempfile.TemporaryDirectory() as d:
+      rs = run([symirc, path, "--structured-lowering", "--emit-main"])
+      rg = run([symirc, path, "--emit-main"])
+      if rs.returncode != 0 or rg.returncode != 0:
+        check(
+          "structured C: continue site vetoes do-while",
+          False,
+          f"symirc rc structured={rs.returncode} goto={rg.returncode}",
+        )
+        return
+      no_do = "do {" not in rs.stdout
+      rc_s, err_s = gcc_run(rs.stdout, d)
+      rc_g, err_g = gcc_run(rg.stdout, d)
+      ok = no_do and rc_s == 16 and rc_g == 16
+      check(
+        "structured C: continue site vetoes do-while",
+        ok,
+        err_s or err_g or f"no-do={no_do}, structured={rc_s}, goto={rc_g}",
+      )
+  finally:
+    os.unlink(path)
+
+
 def main():
   if len(sys.argv) != 2:
     print("usage: python3 -m test.unit.run_structured_c_tests <symirc>")
@@ -239,6 +331,8 @@ def main():
   test_target_gating(symirc)
   test_compiles_and_runs(symirc)
   test_multilevel_break_flags(symirc)
+  test_do_while(symirc)
+  test_do_while_excluded_on_continue(symirc)
 
   failed = [name for name, ok, _ in results if not ok]
   print(
