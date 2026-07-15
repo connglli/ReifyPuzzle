@@ -233,19 +233,15 @@ test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH
 # halts the run with the right exit code and the per-group banners stay
 # legible in CI logs.
 
-# Frontend: lexer, parser, CFG builder, type checker, sem checker.
-test-frontend: $(TARGET_INTERP)
+# Frontend: lexer, parser, CFG builder, type checker, sem checker, and
+# reducibility analyses (dominator trees, loop forests, control trees).
+test-frontend: $(TARGET_INTERP) $(TARGET_COMPILER)
 	$(PY) -m test.lib.run_interp_tests test/lexer ./$(TARGET_INTERP) --check
 	$(PY) -m test.lib.run_interp_tests test/parser ./$(TARGET_INTERP) --check
 	$(PY) -m test.lib.run_interp_tests test/cfgbuilder ./$(TARGET_INTERP) --check
 	$(PY) -m test.lib.run_interp_tests test/typechecker ./$(TARGET_INTERP) --check
 	$(PY) -m test.lib.run_interp_tests test/semchecker ./$(TARGET_INTERP) --check
-
-# Analysis: dominator tree / reducibility / loop / control-tree dumps.
-# Fixtures pass `// COMPILER_ARGS:` (e.g. --dump-domtree) through to
-# symirc; a sibling `.sir.expected` file pins the dump output.
-test-analysis: $(TARGET_COMPILER)
-	$(PY) -m test.lib.run_analysis_tests test/analysis ./$(TARGET_COMPILER)
+	$(PY) -m test.lib.run_reducibility_tests test/reducibility ./$(TARGET_COMPILER)
 
 # Interpreter: end-to-end .sir execution.
 test-interp: $(TARGET_INTERP)
@@ -295,7 +291,6 @@ test-reify: $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_INTERP) $(TARGET_COMPILE
 test: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK)
 	$(MAKE) test-unit
 	$(MAKE) test-frontend
-	$(MAKE) test-analysis
 	$(MAKE) test-interp
 	$(MAKE) test-backends
 	$(MAKE) cross-validation

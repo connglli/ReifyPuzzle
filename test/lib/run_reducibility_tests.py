@@ -12,12 +12,12 @@ FAIL_EXIT_CODES = {
 }
 
 
-def run_analysis_test(binary_cmd_parts):
+def run_reducibility_test(binary_cmd_parts):
   def test_func(file_path, expectation, args, skips):
     if "ALL" in skips:
       return TestResult.SKIP, "Skipped by ALL tag (library file)"
-    if "ANALYSIS" in skips:
-      return TestResult.SKIP, "Skipped by ANALYSIS tag"
+    if "REDUCIBILITY" in skips:
+      return TestResult.SKIP, "Skipped by REDUCIBILITY tag"
 
     cmd = binary_cmd_parts + [file_path] + args["COMPILER_ARGS"]
     result, err = run_command(cmd, timeout=5)
@@ -68,11 +68,13 @@ def run_analysis_test(binary_cmd_parts):
 if __name__ == "__main__":
   if len(sys.argv) < 3:
     print(
-      "Usage: python3 -m test.lib.run_analysis_tests <test_dir> <symirc_path> [args...]"
+      "Usage: python3 -m test.lib.run_reducibility_tests <test_dir> <symirc_path> [args...]"
     )
     sys.exit(1)
 
   test_dir = sys.argv[1]
   binary_cmd_parts = sys.argv[2:]
 
-  run_test_suite("analysis_tests", test_dir, run_analysis_test(binary_cmd_parts))
+  run_test_suite(
+    "reducibility_tests", test_dir, run_reducibility_test(binary_cmd_parts)
+  )

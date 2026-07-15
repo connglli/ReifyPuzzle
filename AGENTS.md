@@ -187,15 +187,14 @@ Ensures program well-formedness beyond typing:
 - CFG consistency checks
 
 ### 6. Symbolic Execution / Constraint Generation
-(Not fully implemented yet)
 
-- Executes along a **user-selected path**
+- Executes along a **user-selected path** (in `symirsolve` / SMT solver backend)
 - Collects:
   - Path conditions from branches
   - Assumptions (`assume`)
   - Required properties (`require`)
 - Applies **strict UB pruning**
-- Produces BV constraints suitable for SMT solvers
+- Produces BV and FP constraints suitable for SMT solvers (Bitwuzla/Z3)
 
 ### 7. Language Lower / Translator
 - Translate a symbolic or concrete program into an existing language
@@ -228,6 +227,19 @@ ALWAYS follow a strict Test-Driven Development discipline.
 2. Modify tests to avoid triggering bugs
 3. Add workarounds that bypass the real issue
 4. Implement features without a test demonstrating them first
+
+### How to Run Tests
+
+The test suite is managed via the `Makefile` targets:
+
+- `make test`: Runs the entire test suite sequentially.
+- `make test-unit`: Runs unit tests for command-line arguments and reification pipelines.
+- `make test-frontend`: Runs frontend validation tests (lexer, parser, type checker, semantic checker) using `symiri --check`, and CFG reducibility tests (dominator trees, loops, control trees) against `.sir.expected` files.
+- `make test-interp`: Runs reference interpreter execution tests without checking mode.
+- `make test-backends`: Runs compiler backend compilation and execution tests for C, WASM, and Python targets.
+- `make cross-validation`: Cross-validates interpreter execution outputs and UB behavior against compiled target binaries.
+- `make test-solver`: Runs symbolic execution and SMT constraint solver tests.
+- `make test-reify`: Runs differential random generation testing for rysmith and rylink.
 
 ## Dependency Management
 
