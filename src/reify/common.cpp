@@ -17,8 +17,10 @@
 #include <sstream>
 
 #include "analysis/definite_init.hpp"
+#include "analysis/dominators.hpp"
 #include "analysis/pass_manager.hpp"
 #include "analysis/reachability.hpp"
+#include "analysis/reducibility.hpp"
 #include "analysis/unused_name.hpp"
 #include "ast/sir_printer.hpp"
 #include "backend/c_backend.hpp"
@@ -114,12 +116,33 @@ namespace refractir::reify {
     }
   }
 
+  // [v0.2.3] Structured emission (C --structured-lowering, python) is
+  // only total on reducible CFGs. Callers filter or repair upstream;
+  // verify here so a violation is a clean failure instead of
+  // malformed backend output.
+  static bool allFunsReducible(const Program &prog, bool verbose) {
+    for (const auto &f: prog.funs) {
+      DiagBag diags;
+      CFG cfg = CFG::build(f, diags);
+      DomTree dt = DomTree::build(cfg);
+      if (!ReducibilityResult::check(cfg, dt).reducible()) {
+        if (verbose)
+          std::cerr << "reify: structured lowering requires reducible control flow: " << f.name.name
+                    << "\n";
+        return false;
+      }
+    }
+    return true;
+  }
+
   bool emitCInProcess(
       Program &prog, const fs::path &outDir, const std::string &primaryStem, bool keepRequire,
       const std::string &vecLowering, bool structuredLowering, bool emitMain, bool splitBySource,
       bool verbose
   ) {
     if (!runAnalysisPasses(prog, verbose))
+      return false;
+    if (structuredLowering && !allFunsReducible(prog, verbose))
       return false;
     auto vl = makeCVecLowering(vecLowering.empty() ? "vecext" : vecLowering);
     if (splitBySource) {
@@ -188,6 +211,8 @@ namespace refractir::reify {
       Program &prog, const fs::path &outFile, bool keepRequire, bool emitMain, bool verbose
   ) {
     if (!runAnalysisPasses(prog, verbose))
+      return false;
+    if (!allFunsReducible(prog, verbose))
       return false;
     std::ofstream ofs(outFile);
     if (!ofs) {

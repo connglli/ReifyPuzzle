@@ -244,12 +244,17 @@ struct PerProgConfig {
   std::string genId;
   int progIdx = 0;
   fs::path outRoot;
-  std::string target;      // "sir" | "c" | "wasm"
+  std::string target;      // "sir" | "c" | "wasm" | "python"
   std::string vecLowering; // "vecext" | "scalars" | "array" |
                            // "structscalars" | "structarray" | "random"
                            // (per-program resolution against `random`
                            // happens inside generateOne so each prog
                            // sweeps independently — matching rysmith).
+  // [v0.2.3] "true" | "false" | "random" — structured (goto-free) C
+  // lowering, resolved per program like vecLowering. true/random (and
+  // the python target) require reducible seeds: the pool is filtered
+  // on the descriptors' `reducible` flag before generation.
+  std::string structuredLowering = "false";
   bool keepRequire = false;
   bool validate = false;
   bool verbose = false;
@@ -440,9 +445,14 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     std::string vecLow = reify::pickVecLowering(rng, cfg.vecLowering);
     if (cfg.verbose && !vecLow.empty())
       std::cout << "  vec-lowering: " << vecLow << "\n";
+    // Per-program structured coin, drawn after the vec-lowering pick
+    // (and only for "random") — matching rysmith's stream discipline.
+    bool structured = reify::pickStructuredLowering(rng, cfg.structuredLowering);
+    if (cfg.verbose && structured)
+      std::cout << "  structured-lowering: true\n";
     if (!emitCInProcess(
-            bundle, emitDir, emitStem, cfg.keepRequire, vecLow, /*structuredLowering=*/false,
-            cfg.emitMain, cfg.splitBySource, cfg.verbose
+            bundle, emitDir, emitStem, cfg.keepRequire, vecLow, structured, cfg.emitMain,
+            cfg.splitBySource, cfg.verbose
         )) {
       if (cfg.verbose)
         std::cerr << "  backend FAIL (" << failTag << ")\n";
@@ -457,6 +467,14 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
       return false;
     }
     std::cout << "  compiled: " << wasmOut << "\n";
+  } else if (cfg.target == "python") {
+    fs::path pyOut = emitDir / (emitStem + ".py");
+    if (!emitPyInProcess(bundle, pyOut, cfg.keepRequire, cfg.emitMain, cfg.verbose)) {
+      if (cfg.verbose)
+        std::cerr << "  backend FAIL (" << failTag << ")\n";
+      return false;
+    }
+    std::cout << "  compiled: " << pyOut << "\n";
   }
 
   // Validate: run symiri with the entry's param realization values and
@@ -499,11 +517,14 @@ int main(int argc, char **argv) {
         cxxopts::value<std::string>()->default_value("rysmith_out"))
     ("o,output-dir", "Root output directory; each program lands in <root>/prog_<id>_<i>/",
         cxxopts::value<std::string>()->default_value("rylink_out"))
-    ("target", "sir | c | wasm",
+    ("target", "sir | c | wasm | python",
         cxxopts::value<std::string>()->default_value("sir"))
     ("vec-lowering", "Vec-lowering strategy for C backend "
                      "(random|vecext|scalars|array|structscalars|structarray)",
         cxxopts::value<std::string>()->default_value("random"))
+    ("structured-lowering", "Structured (goto-free) lowering for the C target: true|false|random; "
+                            "true/random discard pool seeds whose descriptor is not reducible",
+        cxxopts::value<std::string>()->default_value("false"))
     ("keep-require", "Keep `require` checks in C/WASM output",
         cxxopts::value<bool>()->default_value("false"))
     ("emit-main", "Generate a main wrapper in the output program",
@@ -571,8 +592,18 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (pc.target != "sir" && pc.target != "c" && pc.target != "wasm") {
-    std::cerr << "rylink: --target must be sir | c | wasm\n";
+  if (pc.target != "sir" && pc.target != "c" && pc.target != "wasm" && pc.target != "python") {
+    std::cerr << "rylink: --target must be sir | c | wasm | python\n";
+    return 2;
+  }
+  pc.structuredLowering = res["structured-lowering"].as<std::string>();
+  if (pc.structuredLowering != "true" && pc.structuredLowering != "false" &&
+      pc.structuredLowering != "random") {
+    std::cerr << "rylink: --structured-lowering must be true | false | random\n";
+    return 2;
+  }
+  if (pc.structuredLowering != "false" && pc.target == "wasm") {
+    std::cerr << "rylink: --structured-lowering is not supported for the wasm target yet\n";
     return 2;
   }
   // Validate `--vec-lowering` up-front so a typo bites before any
@@ -602,6 +633,24 @@ int main(int argc, char **argv) {
   std::cout << "rylink: master seed = " << seed << "\n";
   std::cout << "rylink: generation id = " << genId << "\n";
   FuncPool pool = loadFuncPool(res["input-dir"].as<std::string>());
+  // [v0.2.3] Structuring consumers only handle reducible CFGs, and
+  // seed programs (older pools, runs without --require-reducible) may
+  // not be: discard every seed whose descriptor is not known
+  // reducible. Descriptors predating the `reducible` field parse as
+  // false and are conservatively discarded too.
+  if (pc.structuredLowering != "false" || pc.target == "python") {
+    std::size_t before = pool.entries.size();
+    std::erase_if(pool.entries, [](const PoolEntry &e) { return !e.desc.reducible; });
+    if (std::size_t discarded = before - pool.entries.size()) {
+      std::cout << "rylink: discarded " << discarded
+                << " non-reducible seed(s) for structured lowering\n";
+    }
+    if (pool.entries.empty() && before > 0) {
+      std::cerr << "rylink: no reducible seeds left in pool — aborting "
+                   "(regenerate with rysmith --require-reducible)\n";
+      return 1;
+    }
+  }
   if (pool.entries.empty()) {
     std::cerr << "rylink: empty pool — aborting\n";
     return 1;

@@ -20,6 +20,7 @@ Run as:
 Each test prints PASS or FAIL; exit code reflects the worst result.
 """
 
+import json
 import os
 import re
 import subprocess
@@ -54,7 +55,7 @@ def extract_id(stdout):
   return m.group(1) if m else None
 
 
-def seed_pool(rysmith, pool_dir, n_funcs=8, n_params=1, seed=23):
+def seed_pool(rysmith, pool_dir, n_funcs=8, n_params=1, seed=23, extra_args=None):
   """Drive rysmith and return the generated 6-hex ID for the run."""
   r = run(
     [
@@ -69,6 +70,7 @@ def seed_pool(rysmith, pool_dir, n_funcs=8, n_params=1, seed=23):
       "-o",
       pool_dir,
     ]
+    + (extra_args or [])
   )
   # rysmith exits non-zero on any per-fn failure but still emits the
   # successes. The pool needs only a few descriptors to drive rylink,
@@ -596,6 +598,196 @@ def test_r9_p_noinline_noclone_callees(rylink, rysmith):
       )
 
 
+def _walk_files(root, ext):
+  out = []
+  for dirpath, _, files in os.walk(root):
+    out.extend(os.path.join(dirpath, f) for f in files if f.endswith(ext))
+  return out
+
+
+def test_structured_lowering_c(rylink, rysmith):
+  """--structured-lowering true over a reducible pool: goto-free C."""
+  with tempfile.TemporaryDirectory() as pool:
+    seed_pool(rysmith, pool, extra_args=["--require-reducible"])
+    with tempfile.TemporaryDirectory() as out:
+      r = run(
+        [
+          rylink,
+          "--input-dir",
+          pool,
+          "--n-progs",
+          "2",
+          "--seed",
+          "7",
+          "--target",
+          "c",
+          "--structured-lowering",
+          "true",
+          "-o",
+          out,
+        ]
+      )
+      if r.returncode != 0:
+        check("rylink --structured-lowering true accepted", False, r.stderr[:300])
+        return
+      cs = _walk_files(out, ".c")
+      with_goto = [p for p in cs if "goto" in open(p).read()]
+      check(
+        f"all {len(cs)} rylink structured .c files are goto-free",
+        bool(cs) and not with_goto,
+        f"goto in: {with_goto}" if cs else "no .c emitted",
+      )
+
+
+def test_structured_lowering_discards_irreducible_seeds(rylink, rysmith):
+  """Non-reducible seeds are discarded when structured lowering is on."""
+  with tempfile.TemporaryDirectory() as pool:
+    # High back-edge probability without --require-reducible: a mixed
+    # pool of reducible and irreducible seeds.
+    seed_pool(rysmith, pool, seed=77, extra_args=["--p-backedge", "0.9"])
+    with tempfile.TemporaryDirectory() as out:
+      r = run(
+        [
+          rylink,
+          "--input-dir",
+          pool,
+          "--n-progs",
+          "2",
+          "--seed",
+          "7",
+          "--target",
+          "c",
+          "--structured-lowering",
+          "true",
+          "-o",
+          out,
+        ]
+      )
+      m = re.search(r"discarded (\d+) non-reducible seed", r.stdout)
+      check(
+        "rylink reports discarded non-reducible seeds",
+        m is not None and int(m.group(1)) > 0,
+        f"stdout={r.stdout[:300]!r}",
+      )
+      if r.returncode != 0:
+        check("rylink run on filtered pool succeeds", False, r.stderr[:300])
+        return
+      cs = _walk_files(out, ".c")
+      with_goto = [p for p in cs if "goto" in open(p).read()]
+      check(
+        "filtered-pool programs compile structured and goto-free",
+        bool(cs) and not with_goto,
+        f"goto in: {with_goto}" if cs else "no .c emitted",
+      )
+
+
+def test_structured_lowering_all_seeds_discarded(rylink):
+  """A pool with only non-reducible seeds aborts with a clear error."""
+  with tempfile.TemporaryDirectory() as pool:
+    # Hand-craft a minimal pool entry whose descriptor says
+    # reducible=false (schema mirrors func_desc.cpp's writer).
+    sir = os.path.join(pool, "func_aaaaaa_0a.sir")
+    open(sir, "w").write("fun @func_aaaaaa_0() : i32 {\n^entry:\n  ret 1;\n}\n")
+    desc = {
+      "id": "aaaaaa",
+      "name": "@func_aaaaaa_0",
+      "ret_type": "i32",
+      "reducible": False,
+      "params": [],
+      "path": ["^entry"],
+      "structs": [],
+      "realizations": [
+        {"file": "func_aaaaaa_0a.sir", "params": {}, "syms": {}, "ret": "1"}
+      ],
+    }
+    json.dump(desc, open(os.path.join(pool, "func_aaaaaa_0.json"), "w"))
+    with tempfile.TemporaryDirectory() as out:
+      r = run(
+        [
+          rylink,
+          "--input-dir",
+          pool,
+          "--target",
+          "c",
+          "--structured-lowering",
+          "true",
+          "-o",
+          out,
+        ]
+      )
+      check(
+        "all-non-reducible pool aborts",
+        r.returncode != 0 and "reducible" in (r.stdout + r.stderr),
+        f"rc={r.returncode}, out={(r.stdout + r.stderr)[:200]!r}",
+      )
+
+
+def test_structured_lowering_gating(rylink):
+  """Unknown values and the wasm target are rejected up-front."""
+  with tempfile.TemporaryDirectory() as pool:
+    r = run(
+      [rylink, "--input-dir", pool, "--structured-lowering", "maybe", "--target", "c"]
+    )
+    check(
+      "rylink --structured-lowering maybe rejected",
+      r.returncode != 0,
+      f"rc={r.returncode}",
+    )
+    r = run(
+      [
+        rylink,
+        "--input-dir",
+        pool,
+        "--structured-lowering",
+        "true",
+        "--target",
+        "wasm",
+      ]
+    )
+    check(
+      "rylink --structured-lowering + wasm rejected",
+      r.returncode != 0 and "structured-lowering" in (r.stderr or ""),
+      f"rc={r.returncode}, stderr={r.stderr[:150]!r}",
+    )
+
+
+def test_target_python(rylink, rysmith):
+  """--target python emits one syntactically valid .py per program."""
+  with tempfile.TemporaryDirectory() as pool:
+    seed_pool(rysmith, pool, extra_args=["--require-reducible"])
+    with tempfile.TemporaryDirectory() as out:
+      r = run(
+        [
+          rylink,
+          "--input-dir",
+          pool,
+          "--n-progs",
+          "2",
+          "--seed",
+          "7",
+          "--target",
+          "python",
+          "-o",
+          out,
+        ]
+      )
+      if r.returncode != 0:
+        check("rylink --target python accepted", False, r.stderr[:300])
+        return
+      pys = _walk_files(out, ".py")
+      bad = []
+      for p in pys:
+        try:
+          compile(open(p).read(), p, "exec")
+        except SyntaxError as e:
+          bad.append(f"{p}: {e}")
+      check(
+        f"all {len(pys)} rylink python outputs compile",
+        bool(pys) and not bad,
+        "; ".join(bad) if pys else "no .py emitted",
+      )
+
+
 def main():
   if len(sys.argv) != 4:
     print("Usage: python3 -m test.unit.run_rylink_tests <rylink> <rysmith> <symiri>")
@@ -619,6 +811,16 @@ def main():
   test_rylink_main(rylink, rysmith, symiri)
   print("=== R9: --p-noinline-callees / --p-noclone-callees ===")
   test_r9_p_noinline_noclone_callees(rylink, rysmith)
+  print("=== rylink --structured-lowering: goto-free C ===")
+  test_structured_lowering_c(rylink, rysmith)
+  print("=== rylink --structured-lowering: seed filtering ===")
+  test_structured_lowering_discards_irreducible_seeds(rylink, rysmith)
+  print("=== rylink --structured-lowering: all seeds discarded ===")
+  test_structured_lowering_all_seeds_discarded(rylink)
+  print("=== rylink --structured-lowering: gating ===")
+  test_structured_lowering_gating(rylink)
+  print("=== rylink --target python ===")
+  test_target_python(rylink, rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

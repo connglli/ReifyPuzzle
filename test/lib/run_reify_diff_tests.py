@@ -563,6 +563,13 @@ def run(
     batch_seed = seed + batch_idx
     _clear_batch_files(out_dir)
 
+    # Per-batch coins, seeded from `batch_seed` so runs are
+    # reproducible. rysmith and rylink flip independent structured
+    # coins: a goto rysmith batch feeding a structured rylink batch
+    # exercises the descriptor-driven seed filtering.
+    batch_rng = random.Random(batch_seed)
+    rys_structured = batch_rng.choice([True, False])
+
     # ── (1) rysmith generation ───────────────────────────────────────
     rys_cmd = [
       rysmith,
@@ -578,6 +585,8 @@ def run(
       # descriptor JSON sidecar). Cheap when rylink is off, so always on.
       "--emit-desc",
     ]
+    if rys_structured:
+      rys_cmd += ["--structured-lowering", "random"]
     if verbose:
       print(bold(f"batch #{batch_idx + 1} rysmith generation ({done}/{n} programs):"))
       print(f"  running: {' '.join(rys_cmd)}")
@@ -654,9 +663,9 @@ def run(
     # ── (3) rylink generation ────────────────────────────────────────
     ry_progs = []
     # Randomly decide whether to flatten the rylink output for this
-    # batch. Seeded from `batch_seed` so runs are reproducible.
-    batch_rng = random.Random(batch_seed)
+    # batch (`batch_rng` was seeded from `batch_seed` at batch start).
     ry_flat = batch_rng.choice([True, False])
+    ryl_structured = batch_rng.choice([True, False])
     if not stopped_early:
       ry_dir = os.path.join(out_dir, "rylink")
       # Mirror the rysmith batch size: one rylink program per rysmith
@@ -678,6 +687,8 @@ def run(
       ]
       if ry_flat:
         ryl_cmd.append("--no-split-by-source")
+      if ryl_structured:
+        ryl_cmd += ["--structured-lowering", "random"]
       if verbose:
         print(bold(f"batch #{batch_idx + 1} rylink generation ({done}/{n} programs):"))
         print(f"  running: {' '.join(ryl_cmd)}")
