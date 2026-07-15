@@ -32,7 +32,9 @@ S6. Validation       — compile and execute; compare output to expected
 
 ### S1: CFG Generation
 
-A random CFG is generated with a configurable number of interior blocks. The structure begins as a spanning chain (entry → b0 → … → b_{n−1} → exit), then stochastically adds branch edges (second successors pointing forward) and back edges (producing reducible loops). The result is always connected with a guaranteed path to exit.
+A random CFG is generated with a configurable number of interior blocks. The structure begins as a spanning chain (entry → b0 → … → b_{n−1} → exit), then stochastically adds branch edges (second successors pointing forward) and back edges (producing loops). The result is always connected with a guaranteed path to exit.
+
+Back edges may land past a loop header and make the CFG **irreducible**. When reducible CFGs are required, the CFG is repaired: retreating edges whose target does not dominate their source are deleted, one per re-analysis pass, so every valid loop survives and only irreducible cycles are broken.
 
 
 ### S2: Path Sampling
@@ -250,12 +252,14 @@ rysmith [OPTIONS]
 | `--min-loop-iter N` | unset | If set, force at least one loop in the path to iterate ≥ N times (rejects loop-free CFGs) |
 | `--max-retries N` | 2 | Retry attempts on solver failure (simpler path each time) |
 | `-o, --output-dir PATH` | `reify_out` | Output directory for `.sir` files |
-| `--target sir\|c\|wasm` | `sir` | Optionally compile each concrete `.sir` via `symirc` |
+| `--target sir\|c\|wasm\|python` | `sir` | Optionally compile each concrete `.sir` in-process (`python` implies `--require-reducible`) |
+| `--require-reducible` | off | Only generate reducible CFGs (irreducible back edges are repaired away) |
+| `--structured-lowering true\|false\|random` | `false` | Structured (goto-free) C lowering, resolved per program; `true`/`random` imply `--require-reducible` and reject `--target wasm` |
 | `--keep-require` | off | Include `require` checks in compiled output |
 | `--keep-symbolic` | off | Write intermediate symbolic `.sir` to disk |
 | `--validate` | off | Run `symiri` on each concrete `.sir` and check its `Result:` line matches the descriptor's captured CRC32 retValue |
 | `--emit-main` | off | Append a `@main()` wrapper that calls the entry with its solver-synthesised params and asserts the CRC32 retValue via `@check_chksum` |
-| `--emit-desc` | off | Emit per-function descriptor JSON (`func_<id>_<i>.json`) used by `rylink` |
+| `--emit-desc` | off | Emit per-function descriptor JSON (`func_<id>_<i>.json`) used by `rylink`; records a `reducible` bool computed from the emitted function so structuring consumers can filter seeds |
 | `--emit-state pbb\|ppp` | off | Emit a `func_<id>_<i>.state.json` profile of the concrete state at each program point (`pbb` = per basic-block entry, `ppp` = per program point) — consumed by `rytwin` |
 | `-v, --verbose` | off | Verbose progress output |
 
@@ -311,6 +315,8 @@ By default every generated program is UB-free on its input: the solver asserts e
 
 `rylink` reads a rysmith function pool, builds whole programs over it, and (optionally) compiles and validates each one following W1-W5.
 
+When `--structured-lowering` is `true`/`random` — or the target is `python` — seed programs may not be reducible (older pools, or runs without `rysmith --require-reducible`), so rylink **discards every pool seed whose descriptor's `reducible` flag is false** before generation (descriptors predating the flag parse as false and are conservatively discarded too). If no reducible seeds remain, rylink aborts with a pointer to `rysmith --require-reducible`. The composed program is then reducible by construction: every inlined seed is, and the generated `@main` wrapper's CFG is trivial.
+
 ### Usage
 
 ```
@@ -328,7 +334,8 @@ rylink [OPTIONS]
 | `--seed N` | random | RNG seed |
 | `--n-nodes N` | 4 | Target number of call-graph nodes per program |
 | `--max-outdeg N` | 3 | Maximum out-degree per CG node |
-| `--target sir\|c\|wasm` | `c` | `c` uses `symirc --split-by-source`; `sir` skips lowering |
+| `--target sir\|c\|wasm\|python` | `c` | `c` uses `symirc --split-by-source`; `python` emits a single `program.py`; `sir` skips lowering |
+| `--structured-lowering true\|false\|random` | `false` | Structured (goto-free) C lowering, resolved per program; rejects `--target wasm` |
 | `--keep-require` | off | Keep `require` checks in C/WASM output |
 | `--validate` | off | Run `symiri` on each emitted program and assert the entry returns its descriptor's solved value |
 | `-v, --verbose` | off | Per-init log lines (`validated: OK`, `symirc FAIL`, etc.) |
@@ -360,6 +367,10 @@ rylink -n 10 --n-nodes 4 --validate -i pool/ -o progs/
 
 # 3. C target with require checks kept
 rylink -n 5 --target c --keep-require -i pool/ -o progs/
+
+# 4. Structured (goto-free) C over a reducible pool
+rysmith -n 200 --emit-desc --require-reducible -o pool/
+rylink -n 5 --target c --structured-lowering random -i pool/ -o progs/
 ```
 
 ## Tool: rytwin
