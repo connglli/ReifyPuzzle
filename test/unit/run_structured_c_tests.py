@@ -273,6 +273,35 @@ def test_multilevel_break_flags(symirc):
     os.unlink(path)
 
 
+def test_split_by_source_structured(symirc):
+  """--split-by-source honors --structured-lowering in every emitted .c."""
+  path = write_sir(LOOP_SUM)
+  try:
+    with tempfile.TemporaryDirectory() as d:
+      r = run(
+        [
+          symirc,
+          path,
+          "--structured-lowering",
+          "--split-by-source",
+          "-o",
+          d,
+        ]
+      )
+      if r.returncode != 0:
+        check("structured C: split-by-source emission", False, f"rc={r.returncode}")
+        return
+      cs = [f for f in os.listdir(d) if f.endswith(".c")]
+      with_goto = [f for f in cs if "goto" in open(os.path.join(d, f)).read()]
+      check(
+        "structured C: split-by-source is goto-free",
+        bool(cs) and not with_goto,
+        f"goto in: {with_goto}" if cs else "no .c emitted",
+      )
+  finally:
+    os.unlink(path)
+
+
 def test_do_while(symirc):
   """(F) latch-branch loop emits `do { ... } while (...)` and computes 45."""
   path = write_sir(DO_WHILE)
@@ -331,6 +360,7 @@ def main():
   test_target_gating(symirc)
   test_compiles_and_runs(symirc)
   test_multilevel_break_flags(symirc)
+  test_split_by_source_structured(symirc)
   test_do_while(symirc)
   test_do_while_excluded_on_continue(symirc)
 

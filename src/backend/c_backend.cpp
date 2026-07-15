@@ -339,6 +339,7 @@ namespace refractir {
       CBackend body(cofs);
       body.noRequire_ = noRequire_;
       body.noMainMangle_ = noMainMangle_;
+      body.structuredLowering_ = structuredLowering_;
       body.vecLowering_ = makeCVecLowering(vecLowering_ ? vecLowering_->name() : "vecext");
       body.suppressPreamble_ = true;
       // Map the primary stem to "" (empty sourceStem on FunDecl).
