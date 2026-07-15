@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 intrinsic @fabs(%x: f64) : f64;
 intrinsic @copysign(%x: f64, %y: f64) : f64;

@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 // Integer semantics: truncating division/remainder, shifts, bitwise.
 fun @main(): i32 {

@@ -1,5 +1,5 @@
 // EXPECT: FAIL:UndefinedBehavior
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 fun @main(): i32 {
     let mut %a: i32 = 5;

@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 struct @Point {
     x: i32;

@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 intrinsic @abs(%x: i32) : i32;
 intrinsic @min(%a: i32, %b: i32) : i32;

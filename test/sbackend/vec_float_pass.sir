@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 fun @main(): i32 {
     let mut %a: <2> f64 = {1.5, 2.5};

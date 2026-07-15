@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 // Forming a one-past-end pointer is legal; only dereferencing it is
 // UB. Walking it back yields a valid element pointer.

@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 // COMPILER_ARGS: --sym %?x=7
 
 // Symbol reads lower to main__x() provider calls injected by the

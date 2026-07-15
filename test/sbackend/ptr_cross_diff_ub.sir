@@ -1,5 +1,6 @@
 // EXPECT: FAIL:UndefinedBehavior
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+// SKIP: WASM — UBs are not guaranteed.
+
 
 // Subtracting pointers into different objects is UB.
 fun @main(): i64 {

@@ -1,5 +1,5 @@
 // EXPECT: FAIL:UndefinedBehavior
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 intrinsic @clz(%x: i32) : i32;
 

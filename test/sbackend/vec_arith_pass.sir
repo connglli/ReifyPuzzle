@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 // Lane-wise vector arithmetic, lane read/write, whole-vector copy.
 fun @main(): i32 {

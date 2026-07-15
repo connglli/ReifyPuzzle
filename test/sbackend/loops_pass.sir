@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 // Nested loops with a two-level break (flag cascade in the emitted
 // python): acc sums j per inner pass and bails out of both loops the

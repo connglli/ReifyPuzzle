@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 // select, i1 = {0,-1} cmp results, sign-extension and truncation
 // through casts.

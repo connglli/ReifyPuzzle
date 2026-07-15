@@ -1,5 +1,5 @@
 // EXPECT: FAIL:UndefinedBehavior
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+// SKIP: C, WASM — UBs are not guaranteed.
 
 // Advancing an element pointer past the array object is UB.
 fun @main(): i32 {

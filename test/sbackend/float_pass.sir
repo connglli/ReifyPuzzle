@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 // f64 arithmetic, f32 rounding, float remainder, and casts.
 fun @main(): i32 {

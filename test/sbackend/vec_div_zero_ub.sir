@@ -1,5 +1,5 @@
 // EXPECT: FAIL:UndefinedBehavior
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 // Lane-wise UB: one lane divides by zero.
 fun @main(): i32 {

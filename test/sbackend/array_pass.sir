@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 // Direct array element access with static and dynamic indices, plus a
 // nested 2D array with broadcast init.

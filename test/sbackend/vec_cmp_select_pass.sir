@@ -1,5 +1,5 @@
 // EXPECT: PASS
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+
 
 // Reified vector comparison masks ({0,-1} lanes) and mask-form select.
 fun @main(): i32 {

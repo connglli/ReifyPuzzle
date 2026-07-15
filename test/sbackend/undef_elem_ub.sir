@@ -1,5 +1,5 @@
 // EXPECT: FAIL:UndefinedBehavior
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+// SKIP: C, WASM — UBs are not guaranteed.
 
 // Reading an element of an undef-initialized aggregate is UB at
 // runtime (the static definite-init check tracks whole locals only).

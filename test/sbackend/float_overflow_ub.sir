@@ -1,5 +1,6 @@
 // EXPECT: FAIL:UndefinedBehavior
-// SKIP: C, WASM — structured-backend suite (goto-based c/wasm sweeps skip)
+// SKIP: WASM — UBs are not guaranteed.
+
 
 // f32 multiply overflows single precision: non-finite result is UB.
 fun @main(): f32 {
