@@ -23,6 +23,7 @@
 #include "ast/sir_printer.hpp"
 #include "backend/c_backend.hpp"
 #include "backend/c_vec_lowering.hpp"
+#include "backend/py_backend.hpp"
 #include "backend/wasm_backend.hpp"
 #include "frontend/diagnostics.hpp"
 #include "frontend/lexer.hpp"
@@ -115,7 +116,8 @@ namespace refractir::reify {
 
   bool emitCInProcess(
       Program &prog, const fs::path &outDir, const std::string &primaryStem, bool keepRequire,
-      const std::string &vecLowering, bool emitMain, bool splitBySource, bool verbose
+      const std::string &vecLowering, bool structuredLowering, bool emitMain, bool splitBySource,
+      bool verbose
   ) {
     if (!runAnalysisPasses(prog, verbose))
       return false;
@@ -125,6 +127,7 @@ namespace refractir::reify {
       CBackend cb(sink);
       cb.setNoRequire(!keepRequire);
       cb.setNoMainMangle(emitMain);
+      cb.setStructuredLowering(structuredLowering);
       cb.setVecLowering(std::move(vl));
       try {
         cb.emitSplit(prog, outDir.string(), primaryStem);
@@ -145,6 +148,7 @@ namespace refractir::reify {
     CBackend cb(ofs);
     cb.setNoRequire(!keepRequire);
     cb.setNoMainMangle(emitMain);
+    cb.setStructuredLowering(structuredLowering);
     cb.setVecLowering(std::move(vl));
     try {
       cb.emit(prog);
@@ -180,9 +184,33 @@ namespace refractir::reify {
     return true;
   }
 
+  bool emitPyInProcess(
+      Program &prog, const fs::path &outFile, bool keepRequire, bool emitMain, bool verbose
+  ) {
+    if (!runAnalysisPasses(prog, verbose))
+      return false;
+    std::ofstream ofs(outFile);
+    if (!ofs) {
+      if (verbose)
+        std::cerr << "reify: cannot open " << outFile << "\n";
+      return false;
+    }
+    PyBackend pb(ofs);
+    pb.setNoRequire(!keepRequire);
+    pb.setNoMainMangle(emitMain);
+    try {
+      pb.emit(prog);
+    } catch (const std::exception &e) {
+      if (verbose)
+        std::cerr << "reify: PyBackend failed: " << e.what() << "\n";
+      return false;
+    }
+    return true;
+  }
+
   bool compileSirInProcess(
       const fs::path &sirPath, const std::string &target, const fs::path &outPath, bool keepRequire,
-      const std::string &vecLowering, bool emitMain, bool verbose
+      const std::string &vecLowering, bool structuredLowering, bool emitMain, bool verbose
   ) {
     std::ifstream ifs(sirPath);
     if (!ifs) {
@@ -203,10 +231,12 @@ namespace refractir::reify {
       if (target == "c") {
         return emitCInProcess(
             prog, outPath.parent_path(), outPath.stem().string(), keepRequire, vecLowering,
-            emitMain, /*splitBySource=*/false, verbose
+            structuredLowering, emitMain, /*splitBySource=*/false, verbose
         );
       } else if (target == "wasm") {
         return emitWasmInProcess(prog, outPath, keepRequire, emitMain, verbose);
+      } else if (target == "python") {
+        return emitPyInProcess(prog, outPath, keepRequire, emitMain, verbose);
       } else {
         if (verbose)
           std::cerr << "compileSirInProcess: Unknown target " << target << "\n";

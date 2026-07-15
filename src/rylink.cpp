@@ -441,8 +441,8 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     if (cfg.verbose && !vecLow.empty())
       std::cout << "  vec-lowering: " << vecLow << "\n";
     if (!emitCInProcess(
-            bundle, emitDir, emitStem, cfg.keepRequire, vecLow, cfg.emitMain, cfg.splitBySource,
-            cfg.verbose
+            bundle, emitDir, emitStem, cfg.keepRequire, vecLow, /*structuredLowering=*/false,
+            cfg.emitMain, cfg.splitBySource, cfg.verbose
         )) {
       if (cfg.verbose)
         std::cerr << "  backend FAIL (" << failTag << ")\n";

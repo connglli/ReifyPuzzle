@@ -2371,6 +2371,195 @@ def test_descriptor_reducible_field(rysmith):
     )
 
 
+def test_structured_lowering_true_goto_free(rysmith):
+  """--structured-lowering true: emitted C is goto-free."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "2",
+        "--seed",
+        "5150",
+        "--p-backedge",
+        "0.8",
+        "--target",
+        "c",
+        "--structured-lowering",
+        "true",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("rysmith --structured-lowering true accepted", False, r.stderr[:300])
+      return
+    cs = [f for f in os.listdir(d) if f.endswith(".c")]
+    if not cs:
+      check("structured-lowering true produced .c files", False, "no .c emitted")
+      return
+    with_goto = [f for f in cs if "goto" in open(os.path.join(d, f)).read()]
+    check(
+      f"all {len(cs)} structured .c files are goto-free",
+      not with_goto,
+      f"goto in: {with_goto}",
+    )
+
+
+def test_structured_lowering_implies_reducible(rysmith, symirc):
+  """--structured-lowering true implies --require-reducible for the run."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "3",
+        "--seed",
+        "77",
+        "--p-backedge",
+        "0.9",
+        "--n-bbls",
+        "18",
+        "--target",
+        "c",
+        "--structured-lowering",
+        "true",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("structured-lowering implies-reducible setup", False, r.stderr[:300])
+      return
+    sirs = [f for f in os.listdir(d) if f.endswith(".sir")]
+    bad = []
+    for f in sirs:
+      rc = run([symirc, os.path.join(d, f), "--require-reducible", "-o", os.devnull])
+      if rc.returncode != 0:
+        bad.append(f)
+    check(
+      f"structured-lowering true made all {len(sirs)} programs reducible",
+      bool(sirs) and not bad,
+      f"irreducible: {bad}" if sirs else "no .sir emitted",
+    )
+
+
+def test_structured_lowering_value_validation(rysmith):
+  """random is accepted; unknown values are rejected."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "2",
+        "--seed",
+        "31",
+        "--target",
+        "c",
+        "--structured-lowering",
+        "random",
+        "-o",
+        d,
+      ]
+    )
+    cs = [f for f in os.listdir(d) if f.endswith(".c")]
+    check(
+      "--structured-lowering random runs and compiles",
+      r.returncode == 0 and bool(cs),
+      f"rc={r.returncode}, .c={len(cs)}",
+    )
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "1",
+        "--target",
+        "c",
+        "--structured-lowering",
+        "maybe",
+        "-o",
+        d,
+      ]
+    )
+    check(
+      "--structured-lowering maybe rejected",
+      r.returncode != 0,
+      f"rc={r.returncode}",
+    )
+
+
+def test_structured_lowering_rejects_wasm(rysmith):
+  """structured lowering on the wasm target is rejected (deferred)."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "1",
+        "--target",
+        "wasm",
+        "--structured-lowering",
+        "true",
+        "-o",
+        d,
+      ]
+    )
+    check(
+      "--structured-lowering + wasm rejected",
+      r.returncode != 0 and "structured-lowering" in (r.stderr or ""),
+      f"rc={r.returncode}, stderr={r.stderr[:150]!r}",
+    )
+
+
+def test_target_python_emits_py(rysmith):
+  """--target python writes a syntactically valid .py per program."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "2",
+        "--seed",
+        "11",
+        "--p-backedge",
+        "0.8",
+        "--target",
+        "python",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("rysmith --target python accepted", False, r.stderr[:300])
+      return
+    pys = [f for f in os.listdir(d) if f.endswith(".py")]
+    if not pys:
+      check("--target python produced .py files", False, "no .py emitted")
+      return
+    # The .sir companions must survive the end-of-run orphan sweep
+    # (each .py is the .sir's compiled twin, like .c / .wat).
+    sirs = {f[:-4] for f in os.listdir(d) if f.endswith(".sir")}
+    missing = [f for f in pys if f[:-3] not in sirs]
+    check(
+      "python outputs keep their .sir companions",
+      not missing,
+      f".sir missing for: {missing}",
+    )
+    bad = []
+    for f in pys:
+      p = os.path.join(d, f)
+      try:
+        compile(open(p).read(), p, "exec")
+      except SyntaxError as e:
+        bad.append(f"{f}: {e}")
+    check(
+      f"all {len(pys)} python outputs compile",
+      not bad,
+      "; ".join(bad),
+    )
+
+
 def main():
   if len(sys.argv) != 4:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri> <symirc>")
@@ -2490,6 +2679,16 @@ def main():
   test_require_reducible_all_reducible(rysmith, symirc)
   print("=== descriptor `reducible` field ===")
   test_descriptor_reducible_field(rysmith)
+  print("=== --structured-lowering true: goto-free C ===")
+  test_structured_lowering_true_goto_free(rysmith)
+  print("=== --structured-lowering implies --require-reducible ===")
+  test_structured_lowering_implies_reducible(rysmith, symirc)
+  print("=== --structured-lowering value validation ===")
+  test_structured_lowering_value_validation(rysmith)
+  print("=== --structured-lowering rejects wasm ===")
+  test_structured_lowering_rejects_wasm(rysmith)
+  print("=== --target python ===")
+  test_target_python_emits_py(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

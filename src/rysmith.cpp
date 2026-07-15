@@ -580,10 +580,12 @@ int main(int argc, char **argv) {
     // Output
     ("o,output-dir",      "Output directory",
                           cxxopts::value<std::string>()->default_value("rysmith_out"))
-    ("target",            "Compile concrete .sir to target (sir, c, wasm); sir = no compilation",
+    ("target",            "Compile concrete .sir to target (sir, c, wasm, python); sir = no compilation",
                           cxxopts::value<std::string>()->default_value("sir"))
     ("vec-lowering",      "Vec-lowering strategy for C backend (random|vecext|scalars|array|structscalars|structarray)",
                           cxxopts::value<std::string>()->default_value("random"))
+    ("structured-lowering", "Structured (goto-free) lowering for the C target: true|false|random; true/random imply --require-reducible",
+                          cxxopts::value<std::string>()->default_value("false"))
     ("keep-require",      "Include require checks in compiled output (default: omitted)")
     ("keep-symbolic",     "Write intermediate symbolic .sir files to disk")
     ("emit-desc",         "Emit per-function descriptor JSON (func_<id>_<i>.json) — needed by rylink")
@@ -756,10 +758,27 @@ int main(int argc, char **argv) {
   bool noRequire = !result.count("keep-require");
   std::string vecLoweringOpt = result["vec-lowering"].as<std::string>();
 
-  if (target != "sir" && target != "c" && target != "wasm") {
-    std::cerr << "error: unknown target '" << target << "' (expected sir, c, wasm)\n";
+  if (target != "sir" && target != "c" && target != "wasm" && target != "python") {
+    std::cerr << "error: unknown target '" << target << "' (expected sir, c, wasm, python)\n";
     return 1;
   }
+
+  std::string structuredLoweringOpt = result["structured-lowering"].as<std::string>();
+  if (structuredLoweringOpt != "true" && structuredLoweringOpt != "false" &&
+      structuredLoweringOpt != "random") {
+    std::cerr << "error: unknown --structured-lowering '" << structuredLoweringOpt
+              << "' (expected true, false, random)\n";
+    return 1;
+  }
+  if (structuredLoweringOpt != "false" && target == "wasm") {
+    std::cerr << "error: --structured-lowering is not supported for the wasm target yet\n";
+    return 1;
+  }
+  // Structuring consumers only accept reducible CFGs (mirrors symirc:
+  // --structured-lowering and --target python imply the check — here,
+  // the generator-side repair).
+  if (structuredLoweringOpt != "false" || target == "python")
+    requireReducible = true;
 
   // Sibling symiri is mandatory: the post-solve checksum rewrite uses
   // it to compute each concrete .sir's CRC32 return value, which lands
@@ -841,13 +860,18 @@ int main(int argc, char **argv) {
       std::cout << "  concrete: " << p << "\n";
 
       if (target != "sir") {
-        std::string ext = (target == "c") ? ".c" : ".wat";
+        std::string ext = (target == "c") ? ".c" : (target == "python") ? ".py" : ".wat";
         fs::path outPath = p.parent_path() / (p.stem().string() + ext);
         std::string vecLowering = reify::pickVecLowering(rng, vecLoweringOpt);
         if (verbose && !vecLowering.empty())
           std::cout << "  vec-lowering: " << vecLowering << "\n";
-        bool ok =
-            compileSirInProcess(p, target, outPath, !noRequire, vecLowering, emitMain, verbose);
+        bool structured =
+            target == "c" && reify::pickStructuredLowering(rng, structuredLoweringOpt);
+        if (verbose && structured)
+          std::cout << "  structured-lowering: true\n";
+        bool ok = compileSirInProcess(
+            p, target, outPath, !noRequire, vecLowering, structured, emitMain, verbose
+        );
         if (ok)
           std::cout << "  compiled: " << outPath << "\n";
         else
@@ -966,7 +990,7 @@ int main(int argc, char **argv) {
   // intentionally have no .c twin.  Detect them by the kSymInfix +
   // trailing-digits pattern and exclude from the orphan check.
   if (target != "sir") {
-    std::string ext = (target == "c") ? ".c" : ".wat";
+    std::string ext = (target == "c") ? ".c" : (target == "python") ? ".py" : ".wat";
     std::string symInfix = reify::rysmith::hp::kSymInfix;
     std::vector<fs::path> orphanSirs;
     std::error_code ec;

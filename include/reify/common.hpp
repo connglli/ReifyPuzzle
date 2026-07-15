@@ -37,6 +37,22 @@ namespace refractir::reify {
   }
 
   /**
+   * [v0.2.3] Resolve a --structured-lowering request (true|false|random)
+   * to a per-program decision. Shared between rysmith and rylink so
+   * both tools flip the same coin with the same odds. Only "random"
+   * consumes RNG state, so runs without the flag keep their historical
+   * seed streams.
+   */
+  inline bool pickStructuredLowering(std::mt19937 &rng, const std::string &requested) {
+    if (requested == "true")
+      return true;
+    if (requested != "random")
+      return false;
+    std::uniform_int_distribution<int> d(0, 1);
+    return d(rng) == 1;
+  }
+
+  /**
    * One call site to splice into the main wrapper. `paramValues` are
    * decimal-int / hex-float strings (one per entry-function parameter,
    * in declaration order) parsed into IntLit / FloatLit atoms.
@@ -234,11 +250,13 @@ namespace refractir::reify {
   // Shared backend compiler helpers
   // ---------------------------------------------------------------------------
 
-  // Compile a Program to C (in-process).
+  // Compile a Program to C (in-process). `structuredLowering` selects
+  // the goto-free while/do-while body emission; the caller must have
+  // ensured the program is reducible.
   bool emitCInProcess(
       refractir::Program &prog, const std::filesystem::path &outDir, const std::string &primaryStem,
-      bool keepRequire, const std::string &vecLowering, bool emitMain, bool splitBySource,
-      bool verbose
+      bool keepRequire, const std::string &vecLowering, bool structuredLowering, bool emitMain,
+      bool splitBySource, bool verbose
   );
 
   // Compile a Program to WASM (in-process).
@@ -247,12 +265,20 @@ namespace refractir::reify {
       bool emitMain, bool verbose
   );
 
-  // Parse a .sir file and compile it using CBackend or WasmBackend.
-  // Returns true on success.
+  // [v0.2.3] Compile a Program to Python (in-process). Requires a
+  // reducible program (the backend structurizes unconditionally).
+  bool emitPyInProcess(
+      refractir::Program &prog, const std::filesystem::path &outFile, bool keepRequire,
+      bool emitMain, bool verbose
+  );
+
+  // Parse a .sir file and compile it with the C / WASM / Python
+  // backend. Returns true on success. `structuredLowering` applies to
+  // the C target only.
   bool compileSirInProcess(
       const std::filesystem::path &sirPath, const std::string &target,
       const std::filesystem::path &outPath, bool keepRequire, const std::string &vecLowering,
-      bool emitMain, bool verbose
+      bool structuredLowering, bool emitMain, bool verbose
   );
 
 } // namespace refractir::reify

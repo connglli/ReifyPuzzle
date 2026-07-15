@@ -319,7 +319,8 @@ int main(int argc, char **argv) {
     fs::path outCompiled = outputPath;
     outCompiled.replace_extension(target == "c" ? ".c" : ".wat");
     if (!compileSirInProcess(
-            outputPath, target, outCompiled, keepRequire, vecLowering, emitMain, /*verbose=*/false
+            outputPath, target, outCompiled, keepRequire, vecLowering,
+            /*structuredLowering=*/false, emitMain, /*verbose=*/false
         )) {
       std::cerr << "rytwin: compile of p2 to " << target << " failed\n";
       return 1;
