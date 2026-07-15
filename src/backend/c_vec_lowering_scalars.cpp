@@ -12,7 +12,7 @@
 // N fields in a struct to lift that restriction.
 
 #include <stdexcept>
-#include "backend/vec_lowering.hpp"
+#include "backend/c_vec_lowering.hpp"
 
 namespace refractir {
 

@@ -39,7 +39,7 @@
 #include "analysis/unused_name.hpp"
 #include "ast/sir_printer.hpp"
 #include "backend/c_backend.hpp"
-#include "backend/vec_lowering.hpp"
+#include "backend/c_vec_lowering.hpp"
 #include "backend/wasm_backend.hpp"
 #include "cxxopts.hpp"
 #include "frontend/diagnostics.hpp"

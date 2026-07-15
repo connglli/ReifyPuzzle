@@ -262,7 +262,7 @@ namespace refractir {
   }
 
   // intrinsicHelperName and emitIntrinsicHelper are implemented in
-  // src/backend/intrinsics_c.cpp — the single source of truth for
+  // src/backend/c_intrinsics.cpp — the single source of truth for
   // C-side intrinsic code generation. See that file to add new intrinsics.
 
 

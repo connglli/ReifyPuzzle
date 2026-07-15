@@ -15,7 +15,7 @@
 
 #include <set>
 #include <stdexcept>
-#include "backend/vec_lowering.hpp"
+#include "backend/c_vec_lowering.hpp"
 
 namespace refractir {
 

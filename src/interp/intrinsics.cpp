@@ -1039,7 +1039,7 @@ namespace refractir {
     // ── Checksum machinery ────────────────────────────────────────────────
     //
     // Bit-exact counterpart of the C-side helpers emitted by
-    // src/backend/intrinsics_c.cpp. Both sides implement the same byte-wise
+    // src/backend/c_intrinsics.cpp. Both sides implement the same byte-wise
     // CRC32 update step:
     //
     //   state' = (state >> 8) ^ crc32_tab[(state ^ byte) & 0xFF]

@@ -283,7 +283,7 @@ namespace refractir {
   }
 
   // intrinsicHelperName and emitIntrinsicHelper are implemented in
-  // src/backend/intrinsics_wasm.cpp — the single source of truth for
+  // src/backend/wasm_intrinsics.cpp — the single source of truth for
   // WASM-side intrinsic code generation. See that file to add new intrinsics.
 
 

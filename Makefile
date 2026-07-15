@@ -66,12 +66,12 @@ BACKEND_SRCS = src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
                src/backend/wasm_lvalue.cpp src/backend/wasm_types.cpp \
                src/backend/py_backend.cpp src/backend/py_expr.cpp \
                src/backend/py_types.cpp src/backend/py_lvalue.cpp \
-               src/backend/intrinsics_c.cpp src/backend/intrinsics_wasm.cpp \
-               src/backend/intrinsics_py.cpp \
-               src/backend/vec_lowering_vecext.cpp \
-               src/backend/vec_lowering_array.cpp \
-               src/backend/vec_lowering_scalars.cpp \
-               src/backend/vec_lowering_struct.cpp
+               src/backend/c_intrinsics.cpp src/backend/wasm_intrinsics.cpp \
+               src/backend/py_intrinsics.cpp \
+               src/backend/c_vec_lowering_vecext.cpp \
+               src/backend/c_vec_lowering_array.cpp \
+               src/backend/c_vec_lowering_scalars.cpp \
+               src/backend/c_vec_lowering_struct.cpp
 INTERP_IMPL_SRCS = src/interp/interpreter.cpp src/interp/intrinsics.cpp \
                    src/interp/type_layout.cpp src/interp/types.cpp \
                    src/interp/memory.cpp src/interp/values.cpp \
@@ -143,12 +143,12 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                src/backend/c_vec.o \
                src/backend/c_lvalue.o \
                src/backend/c_types.o \
-               src/backend/intrinsics_c.o \
-               src/backend/intrinsics_wasm.o \
-               src/backend/vec_lowering_vecext.o \
-               src/backend/vec_lowering_array.o \
-               src/backend/vec_lowering_scalars.o \
-               src/backend/vec_lowering_struct.o \
+               src/backend/c_intrinsics.o \
+               src/backend/wasm_intrinsics.o \
+               src/backend/c_vec_lowering_vecext.o \
+               src/backend/c_vec_lowering_array.o \
+               src/backend/c_vec_lowering_scalars.o \
+               src/backend/c_vec_lowering_struct.o \
                src/backend/wasm_backend.o \
                src/backend/wasm_expr.o \
                src/backend/wasm_vec.o \
@@ -158,7 +158,7 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                src/backend/py_expr.o \
                src/backend/py_types.o \
                src/backend/py_lvalue.o \
-               src/backend/intrinsics_py.o \
+               src/backend/py_intrinsics.o \
                $(SOLVER_CORE_SRCS:.cpp=.o) \
                $(SOLVER_IMPL_OBJ)
 

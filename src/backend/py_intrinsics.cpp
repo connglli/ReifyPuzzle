@@ -11,11 +11,11 @@
 // (include/analysis/intrinsics.hpp), a helper snippet in
 // `helperSource`, and a call-shape case in `call`.
 
+#include "backend/py_intrinsics.hpp"
 #include <set>
 #include <stdexcept>
 #include "analysis/intrinsics.hpp"
 #include "backend/py_backend.hpp"
-#include "backend/py_intrinsics.hpp"
 
 namespace refractir {
 

@@ -8,7 +8,7 @@
 // parameter and return positions, breaking by-value semantics. The
 // `structarray` decorator lifts this restriction.
 
-#include "backend/vec_lowering.hpp"
+#include "backend/c_vec_lowering.hpp"
 
 namespace refractir {
 
