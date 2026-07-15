@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --sym %?v=10,20,30,40
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+// Test: vector symbol used directly as init of another vector local; check all lanes.
+fun @main(): i32 {
+    sym %?v : value <4> i32;
+    let mut %w: <4> i32 = %?v;
+    let mut %s: i32 = 0;
+^entry:
+    %s = %w[0] + %w[1] + %w[2] + %w[3];
+    require %s == 100, "sum of 10+20+30+40";
+    ret %s;
+}

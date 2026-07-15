@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SKIP: SOLVER
+// Test: inline CmpAtom mask using i1 result vector (cmp !=), all elements distinct.
+fun @main() : i32 {
+  let mut %x: <4> i32 = {0, 1, 0, 1};
+  let mut %y: <4> i32 = {0, 0, 1, 1};
+  let mut %t: <4> i32 = {10, 20, 30, 40};
+  let mut %f: <4> i32 = {-10, -20, -30, -40};
+  let mut %res: <4> i32 = {0, 0, 0, 0};
+^entry:
+  // mask = (x != y): lane0=F,lane1=T,lane2=T,lane3=F
+  %res = select cmp != %x, %y, %t, %f;
+  require %res[0] == -10, "lane0 false";
+  require %res[1] ==  20, "lane1 true";
+  require %res[2] ==  30, "lane2 true";
+  require %res[3] == -40, "lane3 false";
+  ret 0;
+}

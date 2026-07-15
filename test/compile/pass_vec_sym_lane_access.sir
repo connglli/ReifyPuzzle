@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --sym %?v=100,200,300,400
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+// Test: vector symbol init, then per-lane subscript access in require.
+fun @main(): i32 {
+    sym %?v : value <4> i32;
+    let mut %w: <4> i32 = %?v;
+^entry:
+    require %w[0] == 100, "lane 0";
+    require %w[1] == 200, "lane 1";
+    require %w[2] == 300, "lane 2";
+    require %w[3] == 400, "lane 3";
+    ret 0;
+}

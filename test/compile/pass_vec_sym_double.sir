@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --sym %?v=1,2,3,4
+// SKIP: INTERPRETER
+// SKIP: SOLVER
+// Test: vector symbol lanes used in arithmetic — same as the sbackend vec_sym_pass.sir
+// but placed in compile/ so the C target is exercised explicitly.
+fun @main(): i32 {
+    sym %?v : value <4> i32;
+    let mut %w: <4> i32 = %?v;
+    let mut %r: <4> i32 = 0;
+^entry:
+    %r = %w + %w;
+    require %r[2] == 6, "vector sym lanes doubled";
+    ret %r[3];
+}
