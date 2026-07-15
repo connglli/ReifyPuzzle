@@ -224,7 +224,7 @@ clean:
 test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 	$(PY) -m test.unit.run_param_features_tests ./$(TARGET_INTERP) ./$(TARGET_COMPILER) ./$(TARGET_SOLVER)
 	$(PY) -m test.unit.run_structured_c_tests ./$(TARGET_COMPILER)
-	$(PY) -m test.unit.run_rysmith_tests ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
+	$(PY) -m test.unit.run_rysmith_tests ./$(TARGET_RYSMITH) ./$(TARGET_INTERP) ./$(TARGET_COMPILER)
 	$(PY) -m test.unit.run_rylink_tests ./$(TARGET_RYLINK) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
 	$(PY) -m test.unit.run_rytwin_tests ./$(TARGET_RYTWIN) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
 

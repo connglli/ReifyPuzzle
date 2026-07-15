@@ -25,6 +25,14 @@ namespace refractir::reify {
     // `ptr i32`, `@struct_a3f9c2_0`, `<4> i32`).
     std::string retType;
 
+    // [v0.2.3] Whether the function's CFG is reducible (computed from
+    // the emitted program via the canonical DomTree/ReducibilityResult
+    // analyses). Structuring consumers (rylink --structured-lowering,
+    // the python target) must discard seeds where this is false.
+    // Descriptors written before this field default to false —
+    // conservatively "not known reducible".
+    bool reducible = false;
+
     struct Param {
       std::string name; // e.g. `%pa0`
       std::string type; // SIR surface syntax

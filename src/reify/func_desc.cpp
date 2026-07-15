@@ -4,6 +4,8 @@
 #include <fstream>
 #include <sstream>
 
+#include "analysis/dominators.hpp"
+#include "analysis/reducibility.hpp"
 #include "ast/sir_printer.hpp"
 
 namespace refractir::reify {
@@ -36,6 +38,7 @@ namespace refractir::reify {
     ofs << "  \"id\": \"" << d.id << "\",\n";
     ofs << "  \"name\": \"" << d.name << "\",\n";
     ofs << "  \"ret_type\": \"" << jsonEscape(d.retType) << "\",\n";
+    ofs << "  \"reducible\": " << (d.reducible ? "true" : "false") << ",\n";
 
     ofs << "  \"params\": [";
     for (size_t i = 0; i < d.params.size(); ++i) {
@@ -114,6 +117,15 @@ namespace refractir::reify {
     d.id = genId;
     d.name = fn->name.name;
     d.retType = SIRPrinter::typeToString(fn->retType);
+    // Reducibility of the emitted function, via the same analyses the
+    // structuring backends run. The DiagBag is throwaway: the program
+    // was already validated upstream.
+    {
+      DiagBag diags;
+      CFG cfg = CFG::build(*fn, diags);
+      DomTree dt = DomTree::build(cfg);
+      d.reducible = ReducibilityResult::check(cfg, dt).reducible();
+    }
     for (const auto &p: fn->params)
       d.params.push_back({p.name.name, SIRPrinter::typeToString(p.type)});
     d.path = pathLabels;
@@ -201,6 +213,21 @@ namespace refractir::reify {
 
       // Skip an entire JSON value (string, array, object, primitive).
       // Used to ignore keys we don't care about.
+      bool parseBool(bool &out) {
+        skipWs();
+        if (s.compare(i, 4, "true") == 0) {
+          i += 4;
+          out = true;
+          return true;
+        }
+        if (s.compare(i, 5, "false") == 0) {
+          i += 5;
+          out = false;
+          return true;
+        }
+        return false;
+      }
+
       bool skipValue() {
         skipWs();
         if (i >= s.size())
@@ -331,6 +358,9 @@ namespace refractir::reify {
           return std::nullopt;
       } else if (key == "ret_type") {
         if (!p.parseString(d.retType))
+          return std::nullopt;
+      } else if (key == "reducible") {
+        if (!p.parseBool(d.reducible))
           return std::nullopt;
       } else if (key == "params") {
         if (!p.match('['))

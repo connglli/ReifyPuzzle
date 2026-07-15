@@ -160,7 +160,7 @@ struct GenerateResult {
 
 static GenerateResult generateLeaf(
     // CFG params
-    int nBbls, double pBranch, double pBackedge,
+    int nBbls, double pBranch, double pBackedge, bool requireReducible,
     // Path params
     int maxLoopIter, int minLoopIter,
     // Var params (varCfg.typeConfig contains the type generation configuration)
@@ -190,6 +190,7 @@ static GenerateResult generateLeaf(
   cfgParams.seed = rng();
   cfgParams.pBranch = pBranch;
   cfgParams.pBackedge = pBackedge;
+  cfgParams.requireReducible = requireReducible;
   auto cfg = genCFG(cfgParams);
 
   if (verbose)
@@ -552,6 +553,7 @@ int main(int argc, char **argv) {
                           cxxopts::value<double>()->default_value("0.5"))
     ("p-backedge",        "Probability of back-edge",
                           cxxopts::value<double>()->default_value("0.3"))
+    ("require-reducible", "Only generate reducible CFGs (irreducible back edges are repaired away)")
     // Solver
     ("timeout",           "SMT solver timeout per attempt in ms",
                           cxxopts::value<uint32_t>()->default_value("2000"))
@@ -706,6 +708,7 @@ int main(int argc, char **argv) {
   int maxRetries = result["max-retries"].as<int>();
   double pBranch = result["p-branch"].as<double>();
   double pBackedge = result["p-backedge"].as<double>();
+  bool requireReducible = result.count("require-reducible") > 0;
   bool enableInterestCoefs = true; // kept in code; not user-exposed
   double pLargeCoef = result["p-large-coef"].as<double>();
   if (pLargeCoef < 0.0 || pLargeCoef > 1.0) {
@@ -796,9 +799,9 @@ int main(int argc, char **argv) {
 
     std::thread t([&, state]() {
       state->result = generateLeaf(
-          nBbls, pBranch, pBackedge, maxLoopIter, minLoopIter, fnVarCfg, funcName, nStmts,
-          offPathMultiplier, enableInterestCoefs, pLargeCoef, largeCoefThreshold, coefLo, coefHi,
-          valueLo, valueHi, indexLo, indexHi, exprCfg, enableIntrinsics, timeoutMs, solMode,
+          nBbls, pBranch, pBackedge, requireReducible, maxLoopIter, minLoopIter, fnVarCfg, funcName,
+          nStmts, offPathMultiplier, enableInterestCoefs, pLargeCoef, largeCoefThreshold, coefLo,
+          coefHi, valueLo, valueHi, indexLo, indexHi, exprCfg, enableIntrinsics, timeoutMs, solMode,
           maxRetries, nInits, outDir, keepSymbolic, verbose, state->rng, funcSeed, genId, emitDesc,
           emitMain, noCrc32
       );

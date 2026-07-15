@@ -3,7 +3,53 @@
 #include <algorithm>
 #include <random>
 
+#include "analysis/dominators.hpp"
+#include "analysis/reducibility.hpp"
+
 namespace refractir::reify {
+
+  namespace {
+
+    // Adapt an RyCFG to the analysis CFG shape (a plain label/index
+    // graph) so DomTree and ReducibilityResult are reused verbatim —
+    // neither touches the AST behind CFG::build's factory.
+    CFG toAnalysisCFG(const RyCFG &ry) {
+      CFG cfg;
+      cfg.blocks = ry.labels();
+      cfg.succ.resize(cfg.blocks.size());
+      cfg.pred.resize(cfg.blocks.size());
+      for (std::size_t i = 0; i < cfg.blocks.size(); ++i)
+        cfg.indexOf[cfg.blocks[i]] = i;
+      for (std::size_t i = 0; i < ry.blocks.size(); ++i)
+        for (const auto &s: ry.blocks[i].succs) {
+          std::size_t j = cfg.indexOf.at(s);
+          cfg.succ[i].push_back(j);
+          cfg.pred[j].push_back(i);
+        }
+      cfg.entry = cfg.indexOf.at(ry.entry);
+      return cfg;
+    }
+
+    // Delete offending retreating edges until every remaining one is a
+    // true back edge. One offender per pass: removing an edge only
+    // shrinks path sets, so dominance can only grow and a co-offender
+    // may become a valid back edge — re-analyzing preserves the
+    // maximal loop set. The spanning chain is never an offender, so
+    // each pass removes one optional edge, connectivity is preserved,
+    // and the loop terminates.
+    void repairToReducible(RyCFG &ry) {
+      for (;;) {
+        CFG cfg = toAnalysisCFG(ry);
+        DomTree dt = DomTree::build(cfg);
+        ReducibilityResult res = ReducibilityResult::check(cfg, dt);
+        if (res.reducible())
+          return;
+        const auto &off = res.offenders.front();
+        ry.removeEdge(cfg.blocks[off.src], cfg.blocks[off.dst]);
+      }
+    }
+
+  } // namespace
 
   RyCFGBlock *RyCFG::get(const std::string &label) {
     auto it = blockIndex.find(label);
@@ -24,6 +70,15 @@ namespace refractir::reify {
       s->succs.push_back(dst);
     if (std::find(d->preds.begin(), d->preds.end(), src) == d->preds.end())
       d->preds.push_back(src);
+  }
+
+  void RyCFG::removeEdge(const std::string &src, const std::string &dst) {
+    auto *s = get(src);
+    auto *d = get(dst);
+    if (!s || !d)
+      return;
+    s->succs.erase(std::remove(s->succs.begin(), s->succs.end(), dst), s->succs.end());
+    d->preds.erase(std::remove(d->preds.begin(), d->preds.end(), src), d->preds.end());
   }
 
   std::vector<std::string> RyCFG::labels() const {
@@ -96,6 +151,9 @@ namespace refractir::reify {
         }
       }
     }
+
+    if (params.requireReducible)
+      repairToReducible(cfg);
 
     return cfg;
   }

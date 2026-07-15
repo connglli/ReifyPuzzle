@@ -2301,11 +2301,81 @@ def test_emit_state_ppp_and_validation(rysmith):
     )
 
 
+def test_require_reducible_all_reducible(rysmith, symirc):
+  """--require-reducible: every generated .sir passes symirc --require-reducible."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "4",
+        "--seed",
+        "77",
+        "--p-backedge",
+        "0.9",
+        "--n-bbls",
+        "18",
+        "--require-reducible",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("rysmith --require-reducible accepted", False, r.stderr[:300])
+      return
+    sirs = [f for f in os.listdir(d) if f.endswith(".sir")]
+    if not sirs:
+      check("--require-reducible produced programs", False, "no .sir emitted")
+      return
+    bad = []
+    for f in sirs:
+      rc = run([symirc, os.path.join(d, f), "--require-reducible", "-o", os.devnull])
+      if rc.returncode != 0:
+        bad.append(f)
+    check(
+      f"all {len(sirs)} --require-reducible programs are reducible",
+      not bad,
+      f"irreducible: {bad}",
+    )
+
+
+def test_descriptor_reducible_field(rysmith):
+  """Descriptor JSON records per-function reducibility as a bool."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "1",
+        "--emit-desc",
+        "--seed",
+        "11",
+        "--require-reducible",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("rysmith reducible-descriptor setup", False, r.stderr[:200])
+      return
+    gid = extract_id(r.stdout)
+    if gid is None:
+      check("rysmith id discovery for reducible-descriptor", False, "no id in stdout")
+      return
+    desc = json.load(open(os.path.join(d, f"func_{gid}_0.json")))
+    check("descriptor `reducible` present", "reducible" in desc, str(list(desc.keys())))
+    check(
+      "descriptor `reducible` is true under --require-reducible",
+      desc.get("reducible") is True,
+      str(desc.get("reducible")),
+    )
+
+
 def main():
-  if len(sys.argv) != 3:
-    print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri>")
+  if len(sys.argv) != 4:
+    print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri> <symirc>")
     sys.exit(2)
-  rysmith, symiri = sys.argv[1:3]
+  rysmith, symiri, symirc = sys.argv[1:4]
   print("=== rysmith generation-id banner ===")
   test_id_banner(rysmith)
   print("=== rysmith --seed determinism ===")
@@ -2416,6 +2486,10 @@ def main():
   test_emit_state_pbb_sidecar(rysmith)
   print("=== --emit-state: ppp granularity + validation ===")
   test_emit_state_ppp_and_validation(rysmith)
+  print("=== --require-reducible: reducible CFG generation ===")
+  test_require_reducible_all_reducible(rysmith, symirc)
+  print("=== descriptor `reducible` field ===")
+  test_descriptor_reducible_field(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

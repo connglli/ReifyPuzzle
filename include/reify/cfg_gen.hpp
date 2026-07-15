@@ -28,6 +28,7 @@ namespace refractir::reify {
     RyCFGBlock *get(const std::string &label);
     const RyCFGBlock *get(const std::string &label) const;
     void addEdge(const std::string &src, const std::string &dst);
+    void removeEdge(const std::string &src, const std::string &dst);
     std::vector<std::string> labels() const;
   };
 
@@ -37,6 +38,11 @@ namespace refractir::reify {
     double pBranch = 0.5;
     double pBackedge = 0.3;
     int maxBackEdges = 2;
+    // [v0.2.3] Repair the generated CFG to be reducible: retreating
+    // edges whose target does not dominate their source are deleted
+    // (the forward skeleton and all valid loops survive). Required by
+    // structuring consumers (python target, C --structured-lowering).
+    bool requireReducible = false;
   };
 
   RyCFG genCFG(const GenCFGParams &params);
