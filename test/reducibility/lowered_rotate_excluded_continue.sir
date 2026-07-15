@@ -1,0 +1,27 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-lowered-tree
+
+// Rotation is vetoed when the loop body contains a continue site
+// binding to the loop (here the flagcontinue from a two-level
+// continue): in the rotated form, `continue` would skip the trailing
+// duplicated header statements and re-test the condition early.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %j: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^head;
+^head:
+    %acc = %acc + 1;
+    br %acc < 20, ^ih, ^done;
+^ih:
+    br %j < 3, ^ib, ^ol;
+^ib:
+    %j = %j + 1;
+    br %j == 2, ^head, ^ih;
+^ol:
+    %i = %i + 1;
+    br ^head;
+^done:
+    ret %acc;
+}

@@ -214,6 +214,15 @@ common shapes emit zero flags.
   C's `continue` inside do-while evaluates the condition instead of
   unconditionally re-entering the body. Targets without do-while
   (Python) re-expand the node to the exact pre-peephole form.
+- Header-test loops whose header carries instructions *rotate*
+  (classic loop inversion): `loop { H; if cond: R else break }`
+  becomes `H; while cond: { R; H }`, duplicating H's statements once
+  so the loop condition is visible instead of an infinite loop with
+  a break. Same continue-site veto as do-while: rotated, a `continue`
+  in R would skip the trailing H and re-test the condition early.
+  Loops with scattered mid-body exits or live continue sites remain
+  `while True` — no single-condition form expresses them without
+  deeper restructuring.
 
 The lowered tree contains no `FallThrough`/`JumpJoin`, every `Break`
 has `levels == 1`, and every `Continue` has `levels == 0` — only

@@ -273,6 +273,91 @@ def test_multilevel_break_flags(symirc):
     os.unlink(path)
 
 
+# Header-test loop with instructions in the header: rotates to
+# `H; while (c) { REST; H }`. acc accumulates i on every test,
+# including the failing one: 0+1+...+10 = 55.
+ROTATION = """fun @main() : i32 {
+  let mut %i: i32 = 0;
+  let mut %acc: i32 = 0;
+^entry:
+  br ^head;
+^head:
+  %acc = %acc + %i;
+  br %i < 10, ^body, ^done;
+^body:
+  %i = %i + 1;
+  br ^head;
+^done:
+  ret %acc;
+}
+"""
+
+# Same shape, but the body carries a flagcontinue (two-level continue
+# out of the inner loop) which would skip the rotated trailing header
+# statements — rotation must decline. Interpreter result: 20.
+ROTATION_VETO = """fun @main() : i32 {
+  let mut %i: i32 = 0;
+  let mut %j: i32 = 0;
+  let mut %acc: i32 = 0;
+^entry:
+  br ^head;
+^head:
+  %acc = %acc + 1;
+  br %acc < 20, ^ih, ^done;
+^ih:
+  br %j < 3, ^ib, ^ol;
+^ib:
+  %j = %j + 1;
+  br %j == 2, ^head, ^ih;
+^ol:
+  %i = %i + 1;
+  br ^head;
+^done:
+  ret %acc;
+}
+"""
+
+
+def test_loop_rotation(symirc):
+  """Rotation: header-test loop emits `while (c)` and computes 55."""
+  path = write_sir(ROTATION)
+  try:
+    with tempfile.TemporaryDirectory() as d:
+      r = run([symirc, path, "--structured-lowering", "--emit-main"])
+      if r.returncode != 0:
+        check("structured C: loop rotation", False, f"symirc rc={r.returncode}")
+        return
+      rotated = "while (" in r.stdout and "for (;;)" not in r.stdout
+      rc, err = gcc_run(r.stdout, d)
+      ok = rotated and rc == 55
+      check("structured C: loop rotation", ok, err or f"rotated={rotated}, exit={rc}")
+  finally:
+    os.unlink(path)
+
+
+def test_loop_rotation_vetoed_on_continue(symirc):
+  """A continue site in the body vetoes rotation; result matches (20)."""
+  path = write_sir(ROTATION_VETO)
+  try:
+    with tempfile.TemporaryDirectory() as d:
+      r = run([symirc, path, "--structured-lowering", "--emit-main"])
+      if r.returncode != 0:
+        check(
+          "structured C: rotation vetoed by continue site", False, f"rc={r.returncode}"
+        )
+        return
+      kept_infinite = "for (;;)" in r.stdout
+      rc, err = gcc_run(r.stdout, d)
+      ok = kept_infinite and rc == 20
+      check(
+        "structured C: rotation vetoed by continue site",
+        ok,
+        err or f"for(;;)={kept_infinite}, exit={rc}",
+      )
+  finally:
+    os.unlink(path)
+
+
 def test_split_by_source_structured(symirc):
   """--split-by-source honors --structured-lowering in every emitted .c."""
   path = write_sir(LOOP_SUM)
@@ -363,6 +448,8 @@ def main():
   test_split_by_source_structured(symirc)
   test_do_while(symirc)
   test_do_while_excluded_on_continue(symirc)
+  test_loop_rotation(symirc)
+  test_loop_rotation_vetoed_on_continue(symirc)
 
   failed = [name for name, ok, _ in results if not ok]
   print(

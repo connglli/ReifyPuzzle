@@ -281,6 +281,7 @@ namespace refractir {
 
         tryCondLoopPeephole(n);
         tryDoWhilePeephole(n);
+        tryRotateLoopPeephole(n);
 
         // Unwind escapes crossing this loop: each owes one cascade
         // right after the loop construct.
@@ -376,6 +377,53 @@ namespace refractir {
         const bool negate = !iff->negate;
         seq->items.pop_back();
         n = make(ControlTree::DoWhile{loop->loopId, latch, negate, std::move(loop->body)});
+      }
+
+      // Loop{ body = Seq[BlockStmts H, If{H, R / pure Break lvl1}] }
+      // where H *has* instructions (the empty-header case is CondLoop's,
+      // handled above without duplication) → classic loop inversion:
+      // hoist H before the loop and duplicate it at the body tail so
+      // the condition becomes visible instead of `while True` + break:
+      //   H; while (c) { R…; H }
+      // The while-eligible shape is always exactly this two-item Seq:
+      // the single in-loop arm target dominates every other in-loop
+      // block, so all content nests inside the arm. Vetoed when R
+      // contains a continue site binding to this loop — rotated,
+      // `continue` would skip the trailing H and re-test early.
+      void tryRotateLoopPeephole(NodePtr &n) {
+        auto *loop = std::get_if<ControlTree::Loop>(&n->v);
+        if (!loop || !loop->body)
+          return;
+        auto *seq = std::get_if<ControlTree::Seq>(&loop->body->v);
+        if (!seq || seq->items.size() != 2 || !seq->items[0] || !seq->items[1])
+          return;
+        auto *bs = std::get_if<ControlTree::BlockStmts>(&seq->items[0]->v);
+        auto *iff = std::get_if<ControlTree::If>(&seq->items[1]->v);
+        if (!bs || !iff || bs->block != loop->header || iff->block != loop->header)
+          return;
+        NodePtr *rest;
+        bool negate;
+        if (isSingleLevelBreak(iff->elseBr)) {
+          rest = &iff->thenBr;
+          negate = iff->negate;
+        } else if (isSingleLevelBreak(iff->thenBr)) {
+          rest = &iff->elseBr;
+          negate = !iff->negate;
+        } else {
+          return;
+        }
+        if (hasLoopContinueSite(*rest))
+          return;
+        ControlTree::Seq body;
+        if (*rest && !isEmpty(*rest))
+          body.items.push_back(std::move(*rest));
+        body.items.push_back(make(ControlTree::BlockStmts{loop->header}));
+        ControlTree::Seq outer;
+        outer.items.push_back(std::move(seq->items[0]));
+        outer.items.push_back(
+            make(ControlTree::CondLoop{loop->loopId, loop->header, negate, make(std::move(body))})
+        );
+        n = make(std::move(outer));
       }
 
       ControlTree &tree_;

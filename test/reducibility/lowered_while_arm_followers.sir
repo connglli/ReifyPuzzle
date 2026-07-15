@@ -1,0 +1,28 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-lowered-tree
+
+// Merge blocks inside a while-eligible loop are dominated by the
+// in-loop arm head, so they nest inside the If arm and the CondLoop
+// peephole absorbs them — the loop-body Seq is always exactly
+// [block H, if H]. Pinned as a regression guard.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^head;
+^head:
+    br %i < 10, ^a, ^done;
+^a:
+    br %acc < 5, ^x, ^y;
+^x:
+    %acc = %acc + 1;
+    br ^m;
+^y:
+    %acc = %acc + 2;
+    br ^m;
+^m:
+    %i = %i + 1;
+    br ^head;
+^done:
+    ret %acc;
+}

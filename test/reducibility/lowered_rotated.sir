@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --dump-lowered-tree
+
+// Header-test loop whose header carries instructions: `loop { H;
+// if c: REST else break }` rotates to `H; while c: { REST; H }`,
+// duplicating the header statements once (classic loop inversion) so
+// the condition becomes visible instead of `while True` + break.
+fun @main(): i32 {
+    let mut %i: i32 = 0;
+    let mut %acc: i32 = 0;
+^entry:
+    br ^head;
+^head:
+    %acc = %acc + %i;
+    br %i < 10, ^body, ^done;
+^body:
+    %i = %i + 1;
+    br ^head;
+^done:
+    ret %acc;
+}

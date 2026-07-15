@@ -29,6 +29,11 @@ namespace refractir {
    *     to the loop become DoWhile ("do { body } while (cond);").
    *     Targets without do-while (python) re-expand the node to the
    *     exact pre-peephole form, so their output is unchanged.
+   *   - Header-test loops whose header carries instructions rotate
+   *     (classic loop inversion): `loop { H; if cond: R else break }`
+   *     becomes `H; while cond: { R; H }`, duplicating H's statements
+   *     once so the condition is visible. Vetoed when R has a continue
+   *     site binding to the loop (it would skip the trailing H).
    *
    * The result contains no FallThrough / JumpJoin nodes, every Break
    * has levels == 1, and every Continue has levels == 0 — i.e. only
