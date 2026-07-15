@@ -200,6 +200,42 @@ Common shapes — single-level breaks, early `return` from any depth —
 emit zero flags.
 
 
+## Structured C (`--structured-lowering`, v0.2.3)
+
+By default the C backend emits labels+`goto`, which accepts any CFG.
+With `--structured-lowering` it reconstructs genuine structured
+control flow through the same pipeline as the Python target —
+`while (cond)`, `do { … } while (cond)`, `for (;;)`, `if`/`else`,
+`bool` guard flags for multi-level exits, block labels as `// ^label`
+comments — and therefore also **requires reducible control flow**
+(the flag implies `--require-reducible`).
+
+The mode changes only the function-body shape; expression emission,
+types, intrinsics, vector lowering, symbols, `--split-by-source`, and
+the sanitizer-based UB story are identical to the default goto
+emission. One deliberate refinement: an executed `unreachable`
+terminator traps (`__builtin_trap()`) instead of falling through.
+Structured C participates fully in cross-validation (`make
+cross-validation` runs both emission modes against the interpreter).
+
+The flag is rejected on `--target wasm` (structured WASM is deferred)
+and is a no-op on `--target python` (already structured). For the
+same program as above, `--structured-lowering` emits:
+
+```c
+int32_t refractir_sum(int32_t refractir_n) {
+  int32_t refractir_i = 0;
+  int32_t refractir_acc = 0;
+  while (((refractir_i)) < ((refractir_n))) {
+    // ^body
+    refractir_acc = ((refractir_acc) + (sum__step()));
+    refractir_i = ((refractir_i) + (1));
+  }
+  return ((refractir_acc));
+}
+```
+
+
 ## Options
 
 | Option             | Description                                |
@@ -210,6 +246,7 @@ emit zero flags.
 | `-o <file>`        | Output file (default: stdout)              |
 | `-I <path>`        | Include path for resolving link-form `decl`s (may repeat) |
 | `--require-reducible` | Reject functions with irreducible control flow (any target) |
+| `--structured-lowering` | C target: emit `while`/`do-while`/`if` instead of labels+`goto` (implies `--require-reducible`) |
 | `--vec-lowering <s>` | Vector lowering strategy: `vecext\|scalars\|array\|structscalars\|structarray` (C target; other targets accept only `array`, their default) |
 | `--split-by-source` | C target: emit one `<stem>.c` per source file plus `common.h` into the directory given by `-o` |
 | `--emit-main`      | Do not mangle `@main` in emitted target code |

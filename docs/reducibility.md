@@ -22,8 +22,9 @@ the reducibility check has a diagnostic pass surface.
 | Control-tree builder | `structurizer.{hpp,cpp}` | `--dump-control-tree` |
 | Structured lowering | `structured_lowering.{hpp,cpp}` | `--dump-lowered-tree` |
 
-All five stages run inside `symirc`; the Python backend consumes the
-lowered control tree at emit time (see [symirc.md](./symirc.md)).
+All five stages run inside `symirc`; the Python backend — and the C
+backend under `--structured-lowering` — consume the lowered control
+tree at emit time (see [symirc.md](./symirc.md)).
 
 
 ## 1. Reducibility
@@ -187,9 +188,10 @@ control-tree @sum:
 ## 5. Structured lowering (`StructuredLowering`)
 
 Rewrites a control tree for targets with only single-level `break` /
-`continue` and no `goto` (Python today; a structured-C mode later).
-Multi-level transfers become **one-shot guard flags** plus cascaded
-single-level breaks — pay-as-you-go: common shapes emit zero flags.
+`continue` and no `goto` (the Python backend, and the C backend under
+`--structured-lowering`). Multi-level transfers become **one-shot
+guard flags** plus cascaded single-level breaks — pay-as-you-go:
+common shapes emit zero flags.
 
 - `Break{levels=L>1}` → set a flag + `break`, then an
   `if <flag>: break` cascade after each of the `L-1` enclosing loops
@@ -205,6 +207,13 @@ single-level breaks — pay-as-you-go: common shapes emit zero flags.
 - `while True` loops whose header has no instructions and whose
   header `If` has a single-level-break arm peephole into a
   *condition loop* (`while cond:` / `while not cond:`).
+- `while True` loops whose body *ends* with a single-level
+  `if cond: break` peephole into a `DoWhile` node
+  (`do { body } while (cond);` in structured C) — but only when the
+  rest of the body has no continue site binding to the loop, because
+  C's `continue` inside do-while evaluates the condition instead of
+  unconditionally re-entering the body. Targets without do-while
+  (Python) re-expand the node to the exact pre-peephole form.
 
 The lowered tree contains no `FallThrough`/`JumpJoin`, every `Break`
 has `levels == 1`, and every `Continue` has `levels == 0` — only
@@ -213,8 +222,8 @@ are `False` except between their set and final cascade/reset, so
 re-entering the region is safe; emitters declare and initialize them
 at function entry.
 
-`ret` needs no flags at all: Python allows `return` anywhere, so
-`Return` nodes are emitted in place.
+`ret` needs no flags at all: Python and C allow `return` anywhere,
+so `Return` nodes are emitted in place.
 
 `--dump-lowered-tree` (implies `--require-reducible`) shows the tree
 the Python backend actually prints:
@@ -270,13 +279,17 @@ labels survive as comments, and no guard flags were needed.
 | Flag | Effect |
 |---|---|
 | `--require-reducible` | Reject irreducible functions (any target) |
+| `--structured-lowering` | C target: emit while/do-while/if from the lowered control tree instead of labels+goto (implies `--require-reducible`) |
 | `--dump-domtree` | Print per-function dominator trees and exit |
 | `--dump-loops` | Print per-function loop forests and exit |
 | `--dump-control-tree` | Print structured control trees and exit (implies `--require-reducible`) |
 | `--dump-lowered-tree` | Print control trees after structured lowering and exit (implies `--require-reducible`) |
 
-`--target python` registers the reducibility check automatically.
-Irreducible input fails with exit code 4 (static error).
+`--target python` and `--structured-lowering` register the
+reducibility check automatically. Irreducible input fails with exit
+code 4 (static error). `--structured-lowering` is rejected on the
+wasm target (structured WASM is deferred) and is a no-op on python
+(already structured).
 
 
 ## 8. Testing

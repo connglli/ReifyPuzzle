@@ -115,7 +115,7 @@ Semantic Checker
 ```
 Checked AST + CFG
   ↓
-Lowering (+ reducibility check & control-tree structuring for Python)
+Lowering (+ reducibility check & control-tree structuring for Python and C --structured-lowering)
   ↓
 C / WASM / Python Code Generation
 ```
@@ -199,7 +199,7 @@ Ensures program well-formedness beyond typing:
 ### 7. Language Lower / Translator
 - Translate a symbolic or concrete program into an existing language
 - First-class support are C, WebAssembly, and Python.
-- The Python target accepts only **reducible** CFGs and reconstructs genuine `while`/`if` control flow (dominator tree → reducibility check → loop forest → control tree → structured lowering; see [./docs/reducibility.md](./docs/reducibility.md)).
+- The Python target accepts only **reducible** CFGs and reconstructs genuine `while`/`if` control flow (dominator tree → reducibility check → loop forest → control tree → structured lowering; see [./docs/reducibility.md](./docs/reducibility.md)). The C backend emits labels+goto by default and offers the same structured reconstruction (`while`/`do-while`/`if`) behind `--structured-lowering`.
 - For symbolic program translation, use external function declarations to indicate symbols.
   - C: `extern int func_name_symbol_name(...);`
   - WASM: `import func_name symbol_name (func func_name_symbol_name (....))`
@@ -238,8 +238,8 @@ The test suite is managed via the `Makefile` targets:
 - `make test-unit`: Runs unit tests for command-line arguments and reification pipelines.
 - `make test-frontend`: Runs frontend validation tests (lexer, parser, type checker, semantic checker) using `symiri --check`, and CFG reducibility tests (dominator trees, loops, control trees) against `.sir.expected` files.
 - `make test-interp`: Runs reference interpreter execution tests without checking mode.
-- `make test-backends`: Runs compiler backend compilation and execution tests for C, WASM, and Python targets.
-- `make cross-validation`: Cross-validates interpreter execution outputs and UB behavior against compiled target binaries.
+- `make test-backends`: Runs compiler backend compilation and execution tests for C (goto and --structured-lowering modes), WASM, and Python targets.
+- `make cross-validation`: Cross-validates interpreter execution outputs and UB behavior against compiled C binaries, in both goto and structured-lowering emission modes.
 - `make test-solver`: Runs symbolic execution and SMT constraint solver tests.
 - `make test-reify`: Runs differential random generation testing for rysmith and rylink.
 
