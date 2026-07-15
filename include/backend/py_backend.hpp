@@ -54,6 +54,9 @@ namespace refractir {
     std::string curFuncName_;
     int indent_ = 0;
     int stmtCount_ = 0; // statements in the innermost open suite ("pass" insertion)
+    // Float-literal evaluation context (see F32Guard in py_internal.hpp):
+    // true (the SPEC default) makes FloatLit emit as _f32(lit).
+    bool f32Ctx_ = true;
     std::unordered_map<std::string, TypePtr> varTypes_;
     std::unordered_map<std::string, std::string> pyNames_; // sigiled name -> python identifier
     std::unordered_set<std::string> takenNames_;
@@ -154,6 +157,9 @@ namespace refractir {
     static std::uint32_t intWidth(const TypePtr &t);
     // Bit width of a float type (0 if not a float type).
     static std::uint32_t floatWidth(const TypePtr &t);
+    // True if the type is or contains f64 (drives the float-literal
+    // context, mirroring the C backend's isOrContainsF64).
+    static bool containsF64(const TypePtr &t);
     // Rejects types the python target cannot express yet.
     void requireSupportedType(const TypePtr &t, const char *what) const;
 

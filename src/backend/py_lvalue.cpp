@@ -94,9 +94,12 @@ namespace refractir {
           throw std::runtime_error("python target: field access on non-struct");
         TypePtr fieldTy;
         std::uint64_t foff = fieldLeafOffset(st->name.name, af.field, &fieldTy);
-        off.addConst(foff);
+        // SPEC §7.5 rule 15: a field pointer's provenance is the
+        // immediate containing STRUCT — arithmetic may roam across
+        // sibling fields.
         lo = off.str();
-        hi = off.plusConst(leafCount(fieldTy));
+        hi = off.plusConst(leafCount(cur));
+        off.addConst(foff);
         cur = fieldTy;
       }
     }
@@ -183,12 +186,19 @@ namespace refractir {
       throw std::runtime_error("python target: ptrfield on a non-struct pointer");
     TypePtr fieldTy;
     std::uint64_t foff = fieldLeafOffset(st->name.name, arg.field, &fieldTy);
+    // Provenance of the field pointer is the whole struct (§7.5 rule
+    // 15), so pass the struct's leaf size as the bound.
+    auto sit = structFields_.find(st->name.name);
+    std::uint64_t slen = 0;
+    for (const auto &[_, fty]: sit->second)
+      slen += leafCount(fty);
     return "_pfield(" + lvalueStr(arg.rval) + ", " + std::to_string(foff) + ", " +
-           std::to_string(leafCount(fieldTy)) + ")";
+           std::to_string(leafCount(fieldTy)) + ", " + std::to_string(slen) + ")";
   }
 
   void PyBackend::emitAssign(const AssignInstr &ins) {
     PathInfo p = resolvePath(ins.lhs);
+    F32Guard ctx(f32Ctx_, !containsF64(p.type));
     if (p.type && std::holds_alternative<VecType>(p.type->v)) {
       const std::string n = std::to_string(leafCount(p.type));
       // Whole-vector copy from another vector lvalue transfers raw
@@ -221,6 +231,11 @@ namespace refractir {
   }
 
   void PyBackend::emitStore(const StoreInstr &ins) {
+    TypePtr pointee;
+    if (auto pt = getExprType(ins.ptr))
+      if (auto ptr = std::get_if<PtrType>(&pt->v))
+        pointee = ptr->pointee;
+    F32Guard ctx(f32Ctx_, !containsF64(pointee));
     line("_store(" + exprStr(ins.ptr) + ", " + exprStr(ins.val) + ")");
   }
 

@@ -256,7 +256,7 @@ test-interp: $(TARGET_INTERP)
 test-backends: $(TARGET_INTERP) $(TARGET_COMPILER)
 	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target c
 	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target wasm
-	$(PY) -m test.lib.run_compiler_tests test/sbackend ./$(TARGET_COMPILER) --target python
+	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target python
 	$(PY) -m test.lib.run_c_preamble_test ./$(TARGET_COMPILER)
 
 # Cross-validation: run every test/xval/*.sir through symiri *and* through

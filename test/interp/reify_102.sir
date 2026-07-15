@@ -1,4 +1,5 @@
 // EXPECT: PASS
+// SKIP: PYTHON — irreducible control flow (python target requires reducible CFGs)
 // INTERP_ARGS: --sym %?s1=-1 --sym %?s2=-2
 // COMPILER_ARGS: --sym %?s1=-1 --sym %?s2=-2
 fun @main() : i32 {

@@ -147,7 +147,7 @@ namespace refractir {
           lane = (fp ? "_fdiv" : "_sdiv") + std::string("(x, y, ") + w + ")";
           break;
         case AtomOpKind::Mod:
-          lane = fp ? "_ffmod(x, y, " + w + ")" : "_srem(x, y)";
+          lane = fp ? "_ffmod(x, y, " + w + ")" : "_srem(x, y, " + w + ")";
           break;
         case AtomOpKind::And:
           lane = "(x & y)";
@@ -196,7 +196,7 @@ namespace refractir {
       case AtomOpKind::Div:
         return "_sdiv(" + c + ", " + r + ", " + n + ")";
       case AtomOpKind::Mod:
-        return "_srem(" + c + ", " + r + ")";
+        return "_srem(" + c + ", " + r + ", " + n + ")";
       case AtomOpKind::And:
         return "(" + c + " & " + r + ")";
       case AtomOpKind::Or:
@@ -258,6 +258,7 @@ namespace refractir {
       return "[(-1 if x " + std::string(relOpStr(arg.op)) + " y else 0) for x, y in zip(" +
              vecSelectValStr(arg.lhs, n) + ", " + vecSelectValStr(arg.rhs, n) + ")]";
     }
+    F32Guard ctx(f32Ctx_, !(containsF64(lt) || containsF64(rt)));
     if ((lt && std::holds_alternative<PtrType>(lt->v)) ||
         (rt && std::holds_alternative<PtrType>(rt->v)))
       return "(-1 if " + ptrCompare(selectValStr(arg.lhs), selectValStr(arg.rhs), arg.op) +
@@ -302,6 +303,10 @@ namespace refractir {
             srcTy = getCoefType(Coef{s});
           } else if constexpr (std::is_same_v<S, FloatLit>) {
             src = formatFloatLit(s.value);
+            // Literal precision follows the destination (mirrors the C
+            // backend's dst-driven suffix in emitCastAtom).
+            if (!containsF64(arg.dstType))
+              src = "_f32(" + src + ")";
             srcTy = getCoefType(Coef{s});
           } else if constexpr (std::is_same_v<S, SymId>) {
             src = symCall(s.name);
@@ -356,16 +361,13 @@ namespace refractir {
     if (const IntrinsicDecl *intr = arg.resolvedIntrinsic) {
       std::vector<std::string> args;
       for (std::size_t i = 0; i < arg.args.size(); ++i) {
-        std::string a = exprStr(*arg.args[i]);
-        if (i < intr->params.size() && floatWidth(intr->params[i].type) == 32)
-          a = "_f32(" + a + ")";
-        args.push_back(a);
+        F32Guard ctx(
+            f32Ctx_, i < intr->params.size() ? !containsF64(intr->params[i].type) : f32Ctx_
+        );
+        args.push_back(exprStr(*arg.args[i]));
       }
       return PyIntrinsicRegistry::call(*this, *intr, args);
     }
-    // Wrap args destined for f32 params so literal arguments round to
-    // single precision at the call boundary (the callee's body assumes
-    // canonical f32 values).
     std::vector<TypePtr> paramTypes;
     for (const auto &fd: prog_->funs) {
       if (fd.name.name == arg.callee.name) {
@@ -374,14 +376,22 @@ namespace refractir {
         break;
       }
     }
+    if (paramTypes.empty()) {
+      for (const auto &d: prog_->extDecls) {
+        if (d.name.name == arg.callee.name) {
+          for (const auto &p: d.params)
+            paramTypes.push_back(p.type);
+          break;
+        }
+      }
+    }
     std::string s = mangleFun(arg.callee.name) + "(";
     for (std::size_t i = 0; i < arg.args.size(); ++i) {
       if (i)
         s += ", ";
-      std::string a = exprStr(*arg.args[i]);
-      if (i < paramTypes.size() && floatWidth(paramTypes[i]) == 32)
-        a = "_f32(" + a + ")";
-      s += a;
+      // The callee's i-th param type drives the literal context.
+      F32Guard ctx(f32Ctx_, i < paramTypes.size() ? !containsF64(paramTypes[i]) : f32Ctx_);
+      s += exprStr(*arg.args[i]);
     }
     return s + ")";
   }
@@ -389,6 +399,9 @@ namespace refractir {
   std::string PyBackend::condStr(const Cond &cond) {
     auto lt = getExprType(cond.lhs);
     auto rt = getExprType(cond.rhs);
+    // Either operand's type decides the literal context (operands
+    // share one type; the disjunction is defensive).
+    F32Guard ctx(f32Ctx_, !(containsF64(lt) || containsF64(rt)));
     if ((lt && std::holds_alternative<PtrType>(lt->v)) &&
         (rt && std::holds_alternative<PtrType>(rt->v)))
       return ptrCompare(exprStr(cond.lhs), exprStr(cond.rhs), cond.op);
@@ -403,9 +416,9 @@ namespace refractir {
             return std::to_string(arg.value);
           } else if constexpr (std::is_same_v<T, FloatLit>) {
             std::string s = formatFloatLit(arg.value);
-            // An f32-typed literal must round to single precision the
-            // way the C backend's `f` suffix does.
-            if (arg.resolvedBits == 32)
+            // Outside an f64 context a float literal rounds to single
+            // precision, the way the C backend's `f` suffix does.
+            if (f32Ctx_)
               return "_f32(" + s + ")";
             return s;
           } else if constexpr (std::is_same_v<T, NullLit>) {

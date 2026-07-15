@@ -1,4 +1,5 @@
 // EXPECT: FAIL
+// SKIP: PYTHON — the FAIL expectation encodes a C-backend crash on inline mask select; the python target handles it
 // SKIP: INTERPRETER
 // SKIP: SOLVER
 // SKIP: WASM

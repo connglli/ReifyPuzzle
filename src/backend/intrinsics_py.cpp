@@ -314,17 +314,20 @@ def _in_sqrt(x, fb):
         case IntrinsicKind::Floor:
           return R"PY(
 def _in_floor(x):
-    return float(math.floor(x))
+    r = float(math.floor(x))
+    return math.copysign(0.0, x) if r == 0.0 else r
 )PY";
         case IntrinsicKind::Ceil:
           return R"PY(
 def _in_ceil(x):
-    return float(math.ceil(x))
+    r = float(math.ceil(x))
+    return math.copysign(0.0, x) if r == 0.0 else r
 )PY";
         case IntrinsicKind::Trunc:
           return R"PY(
 def _in_trunc(x):
-    return float(math.trunc(x))
+    r = float(math.trunc(x))
+    return math.copysign(0.0, x) if r == 0.0 else r
 )PY";
         case IntrinsicKind::Fract:
           return R"PY(

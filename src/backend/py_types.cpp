@@ -27,6 +27,28 @@ namespace refractir {
     return 0;
   }
 
+  bool PyBackend::containsF64(const TypePtr &t) {
+    if (!t)
+      return false;
+    return std::visit(
+        [](const auto &arg) -> bool {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, FloatType>) {
+            return arg.kind == FloatType::Kind::F64;
+          } else if constexpr (std::is_same_v<T, ArrayType>) {
+            return containsF64(arg.elem);
+          } else if constexpr (std::is_same_v<T, VecType>) {
+            return containsF64(arg.elem);
+          } else if constexpr (std::is_same_v<T, PtrType>) {
+            return containsF64(arg.pointee);
+          } else {
+            return false; // int / struct (fields handled at access time)
+          }
+        },
+        t->v
+    );
+  }
+
   void PyBackend::requireSupportedType(const TypePtr &t, const char *what) const {
     if (!t)
       return;
@@ -199,9 +221,30 @@ namespace refractir {
             auto t = std::make_shared<Type>();
             t->v = PtrType{getLValueType(arg.lv), {}};
             return t;
+          } else if constexpr (std::is_same_v<T, PtrIndexAtom>) {
+            // ptrindex p, i : ptr [N] T -> ptr T
+            auto pt = getLValueType(arg.rval);
+            if (pt)
+              if (auto ptr = std::get_if<PtrType>(&pt->v))
+                if (auto at = std::get_if<ArrayType>(&ptr->pointee->v)) {
+                  auto res = std::make_shared<Type>();
+                  res->v = PtrType{at->elem, {}};
+                  return res;
+                }
+            return nullptr;
           } else {
-            // PtrIndexAtom / PtrFieldAtom: pointer navigation lands in
-            // stage 7; their uses throw before the type matters.
+            static_assert(std::is_same_v<T, PtrFieldAtom>);
+            // ptrfield p, f : ptr @S -> ptr FieldType
+            auto pt = getLValueType(arg.rval);
+            if (pt)
+              if (auto ptr = std::get_if<PtrType>(&pt->v))
+                if (auto st = std::get_if<StructType>(&ptr->pointee->v)) {
+                  TypePtr fieldTy;
+                  fieldLeafOffset(st->name.name, arg.field, &fieldTy);
+                  auto res = std::make_shared<Type>();
+                  res->v = PtrType{fieldTy, {}};
+                  return res;
+                }
             return nullptr;
           }
         },
