@@ -91,6 +91,8 @@ Key characteristics:
 
 Documentation of each tool: [./docs/](./docs).
 
+Remember: The interpreter, solver, and compiler backends are shared foundational for **all** RefractIR tooling. They should be kept **clean, correct, and well-tested**. They should also be kept **independent of any specific downstream tools**, with mentioning none in their implementation.
+
 ## Compilation / Analysis Pipeline
 
 ### Shared Frontend Pipeline
@@ -264,7 +266,9 @@ The test suite is managed via the `Makefile` targets:
   * `requirements.dev.txt` – development
 * Always pin exact versions
 
-## Best Practices
+## Principles and Best Practices
+
+Always follow good practices:
 
 1. Use git frequently and meaningfully
 2. Follow **Conventional Commits**
@@ -273,6 +277,18 @@ The test suite is managed via the `Makefile` targets:
 5. Keep a clean, layered project structure
 6. Write high-quality comments that explain *why*, not *what*
 
+Always check whether a design/implementation is *elegant*:
+
+(1) It retains a minimalist core and a clean conceptual model.
+(2) It is simple enough that an experienced developer can understand it within five minutes without any explanation.
+
+Always keep in mind the following principles to make it elegant before designing any new feature or changing existing behavior. Consider these principles, think twice, and then design:
+
+1. KISS: Keep It Simple, Stupid. Is this the simplest design that works?
+2. SINE: Simplicity Is Not Enough. Is this design analyzable, testable, and solver-friendly?
+3. DRY: Don't Repeat Yourself. Are there existing abstractions/implementations that can be reused?
+4. YAGNI: You Ain't Gonna Need It. Do we really need this feature now, or is it speculative?
+5. SOLID: Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion. Does this design adhere to these principles?
 
 ## Floating-point serialization invariant (MANDATORY)
 
