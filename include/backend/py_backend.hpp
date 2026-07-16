@@ -1,12 +1,14 @@
 #pragma once
 
 #include <iostream>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include "analysis/cfg.hpp"
 #include "analysis/structurizer.hpp"
 #include "ast/ast.hpp"
+#include "backend/py_vec_lowering.hpp"
 
 namespace refractir {
 
@@ -42,11 +44,17 @@ namespace refractir {
 
     void setNoMainMangle(bool val) { noMainMangle_ = val; }
 
+    /// [v0.2.3] Set the vector-lowering strategy (storage form of
+    /// vector locals). Takes ownership. If never called, the backend
+    /// defaults to "array" (plain lane lists) on first emit.
+    void setVecLowering(std::unique_ptr<PyVecLowering> vl) { vecLowering_ = std::move(vl); }
+
   private:
     std::ostream &out_;
     bool noRequire_ = false;
     bool noMainMangle_ = false;
     const Program *prog_ = nullptr;
+    std::unique_ptr<PyVecLowering> vecLowering_; // [v0.2.3] see py_vec_lowering.hpp
     std::string curFuncName_;
     int indent_ = 0;
     int stmtCount_ = 0; // statements in the innermost open suite ("pass" insertion)
@@ -123,6 +131,10 @@ namespace refractir {
     // Scalar (or whole-aggregate) read of an lvalue as a python value.
     std::string lvalueStr(const LValue &lv);
     std::string indexStr(const Index &idx);
+    // Final lowered lane-index expression for a vector-local
+    // subscript: literal indices are validated statically, dynamic
+    // ones get the `_idx` bounds guard.
+    std::string laneIdxExpr(const Index &idx, std::uint64_t n);
     std::string addrAtomStr(const AddrAtom &arg);
     std::string loadAtomStr(const LoadAtom &arg);
     std::string ptrIndexAtomStr(const PtrIndexAtom &arg);

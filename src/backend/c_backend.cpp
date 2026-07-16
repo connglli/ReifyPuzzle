@@ -11,6 +11,7 @@
 #include <set>
 #include <sstream>
 #include "analysis/type_utils.hpp"
+#include "backend/vec_shapes.hpp"
 #include "c_internal.hpp"
 
 namespace refractir {
@@ -223,43 +224,9 @@ namespace refractir {
     return out;
   }
 
-  // [v0.2.1] Walk the program collecting every (N, T) vector shape used so
-  // the lowering strategy can emit its preamble (typedefs / struct decls).
-  static void collectVecShapesInType(const TypePtr &t, std::vector<VecType> &out) {
-    if (!t)
-      return;
-    std::visit(
-        [&](auto &&arg) {
-          using T = std::decay_t<decltype(arg)>;
-          if constexpr (std::is_same_v<T, VecType>) {
-            out.push_back(arg);
-            collectVecShapesInType(arg.elem, out);
-          } else if constexpr (std::is_same_v<T, ArrayType>) {
-            collectVecShapesInType(arg.elem, out);
-          } else if constexpr (std::is_same_v<T, PtrType>) {
-            collectVecShapesInType(arg.pointee, out);
-          }
-        },
-        t->v
-    );
-  }
-
-  static std::vector<VecType> collectVecShapes(const Program &prog) {
-    std::vector<VecType> out;
-    for (const auto &s: prog.structs)
-      for (const auto &f: s.fields)
-        collectVecShapesInType(f.type, out);
-    for (const auto &f: prog.funs) {
-      collectVecShapesInType(f.retType, out);
-      for (const auto &p: f.params)
-        collectVecShapesInType(p.type, out);
-      for (const auto &s: f.syms)
-        collectVecShapesInType(s.type, out);
-      for (const auto &l: f.lets)
-        collectVecShapesInType(l.type, out);
-    }
-    return out;
-  }
+  // collectVecShapes moved to src/backend/vec_shapes.cpp ([v0.2.3]) —
+  // it is target-neutral and the python backend's vec-lowering
+  // preamble needs it too.
 
   // intrinsicHelperName and emitIntrinsicHelper are implemented in
   // src/backend/c_intrinsics.cpp — the single source of truth for

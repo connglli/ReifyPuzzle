@@ -133,13 +133,34 @@ namespace refractir {
     );
   }
 
+  std::string PyBackend::laneIdxExpr(const Index &idx, std::uint64_t n) {
+    if (auto lit = std::get_if<IntLit>(&idx))
+      return std::to_string(lit->value);
+    return "_idx(" + indexStr(idx) + ", " + std::to_string(n) + ")";
+  }
+
   std::string PyBackend::lvalueStr(const LValue &lv) {
+    // Vector locals/params are stored per the vec-lowering strategy;
+    // vectors nested in aggregates stay flat slots of the boxed root.
+    auto vit = varTypes_.find(lv.base.name);
+    if (vit != varTypes_.end() && vit->second) {
+      if (auto *vt = std::get_if<VecType>(&vit->second->v)) {
+        const std::string name = pyLocal(lv.base.name);
+        if (lv.accesses.empty()) {
+          // Whole-vector value: a fresh, undef-checked lane list
+          // (vectors are value types; consumers compute with lanes).
+          return vecLowering_->readListExpr(name, *vt);
+        }
+        const auto &ai = std::get<AccessIndex>(lv.accesses.front());
+        return vecLowering_->laneRead(name, *vt, laneIdxExpr(ai.index, vt->size));
+      }
+    }
     PathInfo p = resolvePath(lv);
     if (!p.boxed)
       return p.buf;
     if (p.type && std::holds_alternative<VecType>(p.type->v)) {
-      // Whole-vector value: a fresh, undef-checked lane list (vectors
-      // are value types; every consumer computes with lane values).
+      // Whole vector inside an aggregate: a fresh, undef-checked lane
+      // list read straight from the root's slots.
       return "_vrd(" + p.buf + ", " + p.off + ", " + std::to_string(leafCount(p.type)) + ")";
     }
     const bool aggregate = p.type && (std::holds_alternative<ArrayType>(p.type->v) ||
@@ -197,19 +218,68 @@ namespace refractir {
   }
 
   void PyBackend::emitAssign(const AssignInstr &ins) {
+    // Vector locals/params: storage per the vec-lowering strategy.
+    auto vit = varTypes_.find(ins.lhs.base.name);
+    if (vit != varTypes_.end() && vit->second) {
+      if (auto *vt = std::get_if<VecType>(&vit->second->v)) {
+        const std::string name = pyLocal(ins.lhs.base.name);
+        F32Guard ctx(f32Ctx_, !containsF64(vt->elem));
+        if (!ins.lhs.accesses.empty()) {
+          // Lane write.
+          const auto &ai = std::get<AccessIndex>(ins.lhs.accesses.front());
+          line(
+              vecLowering_->laneWrite(name, *vt, laneIdxExpr(ai.index, vt->size), exprStr(ins.rhs))
+          );
+          return;
+        }
+        // Whole-vector copy from another vector lvalue transfers raw
+        // slots (undef lanes stay undef — copying is not a read).
+        if (ins.rhs.rest.empty()) {
+          if (auto rv = std::get_if<RValueAtom>(&ins.rhs.first.v)) {
+            const LValue &src = rv->rval;
+            auto sit = varTypes_.find(src.base.name);
+            if (sit != varTypes_.end() && sit->second &&
+                std::holds_alternative<VecType>(sit->second->v) && src.accesses.empty()) {
+              line(vecLowering_->wholeCopy(name, pyLocal(src.base.name), *vt));
+              return;
+            }
+            // Source vector lives inside an aggregate: raw slot slice.
+            PathInfo s = resolvePath(src);
+            const std::string n = std::to_string(vt->size);
+            std::string rhs = s.buf + "[" + s.off + ":" + s.off + " + " + n + "]";
+            if (s.off == "0")
+              rhs = "list(" + s.buf + ")";
+            line(vecLowering_->assignFromList(name, *vt, rhs));
+            return;
+          }
+        }
+        // Lane comprehension: already a fresh list.
+        line(vecLowering_->assignFromList(name, *vt, exprStr(ins.rhs)));
+        return;
+      }
+    }
     PathInfo p = resolvePath(ins.lhs);
     F32Guard ctx(f32Ctx_, !containsF64(p.type));
     if (p.type && std::holds_alternative<VecType>(p.type->v)) {
       const std::string n = std::to_string(leafCount(p.type));
-      // Whole-vector copy from another vector lvalue transfers raw
-      // slots (undef lanes stay undef — copying is not a read).
+      // Destination vector lives inside an aggregate: raw slot slice
+      // write into the boxed root (source handling as above).
       std::string rhs;
       if (ins.rhs.rest.empty()) {
         if (auto rv = std::get_if<RValueAtom>(&ins.rhs.first.v)) {
-          PathInfo s = resolvePath(rv->rval);
-          rhs = s.buf + "[" + s.off + ":" + s.off + " + " + n + "]";
-          if (s.off == "0")
-            rhs = "list(" + s.buf + ")";
+          const LValue &src = rv->rval;
+          auto sit = varTypes_.find(src.base.name);
+          if (sit != varTypes_.end() && sit->second &&
+              std::holds_alternative<VecType>(sit->second->v) && src.accesses.empty()) {
+            rhs = vecLowering_->rawListExpr(
+                pyLocal(src.base.name), *std::get_if<VecType>(&sit->second->v)
+            );
+          } else {
+            PathInfo s = resolvePath(src);
+            rhs = s.buf + "[" + s.off + ":" + s.off + " + " + n + "]";
+            if (s.off == "0")
+              rhs = "list(" + s.buf + ")";
+          }
         }
       }
       if (rhs.empty())
@@ -341,16 +411,20 @@ namespace refractir {
 
   void PyBackend::collectBoxedRoots(const FunDecl &f) {
     boxedRoots_.clear();
-    auto isAggregate = [](const TypePtr &t) {
+    // [v0.2.3] Top-level vector locals/params are managed by the
+    // vec-lowering strategy, not flattened into a boxed leaf-slot
+    // list — only array/struct aggregates are boxed roots. (Vectors
+    // *nested* in an array/struct are part of the enclosing root and
+    // stay flat; that root is boxed by name here.)
+    auto isBoxedAggregate = [](const TypePtr &t) {
       return t &&
-             (std::holds_alternative<ArrayType>(t->v) || std::holds_alternative<StructType>(t->v) ||
-              std::holds_alternative<VecType>(t->v));
+             (std::holds_alternative<ArrayType>(t->v) || std::holds_alternative<StructType>(t->v));
     };
     for (const auto &p: f.params)
-      if (isAggregate(p.type))
+      if (isBoxedAggregate(p.type))
         boxedRoots_.insert(p.name.name);
     for (const auto &l: f.lets)
-      if (isAggregate(l.type))
+      if (isBoxedAggregate(l.type))
         boxedRoots_.insert(l.name.name);
 
     // Scalars become boxed when their address is taken anywhere.
