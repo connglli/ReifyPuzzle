@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --sym %?v=10,20,30,40
+// INTERP_ARGS: --sym %?v=10,20,30,40
+
+// Per-lane vector-sym binding: comma-joined lanes, one per lane.
+fun @main() : i32 {
+  sym %?v : value <4> i32;
+  let mut %w: <4> i32 = %?v;
+^entry:
+  require %w[0] == 10, "lane 0";
+  require %w[1] == 20, "lane 1";
+  require %w[3] == 40, "lane 3";
+  ret %w[2];
+}

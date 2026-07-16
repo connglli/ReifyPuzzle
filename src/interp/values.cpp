@@ -75,6 +75,58 @@ namespace refractir {
     return res;
   }
 
+  RuntimeValue Interpreter::bindSymValue(const SymDecl &s, const std::vector<SymScalar> &vals) {
+    // One scalar value canonicalized to the given scalar type.
+    // Preserves the historical binding semantics: ints canonicalize to
+    // the declared width; floats keep their f64 image (per-op rounding
+    // narrows f32 downstream).
+    auto scalarOf = [&](const TypePtr &t, const SymScalar &sv) {
+      RuntimeValue v;
+      std::visit(
+          [&](auto &&val) {
+            if (std::holds_alternative<IntType>(t->v)) {
+              v.kind = RuntimeValue::Kind::Int;
+              v.intVal = static_cast<std::int64_t>(val);
+              v.bits = TypeUtils::getIntBitWidth(t).value_or(64);
+              v.intVal = canonicalize(v.intVal, v.bits);
+            } else if (std::holds_alternative<FloatType>(t->v)) {
+              v.kind = RuntimeValue::Kind::Float;
+              v.floatVal = static_cast<double>(val);
+              v.bits = (std::get<FloatType>(t->v).kind == FloatType::Kind::F32) ? 32 : 64;
+            }
+          },
+          sv
+      );
+      return v;
+    };
+
+    if (vals.empty())
+      throw std::runtime_error("Symbol " + s.name.name + " bound with no value");
+    if (auto vt = TypeUtils::asVec(s.type)) {
+      // A single value splats across all lanes; otherwise one value
+      // per lane, in lane order.
+      if (vals.size() == 1)
+        return broadcast(s.type, scalarOf(vt->elem, vals.front()));
+      if (vals.size() != vt->size)
+        throw std::runtime_error(
+            "Symbol " + s.name.name + " has " + std::to_string(vt->size) +
+            " lanes but was bound with " + std::to_string(vals.size()) +
+            " values (expected 1 to splat, or one per lane)"
+        );
+      RuntimeValue res;
+      res.kind = RuntimeValue::Kind::Vec;
+      for (const auto &sv: vals)
+        res.arrayVal.push_back(scalarOf(vt->elem, sv));
+      return res;
+    }
+    if (vals.size() != 1)
+      throw std::runtime_error(
+          "Symbol " + s.name.name + " is scalar but was bound with " + std::to_string(vals.size()) +
+          " values"
+      );
+    return scalarOf(s.type, vals.front());
+  }
+
   RuntimeValue Interpreter::broadcast(const TypePtr &t, const RuntimeValue &v) {
     if (v.kind == RuntimeValue::Kind::Vec || v.kind == RuntimeValue::Kind::Array ||
         v.kind == RuntimeValue::Kind::Struct) {

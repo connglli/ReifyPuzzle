@@ -55,7 +55,7 @@ Key characteristics:
   - `load p`, `store p, v` for read/write through pointers
   - `null` literal (typed by context)
   - Pointer arithmetic: `ptr T ± iN → ptr T`, `ptr T - ptr T → i64` (element distance)
-  - No `sym` of pointer type; no pointer/integer casts
+  - No `sym` of pointer or aggregate (array/struct) type; no pointer/integer casts
 - **Aggregate pointers (v0.2.1)**:
   - `ptr [N] T` / `ptr @S` — pointers to arrays and structs
   - `ptrindex <ptr [N] T>, <idx>` → `ptr T` (navigate array element)

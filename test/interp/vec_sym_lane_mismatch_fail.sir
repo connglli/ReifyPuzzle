@@ -1,0 +1,11 @@
+// EXPECT: FAIL
+// SKIP: COMPILER
+// INTERP_ARGS: --sym %?v=1,2
+
+// Lane-count mismatch (2 values for <4> i32) is a binding error.
+fun @main() : i32 {
+  sym %?v : value <4> i32;
+  let mut %w: <4> i32 = %?v;
+^entry:
+  ret %w[0];
+}

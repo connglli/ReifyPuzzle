@@ -56,20 +56,46 @@ int main(int argc, char **argv) {
   Interpreter::SymBindings symBindings;
 
   if (result.count("sym")) {
-    for (const auto &bind: result["sym"].as<std::vector<std::string>>()) {
-      size_t eq = bind.find('=');
-      if (eq == std::string::npos) {
-        std::cerr << "Error: Invalid symbol binding format (expected name=value): " << bind << "\n";
+    // cxxopts splits each occurrence's value on commas, so a vector
+    // lane list like `--sym %?v=1,2,3,4` arrives as ["%?v=1", "2",
+    // "3", "4"]. Entries without '=' are comma-continuations of the
+    // previous binding — unambiguous, since values are numeric
+    // literals and never contain '='.
+    std::vector<std::string> binds;
+    for (const auto &piece: result["sym"].as<std::vector<std::string>>()) {
+      if (piece.find('=') != std::string::npos) {
+        binds.push_back(piece);
+      } else if (!binds.empty()) {
+        binds.back() += "," + piece;
+      } else {
+        std::cerr << "Error: Invalid symbol binding format (expected name=value): " << piece
+                  << "\n";
         return 1;
       }
+    }
+    for (const auto &bind: binds) {
+      size_t eq = bind.find('=');
       std::string name = bind.substr(0, eq);
       std::string valStr = bind.substr(eq + 1);
+      // A single scalar, or a comma-joined lane list for vector syms
+      // (one value per lane; a single value splats).
+      std::vector<Interpreter::SymScalar> vals;
       try {
-        symBindings[name] = parseNumberLiteral(valStr);
+        size_t pos = 0;
+        while (true) {
+          size_t comma = valStr.find(',', pos);
+          vals.push_back(parseNumberLiteral(
+              valStr.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos)
+          ));
+          if (comma == std::string::npos)
+            break;
+          pos = comma + 1;
+        }
       } catch (...) {
         std::cerr << "Error: Invalid number value for symbol " << name << ": " << valStr << "\n";
         return 1;
       }
+      symBindings[name] = std::move(vals);
     }
   }
 

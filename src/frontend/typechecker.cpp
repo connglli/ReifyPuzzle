@@ -595,6 +595,15 @@ namespace refractir {
       if (s.type && std::holds_alternative<PtrType>(s.type->v)) {
         diags.error("sym of pointer type is not allowed in v0.2.0: " + s.name.name, s.span);
       }
+      // [v0.2.3] Aggregate symbols are likewise rejected: the language
+      // has no consumer syntax for them (whole-aggregate-copy init is
+      // banned and syms take no element access), so a declarable
+      // array/struct sym would be dead weight. Planned for a later
+      // version (SPEC §13).
+      if (s.type && (std::holds_alternative<ArrayType>(s.type->v) ||
+                     std::holds_alternative<StructType>(s.type->v))) {
+        diags.error("sym of array/struct type is not allowed: " + s.name.name, s.span);
+      }
       validateTypeWF(s.type, diags);
       syms[s.name.name] = SymInfo{s.type, s.kind, s.span};
     }

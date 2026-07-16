@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --sym %?v=7,7,7,7
+// INTERP_ARGS: --sym %?v=7
+
+// A single value splats across all lanes (shorthand kept from the
+// original binding behaviour).
+fun @main() : i32 {
+  sym %?v : value <4> i32;
+  let mut %w: <4> i32 = %?v;
+^entry:
+  require %w[0] == 7, "lane 0 splat";
+  require %w[3] == 7, "lane 3 splat";
+  ret %w[1];
+}

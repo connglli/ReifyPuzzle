@@ -1,0 +1,11 @@
+// EXPECT: FAIL:StaticError
+
+// Aggregate symbols are not allowed (v0.2.2 §3.4): an array-typed sym
+// is declarable-looking but has no consumer syntax (no whole-copy
+// init, no element access on syms), so it is rejected up-front like
+// pointer syms.
+fun @main() : i32 {
+  sym %?a : value [3] i32;
+^entry:
+  ret 0;
+}

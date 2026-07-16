@@ -141,57 +141,7 @@ namespace refractir {
             "Symbol " + s.name.name + " has no binding (provide --sym " + s.name.name + "=<value>)"
         );
       }
-      {
-        RuntimeValue v;
-        std::visit(
-            [&](auto &&val) {
-              using T = std::decay_t<decltype(val)>;
-              if (std::holds_alternative<IntType>(s.type->v)) {
-                v.kind = RuntimeValue::Kind::Int;
-                if constexpr (std::is_same_v<T, std::int64_t>) {
-                  v.intVal = val;
-                } else {
-                  v.intVal = static_cast<std::int64_t>(val);
-                }
-                v.bits = TypeUtils::getIntBitWidth(s.type).value_or(64);
-                v.intVal = canonicalize(v.intVal, v.bits);
-              } else if (std::holds_alternative<FloatType>(s.type->v)) {
-                v.kind = RuntimeValue::Kind::Float;
-                if constexpr (std::is_same_v<T, double>) {
-                  v.floatVal = val;
-                } else {
-                  v.floatVal = static_cast<double>(val);
-                }
-                v.bits = (std::get<FloatType>(s.type->v).kind == FloatType::Kind::F32) ? 32 : 64;
-              } else if (std::holds_alternative<VecType>(s.type->v)) {
-                RuntimeValue scalar;
-                auto &vt = std::get<VecType>(s.type->v);
-                if (std::holds_alternative<IntType>(vt.elem->v)) {
-                  scalar.kind = RuntimeValue::Kind::Int;
-                  if constexpr (std::is_same_v<T, std::int64_t>) {
-                    scalar.intVal = val;
-                  } else {
-                    scalar.intVal = static_cast<std::int64_t>(val);
-                  }
-                  scalar.bits = TypeUtils::getIntBitWidth(vt.elem).value_or(64);
-                  scalar.intVal = canonicalize(scalar.intVal, scalar.bits);
-                } else if (std::holds_alternative<FloatType>(vt.elem->v)) {
-                  scalar.kind = RuntimeValue::Kind::Float;
-                  if constexpr (std::is_same_v<T, double>) {
-                    scalar.floatVal = val;
-                  } else {
-                    scalar.floatVal = static_cast<double>(val);
-                  }
-                  scalar.bits =
-                      (std::get<FloatType>(vt.elem->v).kind == FloatType::Kind::F32) ? 32 : 64;
-                }
-                v = broadcast(s.type, scalar);
-              }
-            },
-            it->second
-        );
-        store[s.name.name] = v;
-      }
+      store[s.name.name] = bindSymValue(s, it->second);
     }
 
     // Init locals
@@ -272,27 +222,7 @@ namespace refractir {
         throw std::runtime_error(
             "Symbol " + s.name.name + " has no binding (callee=" + f.name.name + ")"
         );
-      RuntimeValue v;
-      std::visit(
-          [&](auto &&val) {
-            using T = std::decay_t<decltype(val)>;
-            if (std::holds_alternative<IntType>(s.type->v)) {
-              v.kind = RuntimeValue::Kind::Int;
-              v.intVal = static_cast<std::int64_t>(val);
-              v.bits = TypeUtils::getIntBitWidth(s.type).value_or(64);
-              v.intVal = canonicalize(v.intVal, v.bits);
-            } else if (std::holds_alternative<FloatType>(s.type->v)) {
-              v.kind = RuntimeValue::Kind::Float;
-              if constexpr (std::is_same_v<T, double>)
-                v.floatVal = val;
-              else
-                v.floatVal = static_cast<double>(val);
-              v.bits = (std::get<FloatType>(s.type->v).kind == FloatType::Kind::F32) ? 32 : 64;
-            }
-          },
-          it->second
-      );
-      store[s.name.name] = v;
+      store[s.name.name] = bindSymValue(s, it->second);
     }
 
     // Init lets.

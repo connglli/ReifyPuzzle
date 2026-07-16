@@ -1,0 +1,12 @@
+// EXPECT: FAIL:StaticError
+
+// Aggregate symbols are not allowed (v0.2.2 §3.4) — struct variant.
+struct @P {
+    x: i32;
+    y: i32;
+}
+fun @main() : i32 {
+  sym %?p : value @P;
+^entry:
+  ret 0;
+}

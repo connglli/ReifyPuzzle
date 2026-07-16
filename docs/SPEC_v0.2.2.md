@@ -243,7 +243,7 @@ Interval    := "[" IntLit "," IntLit "]" ;
 Set         := "{" IntLit ("," IntLit)* "}" ;
 ```
 
-**Restrictions:** `sym` of pointer type is not allowed. `sym` of vector type is allowed (per-lane independent symbols).
+**Restrictions:** `sym` of pointer type is not allowed. `sym` of aggregate (array / struct) type is likewise not allowed — the language has no consumer syntax for aggregate symbols (whole-aggregate-copy initializers are banned and symbols take no element access); see §13 for the plan. `sym` of vector type is allowed (per-lane independent symbols).
 
 #### 3.5.2 Locals (`let` and `let mut`)
 ```ebnf
@@ -991,6 +991,7 @@ v0.2.2 line, each adding one solver-friendly group:
 - **Function attributes — planned for v0.2.3** — planned. Attributes like `inline`, `noinline`, `pure`, `const`, `noreturn` are not yet supported. They can be added as annotations on `fun` declarations, with semantics enforced by the solver and backends. For example, `pure`/`const` could allow the solver to memoize calls or treat them as uninterpreted functions; `noreturn` could mark paths as infeasible after a call.
 - **Callee sub-path syntax** — planned. §9.6.4 promotes the user-chosen path `π` to a tree of block visits, but the surface syntax to specify each callee's sub-path (e.g., a nested `[call @inner: ^entry -> ^body -> ^exit]` form, a per-callee `--call-path @inner=^a,^b` CLI flag, or a JSON object) is deferred. The current solver picks one random path per callee per `solve()` invocation, seeded from `--seed`, with a per-block visit cap to bound loops. A future version will replace the random choice with an exact user-supplied sub-path so synthesis results are fully reproducible across branchy callees.
 - **Char and string types** — planned. Add first-class support for `char` and string literals.
+- **Aggregate symbols** — planned. `sym` of array / struct type is currently rejected (§3.4). Supporting them needs consumer syntax (element access on symbols or whole-aggregate-copy initialization), per-leaf solver encoding, and driver conventions in every backend; the interpreter's `--sym` binding format would extend to brace-initializer literals (e.g. `--sym '%?a={1,2,3}'`).
 - **Recursion**. A `fun` body may not call itself (direct recursion) or participate in a mutual recursion cycle. The call graph must be a DAG. Loops within a single `fun` via CFG back-edges remain the primary iteration mechanism. Recursion introduces fixed-depth unrolling heuristics and complicates the SMT encoding with nested contexts — it provides limited value for the synthesis use cases v0.2.2 targets.
 - **Indirect calls / function pointers**. `call` always targets a statically-named `GlobalId`. Function pointer types (`ptr fun(...)`) and indirect calls through computed addresses are not supported. All call targets are resolved by name at parse time.
 - **`old()` in contracts**. Post-state only. Pre-state references require caller-side temporaries. Adding `old()` introduces a two-state logic into the SMT encoding, which is not yet justified.

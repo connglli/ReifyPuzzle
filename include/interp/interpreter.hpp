@@ -34,7 +34,11 @@ namespace refractir {
      * @param symBindings Mapping of symbolic identifiers to concrete values.
      * @param dumpExec Whether to print execution trace to stderr.
      */
-    using SymBindings = std::unordered_map<std::string, std::variant<std::int64_t, double>>;
+    // [v0.2.3] One binding is an ordered list of scalar values: a
+    // single entry for scalar syms (or a vector splat), one entry per
+    // lane for vector syms.
+    using SymScalar = std::variant<std::int64_t, double>;
+    using SymBindings = std::unordered_map<std::string, std::vector<SymScalar>>;
 
     // [v0.2.2] `paramArgs` supplies one decimal-int / hex-float string
     // per parameter of the entry function. Empty when the entry is
@@ -84,6 +88,9 @@ namespace refractir {
     // --- Runtime evaluation helpers ---
     RuntimeValue makeUndef(const TypePtr &t);
     RuntimeValue broadcast(const TypePtr &t, const RuntimeValue &v);
+    // [v0.2.3] Materialize one sym binding (scalar, vector splat, or
+    // per-lane list). Shared by the entry and nested-call paths.
+    RuntimeValue bindSymValue(const SymDecl &s, const std::vector<SymScalar> &vals);
     RuntimeValue evalInit(const InitVal &iv, const TypePtr &t, const Store &store);
     std::string rvToString(const RuntimeValue &rv) const;
 
