@@ -54,10 +54,15 @@ namespace refractir {
 
   } // namespace
 
+  // Defined in the per-strategy TUs.
+  std::unique_ptr<PyVecLowering> makePyScalarsLowering();
+
   std::unique_ptr<PyVecLowering> makePyVecLowering(const std::string &name) {
     if (name == "array" || name.empty())
       return std::make_unique<PyArrayLowering>();
-    return nullptr;
+    if (name == "scalars")
+      return makePyScalarsLowering();
+    return nullptr; // "vecext" and unknown names have no python analogue
   }
 
 } // namespace refractir

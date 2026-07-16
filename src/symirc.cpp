@@ -203,9 +203,17 @@ int main(int argc, char **argv) {
     std::string vlName;
     if (result.count("vec-lowering") > 0) {
       vlName = result["vec-lowering"].as<std::string>();
-      if (target != "c" && vlName != "array") {
-        std::cerr << "Error: Target '" << target << "' does not support vector lowering strategy '"
-                  << vlName << "' (only 'array' is supported)\n";
+      // The python backend supports every strategy except vecext (no
+      // native SIMD value type); the wasm backend only "array". C
+      // accepts all five (validated by makeCVecLowering below).
+      if (target == "python" && !makePyVecLowering(vlName)) {
+        std::cerr << "Error: python target does not support vector lowering strategy '" << vlName
+                  << "' (try array|scalars|structscalars|structarray)\n";
+        return 1;
+      }
+      if (target == "wasm" && vlName != "array") {
+        std::cerr << "Error: Target 'wasm' does not support vector lowering strategy '" << vlName
+                  << "' (only 'array' is supported)\n";
         return 1;
       }
     } else {
@@ -271,6 +279,7 @@ int main(int argc, char **argv) {
       PyBackend pb(*outStream);
       pb.setNoRequire(noRequire);
       pb.setNoMainMangle(emitMain);
+      pb.setVecLowering(makePyVecLowering(vlName));
       pb.emit(prog);
     } else {
       std::cerr << "Error: Unsupported target: " << target << "\n";
