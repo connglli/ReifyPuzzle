@@ -742,6 +742,11 @@ namespace refractir {
     auto hit = memory_.heap().find(ptrRv.ptrVal);
     if (hit == memory_.heap().end())
       throw UndefinedBehaviorError("UB: Load from uninitialized memory");
+    // Rule 3: reading a leaf whose stored value is undef is UB.
+    // The pointer itself is valid, but the pointed-to value may be undef
+    // (e.g. an array element initialised with {undef}).
+    if (hit->second.kind == RuntimeValue::Kind::Undef)
+      throw UndefinedBehaviorError("UB: Load reads undef value (rule 3)");
     return hit->second;
 
     return RuntimeValue{};

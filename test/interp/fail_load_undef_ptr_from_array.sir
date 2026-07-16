@@ -1,0 +1,14 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// Rule 3: load through pointer to array element containing undef ptr.
+// %a0[0] is undef (ptr i8). addr %a0[0] gives a valid pointer to that
+// cell. load through that pointer reads undef → UB.
+fun @main() : i32 {
+  let mut %a0: [1] ptr i8 = {undef};
+  let mut %pp: ptr ptr i8 = undef;
+  let mut %p: ptr i8 = undef;
+^entry:
+  %pp = addr %a0[0];
+  %p = load %pp;
+  ret 0;
+}

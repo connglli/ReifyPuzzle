@@ -1,0 +1,14 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// Rule 3: store %pp, load %pp where load reads undef → UB.
+// Mirrors the bug from func_bddf97_16b.sir: store-load roundtrip
+// through a pointer-to-pointer whose target contains undef.
+fun @main() : i32 {
+  let mut %a0: [1] ptr i8 = {undef};
+  let mut %v0: i8 = 42;
+  let mut %pp: ptr ptr i8 = undef;
+^entry:
+  %pp = addr %a0[0];
+  store %pp, load %pp;
+  ret 0;
+}

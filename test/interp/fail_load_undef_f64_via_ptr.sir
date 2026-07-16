@@ -1,0 +1,12 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// Rule 3: load through pointer to undef float → UB.
+fun @main() : i32 {
+  let mut %f: f64 = undef;
+  let mut %p: ptr f64 = undef;
+  let mut %r: f64 = 0.0;
+^entry:
+  %p = addr %f;
+  %r = load %p;
+  ret 0;
+}

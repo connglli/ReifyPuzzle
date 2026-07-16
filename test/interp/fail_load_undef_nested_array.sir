@@ -1,0 +1,17 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: COMPILER
+// Rule 3: load through pointer to nested array element with undef.
+// %arr[1][0] is undef. Navigate via ptrindex, then load → UB.
+fun @main() : i32 {
+  let mut %arr: [2] [1] i64 = {{99}, {undef}};
+  let mut %ap: ptr [2] [1] i64 = undef;
+  let mut %nav: ptr [1] i64 = undef;
+  let mut %p: ptr i64 = undef;
+  let mut %r: i64 = 0;
+^entry:
+  %ap = addr %arr;
+  %nav = ptrindex %ap, 1;
+  %p = ptrindex %nav, 0;
+  %r = load %p;
+  ret 0;
+}

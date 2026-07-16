@@ -751,14 +751,10 @@ namespace refractir {
 
     smt::Term res_prov_base = zero;
     smt::Term res_prov_size = zero;
-    // Propagate the loaded cell's definedness so a downstream read of
-    // the value trips the rule-3 undef constraint (see evalLValue).
-    // Forcing it to true here would let the solver concretize a path
-    // that loads an undef-initialised cell (e.g. an unwritten element
-    // of `[N] ptr T = {undef, …}`) and then uses it — which the strict
-    // interpreter rejects, producing a solver/interp divergence.
+    // Track the loaded cell's definedness: initialised from true and
+    // ITE-merged per matching cell below.  Rule 3 enforcement (pushing
+    // to `ub`) happens after the enumeration loop, before the return.
     smt::Term res_is_defined = solver.make_true();
-
     std::vector<smt::Term> matchConds;
     std::function<void(const TypePtr &, SymbolicValue &, std::uint64_t, std::uint64_t)> enumLoad;
     enumLoad = [&](const TypePtr &ty, SymbolicValue &sv, std::uint64_t baseTag, std::uint64_t off) {
@@ -823,6 +819,10 @@ namespace refractir {
         anyMatch = solver.make_term(smt::Kind::OR, {anyMatch, matchConds[i]});
       ub.push_back(anyMatch);
     }
+    // Rule 3: load is a read — reading a cell whose value is undef is
+    // UB at the load site.  Push the loaded cell's definedness into the
+    // UB guards so paths that load undef are infeasible.
+    ub.push_back(res_is_defined);
     return SymbolicValue(
         SymbolicValue::Kind::Int, result, res_is_defined, res_prov_base, res_prov_size
     );
