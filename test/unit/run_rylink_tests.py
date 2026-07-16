@@ -788,6 +788,40 @@ def test_target_python(rylink, rysmith):
       )
 
 
+def test_python_vec_lowering(rylink, rysmith):
+  """rylink --target python honors --vec-lowering (stamped module)."""
+  with tempfile.TemporaryDirectory() as pool:
+    seed_pool(rysmith, pool, extra_args=["--require-reducible"])
+    with tempfile.TemporaryDirectory() as out:
+      r = run(
+        [
+          rylink,
+          "--input-dir",
+          pool,
+          "--n-progs",
+          "2",
+          "--seed",
+          "7",
+          "--target",
+          "python",
+          "--vec-lowering",
+          "structscalars",
+          "-o",
+          out,
+        ]
+      )
+      if r.returncode != 0:
+        check("rylink python --vec-lowering accepted", False, r.stderr[:300])
+        return
+      pys = _walk_files(out, ".py")
+      bad = [p for p in pys if "# vec-lowering: structscalars" not in open(p).read()]
+      check(
+        f"all {len(pys)} rylink python outputs stamped structscalars",
+        bool(pys) and not bad,
+        f"unstamped: {bad}" if pys else "no .py emitted",
+      )
+
+
 def main():
   if len(sys.argv) != 4:
     print("Usage: python3 -m test.unit.run_rylink_tests <rylink> <rysmith> <symiri>")
@@ -821,6 +855,8 @@ def main():
   test_structured_lowering_gating(rylink)
   print("=== rylink --target python ===")
   test_target_python(rylink, rysmith)
+  print("=== rylink python --vec-lowering ===")
+  test_python_vec_lowering(rylink, rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

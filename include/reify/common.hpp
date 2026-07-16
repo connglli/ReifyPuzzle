@@ -26,9 +26,18 @@ namespace refractir::reify {
    * rysmith and rylink so both tools sweep the same strategy set with
    * the same odds.
    */
-  inline std::string pickVecLowering(std::mt19937 &rng, const std::string &requested) {
+  inline std::string pickVecLowering(
+      std::mt19937 &rng, const std::string &requested, const std::string &target = "c"
+  ) {
     if (requested != "random")
       return requested;
+    if (target == "python") {
+      // The python backend supports every strategy except vecext
+      // (no native SIMD value type).
+      static const char *pyStrategies[] = {"array", "scalars", "structscalars", "structarray"};
+      std::uniform_int_distribution<int> d(0, 3);
+      return pyStrategies[d(rng)];
+    }
     static const char *strategies[] = {
         "vecext", "scalars", "array", "structscalars", "structarray"
     };
@@ -267,9 +276,11 @@ namespace refractir::reify {
 
   // [v0.2.3] Compile a Program to Python (in-process). Requires a
   // reducible program (the backend structurizes unconditionally).
+  // `vecLowering` names a python strategy (empty = "array"); vecext
+  // and unknown names fail.
   bool emitPyInProcess(
       refractir::Program &prog, const std::filesystem::path &outFile, bool keepRequire,
-      bool emitMain, bool verbose
+      const std::string &vecLowering, bool emitMain, bool verbose
   );
 
   // Parse a .sir file and compile it with the C / WASM / Python

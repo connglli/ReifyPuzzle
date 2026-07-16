@@ -40,6 +40,7 @@
 #include "ast/sir_printer.hpp"
 #include "backend/c_backend.hpp"
 #include "backend/c_vec_lowering.hpp"
+#include "backend/py_vec_lowering.hpp"
 #include "backend/wasm_backend.hpp"
 #include "cxxopts.hpp"
 #include "frontend/diagnostics.hpp"
@@ -469,7 +470,12 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     std::cout << "  compiled: " << wasmOut << "\n";
   } else if (cfg.target == "python") {
     fs::path pyOut = emitDir / (emitStem + ".py");
-    if (!emitPyInProcess(bundle, pyOut, cfg.keepRequire, cfg.emitMain, cfg.verbose)) {
+    // Per-program strategy pick from the python set (mirrors the C
+    // branch's per-program vec-lowering resolution).
+    std::string vecLow = reify::pickVecLowering(rng, cfg.vecLowering, "python");
+    if (cfg.verbose && !vecLow.empty())
+      std::cout << "  vec-lowering: " << vecLow << "\n";
+    if (!emitPyInProcess(bundle, pyOut, cfg.keepRequire, vecLow, cfg.emitMain, cfg.verbose)) {
       if (cfg.verbose)
         std::cerr << "  backend FAIL (" << failTag << ")\n";
       return false;
@@ -604,6 +610,13 @@ int main(int argc, char **argv) {
   }
   if (pc.structuredLowering != "false" && pc.target == "wasm") {
     std::cerr << "rylink: --structured-lowering is not supported for the wasm target yet\n";
+    return 2;
+  }
+  // The python backend rejects vecext (no native SIMD value type);
+  // catch an explicit request up-front instead of per-program.
+  if (pc.target == "python" && pc.vecLowering != "random" && !makePyVecLowering(pc.vecLowering)) {
+    std::cerr << "rylink: python target does not support --vec-lowering '" << pc.vecLowering
+              << "' (try random|array|scalars|structscalars|structarray)\n";
     return 2;
   }
   // Validate `--vec-lowering` up-front so a typo bites before any

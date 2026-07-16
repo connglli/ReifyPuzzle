@@ -208,12 +208,19 @@ namespace refractir::reify {
   }
 
   bool emitPyInProcess(
-      Program &prog, const fs::path &outFile, bool keepRequire, bool emitMain, bool verbose
+      Program &prog, const fs::path &outFile, bool keepRequire, const std::string &vecLowering,
+      bool emitMain, bool verbose
   ) {
     if (!runAnalysisPasses(prog, verbose))
       return false;
     if (!allFunsReducible(prog, verbose))
       return false;
+    auto vl = makePyVecLowering(vecLowering.empty() ? "array" : vecLowering);
+    if (!vl) {
+      if (verbose)
+        std::cerr << "reify: python target does not support vec-lowering '" << vecLowering << "'\n";
+      return false;
+    }
     std::ofstream ofs(outFile);
     if (!ofs) {
       if (verbose)
@@ -223,6 +230,7 @@ namespace refractir::reify {
     PyBackend pb(ofs);
     pb.setNoRequire(!keepRequire);
     pb.setNoMainMangle(emitMain);
+    pb.setVecLowering(std::move(vl));
     try {
       pb.emit(prog);
     } catch (const std::exception &e) {
@@ -261,7 +269,7 @@ namespace refractir::reify {
       } else if (target == "wasm") {
         return emitWasmInProcess(prog, outPath, keepRequire, emitMain, verbose);
       } else if (target == "python") {
-        return emitPyInProcess(prog, outPath, keepRequire, emitMain, verbose);
+        return emitPyInProcess(prog, outPath, keepRequire, vecLowering, emitMain, verbose);
       } else {
         if (verbose)
           std::cerr << "compileSirInProcess: Unknown target " << target << "\n";

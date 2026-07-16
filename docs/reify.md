@@ -255,6 +255,7 @@ rysmith [OPTIONS]
 | `--target sir\|c\|wasm\|python` | `sir` | Optionally compile each concrete `.sir` in-process (`python` implies `--require-reducible`) |
 | `--require-reducible` | off | Only generate reducible CFGs (irreducible back edges are repaired away) |
 | `--structured-lowering true\|false\|random` | `false` | Structured (goto-free) C lowering, resolved per program; `true`/`random` imply `--require-reducible` and reject `--target wasm` |
+| `--vec-lowering <s>` | `random` | Vector lowering strategy, resolved per program; `random` sweeps the target's set (C: all five; python: all but `vecext`) |
 | `--keep-require` | off | Include `require` checks in compiled output |
 | `--keep-symbolic` | off | Write intermediate symbolic `.sir` to disk |
 | `--validate` | off | Run `symiri` on each concrete `.sir` and check its `Result:` line matches the descriptor's captured CRC32 retValue |
@@ -336,6 +337,7 @@ rylink [OPTIONS]
 | `--max-outdeg N` | 3 | Maximum out-degree per CG node |
 | `--target sir\|c\|wasm\|python` | `c` | `c` uses `symirc --split-by-source`; `python` emits a single `program.py`; `sir` skips lowering |
 | `--structured-lowering true\|false\|random` | `false` | Structured (goto-free) C lowering, resolved per program; rejects `--target wasm` |
+| `--vec-lowering <s>` | `random` | Vector lowering strategy, resolved per program from the target's set (C: all five; python: all but `vecext`) |
 | `--keep-require` | off | Keep `require` checks in C/WASM output |
 | `--validate` | off | Run `symiri` on each emitted program and assert the entry returns its descriptor's solved value |
 | `-v, --verbose` | off | Per-init log lines (`validated: OK`, `symirc FAIL`, etc.) |

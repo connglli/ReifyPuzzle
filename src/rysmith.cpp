@@ -27,6 +27,7 @@
 
 #include "analysis/pass_manager.hpp"
 #include "ast/sir_printer.hpp"
+#include "backend/py_vec_lowering.hpp"
 #include "cxxopts.hpp"
 #include "error.hpp"
 #include "frontend/diagnostics.hpp"
@@ -779,6 +780,13 @@ int main(int argc, char **argv) {
   // the generator-side repair).
   if (structuredLoweringOpt != "false" || target == "python")
     requireReducible = true;
+  // The python backend rejects vecext (no native SIMD value type);
+  // catch an explicit request up-front instead of per-program.
+  if (target == "python" && vecLoweringOpt != "random" && !makePyVecLowering(vecLoweringOpt)) {
+    std::cerr << "error: python target does not support --vec-lowering '" << vecLoweringOpt
+              << "' (try random|array|scalars|structscalars|structarray)\n";
+    return 1;
+  }
 
   // Sibling symiri is mandatory: the post-solve checksum rewrite uses
   // it to compute each concrete .sir's CRC32 return value, which lands
@@ -862,7 +870,7 @@ int main(int argc, char **argv) {
       if (target != "sir") {
         std::string ext = (target == "c") ? ".c" : (target == "python") ? ".py" : ".wat";
         fs::path outPath = p.parent_path() / (p.stem().string() + ext);
-        std::string vecLowering = reify::pickVecLowering(rng, vecLoweringOpt);
+        std::string vecLowering = reify::pickVecLowering(rng, vecLoweringOpt, target);
         if (verbose && !vecLowering.empty())
           std::cout << "  vec-lowering: " << vecLowering << "\n";
         bool structured =

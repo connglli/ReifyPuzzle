@@ -2512,6 +2512,98 @@ def test_structured_lowering_rejects_wasm(rysmith):
     )
 
 
+def test_python_vec_lowering_flag(rysmith):
+  """--target python honors an explicit --vec-lowering strategy."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "2",
+        "--seed",
+        "11",
+        "--target",
+        "python",
+        "--vec-lowering",
+        "structarray",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("rysmith python --vec-lowering structarray accepted", False, r.stderr[:300])
+      return
+    pys = [f for f in os.listdir(d) if f.endswith(".py")]
+    bad = [
+      f
+      for f in pys
+      if "# vec-lowering: structarray" not in open(os.path.join(d, f)).read()
+    ]
+    check(
+      f"all {len(pys)} python outputs stamped structarray",
+      bool(pys) and not bad,
+      f"unstamped: {bad}" if pys else "no .py emitted",
+    )
+
+
+def test_python_vec_lowering_random(rysmith):
+  """--vec-lowering random on python sweeps the python set (no vecext)."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "4",
+        "--seed",
+        "1234",
+        "--target",
+        "python",
+        "--vec-lowering",
+        "random",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("rysmith python --vec-lowering random accepted", False, r.stderr[:300])
+      return
+    pys = [f for f in os.listdir(d) if f.endswith(".py")]
+    allowed = {"array", "scalars", "structarray", "structscalars"}
+    bad = []
+    for f in pys:
+      m = re.search(r"# vec-lowering: (\S+)", open(os.path.join(d, f)).read())
+      if not m or m.group(1) not in allowed:
+        bad.append(f"{f}: {m.group(1) if m else 'no stamp'}")
+    check(
+      f"all {len(pys)} random python outputs use python strategies",
+      bool(pys) and not bad,
+      "; ".join(bad) if pys else "no .py emitted",
+    )
+
+
+def test_python_vec_lowering_vecext_rejected(rysmith):
+  """vecext has no python analogue and is rejected up-front."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--n-funcs",
+        "1",
+        "--target",
+        "python",
+        "--vec-lowering",
+        "vecext",
+        "-o",
+        d,
+      ]
+    )
+    check(
+      "rysmith python + vecext rejected",
+      r.returncode != 0 and "vec-lowering" in (r.stderr or ""),
+      f"rc={r.returncode}, stderr={r.stderr[:150]!r}",
+    )
+
+
 def test_target_python_emits_py(rysmith):
   """--target python writes a syntactically valid .py per program."""
   with tempfile.TemporaryDirectory() as d:
@@ -2689,6 +2781,10 @@ def main():
   test_structured_lowering_rejects_wasm(rysmith)
   print("=== --target python ===")
   test_target_python_emits_py(rysmith)
+  print("=== python --vec-lowering: explicit / random / vecext ===")
+  test_python_vec_lowering_flag(rysmith)
+  test_python_vec_lowering_random(rysmith)
+  test_python_vec_lowering_vecext_rejected(rysmith)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)
