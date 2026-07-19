@@ -17,6 +17,7 @@
 #include "backend/c_backend.hpp"
 #include "backend/py_backend.hpp"
 #include "backend/wasm_backend.hpp"
+#include "backend/wasm_vec_lowering.hpp"
 #include "cxxopts.hpp"
 #include "error.hpp"
 #include "frontend/lexer.hpp"
@@ -211,9 +212,9 @@ int main(int argc, char **argv) {
                   << "' (try array|scalars|structscalars|structarray)\n";
         return 1;
       }
-      if (target == "wasm" && vlName != "array") {
+      if (target == "wasm" && !makeWasmVecLowering(vlName)) {
         std::cerr << "Error: Target 'wasm' does not support vector lowering strategy '" << vlName
-                  << "' (only 'array' is supported)\n";
+                  << "' (try array)\n";
         return 1;
       }
     } else {
@@ -274,6 +275,8 @@ int main(int argc, char **argv) {
       }
       wb.setNoRequire(noRequire);
       wb.setNoMainMangle(emitMain);
+      // [v0.2.3] Vector-lowering strategy (validated above).
+      wb.setVecLowering(makeWasmVecLowering(vlName));
       wb.emit(prog);
     } else if (target == "python") {
       PyBackend pb(*outStream);

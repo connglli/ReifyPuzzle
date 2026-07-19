@@ -5,9 +5,14 @@
 #include <limits>
 #include <sstream>
 #include "analysis/type_utils.hpp"
+#include "backend/wasm_vec_lowering.hpp"
 #include "wasm_internal.hpp"
 
 namespace refractir {
+
+  void WasmBackend::setVecLowering(std::unique_ptr<WasmVecLowering> vl) {
+    vecLowering_ = std::move(vl);
+  }
 
   void WasmBackend::indent() {
     for (int i = 0; i < indent_level_; ++i)
@@ -290,10 +295,14 @@ namespace refractir {
   void WasmBackend::emit(const Program &prog) {
     prog_ = &prog;
     computeLayouts(prog);
+    if (!vecLowering_)
+      vecLowering_ = makeWasmVecLowering("array");
     if (!noModuleTags_) {
       out_ << "(module\n";
       indent_level_++;
     }
+    indent();
+    out_ << ";; vec-lowering: " << vecLowering_->name() << "\n";
 
     for (const auto &f: prog.funs) {
       for (const auto &s: f.syms) {
@@ -452,11 +461,14 @@ namespace refractir {
         locals_[p.name.name] = {getWasmType(p.type), true, getIntWidth(p.type), false, 0, p.type};
       }
       for (const auto &l: f.lets) {
-        // Mark as aggregate if it's struct/array/vector OR if its address is taken (needs memory
-        // slot)
-        bool isAgg = std::holds_alternative<StructType>(l.type->v) ||
-                     std::holds_alternative<ArrayType>(l.type->v) ||
-                     std::holds_alternative<VecType>(l.type->v) || addrTaken.count(l.name.name);
+        // Mark as aggregate if it's a struct/array, a vector under a
+        // frame-memory vec-lowering strategy, OR if its address is taken
+        // (needs a memory slot)
+        bool isAgg =
+            std::holds_alternative<StructType>(l.type->v) ||
+            std::holds_alternative<ArrayType>(l.type->v) ||
+            (std::holds_alternative<VecType>(l.type->v) && vecLowering_->usesFrameMemory()) ||
+            addrTaken.count(l.name.name);
         if (isAgg) {
           std::uint32_t size = getTypeSize(l.type);
           if (stackSize_ % 8 != 0)
@@ -506,10 +518,23 @@ namespace refractir {
       out_ << "(local $__fmod_q_f64 f64)\n";
       for (const auto &l: f.lets) {
         if (!locals_[l.name.name].isAggregate) {
-          indent();
-          out_ << "(local " << mangleName(l.name.name) << " " << locals_[l.name.name].wasmType
-               << ")\n";
+          if (std::holds_alternative<VecType>(l.type->v)) {
+            // [v0.2.3] Register vec-lowering strategy: the strategy owns
+            // the backing locals for this vector.
+            vecLowering_->declareLocals(*this, l.name.name, std::get<VecType>(l.type->v));
+          } else {
+            indent();
+            out_ << "(local " << mangleName(l.name.name) << " " << locals_[l.name.name].wasmType
+                 << ")\n";
+          }
         }
+      }
+      if (!vecLowering_->usesFrameMemory()) {
+        // Backing locals for vector params (unpacked from the pointer
+        // ABI below, once the shadow-stack prologue has run).
+        for (const auto &p: f.params)
+          if (std::holds_alternative<VecType>(p.type->v))
+            vecLowering_->declareLocals(*this, p.name.name, std::get<VecType>(p.type->v));
       }
 
       if (stackSize_ > 0) {
@@ -525,6 +550,13 @@ namespace refractir {
         out_ << "i32.sub\n";
         indent();
         out_ << "global.set $__stack_pointer\n";
+      }
+
+      if (!vecLowering_->usesFrameMemory()) {
+        // [v0.2.3] Unpack pointer-ABI vector params into strategy storage.
+        for (const auto &p: f.params)
+          if (std::holds_alternative<VecType>(p.type->v))
+            vecLowering_->unpackParam(*this, p.name.name, std::get<VecType>(p.type->v));
       }
 
       for (const auto &l: f.lets) {

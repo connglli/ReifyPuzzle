@@ -1,11 +1,13 @@
 #pragma once
 
 #include <iostream>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 #include "ast/ast.hpp"
+#include "backend/wasm_vec_lowering.hpp"
 
 namespace refractir {
 
@@ -20,6 +22,7 @@ namespace refractir {
    */
   class WasmBackend {
     friend struct WasmIntrinsicRegistry;
+    friend class WasmVecLowering;
 
   public:
     explicit WasmBackend(std::ostream &out) : out_(out) {}
@@ -35,10 +38,14 @@ namespace refractir {
 
     void setNoMainMangle(bool val) { noMainMangle_ = val; }
 
+    /// [v0.2.3] Select the vector storage strategy (default: "array").
+    void setVecLowering(std::unique_ptr<WasmVecLowering> vl);
+
   private:
     std::ostream &out_;
     int indent_level_ = 0;
     std::string curFuncName_;
+    std::unique_ptr<WasmVecLowering> vecLowering_; // set lazily to "array" in emit()
     bool noModuleTags_ = false;
     bool noRequire_ = false;
     bool noMainMangle_ = false;
