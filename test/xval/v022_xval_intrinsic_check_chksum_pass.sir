@@ -1,6 +1,5 @@
 // EXPECT: PASS
 // EXPECT_RC: 12345
-// SKIP: WASM
 // [v0.2.2] Cross-validate @check_chksum's happy path: when expected ==
 // actual the intrinsic returns `actual` verbatim. The C lowering's
 // fprintf+abort fence stays dormant; the interpreter's UB throw stays

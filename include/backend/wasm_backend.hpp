@@ -111,7 +111,6 @@ namespace refractir {
     void emitInitVal(const InitVal &iv, const TypePtr &type, std::uint32_t offset);
     // [v0.2.2] Emit a WASM helper function for one intrinsic.
     void emitIntrinsicHelper(const IntrinsicDecl &intr);
-    std::string intrinsicHelperName(const std::string &intrName, std::uint32_t bits) const;
     std::string intrinsicHelperName(const IntrinsicDecl &intr) const;
     void emitCopy(
         const TypePtr &type, std::uint32_t dstOffset, const std::string &srcName,

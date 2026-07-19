@@ -1,6 +1,5 @@
 // EXPECT: PASS
 // EXPECT_RC: 650981917
-// SKIP: WASM
 // [v0.2.2] Cross-validate @crc32_update: a five-step chain over 1..5 at
 // i32 must produce the same signed-i32 state in both symiri and the
 // compiled C lowering. Reference value 650981917 was independently

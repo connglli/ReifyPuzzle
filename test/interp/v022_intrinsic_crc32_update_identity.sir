@@ -1,5 +1,4 @@
 // EXPECT: PASS
-// SKIP: WASM
 // [v0.2.2] @crc32_update has two convenient identities the interpreter
 // must preserve verbatim:
 //   1. update(state=0, val=0) == 0 at every supported val width — every

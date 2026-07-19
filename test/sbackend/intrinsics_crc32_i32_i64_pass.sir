@@ -1,0 +1,21 @@
+// EXPECT: PASS
+
+// Two width overloads of @crc32_update in one program (i32 and i64):
+// exercises per-width helper naming — both overloads must get distinct
+// helpers — and the little-endian byte order of the multi-byte fold.
+
+intrinsic @crc32_update(%state: i32, %val: i32) : i32;
+intrinsic @crc32_update(%state: i32, %val: i64) : i32;
+intrinsic @check_chksum(%expected: i32, %actual: i32) : i32;
+
+fun @main(): i32 {
+    let mut %s: i32 = 0;
+    let mut %r: i32 = 0;
+    let %big: i64 = 1234605616436508552; // 0x1122334455667788
+^entry:
+    %s = call @crc32_update(0, 305419896); // 0x12345678
+    %r = call @check_chksum(-1909892914, %s);
+    %s = call @crc32_update(%s, %big);
+    %r = call @check_chksum(695568031, %s);
+    ret %r;
+}

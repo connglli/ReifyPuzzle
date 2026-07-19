@@ -1,0 +1,13 @@
+// EXPECT: FAIL:UndefinedBehavior
+
+// @check_chksum on unequal operands diverges: UB in symiri, abort() in
+// compiled C, RefractIRTrap in python, `unreachable` trap in WASM.
+
+intrinsic @check_chksum(%expected: i32, %actual: i32) : i32;
+
+fun @main(): i32 {
+    let mut %r: i32 = 0;
+^entry:
+    %r = call @check_chksum(1, 2);
+    ret %r;
+}

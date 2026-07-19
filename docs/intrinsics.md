@@ -1206,8 +1206,18 @@ quartet that's ~4 KB of `.bss` per .c file — the explicit cost of the
 table-driven recurrence over unbounded Python integers, masked to
 uint32 per step; the table is built lazily at module level.
 
-**WASM**: not lowered. R1 targets the C backend; `symirc --target wasm`
-errors out cleanly when the input declares `@crc32_update`.
+**WASM** (`src/backend/wasm_intrinsics.cpp::Crc32UpdateIntrinsic`):
+table-free. WASM has no cheap module-level mutable table storage, so
+the helper runs the defining LFSR recurrence directly — per byte,
+`s ^= byte` then eight rounds of
+`s = (s >>u 1) ^ ((s & 1) * 0xEDB88320)`. The round function is linear
+over GF(2), so eight rounds on the full register equal the table form
+`(s >> 8) ^ tab[(s ^ byte) & 0xFF]`; the values are bit-exact with the
+interpreter and C lowerings (checked by the self-verifying
+`test/sbackend/intrinsics_crc32_*` programs, which trap through
+`@check_chksum` on any mismatch). No imports, no linear-memory
+footprint. The "compiler-opaque" concern from R1 doesn't apply: the
+backend emits final WAT with no optimizer behind it.
 
 **Solver**: not encoded. `@crc32_update` is never reached on a
 *symbolic* path — the rewriter applies it post-solve to the
@@ -1254,7 +1264,11 @@ separate library on toolchains older than glibc 2.35 and on musl.
 raises `RefractIRTrap("@check_chksum mismatch")` on mismatch (nonzero
 exit), returns `actual` on equality.
 
-**WASM**: not lowered (matches `@crc32_update`).
+**WASM** (`src/backend/wasm_intrinsics.cpp::CheckChksumIntrinsic`):
+`if (expected != actual) unreachable`, then returns `actual`. The trap
+is the WASM-native analogue of the C lowering's `fprintf` + `abort` —
+externally visible divergence without any host imports, consistent
+with the backend's no-host-stdio model.
 
 **Solver**: not encoded. Only the rylink-generated `@main` wrapper
 calls it, and that wrapper is the **end** of execution; no SMT path

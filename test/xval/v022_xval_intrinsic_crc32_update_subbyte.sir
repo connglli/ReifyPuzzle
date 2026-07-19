@@ -1,6 +1,5 @@
 // EXPECT: PASS
 // EXPECT_RC: -1467705806
-// SKIP: WASM
 // [v0.2.2] Cross-validate @crc32_update on val widths that are NOT a
 // multiple of 8, using negative values so the high bits of the last
 // byte are set after sign-extension. The spec zero-pads those pad bits

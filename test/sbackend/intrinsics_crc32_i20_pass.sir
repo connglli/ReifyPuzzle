@@ -1,0 +1,19 @@
+// EXPECT: PASS
+
+// Non-multiple-of-8 value width: i20 rounds up to 3 bytes and the high
+// 4 bits of the last byte must read as zero. Folding %v = -1 (masked
+// to 0xFFFFF) must therefore hash bytes {0xFF, 0xFF, 0x0F} — a lowering
+// that forgets the zero-pad mask hashes 0xFF for the last byte instead.
+
+intrinsic @crc32_update(%state: i32, %val: i20) : i32;
+intrinsic @check_chksum(%expected: i32, %actual: i32) : i32;
+
+fun @main(): i32 {
+    let mut %s: i32 = 0;
+    let mut %r: i32 = 0;
+    let %v: i20 = -1;
+^entry:
+    %s = call @crc32_update(0, %v);
+    %r = call @check_chksum(-1123822578, %s);
+    ret %r;
+}

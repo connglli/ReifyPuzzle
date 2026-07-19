@@ -1635,6 +1635,171 @@ namespace refractir {
       }
     };
 
+    // ── Checksum primitives ──────────────────────────────────────────────
+    //
+    // Bit-exact with the interpreter / C lowerings, but table-free: WASM
+    // has no cheap module-level mutable table storage, so the per-byte
+    // step runs the defining LFSR recurrence directly. Because the round
+    // function r(s) = (s >> 1) ^ ((s & 1) * poly) is linear over GF(2),
+    // eight rounds on the full register equal the table form
+    // (s >> 8) ^ tab[(s ^ byte) & 0xFF] — same values, no lookup table,
+    // no imports, no linear-memory footprint.
+
+    class Crc32UpdateIntrinsic final : public WasmIntrinsic {
+    public:
+      void declareLocals(
+          WasmBackend &b, const IntrinsicDecl &intr, uint32_t, uint32_t, const std::string &
+      ) const override {
+        declLocal(b, "s", "i32");
+        declLocal(b, "v", ityOf(widen(paramN(intr, 1))));
+        declLocal(b, "b", "i32");
+        declLocal(b, "j", "i32");
+      }
+
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &intr, uint32_t /*N*/, uint32_t /*W*/,
+          const std::string & /*ity*/
+      ) const override {
+        uint32_t valBits = paramN(intr, 1);
+        uint32_t valW = widen(valBits);
+        std::string vty = ityOf(valW);
+        uint32_t nBytes = (valBits + 7) / 8;
+
+        pushArg(backend, 0);
+        indent(backend);
+        out(backend) << "local.set $s\n";
+        pushArg(backend, 1);
+        if (valBits % 8 != 0 && valBits < valW) {
+          // Zero-pad the last byte per the spec: the (sign-extended)
+          // high bits of a negative iN must read as 0 above bit valBits,
+          // matching the C lowering's mask and the interpreter's
+          // argUint(valBits).
+          indent(backend);
+          out(backend) << vty << ".const " << ((uint64_t(1) << valBits) - 1) << "\n";
+          indent(backend);
+          out(backend) << vty << ".and\n";
+        }
+        indent(backend);
+        out(backend) << "local.set $v\n";
+
+        indent(backend);
+        out(backend) << "i32.const 0\n";
+        indent(backend);
+        out(backend) << "local.set $b\n";
+        indent(backend);
+        out(backend) << "(loop $bytes\n";
+        incrIndent(backend);
+        // s ^= v & 0xFF
+        indent(backend);
+        out(backend) << "local.get $s\n";
+        indent(backend);
+        out(backend) << "local.get $v\n";
+        if (valW == 64) {
+          indent(backend);
+          out(backend) << "i32.wrap_i64\n";
+        }
+        indent(backend);
+        out(backend) << "i32.const 255\n";
+        indent(backend);
+        out(backend) << "i32.and\n";
+        indent(backend);
+        out(backend) << "i32.xor\n";
+        indent(backend);
+        out(backend) << "local.set $s\n";
+        // 8 bit rounds: s = (s >>u 1) ^ ((s & 1) * 0xEDB88320)
+        indent(backend);
+        out(backend) << "i32.const 0\n";
+        indent(backend);
+        out(backend) << "local.set $j\n";
+        indent(backend);
+        out(backend) << "(loop $bits\n";
+        incrIndent(backend);
+        indent(backend);
+        out(backend) << "local.get $s\n";
+        indent(backend);
+        out(backend) << "i32.const 1\n";
+        indent(backend);
+        out(backend) << "i32.shr_u\n";
+        indent(backend);
+        out(backend) << "local.get $s\n";
+        indent(backend);
+        out(backend) << "i32.const 1\n";
+        indent(backend);
+        out(backend) << "i32.and\n";
+        indent(backend);
+        out(backend) << "i32.const 3988292384\n"; // 0xEDB88320 (reflected poly)
+        indent(backend);
+        out(backend) << "i32.mul\n";
+        indent(backend);
+        out(backend) << "i32.xor\n";
+        indent(backend);
+        out(backend) << "local.set $s\n";
+        indent(backend);
+        out(backend) << "local.get $j\n";
+        indent(backend);
+        out(backend) << "i32.const 1\n";
+        indent(backend);
+        out(backend) << "i32.add\n";
+        indent(backend);
+        out(backend) << "local.tee $j\n";
+        indent(backend);
+        out(backend) << "i32.const 8\n";
+        indent(backend);
+        out(backend) << "i32.lt_s\n";
+        indent(backend);
+        out(backend) << "br_if $bits\n";
+        decrIndent(backend);
+        indent(backend);
+        out(backend) << ")\n";
+        // v >>= 8; continue while ++b < nBytes
+        indent(backend);
+        out(backend) << "local.get $v\n";
+        indent(backend);
+        out(backend) << vty << ".const 8\n";
+        indent(backend);
+        out(backend) << vty << ".shr_u\n";
+        indent(backend);
+        out(backend) << "local.set $v\n";
+        indent(backend);
+        out(backend) << "local.get $b\n";
+        indent(backend);
+        out(backend) << "i32.const 1\n";
+        indent(backend);
+        out(backend) << "i32.add\n";
+        indent(backend);
+        out(backend) << "local.tee $b\n";
+        indent(backend);
+        out(backend) << "i32.const " << nBytes << "\n";
+        indent(backend);
+        out(backend) << "i32.lt_s\n";
+        indent(backend);
+        out(backend) << "br_if $bytes\n";
+        decrIndent(backend);
+        indent(backend);
+        out(backend) << ")\n";
+        indent(backend);
+        out(backend) << "local.get $s\n";
+      }
+    };
+
+    class CheckChksumIntrinsic final : public WasmIntrinsic {
+    public:
+      // Mismatch diverges via `unreachable` — the WASM-native analogue of
+      // the C lowering's fprintf+abort. A trap is externally visible, so
+      // the checksum chain stays observable without any host imports.
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t /*N*/, uint32_t /*W*/,
+          const std::string & /*ity*/
+      ) const override {
+        pushArg(backend, 0);
+        pushArg(backend, 1);
+        indent(backend);
+        out(backend) << "i32.ne\n";
+        unreachableIfTop(backend);
+        pushArg(backend, 1);
+      }
+    };
+
   } // namespace
 
   // ── §12.6 Floating-point sign / bit ops (v0.2.2 extra batch D.1) ────
@@ -2218,19 +2383,15 @@ namespace refractir {
       r[IntrinsicKind::SaturatingNeg] = std::make_unique<SaturatingNegIntrinsic>();
       r[IntrinsicKind::DivEuclid] = std::make_unique<DivEuclidIntrinsic>();
       r[IntrinsicKind::RemEuclid] = std::make_unique<RemEuclidIntrinsic>();
+      // Checksum primitives
+      r[IntrinsicKind::Crc32Update] = std::make_unique<Crc32UpdateIntrinsic>();
+      r[IntrinsicKind::CheckChksum] = std::make_unique<CheckChksumIntrinsic>();
       return r;
     }();
     return registry;
   }
 
-  std::string WasmBackend::intrinsicHelperName(const std::string &intrName, uint32_t bits) const {
-    std::string base = intrName;
-    if (!base.empty() && base[0] == '@')
-      base.erase(0, 1);
-    return "$_refractir_" + base + "_i" + std::to_string(bits);
-  }
-
-  // FP-aware overload (v0.2.2 extra D.1): mirrors the C-backend rule.
+  // FP-aware, decl-based naming (v0.2.2 extra D.1): mirrors the C-backend rule.
   std::string WasmBackend::intrinsicHelperName(const IntrinsicDecl &intr) const {
     std::string base = intr.name.name;
     if (!base.empty() && base[0] == '@')
@@ -2247,7 +2408,17 @@ namespace refractir {
         return "$_refractir_" + base + "_i" + std::to_string(b);
       }
     }
+    // For integer intrinsics whose parameter widths differ from the
+    // return width, mangle by the first differing parameter's width
+    // instead of the return (mirrors the C backend) — otherwise the
+    // per-arg width overloads of one intrinsic (e.g. @crc32_update over
+    // i8 / i32 / i64) would all collapse onto one helper name.
     auto rb = TypeUtils::getIntBitWidth(intr.retType);
+    for (const auto &p: intr.params) {
+      auto pb = TypeUtils::getIntBitWidth(p.type);
+      if (pb && rb && *pb != *rb)
+        return "$_refractir_" + base + "_i" + std::to_string(*pb);
+    }
     return "$_refractir_" + base + "_i" + std::to_string(rb.value_or(32));
   }
 
@@ -2264,16 +2435,6 @@ namespace refractir {
   }
 
   void WasmBackend::emitIntrinsicHelper(const IntrinsicDecl &intr) {
-    // @crc32_update / @check_chksum have C lowerings that depend on
-    // host-side stdio (`fprintf`, `abort`). The equivalent WASM import
-    // wiring isn't in place yet; refuse to emit and signal explicitly
-    // rather than silently falling through to `unreachable`.
-    if (auto kind = getIntrinsicKind(intr.name.name)) {
-      if (*kind == IntrinsicKind::Crc32Update || *kind == IntrinsicKind::CheckChksum) {
-        throw std::runtime_error("WASM lowering for " + intr.name.name + " is not implemented.");
-      }
-    }
-
     // FP-touching path (v0.2.2 extra D.1).
     bool anyFp = (intr.retType && std::holds_alternative<FloatType>(intr.retType->v));
     for (const auto &p: intr.params)
@@ -2316,7 +2477,9 @@ namespace refractir {
     uint32_t N = rb;
     uint32_t W = (N <= 32) ? 32 : 64;
     std::string ity = (W == 32) ? "i32" : "i64";
-    std::string name = intrinsicHelperName(intr.name.name, N);
+    // Same decl-based name as the call site in emitCallAtom — the two
+    // must agree or per-width overloads dangle.
+    std::string name = intrinsicHelperName(intr);
 
     indent();
     out_ << "(func " << name;

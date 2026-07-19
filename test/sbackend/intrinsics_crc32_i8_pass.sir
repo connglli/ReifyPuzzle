@@ -1,0 +1,22 @@
+// EXPECT: PASS
+
+// @crc32_update over i8 values: three single-byte folds from state 0.
+// The expected constant is the reference CRC32 (reflected 0xEDB88320,
+// no init/final XOR) of bytes {0x41, 0x42, 0xFF}; @check_chksum traps
+// on mismatch, so a wrong lowering fails at runtime on every target.
+
+intrinsic @crc32_update(%state: i32, %val: i8) : i32;
+intrinsic @check_chksum(%expected: i32, %actual: i32) : i32;
+
+fun @main(): i32 {
+    let mut %s: i32 = 0;
+    let mut %r: i32 = 0;
+    let %ff: i8 = -1;
+^entry:
+    %s = call @crc32_update(0, 65);
+    %s = call @crc32_update(%s, 66);
+    %s = call @crc32_update(%s, %ff);
+    %r = call @check_chksum(-1642781187, %s);
+    require %r == %s, "check_chksum returns actual";
+    ret %r;
+}

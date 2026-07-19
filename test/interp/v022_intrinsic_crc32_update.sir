@@ -1,5 +1,4 @@
 // EXPECT: PASS
-// SKIP: WASM
 // [v0.2.2] @crc32_update: byte-wise table-driven CRC32 update step.
 // Polynomial 0xEDB88320 (reflected), LSB-first byte order, no initial /
 // final XOR. Overloaded by val width; this test exercises i8/i16/i32/i64

@@ -1,5 +1,4 @@
 // EXPECT: FAIL:UndefinedBehavior
-// SKIP: WASM
 // [v0.2.2] @check_chksum raises UB on mismatch — the C lowering's
 // `fprintf(stderr,…); abort();` is the externally-visible side effect
 // that defeats observation folding; the interpreter mirrors that with a
