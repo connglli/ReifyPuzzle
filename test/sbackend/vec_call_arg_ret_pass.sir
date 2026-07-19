@@ -1,0 +1,24 @@
+// EXPECT: PASS
+
+// Vector in, vector out, with i64 lanes (8-byte lane loads/stores on
+// both sides of the boundary).
+
+fun @double4(%v: <4> i64) : <4> i64 {
+  let mut %w: <4> i64 = undef;
+^entry:
+  %w = %v + %v;
+  ret %w;
+}
+
+fun @main() : i32 {
+  let mut %v: <4> i64 = { 1000000000000, -2, 3, 4 };
+  let mut %w: <4> i64 = undef;
+  let mut %r: i64 = 0;
+^entry:
+  %w = call @double4(%v);
+  %r = %w[0] + %w[1];
+  require %r == 1999999999996, "lane 0 and 1 doubled";
+  %r = %w[2] + %w[3];
+  require %r == 14, "lane 2 and 3 doubled";
+  ret 0;
+}

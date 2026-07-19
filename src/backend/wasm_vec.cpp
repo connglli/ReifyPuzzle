@@ -47,10 +47,111 @@ namespace refractir {
             emitVecCastAtomLane(arg, vt, lane, targetWidth);
           } else if constexpr (std::is_same_v<T, CmpAtom>) {
             emitVecCmpAtomLane(arg, vt, lane, targetWidth);
+          } else if constexpr (std::is_same_v<T, CallAtom>) {
+            // Materialized once by materializeVecCalls; each lane is a
+            // plain load from the call's sret scratch slot.
+            emitVecCallLane(arg, lane, targetWidth, isFloat);
           }
         },
         atom.v
     );
+  }
+
+  // ── [v0.2.3] Vector-returning calls in vector expressions ────────────
+  //
+  // Per-lane expression emission re-walks the rhs once per lane, so a
+  // call atom left in place would re-invoke the callee N times — wrong
+  // whenever the callee has side effects (e.g. mutates caller state
+  // through a pointer parameter). The flat expression grammar confines
+  // calls to top-level atom positions and to `select` mask expressions
+  // (SelectVal arms and cmp operands admit no calls), so one shallow
+  // walk finds every call: emit each exactly once, filling its sret
+  // scratch slot, before the lane loop reads lanes back.
+
+  void WasmBackend::materializeVecCalls(const Expr &expr) {
+    auto handleAtom = [this](const Atom &a) {
+      if (auto ca = std::get_if<CallAtom>(&a.v)) {
+        auto [ptypes, rtype] = calleeSignature(*ca);
+        (void) ptypes;
+        if (rtype && std::holds_alternative<VecType>(rtype->v))
+          emitCallAtom(*ca);
+      } else if (auto sa = std::get_if<SelectAtom>(&a.v)) {
+        if (sa->maskExpr)
+          materializeVecCalls(*sa->maskExpr);
+      }
+    };
+    handleAtom(expr.first);
+    for (const auto &t: expr.rest)
+      handleAtom(t.atom);
+  }
+
+  WasmBackend::VecCallSlots WasmBackend::vecCallSlots(const CallAtom &arg) {
+    VecCallSlots slots;
+    auto [ptypes, rtype] = calleeSignature(arg);
+    auto align8 = [](std::uint32_t n) { return (n + 7u) & ~7u; };
+    std::uint32_t disp = 0;
+    slots.argDisp.assign(ptypes.size(), -1);
+    for (size_t i = 0; i < ptypes.size(); ++i) {
+      if (ptypes[i] && std::holds_alternative<VecType>(ptypes[i]->v)) {
+        slots.argDisp[i] = disp;
+        disp += align8(getTypeSize(ptypes[i]));
+      }
+    }
+    if (rtype && std::holds_alternative<VecType>(rtype->v)) {
+      slots.retDisp = disp;
+      disp += align8(getTypeSize(rtype));
+    }
+    slots.totalBytes = disp;
+    return slots;
+  }
+
+  void WasmBackend::emitVecCallLane(
+      const CallAtom &arg, std::uint64_t lane, std::uint32_t targetWidth, bool isFloat
+  ) {
+    (void) isFloat;
+    auto [ptypes, rtype] = calleeSignature(arg);
+    (void) ptypes;
+    if (!rtype || !std::holds_alternative<VecType>(rtype->v))
+      return;
+    const auto &rvt = std::get<VecType>(rtype->v);
+    VecCallSlots slots = vecCallSlots(arg);
+    std::int64_t off = static_cast<std::int64_t>(callVecScratch_.at(&arg)) - slots.retDisp;
+    std::uint32_t elemSize = getTypeSize(rvt.elem);
+    indent();
+    out_ << "local.get $__old_sp\n";
+    indent();
+    out_ << "i32.const " << (off - static_cast<std::int64_t>(lane * elemSize)) << "\n";
+    indent();
+    out_ << "i32.sub\n";
+
+    std::uint32_t width = getIntWidth(rvt.elem);
+    bool valIsFloat = std::holds_alternative<FloatType>(rvt.elem->v);
+    indent();
+    if (valIsFloat) {
+      out_ << (width == 32 ? "f32.load\n" : "f64.load\n");
+    } else {
+      out_
+          << (width <= 8
+                  ? "i32.load8_s\n"
+                  : (width <= 16 ? "i32.load16_s\n" : (width <= 32 ? "i32.load\n" : "i64.load\n")));
+    }
+    if (!valIsFloat) {
+      if (width <= 32 && targetWidth > 32) {
+        indent();
+        out_ << "i64.extend_i32_s\n";
+      } else if (width > 32 && targetWidth <= 32) {
+        indent();
+        out_ << "i32.wrap_i64\n";
+      }
+    } else {
+      if (width == 32 && targetWidth == 64) {
+        indent();
+        out_ << "f64.promote_f32\n";
+      } else if (width == 64 && targetWidth == 32) {
+        indent();
+        out_ << "f32.demote_f64\n";
+      }
+    }
   }
 
   void WasmBackend::emitVecOpAtomLane(
@@ -446,6 +547,52 @@ namespace refractir {
     if (!locals_.count(lv.base.name))
       return;
     const auto &info = locals_.at(lv.base.name);
+
+    // [v0.2.3] Whole-vector read of a vector *param*: the param local
+    // holds the caller's spill address (the by-address boundary ABI), so
+    // a lane read is a load at pointer + lane*elemSize.
+    if (info.isParam && std::holds_alternative<VecType>(info.refractirType->v) &&
+        lv.accesses.empty()) {
+      const auto &pvt = std::get<VecType>(info.refractirType->v);
+      std::uint32_t elemSize = getTypeSize(pvt.elem);
+      indent();
+      out_ << "local.get " << mangleName(lv.base.name) << "\n";
+      if (lane > 0) {
+        indent();
+        out_ << "i32.const " << (lane * elemSize) << "\n";
+        indent();
+        out_ << "i32.add\n";
+      }
+      std::uint32_t width = getIntWidth(pvt.elem);
+      bool valIsFloat = std::holds_alternative<FloatType>(pvt.elem->v);
+      indent();
+      if (valIsFloat) {
+        out_ << (width == 32 ? "f32.load\n" : "f64.load\n");
+      } else {
+        out_
+            << (width <= 8 ? "i32.load8_s\n"
+                           : (width <= 16 ? "i32.load16_s\n"
+                                          : (width <= 32 ? "i32.load\n" : "i64.load\n")));
+      }
+      if (!valIsFloat) {
+        if (width <= 32 && targetWidth > 32) {
+          indent();
+          out_ << "i64.extend_i32_s\n";
+        } else if (width > 32 && targetWidth <= 32) {
+          indent();
+          out_ << "i32.wrap_i64\n";
+        }
+      } else {
+        if (width == 32 && targetWidth == 64) {
+          indent();
+          out_ << "f64.promote_f32\n";
+        } else if (width == 64 && targetWidth == 32) {
+          indent();
+          out_ << "f32.demote_f64\n";
+        }
+      }
+      return;
+    }
 
     if (!info.isAggregate || !lv.accesses.empty()) {
       emitLValue(lv, false);

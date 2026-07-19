@@ -1,0 +1,28 @@
+// EXPECT: PASS
+
+// A vector argument must arrive intact in the callee. Sub-word i16
+// lanes exercise the 16-bit lane loads/stores at the call boundary.
+
+fun @sum4(%v: <4> i16) : i32 {
+  let mut %s: i32 = 0;
+  let mut %t: i32 = 0;
+^entry:
+  %t = %v[0] as i32;
+  %s = %s + %t;
+  %t = %v[1] as i32;
+  %s = %s + %t;
+  %t = %v[2] as i32;
+  %s = %s + %t;
+  %t = %v[3] as i32;
+  %s = %s + %t;
+  ret %s;
+}
+
+fun @main() : i32 {
+  let mut %v: <4> i16 = { 100, -200, 300, 4 };
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @sum4(%v);
+  require %r == 204, "vector argument lanes must survive the call";
+  ret %r;
+}

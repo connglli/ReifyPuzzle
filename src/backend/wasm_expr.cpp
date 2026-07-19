@@ -441,11 +441,10 @@ namespace refractir {
     out_ << "i32.add\n";
   }
 
-  void WasmBackend::emitCallAtom(const CallAtom &arg) {
-
-    // [v0.2.2] Push arguments left-to-right then `call $name`.
-    // Use the overload the type checker pinned onto the AST
-    // node — see CallAtom::resolvedIntrinsic.
+  // [v0.2.2] Use the overload the type checker pinned onto the AST
+  // node — see CallAtom::resolvedIntrinsic — with a width-based
+  // fallback for un-annotated nodes.
+  const IntrinsicDecl *WasmBackend::resolveIntrinsic(const CallAtom &arg) {
     const IntrinsicDecl *intr = arg.resolvedIntrinsic;
     if (!intr && prog_) {
       for (const auto &i: prog_->intrinsics) {
@@ -473,28 +472,79 @@ namespace refractir {
           intr = &i;
       }
     }
-    // Determine the parameter types so we can pass argWidth correctly.
+    return intr;
+  }
+
+  std::pair<std::vector<TypePtr>, TypePtr> WasmBackend::calleeSignature(const CallAtom &arg) {
     std::vector<TypePtr> ptypes;
-    if (intr) {
+    TypePtr rtype;
+    if (const IntrinsicDecl *intr = resolveIntrinsic(arg)) {
       for (const auto &p: intr->params)
         ptypes.push_back(p.type);
-    } else if (prog_) {
+      return {std::move(ptypes), intr->retType};
+    }
+    if (prog_) {
       for (const auto &f: prog_->funs)
         if (f.name.name == arg.callee.name) {
           for (const auto &p: f.params)
             ptypes.push_back(p.type);
-          break;
+          return {std::move(ptypes), f.retType};
         }
-      if (ptypes.empty()) {
-        for (const auto &d: prog_->extDecls)
-          if (d.name.name == arg.callee.name) {
-            for (const auto &p: d.params)
-              ptypes.push_back(p.type);
-            break;
-          }
-      }
+      for (const auto &d: prog_->extDecls)
+        if (d.name.name == arg.callee.name) {
+          for (const auto &p: d.params)
+            ptypes.push_back(p.type);
+          return {std::move(ptypes), d.retType};
+        }
     }
+    return {std::move(ptypes), rtype};
+  }
+
+  void WasmBackend::emitCallAtom(const CallAtom &arg, std::int64_t sretOffset) {
+    // Push arguments left-to-right then `call $name`. Vector arguments
+    // are spilled to this call site's scratch block and passed as an i32
+    // address; a vector return gets the sret address pushed last.
+    const IntrinsicDecl *intr = resolveIntrinsic(arg);
+    auto [ptypes, rtype] = calleeSignature(arg);
+    VecCallSlots slots = vecCallSlots(arg);
+    std::uint32_t base = 0;
+    if (slots.totalBytes > 0)
+      base = callVecScratch_.at(&arg); // pre-scan in emit() sized this block
     for (size_t i = 0; i < arg.args.size(); ++i) {
+      if (i < ptypes.size() && ptypes[i] && std::holds_alternative<VecType>(ptypes[i]->v)) {
+        const auto &vt = std::get<VecType>(ptypes[i]->v);
+        std::int64_t off = static_cast<std::int64_t>(base) - slots.argDisp[i];
+        std::uint32_t elemSize = getTypeSize(vt.elem);
+        std::uint32_t width = getIntWidth(vt.elem);
+        bool isFloat = std::holds_alternative<FloatType>(vt.elem->v);
+        // Inner vector-returning calls evaluate once, before the lanes.
+        materializeVecCalls(*arg.args[i]);
+        for (std::uint64_t lane = 0; lane < vt.size; ++lane) {
+          indent();
+          out_ << "local.get $__old_sp\n";
+          indent();
+          out_ << "i32.const " << (off - static_cast<std::int64_t>(lane * elemSize)) << "\n";
+          indent();
+          out_ << "i32.sub\n";
+          emitVecExprLane(*arg.args[i], vt, lane, width, isFloat);
+          indent();
+          if (isFloat) {
+            out_ << (width == 32 ? "f32.store\n" : "f64.store\n");
+          } else {
+            out_ << (width <= 8 ? "i32.store8"
+                                : (width <= 16 ? "i32.store16"
+                                               : (width <= 32 ? "i32.store" : "i64.store")))
+                 << "\n";
+          }
+        }
+        indent();
+        out_ << "local.get $__old_sp\n";
+        indent();
+        out_ << "i32.const " << off << "\n";
+        indent();
+        out_ << "i32.sub\n";
+        continue;
+      }
       uint32_t pw = 32;
       bool pf = false;
       if (i < ptypes.size() && ptypes[i]) {
@@ -510,6 +560,16 @@ namespace refractir {
         }
       }
       emitExpr(*arg.args[i], pw, pf);
+    }
+    if (rtype && std::holds_alternative<VecType>(rtype->v)) {
+      std::int64_t off =
+          sretOffset >= 0 ? sretOffset : static_cast<std::int64_t>(base) - slots.retDisp;
+      indent();
+      out_ << "local.get $__old_sp\n";
+      indent();
+      out_ << "i32.const " << off << "\n";
+      indent();
+      out_ << "i32.sub\n";
     }
     indent();
     if (intr) {

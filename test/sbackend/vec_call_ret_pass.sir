@@ -1,0 +1,19 @@
+// EXPECT: PASS
+
+// A vector return value must arrive intact in the caller.
+
+fun @mk() : <4> i32 {
+  let mut %v: <4> i32 = { 5, 6, 7, 8 };
+^entry:
+  ret %v;
+}
+
+fun @main() : i32 {
+  let mut %v: <4> i32 = undef;
+  let mut %r: i32 = 0;
+^entry:
+  %v = call @mk();
+  %r = %v[0] + %v[3];
+  require %r == 13, "vector return lanes must survive the call";
+  ret %r;
+}

@@ -341,6 +341,7 @@ namespace refractir {
       curFuncName_ = f.name.name;
       locals_.clear();
       syms_.clear();
+      callVecScratch_.clear();
       stackSize_ = 0;
 
       // Pre-scan: collect variables whose address is taken (must be spilled to shadow stack)
@@ -368,6 +369,15 @@ namespace refractir {
                 // stack. Recurse into every argument expression.
                 for (const auto &ap: arg.args) {
                   scanExpr(*ap);
+                }
+                // [v0.2.3] Size this call site's scratch block for
+                // vectors crossing the boundary (spilled args + sret).
+                VecCallSlots slots = vecCallSlots(arg);
+                if (slots.totalBytes > 0) {
+                  if (stackSize_ % 8 != 0)
+                    stackSize_ += 8 - (stackSize_ % 8);
+                  stackSize_ += slots.totalBytes;
+                  callVecScratch_[&arg] = stackSize_;
                 }
               }
             },
@@ -465,7 +475,13 @@ namespace refractir {
       for (const auto &p: f.params) {
         out_ << " (param " << mangleName(p.name.name) << " " << getWasmType(p.type) << ")";
       }
-      if (f.retType) {
+      // [v0.2.3] Vector returns go through a hidden trailing sret address
+      // param instead of a WASM result — the callee writes the lanes into
+      // caller-owned frame memory.
+      bool retVec = f.retType && std::holds_alternative<VecType>(f.retType->v);
+      if (retVec) {
+        out_ << " (param $__sret i32)";
+      } else if (f.retType) {
         out_ << " (result " << getWasmType(f.retType) << ")";
       }
       out_ << "\n";
@@ -629,6 +645,21 @@ namespace refractir {
                       std::uint32_t elemSize = getTypeSize(vt.elem);
                       bool valIsFloat = std::holds_alternative<FloatType>(vt.elem->v);
                       uint32_t width = getIntWidth(vt.elem);
+                      // [v0.2.3] `%v = call @f(...)` — write through sret
+                      // straight into the lhs storage, no lane loop.
+                      if (arg.rhs.rest.empty()) {
+                        if (auto ca = std::get_if<CallAtom>(&arg.rhs.first.v)) {
+                          auto [ptypes, rtype] = calleeSignature(*ca);
+                          (void) ptypes;
+                          if (rtype && std::holds_alternative<VecType>(rtype->v)) {
+                            emitCallAtom(*ca, info.offset);
+                            return;
+                          }
+                        }
+                      }
+                      // Nested vector-returning calls evaluate exactly
+                      // once, before the per-lane rhs walk.
+                      materializeVecCalls(arg.rhs);
                       for (uint64_t i = 0; i < vt.size; ++i) {
                         indent();
                         out_ << "local.get $__old_sp\n";
@@ -826,7 +857,36 @@ namespace refractir {
                   out_ << "br $__refractir_dispatch_loop\n";
                 }
               } else if constexpr (std::is_same_v<T, RetTerm>) {
-                if (arg.value) {
+                if (arg.value && f.retType && std::holds_alternative<VecType>(f.retType->v)) {
+                  // [v0.2.3] Vector return: copy the lanes into the
+                  // caller's sret slot; the function has no WASM result.
+                  const auto &vt = std::get<VecType>(f.retType->v);
+                  std::uint32_t elemSize = getTypeSize(vt.elem);
+                  std::uint32_t width = getIntWidth(vt.elem);
+                  bool valIsFloat = std::holds_alternative<FloatType>(vt.elem->v);
+                  materializeVecCalls(*arg.value);
+                  for (uint64_t i = 0; i < vt.size; ++i) {
+                    indent();
+                    out_ << "local.get $__sret\n";
+                    if (i > 0) {
+                      indent();
+                      out_ << "i32.const " << (i * elemSize) << "\n";
+                      indent();
+                      out_ << "i32.add\n";
+                    }
+                    emitVecExprLane(*arg.value, vt, i, width, valIsFloat);
+                    indent();
+                    if (valIsFloat) {
+                      out_ << (width == 32 ? "f32.store\n" : "f64.store\n");
+                    } else {
+                      out_ << (width <= 8
+                                   ? "i32.store8"
+                                   : (width <= 16 ? "i32.store16"
+                                                  : (width <= 32 ? "i32.store" : "i64.store")))
+                           << "\n";
+                    }
+                  }
+                } else if (arg.value) {
                   bool isFloat = std::holds_alternative<FloatType>(f.retType->v);
                   emitExpr(*arg.value, getIntWidth(f.retType), isFloat);
                 }
@@ -851,7 +911,7 @@ namespace refractir {
       indent();
       out_ << ") ;; dispatch loop\n";
 
-      if (f.retType && !f.blocks.empty()) {
+      if (f.retType && !retVec && !f.blocks.empty()) {
         indent();
         bool isFloat = std::holds_alternative<FloatType>(f.retType->v);
         if (isFloat) {

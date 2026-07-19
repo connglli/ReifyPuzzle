@@ -72,6 +72,28 @@ namespace refractir {
 
     std::unordered_map<std::string, StructInfo> structLayouts_;
 
+    // [v0.2.3] Vectors cross the call boundary through caller-owned frame
+    // memory: every vector argument is spilled into a per-call-site
+    // scratch slot and passed as an i32 address, and a vector return is
+    // written by the callee through a hidden trailing `$__sret` address
+    // parameter. The pre-scan in emit() sizes one scratch block per call
+    // site (keyed by CallAtom node) into the frame; VecCallSlots describes
+    // the block's internal layout as displacements from its base offset.
+    struct VecCallSlots {
+      std::vector<std::int64_t> argDisp; // per-arg displacement; -1 = non-vector arg
+      std::int64_t retDisp = -1;         // sret-slot displacement; -1 = non-vector ret
+      std::uint32_t totalBytes = 0;
+    };
+
+    std::unordered_map<const CallAtom *, std::uint32_t> callVecScratch_;
+    const IntrinsicDecl *resolveIntrinsic(const CallAtom &arg);
+    std::pair<std::vector<TypePtr>, TypePtr> calleeSignature(const CallAtom &arg);
+    VecCallSlots vecCallSlots(const CallAtom &arg);
+    // Emit (once) every vector-returning call nested in a vector
+    // expression, filling its scratch slot, so per-lane emission can read
+    // lanes without re-invoking the callee.
+    void materializeVecCalls(const Expr &expr);
+
     // --- Emission helpers ---
     void indent();
     void emitType(const TypePtr &type);
@@ -97,7 +119,10 @@ namespace refractir {
     void emitSelectAtom(const SelectAtom &arg, std::uint32_t targetWidth, bool isFloat);
     void emitCmpAtom(const CmpAtom &arg, std::uint32_t targetWidth);
     void emitPtrIndexAtom(const PtrIndexAtom &arg);
-    void emitCallAtom(const CallAtom &arg);
+    // sretOffset >= 0 overrides the sret target for a vector-returning
+    // call: the callee writes straight into `$__old_sp - sretOffset`
+    // (used when the call is the whole rhs of a vector assignment).
+    void emitCallAtom(const CallAtom &arg, std::int64_t sretOffset = -1);
     void emitPtrFieldAtom(const PtrFieldAtom &arg);
     void emitUnaryAtom(const UnaryAtom &arg, std::uint32_t targetWidth, bool isFloat);
     void emitAddrAtom(const AddrAtom &arg);
@@ -152,6 +177,9 @@ namespace refractir {
     );
     void emitVecCmpAtomLane(
         const CmpAtom &arg, const VecType &vt, std::uint64_t lane, std::uint32_t targetWidth
+    );
+    void emitVecCallLane(
+        const CallAtom &arg, std::uint64_t lane, std::uint32_t targetWidth, bool isFloat
     );
     void emitVecCoefLane(
         const Coef &coef, const VecType &vt, std::uint64_t lane, std::uint32_t targetWidth,
