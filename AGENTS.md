@@ -372,7 +372,8 @@ ALWAYS:
 3. Ensure all tests pass (timeouts excepted)
 4. Check changes with `git status`
 5. Split work into small, reviewable commits
-6. Use Conventional Commit messages:
+6. Ask the user to review your changes before committing
+7. Use Conventional Commit messages:
 
 ```text
 <type>[optional scope]: <title>
