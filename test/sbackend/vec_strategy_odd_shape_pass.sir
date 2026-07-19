@@ -1,0 +1,31 @@
+// EXPECT: PASS
+// SKIP: C — the C default strategy (GCC vector_size) requires a
+// power-of-two lane count; <3> i16 is exercised for the WASM v128
+// part-filled-register path and the python lane-list path.
+
+// A shape that only part-fills its v128 register (<3> i16 uses 3 of 8
+// sublanes): unused sublanes must never leak into reads, copies, or
+// the call boundary.
+
+fun @sum3(%v: <3> i16) : i32 {
+  let mut %s: i32 = 0;
+  let mut %t: i32 = 0;
+^entry:
+  %t = %v[0] as i32;
+  %s = %s + %t;
+  %t = %v[1] as i32;
+  %s = %s + %t;
+  %t = %v[2] as i32;
+  %s = %s + %t;
+  ret %s;
+}
+
+fun @main() : i32 {
+  let mut %v: <3> i16 = { 1000, -2000, 3000 };
+  let mut %w: <3> i16 = %v;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @sum3(%w);
+  require %r == 2000, "1000 - 2000 + 3000";
+  ret %r;
+}

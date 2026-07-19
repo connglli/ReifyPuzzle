@@ -214,11 +214,13 @@ int main(int argc, char **argv) {
       }
       if (target == "wasm" && !makeWasmVecLowering(vlName)) {
         std::cerr << "Error: Target 'wasm' does not support vector lowering strategy '" << vlName
-                  << "' (try array|scalars)\n";
+                  << "' (try vecext|array|scalars)\n";
         return 1;
       }
     } else {
-      vlName = (target == "c") ? "vecext" : "array";
+      // C and WASM default to their native SIMD value type ("vecext" —
+      // v128 on WASM); python has none and defaults to lane lists.
+      vlName = (target == "python") ? "array" : "vecext";
     }
 
     if (target == "c") {

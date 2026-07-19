@@ -67,6 +67,7 @@ BACKEND_SRCS = src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
                src/backend/wasm_lvalue.cpp src/backend/wasm_types.cpp \
                src/backend/wasm_vec_lowering_array.cpp \
                src/backend/wasm_vec_lowering_scalars.cpp \
+               src/backend/wasm_vec_lowering_vecext.cpp \
                src/backend/py_backend.cpp src/backend/py_expr.cpp \
                src/backend/py_types.cpp src/backend/py_lvalue.cpp \
                src/backend/py_vec_lowering_array.cpp \
@@ -163,6 +164,7 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                src/backend/wasm_types.o \
                src/backend/wasm_vec_lowering_array.o \
                src/backend/wasm_vec_lowering_scalars.o \
+               src/backend/wasm_vec_lowering_vecext.o \
                src/backend/py_backend.o \
                src/backend/py_expr.o \
                src/backend/py_types.o \

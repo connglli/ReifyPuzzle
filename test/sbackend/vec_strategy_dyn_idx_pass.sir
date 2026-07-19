@@ -1,0 +1,25 @@
+// EXPECT: PASS
+
+// Dynamic lane indices: a runtime-computed index must select the right
+// lane for both reads and writes. The 'scalars' strategy rejects this
+// program by design; 'array' navigates memory and 'vecext' lowers it
+// to a per-lane select chain.
+
+fun @main() : i32 {
+  let mut %v: <4> i32 = { 10, 20, 30, 40 };
+  let mut %i: i32 = 2;
+  let mut %r: i32 = 0;
+^entry:
+  %r = %v[%i];
+  require %r == 30, "dynamic read of lane 2";
+  %v[%i] = 300;
+  %i = %i - 1;
+  %r = %v[%i];
+  require %r == 20, "write must not spill into lane 1";
+  %i = %i + 1;
+  %r = %v[%i];
+  require %r == 300, "dynamic write of lane 2";
+  %r = %v[3];
+  require %r == 40, "lane 3 untouched";
+  ret %r;
+}

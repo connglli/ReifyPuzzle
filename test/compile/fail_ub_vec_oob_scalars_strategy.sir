@@ -1,10 +1,12 @@
-// EXPECT: FAIL:UndefinedBehavior
+// EXPECT: FAIL
 // SKIP: INTERPRETER
 // COMPILER_ARGS: --vec-lowering scalars
 
-// Testing C backend 'scalars' strategy with complex lane access.
-// This strategy unrolls vectors into individual variables.
-// Rule 20: OOB vector lane access.
+// Testing the 'scalars' strategy with a dynamic (runtime) lane index.
+// Every backend's 'scalars' lowering rejects dynamic indices at
+// emission time — a runtime index cannot select a distinct variable —
+// so this fails at compile time on C, WASM, and python alike.
+// (Rule 20 OOB would apply had it compiled.)
 
 fun @main() : i32 {
   let mut %v: <4> i32 = {1, 2, 3, 4};

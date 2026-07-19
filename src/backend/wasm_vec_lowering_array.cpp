@@ -91,12 +91,15 @@ namespace refractir {
 
   // Per-strategy makers defined in their own TUs.
   std::unique_ptr<WasmVecLowering> makeWasmScalarsLowering();
+  std::unique_ptr<WasmVecLowering> makeWasmVecextLowering();
 
   std::unique_ptr<WasmVecLowering> makeWasmVecLowering(const std::string &name) {
     if (name == "array")
       return std::make_unique<WasmArrayLowering>();
     if (name == "scalars")
       return makeWasmScalarsLowering();
+    if (name == "vecext")
+      return makeWasmVecextLowering();
     return nullptr;
   }
 

@@ -1,0 +1,26 @@
+// EXPECT: PASS
+
+// A vector wider than 16 bytes (<8> i32 = 32 bytes): under 'vecext'
+// this splits across two v128 registers; lanes on both sides of the
+// register boundary must behave identically, including through a call.
+
+fun @sum8(%v: <8> i32) : i32 {
+  let mut %s: i32 = 0;
+^entry:
+  %s = %v[0] + %v[1] + %v[2] + %v[3];
+  %s = %s + %v[4] + %v[5] + %v[6] + %v[7];
+  ret %s;
+}
+
+fun @main() : i32 {
+  let mut %v: <8> i32 = { 1, 2, 3, 4, 100, 200, 300, -400 };
+  let mut %w: <8> i32 = undef;
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @sum8(%v);
+  require %r == 210, "1+2+3+4+100+200+300-400";
+  %w = %v + %v;
+  %r = %w[3] + %w[4];
+  require %r == 208, "8 + 200 across the register boundary";
+  ret %r;
+}

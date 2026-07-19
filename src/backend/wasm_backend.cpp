@@ -296,7 +296,7 @@ namespace refractir {
     prog_ = &prog;
     computeLayouts(prog);
     if (!vecLowering_)
-      vecLowering_ = makeWasmVecLowering("array");
+      vecLowering_ = makeWasmVecLowering("vecext");
     if (!noModuleTags_) {
       out_ << "(module\n";
       indent_level_++;
@@ -516,6 +516,7 @@ namespace refractir {
       out_ << "(local $__fmod_q_f32 f32)\n";
       indent();
       out_ << "(local $__fmod_q_f64 f64)\n";
+      vecLowering_->declareFuncScratch(*this);
       for (const auto &l: f.lets) {
         if (!locals_[l.name.name].isAggregate) {
           if (std::holds_alternative<VecType>(l.type->v)) {

@@ -46,6 +46,11 @@ namespace refractir {
     /// True iff plain vector locals live in shadow-stack frame memory.
     virtual bool usesFrameMemory() const = 0;
 
+    /// Declare per-function scratch locals this strategy needs (called
+    /// once per function, before the per-vector declarations). Default:
+    /// none.
+    virtual void declareFuncScratch(WasmBackend &) {}
+
     /// Declare the backing WASM locals for vector local/param `name`.
     virtual void declareLocals(WasmBackend &b, const std::string &name, const VecType &vt) = 0;
 

@@ -144,11 +144,19 @@ def run_refractirc_test(refractirc_path, target="c", structured=False):
       cmd.append("--structured-lowering")
     # [v0.2.2] Pass through -I include paths from COMPILER_ARGS so tests
     # that consume the test/lib/std library can find their bodies.
+    # [v0.2.3] Also pass through --vec-lowering so a test can pin the
+    # vector storage strategy it exercises (each target validates the
+    # name itself and rejects strategies it doesn't support).
     compiler_args_pass = args.get("COMPILER_ARGS", [])
     i = 0
     while i < len(compiler_args_pass):
       if compiler_args_pass[i] == "-I" and i + 1 < len(compiler_args_pass):
         cmd.extend(["-I", compiler_args_pass[i + 1]])
+        i += 2
+      elif compiler_args_pass[i] == "--vec-lowering" and i + 1 < len(
+        compiler_args_pass
+      ):
+        cmd.extend(["--vec-lowering", compiler_args_pass[i + 1]])
         i += 2
       else:
         i += 1

@@ -155,8 +155,10 @@ namespace refractir {
     TypePtr getAtomType(const Atom &atom);
     TypePtr getExprType(const Expr &expr);
     TypePtr getCoefType(const Coef &coef);
-    // TODO: Support native WebAssembly SIMD-128 (v128) lowering for vectors as planned
-    // in SPEC v0.2.1 §10.16. Currently vectors are lowered by unrolling operations lane-by-lane.
+    // Vector compute unrolls operations lane-by-lane; storage is owned by
+    // the WasmVecLowering strategy (default "vecext": native v128
+    // registers per SPEC v0.2.1 §10.16, with wider shapes split across
+    // registers).
     void emitVecExprLane(
         const Expr &expr, const VecType &vt, std::uint64_t lane, std::uint32_t targetWidth,
         bool isFloat

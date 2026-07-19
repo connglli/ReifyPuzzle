@@ -181,13 +181,13 @@ fun @main(%a: i32) : i32 {
       )
 
 
-def test_refractirc_wasm_rejects_checksum(symirc):
-  """SPEC v0.2.2 §12.7 — the reify checksum intrinsics @crc32_update and
-  @check_chksum lower to C only. `symirc --target wasm` must reject any
-  program that declares them (clean non-zero exit), while `--target c`
-  accepts the same program. This is the only "C accepts, WASM rejects"
-  contract shipped in v0.2.2, so it lives here rather than in the dual-target
-  compiler suite (which runs both targets on every file)."""
+def test_refractirc_wasm_lowers_checksum(symirc):
+  """[v0.2.3] The reify checksum intrinsics @crc32_update and
+  @check_chksum lower on every compiled target. `symirc --target wasm`
+  emits a self-contained helper (table-free LFSR / trap-on-mismatch —
+  see docs/intrinsics.md), so both targets must accept the program and
+  the WAT must define the helper. Value-level verification lives in the
+  self-checking test/sbackend/intrinsics_* programs."""
   cases = {
     "@crc32_update": """intrinsic @crc32_update(%state: i32, %val: i32) : i32;
 fun @main() : i32 {
@@ -220,15 +220,16 @@ fun @main() : i32 {
       )
       rw = run([symirc, inp, "--target", "wasm", "-o", wat_out])
       check(
-        f"symirc --target wasm rejects {name} (non-zero exit)",
-        rw.returncode != 0,
+        f"symirc --target wasm accepts {name}",
+        rw.returncode == 0,
         f"rc={rw.returncode}, stdout={rw.stdout!r}, stderr={rw.stderr!r}",
       )
-      blob = rw.stdout + rw.stderr
+      wat = open(wat_out).read() if rw.returncode == 0 else ""
+      helper = "$_refractir_" + name.lstrip("@")
       check(
-        f"wasm rejection names {name}",
-        name in blob or name.lstrip("@") in blob,
-        f"diagnostic did not mention {name}: {blob!r}",
+        f"wasm output defines the {name} helper",
+        helper in wat,
+        f"{helper} not found in emitted WAT",
       )
 
 
@@ -247,8 +248,8 @@ def main():
   test_refractirsolve_solved_header(symirsolve, symiri)
   print("=== symirc --split-by-source ===")
   test_refractirc_split_by_source(symirc)
-  print("=== symirc --target wasm rejects checksum intrinsics ===")
-  test_refractirc_wasm_rejects_checksum(symirc)
+  print("=== symirc --target wasm lowers checksum intrinsics ===")
+  test_refractirc_wasm_lowers_checksum(symirc)
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

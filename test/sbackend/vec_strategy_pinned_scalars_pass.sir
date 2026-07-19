@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --vec-lowering scalars
+
+// Pinned 'scalars' strategy (supported by C, WASM, and python): init
+// forms, whole-vector copy, literal lane access, and arithmetic. No
+// dynamic lane indices (rejected by design) and no vector function
+// boundary (the C twin refuses it; WASM/python support it through
+// their lane-wise ABIs, exercised by the unpinned vec_call tests).
+
+fun @main() : i32 {
+  let mut %v: <4> i32 = { 10, -20, 30, -40 };
+  let mut %w: <4> i32 = %v;
+  let mut %s: <4> i32 = undef;
+  let mut %r: i32 = 0;
+^entry:
+  %w[3] = 40;
+  %s = %v + %w;
+  %r = %s[0] + %s[1];
+  require %r == -20, "20 + (-40)";
+  %r = %s[2] + %s[3];
+  require %r == 60, "60 + 0";
+  %r = %v[3];
+  require %r == -40, "copy is by value: v unchanged";
+  ret %r;
+}

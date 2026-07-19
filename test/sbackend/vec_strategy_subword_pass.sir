@@ -1,0 +1,25 @@
+// EXPECT: PASS
+
+// i8 lanes (16 per v128 register under 'vecext'): sign extension must
+// survive lane storage — negative bytes read back negative — and
+// lane-wise arithmetic stays within i8 range (overflow would be UB).
+
+fun @main() : i32 {
+  let mut %v: <8> i8 = { 60, -60, 5, -6, 1, -1, 50, -50 };
+  let mut %w: <8> i8 = undef;
+  let mut %t: i32 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %w = %v + %v - %v;
+  %t = %w[0] as i32;
+  require %t == 60, "60 round-trips";
+  %t = %w[1] as i32;
+  require %t == -60, "-60 round-trips";
+  %v[7] = -128;
+  %t = %v[7] as i32;
+  require %t == -128, "most negative i8 survives lane storage";
+  %t = %v[5] as i32;
+  require %t == -1, "-1 lane survives storage";
+  %r = %t;
+  ret %r;
+}
