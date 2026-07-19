@@ -773,7 +773,7 @@ detect it:
 |---|---|---|
 | **Frontend (semantic checker)** | `intrinsic @x` declaration is refused. Program will not parse. | Truly nonsensical or stateful intrinsics: `@rand`, `@time`, anything impure, anything that produces non-finite FP. |
 | **Solver (`symirsolve`)** | Declaration and program are accepted; reaching a `call @x` on a *symbolic* path makes that path infeasible (the same effect as UB pruning). Concrete-only paths still solve. | Transcendentals, recursive number theory, anything without a precise SMT encoding. |
-| **WASM backend** | Compile-time error from `symirc --target wasm`: "`@x` not lowerable to WASM target". | Intrinsics with no native WASM op whose polyfill would diverge from the C target (e.g. `wasi-libc` vs `glibc` libm last-ULP drift). The C target may still accept them. |
+| **WASM backend** | Compile-time error from `symirc --target wasm`: "`@x` not lowerable to WASM target". | Reserved as of v0.2.3 — the checksum primitives were the last users of this layer and now lower natively (§12.7). It stays as the designated home for future P3 libm-backed intrinsics whose polyfill would diverge from the C target (e.g. `wasi-libc` vs `glibc` last-ULP drift). |
 | **Interpreter** | Runtime error (distinct from UB: "intrinsic not implemented in this build"). | Reserved. The interpreter is the reference oracle; aim to keep this empty. |
 
 **Consistency rule.** The interpreter must agree with every other
@@ -786,7 +786,7 @@ same libm so cross-validation is byte-equal by construction.
 | Tier | Solver | C | WASM | Interp | Plan |
 |---|---|---|---|---|---|
 | **P0** | ★ / ◐ | ★ | ★ / ◐ | ★ | v0.2.2: ship in four batches (below) |
-| **P1** | ★ / ◐ | ★ | ◐ / ◑ (composed lowerings) | ★ | Planned for a later version |
+| **P1** | ★ / ◐ | ★ | ◐ (composed lowerings; `@remainder` ◯) | ★ | Mostly unblocked by v0.2.3; ship on demand (below) |
 | **P2** | ◑ (bounded encoding, may time out) | ★ | ◑ | ★ | Planned behind a feature flag |
 | **P3** | rejects path | ★ via libm | rejected (or libm with ULP drift) | ★ via libm | Planned |
 | **P4** | — | — | — | — | Rejected at frontend, permanently |
@@ -1276,19 +1276,42 @@ ever needs to reason about its post-state.
 
 ---
 
-### P1 — solver-easy, WASM-tricky (planned)
+### P1 — solver-easy, composed WASM lowerings (planned)
 
-Solver and C lowerings remain trivial; WASM has no direct op and needs
-a small composition. Ship after P0 completes.
+Solver and C lowerings remain trivial. This tier was originally
+deferred as "solver-easy, WASM-tricky": each member needs a small
+composition rather than a direct WASM opcode. v0.2.3 closed most of
+that gap — the WASM backend now routinely ships composed lowerings
+(multi-step integer helpers up to the loop-based `@crc32_update`, FP
+compositions like `@fract`/`@recip`, native v128 vector storage) — so
+WASM difficulty no longer gates the tier as a whole. What actually
+gates each member now:
 
-`@ffs` (`ctz+1` with 0→0), `@next_pow2`, `@round` (away-from-zero;
-distinct from `@rint` ties-to-even), `@fmod` (truncated remainder —
-**not** the same as `@remainder`), `@remainder` (IEEE `fp.rem`),
-`@fdim`, `@modf`, `@frexp`, `@nextafter`, `@fpclassify`, `@total_cmp`,
-saturating fp→int conversions (Rust's default `as`).
+- **Ready, awaiting demand** (composition machinery exists on every
+  backend): `@ffs` (`ctz+1` with 0→0), `@next_pow2`, `@fdim`,
+  `@fpclassify`, `@total_cmp`, `@nextafter` (a
+  `@to_bits`/`@from_bits` composition), `@round` (away-from-zero,
+  distinct from the deferred ties-to-even `@rint`; bit-exact as
+  `trunc(x)` plus an exact half-way comparison — the naive
+  `trunc(x + copysign(0.5, x))` double-rounds), `@fmod` (truncated
+  remainder — **not** the same as `@remainder`; the `%` operator's
+  inline expansion already ships on every backend, the intrinsic is a
+  reuse), and saturating fp→int conversions (native
+  `iN.trunc_sat_fM_s` opcodes; Rust's default `as`).
+- **Blocked on the multi-value return ABI**: `@modf`, `@frexp` — the
+  same blocker as P0's tuple-returning `@checked_*` /
+  `@overflowing_*` family; ship together with it.
+- **Still genuinely WASM-hard**: `@remainder` (IEEE `fp.rem`). SMT
+  and libm are trivial, but a bit-exact WASM composition needs an
+  iterative reduction — `x - rint(x/y)*y` double-rounds and the
+  quotient can exceed integer precision. Keep deferred until there is
+  concrete demand.
 
 Vector reductions (`@reduce_add`, `@reduce_max`, …) also land here in
-spirit but are bundled with the v0.2.3 SIMD work — see spec §13.
+spirit. The v0.2.3 SIMD work shipped their storage side (the native
+v128 vec-lowering); what remains is the intrinsic surface itself —
+lane-fold solver encodings and per-backend reduction helpers — see
+spec §13.
 
 ### P2 — solver-feasible-but-expensive (planned, behind a flag)
 
