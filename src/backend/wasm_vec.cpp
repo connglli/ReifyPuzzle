@@ -105,6 +105,28 @@ namespace refractir {
     return slots;
   }
 
+  void WasmBackend::emitVecLaneConvert(const TypePtr &elemTy, std::uint32_t targetWidth) {
+    std::uint32_t width = getIntWidth(elemTy);
+    bool valIsFloat = std::holds_alternative<FloatType>(elemTy->v);
+    if (!valIsFloat) {
+      if (width <= 32 && targetWidth > 32) {
+        indent();
+        out_ << "i64.extend_i32_s\n";
+      } else if (width > 32 && targetWidth <= 32) {
+        indent();
+        out_ << "i32.wrap_i64\n";
+      }
+    } else {
+      if (width == 32 && targetWidth == 64) {
+        indent();
+        out_ << "f64.promote_f32\n";
+      } else if (width == 64 && targetWidth == 32) {
+        indent();
+        out_ << "f32.demote_f64\n";
+      }
+    }
+  }
+
   void WasmBackend::emitVecCallLane(
       const CallAtom &arg, std::uint64_t lane, std::uint32_t targetWidth, bool isFloat
   ) {
@@ -135,23 +157,7 @@ namespace refractir {
                   ? "i32.load8_s\n"
                   : (width <= 16 ? "i32.load16_s\n" : (width <= 32 ? "i32.load\n" : "i64.load\n")));
     }
-    if (!valIsFloat) {
-      if (width <= 32 && targetWidth > 32) {
-        indent();
-        out_ << "i64.extend_i32_s\n";
-      } else if (width > 32 && targetWidth <= 32) {
-        indent();
-        out_ << "i32.wrap_i64\n";
-      }
-    } else {
-      if (width == 32 && targetWidth == 64) {
-        indent();
-        out_ << "f64.promote_f32\n";
-      } else if (width == 64 && targetWidth == 32) {
-        indent();
-        out_ << "f32.demote_f64\n";
-      }
-    }
+    emitVecLaneConvert(rvt.elem, targetWidth);
   }
 
   void WasmBackend::emitVecOpAtomLane(
@@ -548,6 +554,16 @@ namespace refractir {
       return;
     const auto &info = locals_.at(lv.base.name);
 
+    // [v0.2.3] Register-strategy storage: the strategy owns lane reads of
+    // plain vector locals and params.
+    if (lv.accesses.empty() && std::holds_alternative<VecType>(info.refractirType->v) &&
+        !vecLowering_->usesFrameMemory()) {
+      const auto &pvt = std::get<VecType>(info.refractirType->v);
+      vecLowering_->emitLaneRead(*this, lv.base.name, pvt, lane);
+      emitVecLaneConvert(pvt.elem, targetWidth);
+      return;
+    }
+
     // [v0.2.3] Whole-vector read of a vector *param*: the param local
     // holds the caller's spill address (the by-address boundary ABI), so
     // a lane read is a load at pointer + lane*elemSize.
@@ -574,23 +590,7 @@ namespace refractir {
                            : (width <= 16 ? "i32.load16_s\n"
                                           : (width <= 32 ? "i32.load\n" : "i64.load\n")));
       }
-      if (!valIsFloat) {
-        if (width <= 32 && targetWidth > 32) {
-          indent();
-          out_ << "i64.extend_i32_s\n";
-        } else if (width > 32 && targetWidth <= 32) {
-          indent();
-          out_ << "i32.wrap_i64\n";
-        }
-      } else {
-        if (width == 32 && targetWidth == 64) {
-          indent();
-          out_ << "f64.promote_f32\n";
-        } else if (width == 64 && targetWidth == 32) {
-          indent();
-          out_ << "f32.demote_f64\n";
-        }
-      }
+      emitVecLaneConvert(pvt.elem, targetWidth);
       return;
     }
 
@@ -651,22 +651,92 @@ namespace refractir {
                   : (width <= 16 ? "i32.load16_s\n" : (width <= 32 ? "i32.load\n" : "i64.load\n")));
     }
 
-    if (!valIsFloat) {
-      if (width <= 32 && targetWidth > 32) {
-        indent();
-        out_ << "i64.extend_i32_s\n";
-      } else if (width > 32 && targetWidth <= 32) {
-        indent();
-        out_ << "i32.wrap_i64\n";
+    emitVecLaneConvert(elemTy, targetWidth);
+  }
+
+  // [v0.2.3] Initializer for a register-strategy vector local. Mirrors
+  // the frame-memory emitInitVal semantics per lane (literals broadcast,
+  // aggregate elements land per-lane, syms call the per-lane provider,
+  // Local copies from the source's storage), but routes every write
+  // through the strategy instead of address+store. Undef lanes are left
+  // at the WASM local default (reading undef is UB; no sentinel needed).
+  void
+  WasmBackend::emitVecLocalInit(const std::string &name, const VecType &vt, const InitVal &iv) {
+    std::uint32_t width = getIntWidth(vt.elem);
+    std::uint32_t wasmW = (width <= 32) ? 32 : 64;
+    bool isF = std::holds_alternative<FloatType>(vt.elem->v);
+
+    auto pushElem = [&](const InitVal &el) {
+      switch (el.kind) {
+        case InitVal::Kind::Int:
+          indent();
+          if (isF) {
+            out_ << (width <= 32 ? "f32.const " : "f64.const ") << std::get<IntLit>(el.value).value
+                 << ".0\n";
+          } else {
+            out_ << (wasmW == 32 ? "i32.const " : "i64.const ") << std::get<IntLit>(el.value).value
+                 << "\n";
+            emitSignExtend(width, wasmW);
+          }
+          break;
+        case InitVal::Kind::Float:
+          indent();
+          out_ << (width <= 32 ? "f32.const " : "f64.const ")
+               << formatFloatLit(std::get<FloatLit>(el.value).value) << "\n";
+          break;
+        case InitVal::Kind::Atom:
+          emitAtom(*std::get<AtomPtr>(el.value), width, isF);
+          break;
+        default:
+          // Undef element: any value is fine (reading it back is UB).
+          indent();
+          out_ << (isF ? (width <= 32 ? "f32.const 0.0" : "f64.const 0.0")
+                       : (wasmW == 32 ? "i32.const 0" : "i64.const 0"))
+               << "\n";
+          break;
       }
-    } else {
-      if (width == 32 && targetWidth == 64) {
-        indent();
-        out_ << "f64.promote_f32\n";
-      } else if (width == 64 && targetWidth == 32) {
-        indent();
-        out_ << "f32.demote_f64\n";
+    };
+
+    switch (iv.kind) {
+      case InitVal::Kind::Undef:
+        break;
+      case InitVal::Kind::Aggregate: {
+        const auto &elements = std::get<std::vector<InitValPtr>>(iv.value);
+        for (std::uint64_t k = 0; k < vt.size && k < elements.size(); ++k) {
+          if (elements[k]->kind == InitVal::Kind::Undef)
+            continue;
+          vecLowering_->emitLaneWrite(*this, name, vt, k, [&] { pushElem(*elements[k]); });
+        }
+        break;
       }
+      case InitVal::Kind::Sym: {
+        const auto &sid = std::get<SymId>(iv.value);
+        for (std::uint64_t k = 0; k < vt.size; ++k) {
+          vecLowering_->emitLaneWrite(*this, name, vt, k, [&] {
+            indent();
+            out_ << "call " << mangleName(getMangledSymbolName(curFuncName_, sid.name)) << "__" << k
+                 << "\n";
+            if (!isF)
+              emitSignExtend(width, wasmW);
+          });
+        }
+        break;
+      }
+      case InitVal::Kind::Local: {
+        const auto &lid = std::get<LocalId>(iv.value);
+        for (std::uint64_t k = 0; k < vt.size; ++k) {
+          vecLowering_->emitLaneWrite(*this, name, vt, k, [&] {
+            emitVecLValueLane({lid, {}, iv.span}, vt, k, width, isF);
+          });
+        }
+        break;
+      }
+      default:
+        // Int / Float / Atom broadcast into every lane.
+        for (std::uint64_t k = 0; k < vt.size; ++k) {
+          vecLowering_->emitLaneWrite(*this, name, vt, k, [&] { pushElem(iv); });
+        }
+        break;
     }
   }
 

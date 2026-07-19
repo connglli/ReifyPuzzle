@@ -13,6 +13,31 @@ namespace refractir {
 
   void WasmVecLowering::indent(WasmBackend &b) { b.indent(); }
 
+  std::string
+  WasmVecLowering::laneLocal(WasmBackend &b, const std::string &name, std::uint64_t lane) {
+    return b.mangleName(name) + "__" + std::to_string(lane);
+  }
+
+  std::string WasmVecLowering::paramLocal(WasmBackend &b, const std::string &name) {
+    return b.mangleName(name);
+  }
+
+  std::string WasmVecLowering::wasmTypeOf(WasmBackend &b, const TypePtr &t) {
+    return b.getWasmType(t);
+  }
+
+  std::uint32_t WasmVecLowering::intWidthOf(WasmBackend &b, const TypePtr &t) {
+    return b.getIntWidth(t);
+  }
+
+  std::uint32_t WasmVecLowering::typeSizeOf(WasmBackend &b, const TypePtr &t) {
+    return b.getTypeSize(t);
+  }
+
+  void WasmVecLowering::signExtend(WasmBackend &b, std::uint32_t from, std::uint32_t to) {
+    b.emitSignExtend(from, to);
+  }
+
   namespace {
 
     class WasmArrayLowering final : public WasmVecLowering {
@@ -64,9 +89,14 @@ namespace refractir {
 
   } // namespace
 
+  // Per-strategy makers defined in their own TUs.
+  std::unique_ptr<WasmVecLowering> makeWasmScalarsLowering();
+
   std::unique_ptr<WasmVecLowering> makeWasmVecLowering(const std::string &name) {
     if (name == "array")
       return std::make_unique<WasmArrayLowering>();
+    if (name == "scalars")
+      return makeWasmScalarsLowering();
     return nullptr;
   }
 

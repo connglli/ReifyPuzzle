@@ -256,7 +256,7 @@ int32_t refractir_sum(int32_t refractir_n) {
 | `-I <path>`        | Include path for resolving link-form `decl`s (may repeat) |
 | `--require-reducible` | Reject functions with irreducible control flow (any target) |
 | `--structured-lowering` | C target: emit `while`/`do-while`/`if` instead of labels+`goto` (implies `--require-reducible`) |
-| `--vec-lowering <s>` | Vector lowering strategy: `vecext\|scalars\|array\|structscalars\|structarray` for C; python accepts all but `vecext` (no native SIMD value type); wasm only `array`. Default: `vecext` (C) / `array` (others) |
+| `--vec-lowering <s>` | Vector lowering strategy: `vecext\|scalars\|array\|structscalars\|structarray` for C; python accepts all but `vecext` (no native SIMD value type); wasm accepts `array\|scalars`. Default: `vecext` (C) / `array` (others) |
 | `--split-by-source` | C target: emit one `<stem>.c` per source file plus `common.h` into the directory given by `-o` |
 | `--emit-main`      | Do not mangle `@main` in emitted target code |
 | `--no-module-tags` | Omit `(module ...)` tags in WASM output    |
@@ -279,7 +279,7 @@ int32_t refractir_sum(int32_t refractir_n) {
 * Heap allocation is still out of scope; pointers always refer to stack-resident `let mut` locals (see spec §2.8).
 * No optimization passes — the lowered C/WASM/Python follows the source closely.
 * In WASM, pointers are 32-bit addresses into the linear memory; in C they are native C pointers; in Python they are provenance-tracked `_Ptr` objects over flat leaf-slot lists. Pointer arithmetic and `ptr - ptr` (element distance) are supported everywhere, but cross-object arithmetic remains UB per spec §7.5.
-* WASM vector support currently unrolls operations lane-by-lane on the shadow stack (as aggregates). Native WebAssembly SIMD-128 lowering (using the `v128` type and instructions) is a non-goal for v0.2.2, planned for a later version (SPEC §13). Python computes vectors as lane lists; `--vec-lowering` varies the storage form of vector locals (all C strategies except `vecext`).
+* WASM vector compute always unrolls operations lane-by-lane; `--vec-lowering` varies the *storage form* of plain vector locals — `array` (shadow-stack frame memory, the default) or `scalars` (one WASM local per lane; like its C/python twins it rejects dynamic lane indices at emission time). The call boundary is the same under every strategy: vector arguments are spilled to caller-owned frame memory and passed by address, vector returns arrive through a hidden trailing sret address parameter. The chosen strategy is stamped as a `;; vec-lowering:` comment in the module header. Native WebAssembly SIMD-128 lowering (using the `v128` type and instructions) is planned (SPEC §13). Python computes vectors as lane lists; `--vec-lowering` varies the storage form of vector locals (all C strategies except `vecext`).
 * The Python target does not yet participate in cross-validation (`make cross-validation`) — bit-exact `Result:` line parity (`printf %a` vs `float.hex()`) is a planned follow-up. It is covered by `make test-backends` (exit-code semantics over the compile corpus).
 
 ## Refinement and Undefined Behavior Semantics

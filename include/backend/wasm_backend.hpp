@@ -188,6 +188,12 @@ namespace refractir {
     void emitVecCallLane(
         const CallAtom &arg, std::uint64_t lane, std::uint32_t targetWidth, bool isFloat
     );
+    // Convert the elem-typed lane value on top of stack to targetWidth
+    // (int extend/wrap, float promote/demote).
+    void emitVecLaneConvert(const TypePtr &elemTy, std::uint32_t targetWidth);
+    // [v0.2.3] Initialize a *register-strategy* vector local (frame-memory
+    // vector locals go through emitInitVal like any aggregate).
+    void emitVecLocalInit(const std::string &name, const VecType &vt, const InitVal &iv);
     void emitVecCoefLane(
         const Coef &coef, const VecType &vt, std::uint64_t lane, std::uint32_t targetWidth,
         bool isFloat

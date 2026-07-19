@@ -68,6 +68,22 @@ namespace refractir {
     if (!locals_.count(lv.base.name))
       return;
     const auto &info = locals_.at(lv.base.name);
+    // [v0.2.3] `%v[idx]` on a register-strategy vector local/param: the
+    // strategy owns the lane read. Stores never reach here — lane writes
+    // are intercepted at AssignInstr.
+    if (!isStore && !lv.accesses.empty() &&
+        std::holds_alternative<VecType>(info.refractirType->v) &&
+        !vecLowering_->usesFrameMemory()) {
+      const auto &vt = std::get<VecType>(info.refractirType->v);
+      if (auto ai = std::get_if<AccessIndex>(&lv.accesses[0])) {
+        if (auto lit = std::get_if<IntLit>(&ai->index)) {
+          vecLowering_->emitLaneRead(*this, lv.base.name, vt, lit->value);
+        } else {
+          vecLowering_->emitLaneReadDyn(*this, lv.base.name, vt, [&] { emitIndex(ai->index); });
+        }
+        return;
+      }
+    }
     if (info.isAggregate || !lv.accesses.empty()) {
       if (!isStore) {
         emitAddress(lv);

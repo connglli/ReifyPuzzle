@@ -214,7 +214,7 @@ int main(int argc, char **argv) {
       }
       if (target == "wasm" && !makeWasmVecLowering(vlName)) {
         std::cerr << "Error: Target 'wasm' does not support vector lowering strategy '" << vlName
-                  << "' (try array)\n";
+                  << "' (try array|scalars)\n";
         return 1;
       }
     } else {

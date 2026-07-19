@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --sym %?s=3,5,7,9
+
+// Vector symbol binding under every vec-lowering strategy: per-lane
+// provider values must land in the strategy's storage.
+
+fun @main() : i32 {
+  sym %?s : value <4> i32;
+  let mut %v: <4> i32 = %?s;
+  let mut %r: i32 = 0;
+^entry:
+  %r = %v[0] + %v[1] + %v[2] + %v[3];
+  require %r == 24, "3+5+7+9";
+  ret %r;
+}

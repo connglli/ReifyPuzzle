@@ -563,6 +563,9 @@ namespace refractir {
         if (l.init) {
           if (locals_[l.name.name].isAggregate) {
             emitInitVal(*l.init, l.type, locals_[l.name.name].offset);
+          } else if (std::holds_alternative<VecType>(l.type->v)) {
+            // [v0.2.3] Register-strategy vector local.
+            emitVecLocalInit(l.name.name, std::get<VecType>(l.type->v), *l.init);
           } else if (l.init->kind == InitVal::Kind::Int) {
             indent();
             bool isTargetFloat = std::holds_alternative<FloatType>(l.type->v);
@@ -677,9 +680,12 @@ namespace refractir {
                       std::uint32_t elemSize = getTypeSize(vt.elem);
                       bool valIsFloat = std::holds_alternative<FloatType>(vt.elem->v);
                       uint32_t width = getIntWidth(vt.elem);
-                      // [v0.2.3] `%v = call @f(...)` — write through sret
-                      // straight into the lhs storage, no lane loop.
-                      if (arg.rhs.rest.empty()) {
+                      // [v0.2.3] `%v = call @f(...)` with a frame-memory
+                      // lhs — write through sret straight into the lhs
+                      // storage, no lane loop. Register-strategy lhs
+                      // falls through: the call materializes once into
+                      // its scratch and the loop below copies lanes out.
+                      if (arg.rhs.rest.empty() && vecLowering_->usesFrameMemory()) {
                         if (auto ca = std::get_if<CallAtom>(&arg.rhs.first.v)) {
                           auto [ptypes, rtype] = calleeSignature(*ca);
                           (void) ptypes;
@@ -693,6 +699,12 @@ namespace refractir {
                       // once, before the per-lane rhs walk.
                       materializeVecCalls(arg.rhs);
                       for (uint64_t i = 0; i < vt.size; ++i) {
+                        if (!vecLowering_->usesFrameMemory()) {
+                          vecLowering_->emitLaneWrite(*this, arg.lhs.base.name, vt, i, [&] {
+                            emitVecExprLane(arg.rhs, vt, i, width, valIsFloat);
+                          });
+                          continue;
+                        }
                         indent();
                         out_ << "local.get $__old_sp\n";
                         indent();
@@ -711,6 +723,26 @@ namespace refractir {
                                        : (width <= 16 ? "i32.store16"
                                                       : (width <= 32 ? "i32.store" : "i64.store")))
                                << "\n";
+                        }
+                      }
+                    } else if (!arg.lhs.accesses.empty() &&
+                               std::holds_alternative<VecType>(info.refractirType->v) &&
+                               !vecLowering_->usesFrameMemory()) {
+                      // [v0.2.3] `%v[idx] = expr` on a register-strategy
+                      // vector local: the strategy owns the lane write.
+                      const auto &vt = std::get<VecType>(info.refractirType->v);
+                      std::uint32_t width = getIntWidth(vt.elem);
+                      bool valIsFloat = std::holds_alternative<FloatType>(vt.elem->v);
+                      auto emitValue = [&] { emitExpr(arg.rhs, width, valIsFloat); };
+                      if (auto ai = std::get_if<AccessIndex>(&arg.lhs.accesses[0])) {
+                        if (auto lit = std::get_if<IntLit>(&ai->index)) {
+                          vecLowering_->emitLaneWrite(
+                              *this, arg.lhs.base.name, vt, lit->value, emitValue
+                          );
+                        } else {
+                          vecLowering_->emitLaneWriteDyn(
+                              *this, arg.lhs.base.name, vt, [&] { emitIndex(ai->index); }, emitValue
+                          );
                         }
                       }
                     } else if (info.isAggregate || !arg.lhs.accesses.empty()) {

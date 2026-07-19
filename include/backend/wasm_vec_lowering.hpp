@@ -83,6 +83,14 @@ namespace refractir {
     // befriended base class re-exports what strategies need).
     static std::ostream &out(WasmBackend &b);
     static void indent(WasmBackend &b);
+    /// Backing WASM local for one lane: `$<name>__<lane>`.
+    static std::string laneLocal(WasmBackend &b, const std::string &name, std::uint64_t lane);
+    /// The mangled WASM local holding the pointer-ABI param address.
+    static std::string paramLocal(WasmBackend &b, const std::string &name);
+    static std::string wasmTypeOf(WasmBackend &b, const TypePtr &t);
+    static std::uint32_t intWidthOf(WasmBackend &b, const TypePtr &t);
+    static std::uint32_t typeSizeOf(WasmBackend &b, const TypePtr &t);
+    static void signExtend(WasmBackend &b, std::uint32_t from, std::uint32_t to);
   };
 
   /**
