@@ -131,9 +131,11 @@ Automatically find values for symbols that satisfy a specific execution path:
 
 #### Emit an Equivalent Twin
 ```bash
-# Generate a program with its state profile, then emit an equivalent variant.
-# Currently, the twin transform does not support pointers and memory operations.
-./rysmith -n 1 --max-ptr-depth 0 --emit-state pbb --emit-desc -o out/
+# Generate a program, then emit an equivalent variant. rytwin loads the
+# .state.json sidecar when present and otherwise profiles the program
+# in-process (no --emit-state needed). Currently, the twin transform does
+# not support pointers and memory operations.
+./rysmith -n 1 --max-ptr-depth 0 --emit-desc -o out/
 ./rytwin --p-twin 0.5 --validate -o out/<func>.twin.sir out/<func>.sir
 ```
 

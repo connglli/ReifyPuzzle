@@ -79,6 +79,32 @@ def gen_p1(rysmith, d, seed="5", nparams="2"):
   return p1, desc, entry, args
 
 
+def gen_pool(rysmith, d, n="12", seed="202", emit_state=False, extra=None):
+  """Generate a pool of twin-friendly leaves (pointer-free until Stage 4).
+  Returns the sorted list of concrete .sir paths, or None on failure."""
+  cmd = [rysmith, "--emit-desc", "--n-funcs", n, "--seed", seed]
+  cmd += ["--n-params", "2", "--n-stmts", "5", "--max-ptr-depth", "0"]
+  if emit_state:
+    cmd += ["--emit-state", "pbb"]
+  cmd += (extra or []) + ["-o", d]
+  r = run(cmd)
+  if r.returncode != 0:
+    return None
+  sirs = [f for f in os.listdir(d) if f.endswith(".sir") and "_sym" not in f]
+  return [os.path.join(d, s) for s in sorted(sirs)]
+
+
+def first_twinned(rytwin, sirs, extra=None):
+  """Run rytwin --p-twin 1.0 over the pool; return (p1, p2, stdout+stderr) of
+  the first program that grafts, or None if none does."""
+  for p1 in sirs:
+    p2 = p1[:-4] + ".p2.sir"
+    r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3"] + (extra or []) + ["-o", p2])
+    if r.returncode == 0 and os.path.exists(p2):
+      return p1, p2, r.stdout + r.stderr
+  return None
+
+
 def symiri_result(symiri, path, entry, args):
   r = run([symiri, "--main", entry, path, "--"] + args)
   out = r.stdout + r.stderr
@@ -110,22 +136,106 @@ def test_no_twins_errors(rytwin, rysmith):
     )
 
 
-def test_state_profile_inferred_and_parsed(rytwin, rysmith):
-  """With --state omitted, rytwin infers <stem>.state.json and parses it —
-  no 'could not parse' / 'not found' warning."""
+def test_no_sidecar_needed(rytwin, rysmith):
+  """[Stage 1] rytwin profiles p1 in-process: a p1 generated WITHOUT
+  --emit-state (no .state.json on disk) still twins successfully."""
   with tempfile.TemporaryDirectory() as d:
-    g = gen_p1(rysmith, d)
-    if not g:
-      check("rytwin state-profile setup", False, "generation failed")
+    sirs = gen_pool(rysmith, d, emit_state=False)
+    if not sirs:
+      check("no-sidecar setup (rysmith gen)", False, "generation failed")
       return
-    p1, desc, _, _ = g
-    p2 = os.path.join(d, "p2.sir")
-    r = run([rytwin, p1, "-o", p2])
-    check(
-      "inferred state profile parsed without warning",
-      "could not parse state profile" not in r.stderr and "not found" not in r.stderr,
-      r.stderr[:200],
-    )
+    assert not any(f.endswith(".state.json") for f in os.listdir(d))
+    got = first_twinned(rytwin, sirs)
+    check("rytwin twins without a .state.json sidecar", got is not None, "")
+
+
+def test_corrupt_sidecar_falls_back(rytwin, rysmith):
+  """[Stage 1] A stale/corrupt .state.json next to p1 does not kill the run:
+  rytwin warns and falls back to in-process profiling."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, emit_state=True)
+    if not sirs:
+      check("corrupt-sidecar setup (rysmith gen)", False, "generation failed")
+      return
+    states = [f for f in os.listdir(d) if f.endswith(".state.json")]
+    for f in states:
+      open(os.path.join(d, f), "w").write("garbage{not json")
+    got = first_twinned(rytwin, sirs)
+    check("corrupt sidecar tolerated (twinning still works)", got is not None, "")
+
+
+def strip_solved_header(path):
+  src = open(path).read()
+  open(path, "w").write(
+    "\n".join(ln for ln in src.splitlines() if not ln.startswith("// SOLVED:")) + "\n"
+  )
+
+
+def test_sidecar_preferred(rytwin, rysmith):
+  """[Stage 1] When a valid .state.json is present, rytwin loads it instead
+  of interpreting. Discriminator: with the descriptor and SOLVED header
+  removed, in-process profiling would run at all-zero args and trap on the
+  interest requires — only the sidecar path can succeed."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, emit_state=True)
+    if not sirs:
+      check("sidecar-preferred setup (rysmith gen)", False, "generation failed")
+      return
+    for f in os.listdir(d):
+      if f.endswith(".json") and not f.endswith(".state.json"):
+        os.remove(os.path.join(d, f))
+    for p1 in sirs:
+      strip_solved_header(p1)
+    rescued = 0
+    for p1 in sirs:
+      state = p1[:-4] + ".state.json"
+      if not os.path.exists(state):
+        continue
+      # Control: without the sidecar this program must fail (in-process
+      # profiling at zero args traps); skip programs that pass at zeros.
+      hidden = state + ".hidden"
+      os.rename(state, hidden)
+      r_ctl = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p1 + ".ctl.sir"])
+      os.rename(hidden, state)
+      if r_ctl.returncode == 0:
+        continue
+      r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p1 + ".p2.sir"])
+      if r.returncode == 0:
+        rescued += 1
+        break
+    check("valid sidecar loaded in preference to interpreting", rescued > 0, "")
+
+
+def test_solved_header_fallback(rytwin, rysmith, symiri):
+  """[Stage 1] With no descriptor AND no sidecar, rytwin recovers the
+  profiled input from p1's `// SOLVED:` header (a wrong input would trap on
+  the interest requires during in-process profiling)."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, emit_state=False)
+    if not sirs:
+      check("solved-header setup (rysmith gen)", False, "generation failed")
+      return
+    for f in os.listdir(d):
+      if f.endswith(".json"):
+        os.remove(os.path.join(d, f))
+    got = first_twinned(rytwin, sirs, extra=["--validate"])
+    check("rytwin twins from the SOLVED header alone", got is not None, "")
+    if got:
+      check("validated: OK without descriptor", "validated: OK" in got[2], got[2][:160])
+
+
+def test_validate_without_sidecar(rytwin, rysmith):
+  """[Stage 1] --validate works on a sidecar-free p1 (profiled input comes
+  from the descriptor realization)."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, emit_state=False)
+    if not sirs:
+      check("validate-no-sidecar setup (rysmith gen)", False, "generation failed")
+      return
+    got = first_twinned(rytwin, sirs, extra=["--validate"])
+    check("--validate succeeds without a sidecar", got is not None, "")
+    if got:
+      check("validated: OK without sidecar", "validated: OK" in got[2], got[2][:160])
 
 
 def test_bad_guard_rejected(rytwin, rysmith):
@@ -162,86 +272,83 @@ def parse_entry(src):
   return fm.group(1), pnames, ptypes, [kv.get(p, "0") for p in pnames]
 
 
+def equivalence_over_pool(rytwin, symiri, d, sirs, tag):
+  """Twin every program in the pool with --p-twin 1.0 and assert p1 === p2 on
+  the profiled input AND on other inputs (where the guard does not fire)."""
+  import random
+
+  rng = random.Random(1)
+  twinned = prof_bad = other_bad = other_checks = 0
+  for p1 in sirs:
+    stem = os.path.basename(p1)[:-4]
+    desc = os.path.join(d, re.sub(r"[a-z]$", "", stem) + ".json")
+    if not os.path.exists(desc):
+      continue
+    fn, pnames, ptypes, iargs = parse_entry(open(p1).read())
+    p2 = os.path.join(d, stem + ".p2.sir")
+    rr = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p2])
+    if rr.returncode != 0:
+      # A block-free-of-eligible-scalars program now exits non-zero with a
+      # "no twin" message — expected, skip it. Anything else is a failure.
+      if "no twin" in rr.stderr or "nothing written" in rr.stderr:
+        continue
+      check(f"rytwin ran on {stem} [{tag}]", False, rr.stderr[:160])
+      return
+    twinned += 1
+    if (
+      symiri_result(symiri, p1, fn, iargs)[1:]
+      != symiri_result(symiri, p2, fn, iargs)[1:]
+    ):
+      prof_bad += 1
+    # Other inputs (only when all params are integer) — the exact guard
+    # must keep the equivalence even where the guard does not fire.
+    if all("f" not in t for t in ptypes):
+      for _ in range(4):
+        a = [str(rng.randint(-1_000_000, 1_000_000)) for _ in pnames]
+        other_checks += 1
+        if symiri_result(symiri, p1, fn, a)[1:] != symiri_result(symiri, p2, fn, a)[1:]:
+          other_bad += 1
+  check(
+    f"TwinPass grafted at least one twin [{tag}]", twinned > 0, f"twinned={twinned}"
+  )
+  check(
+    f"every twin preserves the profiled result [{tag}]",
+    prof_bad == 0,
+    f"{prof_bad} mismatch(es)",
+  )
+  check(
+    f"every twin preserves results on other inputs [{tag}]",
+    other_bad == 0,
+    f"{other_bad}/{other_checks} mismatch(es)",
+  )
+
+
 def test_twinpass_grafts_and_preserves_equivalence(rytwin, rysmith, symiri):
   """On pointer-free programs (scalars, structs, arrays, vectors and pure
   intrinsic calls — everything eligibility now covers), TwinPass grafts twins
   whose exact guard keeps p1 === p2: identical results on the profiled input
   AND on other inputs."""
-  import random
-
   with tempfile.TemporaryDirectory() as d:
     # Pointers/memory aren't twin candidates yet, so disable them; keep
     # aggregates, vectors and intrinsic calls to exercise the lifted
     # eligibility.
-    r = run(
-      [
-        rysmith,
-        "--emit-state",
-        "pbb",
-        "--emit-desc",
-        "--n-funcs",
-        "12",
-        "--seed",
-        "202",
-        "--n-params",
-        "2",
-        "--n-stmts",
-        "5",
-        "--max-ptr-depth",
-        "0",
-        "-o",
-        d,
-      ]
-    )
-    if r.returncode != 0:
-      check("twinpass setup (scalar-only gen)", False, r.stderr[:200])
+    sirs = gen_pool(rysmith, d, emit_state=True)
+    if sirs is None:
+      check("twinpass setup (scalar-only gen)", False, "generation failed")
       return
-    sirs = [f for f in os.listdir(d) if f.endswith(".sir") and "_sym" not in f]
-    rng = random.Random(1)
-    twinned = prof_bad = other_bad = other_checks = 0
-    for s in sorted(sirs):
-      p1 = os.path.join(d, s)
-      stem = s[:-4]
-      desc = os.path.join(d, re.sub(r"[a-z]$", "", stem) + ".json")
-      if not os.path.exists(desc):
-        continue
-      fn, pnames, ptypes, iargs = parse_entry(open(p1).read())
-      p2 = os.path.join(d, stem + ".p2.sir")
-      rr = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p2])
-      if rr.returncode != 0:
-        # A block-free-of-eligible-scalars program now exits non-zero with a
-        # "no twin" message — expected, skip it. Anything else is a failure.
-        if "no twin" in rr.stderr or "nothing written" in rr.stderr:
-          continue
-        check(f"rytwin ran on {stem}", False, rr.stderr[:160])
-        return
-      twinned += 1
-      if (
-        symiri_result(symiri, p1, fn, iargs)[1:]
-        != symiri_result(symiri, p2, fn, iargs)[1:]
-      ):
-        prof_bad += 1
-      # Other inputs (only when all params are integer) — the exact guard
-      # must keep the equivalence even where the guard does not fire.
-      if all("f" not in t for t in ptypes):
-        for _ in range(4):
-          a = [str(rng.randint(-1_000_000, 1_000_000)) for _ in pnames]
-          other_checks += 1
-          if (
-            symiri_result(symiri, p1, fn, a)[1:] != symiri_result(symiri, p2, fn, a)[1:]
-          ):
-            other_bad += 1
-    check("TwinPass grafted at least one twin", twinned > 0, f"twinned={twinned}")
-    check(
-      "every twin preserves the profiled result",
-      prof_bad == 0,
-      f"{prof_bad} mismatch(es)",
-    )
-    check(
-      "every twin preserves results on other inputs",
-      other_bad == 0,
-      f"{other_bad}/{other_checks} mismatch(es)",
-    )
+    equivalence_over_pool(rytwin, symiri, d, sirs, "sidecar")
+
+
+def test_equivalence_without_sidecar(rytwin, rysmith, symiri):
+  """[Stage 1] The full equivalence suite holds when p1 is generated without
+  --emit-state — the profile rytwin keys its guards on is computed
+  in-process."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, emit_state=False)
+    if sirs is None:
+      check("no-sidecar equivalence setup", False, "generation failed")
+      return
+    equivalence_over_pool(rytwin, symiri, d, sirs, "no-sidecar")
 
 
 def test_validate_and_target(rytwin, rysmith, symiri):
@@ -310,24 +417,63 @@ def test_validate_and_target(rytwin, rysmith, symiri):
 
 
 def main():
-  if len(sys.argv) != 4:
-    print("Usage: python3 -m test.unit.run_rytwin_tests <rytwin> <rysmith> <symiri>")
+  if len(sys.argv) not in (4, 5):
+    print(
+      "Usage: python3 -m test.unit.run_rytwin_tests <rytwin> <rysmith> <symiri>"
+      " [test-name-substring]"
+    )
     sys.exit(2)
   rytwin, rysmith, symiri = sys.argv[1:4]
-  print("=== rytwin: no twin grafted -> error, no output ===")
-  test_no_twins_errors(rytwin, rysmith)
-  print("=== rytwin: state profile inferred + parsed ===")
-  test_state_profile_inferred_and_parsed(rytwin, rysmith)
-  print("=== rytwin: invalid --guard rejected ===")
-  test_bad_guard_rejected(rytwin, rysmith)
-  print("=== rytwin: missing args usage ===")
-  test_missing_args_usage(rytwin)
-  print(
-    "=== TwinPass: grafts twins, preserves equivalence (profiled + other inputs) ==="
-  )
-  test_twinpass_grafts_and_preserves_equivalence(rytwin, rysmith, symiri)
-  print("=== rytwin: --validate and --target c ===")
-  test_validate_and_target(rytwin, rysmith, symiri)
+  only = sys.argv[4] if len(sys.argv) == 5 else ""
+
+  tests = [
+    (
+      "rytwin: no twin grafted -> error, no output",
+      lambda: test_no_twins_errors(rytwin, rysmith),
+    ),
+    (
+      "rytwin: no sidecar needed (in-process profiling)",
+      lambda: test_no_sidecar_needed(rytwin, rysmith),
+    ),
+    (
+      "rytwin: corrupt sidecar falls back to in-process profiling",
+      lambda: test_corrupt_sidecar_falls_back(rytwin, rysmith),
+    ),
+    (
+      "rytwin: valid sidecar preferred over interpreting",
+      lambda: test_sidecar_preferred(rytwin, rysmith),
+    ),
+    (
+      "rytwin: SOLVED-header fallback",
+      lambda: test_solved_header_fallback(rytwin, rysmith, symiri),
+    ),
+    (
+      "rytwin: --validate without sidecar",
+      lambda: test_validate_without_sidecar(rytwin, rysmith),
+    ),
+    (
+      "rytwin: invalid --guard rejected",
+      lambda: test_bad_guard_rejected(rytwin, rysmith),
+    ),
+    ("rytwin: missing args usage", lambda: test_missing_args_usage(rytwin)),
+    (
+      "TwinPass: grafts twins, preserves equivalence (profiled + other inputs)",
+      lambda: test_twinpass_grafts_and_preserves_equivalence(rytwin, rysmith, symiri),
+    ),
+    (
+      "TwinPass: equivalence without sidecar",
+      lambda: test_equivalence_without_sidecar(rytwin, rysmith, symiri),
+    ),
+    (
+      "rytwin: --validate and --target c",
+      lambda: test_validate_and_target(rytwin, rysmith, symiri),
+    ),
+  ]
+  for title, fn in tests:
+    if only and only not in title and only not in fn.__code__.co_names[0]:
+      continue
+    print(f"=== {title} ===")
+    fn()
 
   passed = sum(1 for _, ok, _ in results if ok)
   total = len(results)

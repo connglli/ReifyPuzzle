@@ -176,7 +176,7 @@ Each chosen leaf function brings its own solved realization (one of the `--n-ini
 
 A twin program of a given program is its equivalent variant. Twin-program generation is based on leaf functions, too.
 
-Given a leaf function `f1` together with the exact input `i` that concretizes it, the whole execution is deterministic and known. `--emit-state` records, for each on-path program point, the concrete value of every initialized local/parameter — the state the program passes through. For a chosen basic block `B`, let `s` be the state at `B`'s entry and `s' = B(s)` the state at its exit. Twin-program generation synthesizes a **twin block** `B'` that reproduces `s'` from `s` and grafts a guarded diamond:
+Given a leaf function `f1` together with the exact input `i` that concretizes it, the whole execution is deterministic and known. `rytwin` obtains, for each on-path program point, the concrete value of every initialized local/parameter — the state the program passes through — from the `.state.json` sidecar when `f1` was generated with `rysmith --emit-state`, and otherwise by interpreting `f1` on `i` in-process. For a chosen basic block `B`, let `s` be the state at `B`'s entry and `s' = B(s)` the state at its exit. Twin-program generation synthesizes a **twin block** `B'` that reproduces `s'` from `s` and grafts a guarded diamond:
 
 ```
 ^X  (guard):  if state() == s  ->  ^X__twin  else  ^X__orig
@@ -261,7 +261,7 @@ rysmith [OPTIONS]
 | `--validate` | off | Run `symiri` on each concrete `.sir` and check its `Result:` line matches the descriptor's captured CRC32 retValue |
 | `--emit-main` | off | Append a `@main()` wrapper that calls the entry with its solver-synthesised params and asserts the CRC32 retValue via `@check_chksum` |
 | `--emit-desc` | off | Emit per-function descriptor JSON (`func_<id>_<i>.json`) used by `rylink`; records a `reducible` bool computed from the emitted function so structuring consumers can filter seeds |
-| `--emit-state pbb\|ppp` | off | Emit a `func_<id>_<i>.state.json` profile of the concrete state at each program point (`pbb` = per basic-block entry, `ppp` = per program point) — consumed by `rytwin` |
+| `--emit-state pbb\|ppp` | off | Emit a `func_<id>_<i>.state.json` profile of the concrete state at each program point (`pbb` = per basic-block entry, `ppp` = per program point) — loaded by `rytwin` when present, sparing it the in-process profiling run |
 | `-v, --verbose` | off | Verbose progress output |
 
 ### Example
@@ -377,7 +377,7 @@ rylink -n 5 --target c --structured-lowering random -i pool/ -o progs/
 
 ## Tool: rytwin
 
-`rytwin` is an **equivalence-preserving program transformer**. Given a rysmith program `f1` (a concrete `.sir`) together with its state profile (`rysmith --emit-state`), it emits an equivalent program `f2` such that `f1(i) == f2(i)` for **every** input `i` — same result, same undefined-behaviour outcome.
+`rytwin` is an **equivalence-preserving program transformer**. Given a rysmith program `f1` (a concrete `.sir`), it emits an equivalent program `f2` such that `f1(i) == f2(i)` for **every** input `i` — same result, same undefined-behaviour outcome.
 
 ### Usage
 
@@ -385,7 +385,7 @@ rylink -n 5 --target c --structured-lowering random -i pool/ -o progs/
 rytwin <f1.sir> [OPTIONS]
 ```
 
-The descriptor (`func_<id>_<i>.json`) and state profile (`<stem>.state.json`) are read from `f1`'s directory following rysmith's naming, so only `f1` is passed positionally.
+The descriptor (`func_<id>_<i>.json`) and, when present, the state profile (`<stem>.state.json`) are read from `f1`'s directory following rysmith's naming, so only `f1` is passed positionally. Without a sidecar the profile is computed in-process: rytwin interprets `f1` on its solved input (the descriptor realization, or `f1`'s `// SOLVED:` header when no descriptor is present).
 
 | Flag | Default | Description |
 |---|---|---|
@@ -401,9 +401,8 @@ The descriptor (`func_<id>_<i>.json`) and state profile (`<stem>.state.json`) ar
 ### Example
 
 ```sh
-# 1. Generate a program with its state profile (pointer-free here, so more
-#    blocks are twin-eligible)
-rysmith -n 1 --emit-state pbb --emit-desc --emit-main --max-ptr-depth 0 -o out/
+# 1. Generate a program (pointer-free here, so more blocks are twin-eligible)
+rysmith -n 1 --emit-desc --emit-main --max-ptr-depth 0 -o out/
 
 # 2. Emit an equivalent twin, twinning every eligible block, and self-validate
 rytwin out/func_<id>_0.sir --p-twin 1.0 --validate -o out/twin.sir
