@@ -20,15 +20,6 @@ namespace refractir::reify {
     return std::make_shared<Type>(Type{IntType{IntType::Kind::I32, {}, {}}, {}});
   }
 
-  // Build an integer Type from a bitwidth (8 → i8, 16 → i16, 32 → i32, 64 → i64).
-  static TypePtr makeIntTypeByWidth(uint32_t bits) {
-    if (bits == 32)
-      return std::make_shared<Type>(Type{IntType{IntType::Kind::I32, {}, {}}, {}});
-    if (bits == 64)
-      return std::make_shared<Type>(Type{IntType{IntType::Kind::I64, {}, {}}, {}});
-    return std::make_shared<Type>(Type{IntType{IntType::Kind::ICustom, (int) bits, {}}, {}});
-  }
-
   static LValue localLV(const std::string &name) { return LValue{LocalId{name, {}}, {}, {}}; }
 
   static Atom coefAtom(Coef c) { return Atom{CoefAtom{std::move(c), {}}, {}}; }
@@ -424,25 +415,8 @@ namespace refractir::reify {
     // used during expression generation. The semchecker now supports
     // overloaded intrinsics with different signatures, so the same intrinsic
     // may appear at multiple bitwidths (e.g. @popcount i32 / i64).
-    if (fcfg.enableIntrinsics) {
-      for (const auto &[kind, bits]: usedIntrinsics) {
-        for (const auto &wi: getIntrinsicWhitelist()) {
-          if (wi.kind != kind)
-            continue;
-          IntrinsicDecl id;
-          id.name = GlobalId{std::string(wi.name), {}};
-          id.retType = makeIntTypeByWidth(bits);
-          for (int pi = 0; pi < wi.paramCount; pi++) {
-            ParamDecl pd;
-            pd.name = LocalId{"%x" + std::to_string(pi), {}};
-            pd.type = makeIntTypeByWidth(bits);
-            id.params.push_back(std::move(pd));
-          }
-          prog.intrinsics.push_back(std::move(id));
-          break;
-        }
-      }
-    }
+    if (fcfg.enableIntrinsics)
+      appendUsedIntrinsicDecls(usedIntrinsics, prog.intrinsics);
 
     FunDecl fun;
     fun.name = GlobalId{"@" + fcfg.funcName, {}};

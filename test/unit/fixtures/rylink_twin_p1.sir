@@ -1,0 +1,1525 @@
+// ENTRY: @func_80b9ae_74
+// CG:
+//   n0 @func_80b9ae_74 -> n1 n3 n5
+//   n1 @func_80b9ae_66 -> n2 n6 n7
+//   n2 @func_80b9ae_33 -> n4 n6
+//   n3 @func_80b9ae_8 -> n5 n7
+//   n4 @func_80b9ae_38 -> n6
+//   n5 @func_80b9ae_22
+//   n6 @func_80b9ae_83 -> n7
+//   n7 @func_80b9ae_15
+// PARAMS: %pa0=-1537228675672440390 %pa1=-0.0 %pa2=0
+// RETURN: -1979676050
+
+struct @struct_80b9ae_74_0 {
+  f0: i16;
+  f1: [1] i16;
+  f2: i16;
+}
+
+struct @struct_80b9ae_33_0 {
+  f0: f32;
+  f1: i16;
+}
+
+struct @struct_80b9ae_22_0 {
+  f0: [3] i32;
+  f1: i16;
+}
+
+struct @struct_80b9ae_22_1 {
+  f0: [2] i64;
+  f1: i8;
+}
+
+struct @struct_80b9ae_83_0 {
+  f0: i64;
+  f1: i16;
+  f2: [2] f64;
+}
+
+fun @func_80b9ae_74(%pa0: i64, %pa1: f64, %pa2: i12) : i32 {
+  let mut %t0: @struct_80b9ae_74_0 = {1, {-187}, 14};
+  let mut %v0: i16 = -22786;
+  let mut %vec0: <8> f32 = {1.75, 0.0, -0.125, -1.75, -4.0, 0.5, -1.125, -0.375};
+  let mut %v1: i12 = 247;
+  let mut %v2: i64 = -7508968656947883040;
+  let mut %v3: f32 = 1.125;
+  let mut %v4: i32 = -31;
+  let mut %p0: ptr i32 = undef;
+  let mut %p1: ptr i12 = undef;
+  let mut %pp0: ptr ptr i12 = undef;
+  let mut %pp1: ptr ptr i32 = undef;
+  let mut %ap0: ptr @struct_80b9ae_74_0 = undef;
+  let mut %nav0: ptr [1] i16 = undef;
+  let mut %_chk: i32 = 0;
+  let mut %_pld_0: i12 = undef;
+^entry:
+  %v4 = call @func_80b9ae_66(512, -76, 30) + 1837086912;
+  %p0 = addr %v4;
+  %p1 = addr %v1;
+  %pp0 = addr %p1;
+  %pp1 = addr %p0;
+  %ap0 = addr %t0;
+  require 1 != 0, "nonzero input";
+  %pp0 = addr %p1;
+  %pp0 = addr %p1;
+  store %p1, %v1 + %v2 as i12;
+  %t0.f0 = 32767 as i16 - 32767 + -1;
+  require 32767 > 32766, "coef large positive";
+  br 2147483647 as i64 - 0 * %v2 != %v2 + 1946152960 & %v2 + -1311286241, ^b0, ^b4;
+^b0:
+  %nav0 = addr %t0.f1;
+  %nav0 = ptrfield %ap0, f1;
+  %nav0 = ptrfield %ap0, f1;
+  br 1032 as i12 - 1663 / %v1 != %v1 - 216 - -8, ^b1, ^b10;
+^b1:
+  %v3 = 0.625 + %v0 as f32;
+  %pp1 = addr %p0;
+  %ap0 = addr %t0;
+  %vec0[1] = 8.0 * %v3 + %v3 / %v3;
+  store %pp1, addr %v4;
+  %v1 = %pa2 + -263 - 1516 - -1748 >> %pa2 + select %v0 < -29653, %pa2, %pa2 - 948;
+  %pp0 = addr %p1 - 44;
+  br ^b2;
+^b2:
+  store %pp0, %p1;
+  %v2 = %pa0 - %pa0 / %pa0 + -2014543427875210823 & %pa0 - 4176466620233257181 * %pa0 + 1447475881634234060 & %pa0;
+  %v4 = %v0 as i32 + -54115447 + 1389706879 - call @func_80b9ae_66(92, 65, 1);
+  %ap0 = addr %t0;
+  %v0 = %pa0 as i16 + 4045 - 17644 + -5527;
+  %pp1 = addr %p0;
+  %pp0 = addr %p1;
+  br %v1 + %pa2 * %pa2 + %v4 as i12 - %v1 * %v1 + 1903 << %pa2 - %v1 * %pa2 > %v1 + -827 + %v0 as i12 - %v1 * %pa2, ^b3, ^b8;
+^b3:
+  %vec0[6] = %v3 % %v3 + %v3;
+  %p0 = load %pp1;
+  %v0 = %v4 as i16 - -9585 + 4546 - -18506 + 12181 - -14963;
+  %v3 = -1.0 + %v0 as f32;
+  %t0.f2 = %v0 - call @bitreverse(%v0 * %v0 - %v0 + %v4 as i16) + select call @func_80b9ae_22(22, 47, %pa0) > call @func_80b9ae_8(%v3, 49.16100302042277, 4), 14861, %v0 + -31187 * %v0 - 20328;
+  %v0 = %pa2 as i16 + 4805;
+  br ^b4;
+^b4:
+  %pp1 = addr %p0;
+  %v2 = %pa0 - -4818403138266351515 * %pa0 - %pa0 % %pa0 + -5775508213556119127 - select %v3 == -2.5, -4249178081572299102, 7193683204653948932;
+  %p0 = addr %v4;
+  %pp1 = addr %p0;
+  %vec0[0] = %v3 + 0.125;
+  store %pp1, %p0;
+  %ap0 = addr %t0;
+  br %v2 - %pa0 * %v2 + 4650892980659826618 >> %v2 + -4165243328379451119 - 1245004534419501935 >= %pa0 + 4413706412813279591, ^b5, ^b3;
+^b5:
+  %p1 = load %pp0 + 34;
+  %ap0 = addr %t0;
+  %p1 = load %pp0;
+  %t0.f2 = %v0 - %v0 * %v0 + call @abs(-11882 * %v0 - 7740 + 8094 >>> %v0 - 31662 + 16584 - %v0 ^ %v0) - -6567 - %v0 + -1418 * %v0;
+  store %p0, %v4 + -1054723420 - 1773736352 - %v4 * %v4 - %v4 & %v4 + select %v2 <= 7371601355258139241, %v4, 1579339781;
+  %v2 = %pa0 - -1993236431450847851 * %pa0 - -2788322796520592777 * %pa0 - %v4 as i64;
+  %t0.f0 = %v0 + call @midpoint(%v0 | %v0 - %v0 * %v0 + 26468 * %v0 + -16758 * %v0 - -29605 >> %v0 - 32248, -17762 * %v0 + -13652 + %v0 << %v0 + 1338 >>> %v0) - -24394;
+  br ^b6;
+^b6:
+  %pp1 = addr %p0 + 57;
+  %p1 = load %pp0;
+  store %p1, %v1 - call @wrapping_neg(%pa2 | %pa2 + call @saturating_neg(load %p1 - %v0 as i12 + select %v3 < -1.75, -248, -2009 + -1470 + -469 ^ %v1 + %v1) - 948 * %v1 + -906 * %pa2 - load %p1);
+  store %p0, %v4 + %v4 & %v4 + 919437260 * %v4 + %pa0 as i32;
+  store %p0, %v4 - %v4 * %v4 - -1194259793 + -525085931 & %v4 + load %p0 - 1513659874 << %v4;
+  %p0 = addr %v4 - 21;
+  %p0 = addr %v4 - 24;
+  %v4 = %v1 as i32 - 539466920 + -1846771927 - -1301538406 - -627880602 + 175645378;
+  %pp0 = addr %p1 + 51;
+  br %pa2 - -639 * %pa2 - call @abs(%pa2 * %pa2 + load %p1 + 1513 + 857) + 1989 < %pa2 + -523 >>> %v1 - %v1 * %pa2, ^b7, ^b12;
+^b7:
+  %pp0 = addr %p1;
+  %v4 = %v2 as i32 - 149768488 + -444468379;
+  %v4 = %pa0 as i32 + -1220597199 + -810072126 - 1330828037;
+  %p1 = load %pp0 + 12;
+  %v2 = %pa0 - -1632575758631093537;
+  %pp1 = addr %p0;
+  br ^b8;
+^b8:
+  %t0.f2 = %v0 + -24172 * %v0 + %v0 + -25719;
+  %pp0 = addr %p1 + 48;
+  %pp1 = addr %p0;
+  %pp0 = addr %p1;
+  %vec0[3] = %v3 * %v3 + -3.75 % %v3;
+  %v4 = %v0 as i32 + 446239673 - 997757465;
+  br ^b9;
+^b9:
+  %v1 = %pa2 - %pa2 << %pa2 + 1732 + %pa2 / %pa2 + %v4 as i12;
+  store %p1, %pa2 - 1416 - -681;
+  store %pp0, load %pp0;
+  %ap0 = addr %t0;
+  %nav0 = addr %t0.f1;
+  store %pp1, %p0;
+  %pp1 = addr %p0;
+  %v0 = %pa0 as i16 + 13763;
+  %ap0 = addr %t0;
+  br ^b10;
+^b10:
+  %v4 = -83197 - %pa2 as i32;
+  %v0 = -32768 as i16 + %v1 as i16;
+  store %pp1, %p0;
+  %pp1 = addr %p0;
+  require -32768 < -32767, "coef large negative";
+  br ^b11;
+^b11:
+  %pp1 = addr %p0;
+  %v0 = 32767 as i16 - %v1 as i16;
+  %p0 = load %pp1;
+  require 32767 > 32766, "coef large positive";
+  br ^b12;
+^b12:
+  %v3 = -133 as f32 + %v0 as f32;
+  %nav0 = ptrfield %ap0, f1;
+  %p0 = addr %v4;
+  br ^b13;
+^b13:
+  %t0.f0 = %v0 - select %v4 == 0, -2787, 14084;
+  %v2 = %pa0 + 2147483204;
+  %v2 = %pa0 + 2 * %pa0;
+  br %v0 - -214 - -384 == %v0 - -86, ^b14, ^exit;
+^b14:
+  %t0.f2 = %v0 - -25175 + -19940 >>> %v0 + %v0 << %v0;
+  %p0 = addr %v4;
+  store %p0, %v4 - %v4 % %v4 - %v4 * %v4 - -1903190138 + %v0 as i32;
+  %v2 = %pa0 - %pa0;
+  %pp0 = addr %p1;
+  %ap0 = addr %t0;
+  %ap0 = addr %t0;
+  br ^exit;
+^exit:
+  %_chk = 0;
+  %_chk = call @crc32_update(%_chk, %t0.f0 as i32);
+  %_chk = call @crc32_update(%_chk, %t0.f1[0] as i32);
+  %_chk = call @crc32_update(%_chk, %t0.f2 as i32);
+  %_chk = call @crc32_update(%_chk, %v0 as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[0] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[1] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[2] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[3] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[4] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[5] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[6] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[7] as i32);
+  %_chk = call @crc32_update(%_chk, %v1 as i32);
+  %_chk = call @crc32_update(%_chk, %v2 as i32);
+  %_chk = call @crc32_update(%_chk, %v3 as i32);
+  %_chk = call @crc32_update(%_chk, %v4);
+  %_chk = call @crc32_update(%_chk, %pa0 as i32);
+  %_chk = call @crc32_update(%_chk, %pa1 as i32);
+  %_chk = call @crc32_update(%_chk, %pa2 as i32);
+  %_chk = call @crc32_update(%_chk, load %p0);
+  %_pld_0 = load %p1;
+  %_chk = call @crc32_update(%_chk, %_pld_0 as i32);
+  ret %_chk;
+}
+
+fun @func_80b9ae_66(%pa0: i16, %pa1: i8, %pa2: i8) : i32 {
+  let mut %a0: [2] ptr i16 = {undef, undef};
+  let mut %a1: [3] ptr i8 = {undef, undef, undef};
+  let mut %v0: i16 = 237;
+  let mut %a2: [2] i16 = {-41, 15876};
+  let mut %vec0: <8> i8 = {-78, 39, -32, 65, -64, -25, -37, -7};
+  let mut %vec1: <8> i24 = {-10, 118, 7056551, -204540, -6173903, -186, -17, 6554553};
+  let mut %v1: i32 = 53;
+  let mut %p0: ptr i32 = undef;
+  let mut %p1: ptr i16 = undef;
+  let mut %pp0: ptr ptr i16 = undef;
+  let mut %pp1: ptr ptr i16 = undef;
+  let mut %ap0: ptr [2] i16 = undef;
+  let mut %_chk: i32 = 0;
+  let mut %_pld_0: i16 = undef;
+^entry:
+  %p0 = addr %v1;
+  %p1 = addr %v0;
+  %pp0 = addr %p1;
+  %pp1 = addr %p1;
+  %ap0 = addr %a2;
+  require 1 != 0, "nonzero input";
+  %v1 = 1918 - %pa1 as i32 + load %p0;
+  %p0 = addr %v1;
+  require %pa2 != 0, "div nonzero";
+  %vec0[4] = -1 as i8 + 2 / %pa2;
+  br ^b0;
+^b0:
+  %pp1 = %pp0;
+  store %p0, -1073741826 & %v1 - call @ctz(1048577 * %v1) - select %v1 != 0, -2147481600, 0;
+  %pp0 = addr %a0[1];
+  %ap0 = addr %a2;
+  require -1073741826 < -1048576, "coef large negative";
+  require 1048577 > 1048576, "coef large positive";
+  br -512 as i16 + 0 < %v0 - -1 & %pa0, ^b1, ^entry;
+^b1:
+  %v0 = 32767 as i16 + -56 * %pa0;
+  %a2[1] = %v0 + -8 * %v0;
+  %pp0 = addr %a0[0];
+  require 32767 > 32766, "coef large positive";
+  br ^b2;
+^b2:
+  %p0 = addr %v1;
+  store %pp0, addr %a2[0];
+  store %pp1, load %pp1;
+  %vec0[4] = -31 as i8 + %pa2;
+  store %p0, 1 - -67108863 + 0 * %v1;
+  %vec0[2] = -7 as i8 + %pa1;
+  require 127 > 126, "coef large positive";
+  br ^b3;
+^b3:
+  store %p0, 267386880 + 536471541 + -12 * %v1;
+  store %pp1, %p1;
+  store %p1, -1137 as i16 - %pa0;
+  %p1 = addr %a2[0];
+  %p1 = addr %a2[0];
+  %ap0 = addr %a2;
+  require 267386880 > 1048576, "coef large positive";
+  require 536471541 > 1048576, "coef large positive";
+  br -19774 as i16 - 12 * %v0 == -1 as i16 + 16383 - call @wrapping_sub(-1665 as i16 + ~%pa0, %v0 + ~%pa0), ^b4, ^b6;
+^b4:
+  %p0 = addr %v1 + 60;
+  %v1 = %v0 as i32 + -1837234259 - -338841156 - call @func_80b9ae_33(59, 50, 88.58239430441182) + call @func_80b9ae_15(47.78793098659885, 19, %pa2);
+  %a2[0] = %v0 - -12026 & %v0 + -1439;
+  %a2[1] = %v0 + -30637 + 31370 & %v0 - %v0 + load %p1 - %pa0 * %v0;
+  %vec1[3] = %pa2 as i24 - 3164481;
+  %a2[1] = %v0 - %v0 * %v0 - 4614 + 14050 - %pa0 >>> %v0;
+  br %pa1 + 36 ^ %pa2 - call @abs_diff(-116 - %pa2 & %pa2, select %pa1 != -57, 104, 44 - 42 * %pa1 - %pa1 % %pa1 + select %pa2 < 24, %pa1, 124 - %pa2 >> %pa1 - -67) + 30 * %pa1 != %pa1 + %pa2 * %pa2 + -74, ^b5, ^b1;
+^b5:
+  store %pp0, %p1;
+  %p0 = addr %v1 + 60;
+  %v0 = %pa0 - select %pa1 != 61, %pa0, 31756 - -12772 + select %pa1 >= -1, %pa0, -32719;
+  %vec1[3] = %pa0 as i24 - 764406 - 1397830 - 6053281 + 1413984 + -8255720;
+  %vec1[1] = %v0 as i24 + -7352769 - 6630975 - -5759759;
+  store %pp0, addr %a2[0];
+  %vec0[6] = %pa2 + 113 / %pa2 + select %v0 != 17111, -90, -110 + 38 / %pa2 + 95;
+  %a2[1] = %v0 - 28543 * %v0;
+  br %v0 - load %p1 + 9999 <= %pa0 + -29556 >>> %v0, ^b6, ^b10;
+^b6:
+  %vec1[4] = 1595263 as i24 - %v0 as i24;
+  %p0 = addr %v1;
+  %a2[0] = %pa0 + -8705;
+  br -1327 * %v1 != -73 * %v1 - load %p0 + 0 * %v1, ^b7, ^b11;
+^b7:
+  %ap0 = addr %a2;
+  %pp0 = %pp1;
+  %vec0[0] = 127 as i8 - -1 * %pa1 - %v1 as i8;
+  require 127 > 126, "coef large positive";
+  br ^b8;
+^b8:
+  %vec0[1] = %pa2 + select %pa1 <= 0, 20, 56;
+  store %pp1, ptrindex %ap0, 1;
+  store %p0, 1447946 + %v1;
+  %p1 = load %pp1;
+  %p1 = addr %a2[1];
+  br ^b9;
+^b9:
+  %v0 = %pa0 + -32768 - 490;
+  %v1 = %pa1 as i32;
+  %ap0 = addr %a2;
+  require -32768 < -32767, "coef large negative";
+  br ~%v1 - 1602224205 + 8388534 <= %pa1 as i32 - -20971520 * %v1, ^b10, ^b11;
+^b10:
+  %vec1[6] = -8355313 as i24 - %pa0 as i24 + %v0 as i24;
+  store %p0, -156 + -2 * %v1;
+  %p1 = ptrindex %ap0, 0 + 1;
+  %v1 = call @saturating_neg(-33241 - %v0 as i32) - %pa0 as i32 + %pa2 as i32;
+  br ^b11;
+^b11:
+  %p1 = ptrindex %ap0, 0 + 1;
+  %ap0 = addr %a2;
+  %pp0 = addr %a0[0];
+  br 2147483647 + 0 * %v1 == -1 + 1 >> %v1, ^b12, ^b13;
+^b12:
+  %a2[1] = %pa0 - %v0 * %pa0 - 13142 + select %v1 < call @func_80b9ae_83(77, 59.757525820971665, 99.43846057317508), -11078, -10988 + -3717 ^ %pa0 - 6910;
+  store %p0, %v1 - %v1 + -316824120 + select %v1 > -1705169840, -929440734, %v1 + 77354733 - 1096955566;
+  %p1 = addr %a2[1];
+  %p1 = ptrindex %ap0, 1;
+  %pp1 = addr %a0[1];
+  %p0 = addr %v1 - 15;
+  %pp1 = %pp0;
+  br %pa1 + 74 + -124 - 90 - %pa0 as i8 == %pa2 - -84 | %pa1 + -63 % %pa1 + select %pa1 >= -97, %pa2, 31 - 33 << %pa1, ^b13, ^exit;
+^b13:
+  %v0 = -23621 as i16 - -32768 ^ %pa0 - 32224;
+  %p1 = ptrindex %ap0, 1;
+  %ap0 = addr %a2;
+  require -32768 < -32767, "coef large negative";
+  br ^b14;
+^b14:
+  %pp1 = %pp0;
+  store %pp1, load %pp1;
+  %p1 = ptrindex %ap0, 1 - 1;
+  %pp1 = addr %p1;
+  br ^exit;
+^exit:
+  %_chk = 0;
+  %_chk = call @crc32_update(%_chk, %v0 as i32);
+  %_chk = call @crc32_update(%_chk, %a2[0] as i32);
+  %_chk = call @crc32_update(%_chk, %a2[1] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[0] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[1] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[2] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[3] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[4] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[5] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[6] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[7] as i32);
+  %_chk = call @crc32_update(%_chk, %vec1[0] as i32);
+  %_chk = call @crc32_update(%_chk, %vec1[1] as i32);
+  %_chk = call @crc32_update(%_chk, %vec1[2] as i32);
+  %_chk = call @crc32_update(%_chk, %vec1[3] as i32);
+  %_chk = call @crc32_update(%_chk, %vec1[4] as i32);
+  %_chk = call @crc32_update(%_chk, %vec1[5] as i32);
+  %_chk = call @crc32_update(%_chk, %vec1[6] as i32);
+  %_chk = call @crc32_update(%_chk, %vec1[7] as i32);
+  %_chk = call @crc32_update(%_chk, %v1);
+  %_chk = call @crc32_update(%_chk, %pa0 as i32);
+  %_chk = call @crc32_update(%_chk, %pa1 as i32);
+  %_chk = call @crc32_update(%_chk, %pa2 as i32);
+  %_chk = call @crc32_update(%_chk, load %p0);
+  %_pld_0 = load %p1;
+  %_chk = call @crc32_update(%_chk, %_pld_0 as i32);
+  ret %_chk;
+}
+
+fun @func_80b9ae_33(%pa0: i32, %pa1: i64, %pa2: f64) : i32 {
+  let mut %v0: f64 = 1.0;
+  let mut %v1: i8 = 27;
+  let mut %v2: i32 = -1851097424;
+  let mut %a0: [2] @struct_80b9ae_33_0 = {{0.125, -160}, {0.375, -70}};
+  let mut %v3: i40 = -256;
+  let mut %vec0: <4> i8 = {44, -14, 35, 52};
+  let mut %p0: ptr i8 = undef;
+  let mut %p1: ptr i40 = undef;
+  let mut %pp0: ptr ptr i40 = undef;
+  let mut %pp1: ptr ptr i40 = undef;
+  let mut %ap0: ptr [2] @struct_80b9ae_33_0 = undef;
+  let mut %nav0: ptr @struct_80b9ae_33_0 = undef;
+  let mut %_chk: i32 = 0;
+  let mut %_pld_0: i8 = undef;
+  let mut %_pld_1: i40 = undef;
+^entry:
+  %v2 = call @func_80b9ae_38(32256, -32768, %v2 + 1851097423) + -195870555;
+  %p0 = addr %v1;
+  %p1 = addr %v3;
+  %pp0 = addr %p1;
+  %pp1 = addr %p1;
+  %ap0 = addr %a0;
+  require 1 != 0, "nonzero input";
+  %v0 = %v2 as f64;
+  store %pp1, %p1;
+  require %pa0 != 0, "div nonzero";
+  %v2 = 1048567 / %pa0 + -1 + 0;
+  %p0 = addr %v1;
+  br ^b0;
+^b0:
+  %p0 = addr %v1;
+  store %p1, 0 as i40 - -9 * %v3;
+  store %pp0, %p1;
+  %p0 = addr %v1;
+  %v3 = 2097125 as i40 + %v1 as i40;
+  require 2097125 > 1048576, "coef large positive";
+  br 1074790400 as i40 + -1075838975 / %v3 + select %pa1 >= 0, 278115885654, -1072693760 > %v3 + -2147483647 / %v3, ^b1, ^b2;
+^b1:
+  %pp0 = %pp1;
+  store %pp1, load %pp1;
+  %nav0 = addr %a0[0];
+  %nav0 = addr %a0[0];
+  %v1 = %pa0 as i8 + -37 - 67 + 123 - -7 - -104;
+  %v3 = %pa1 as i40 + -302946482325;
+  %a0[1].f0 = 0.625 + 2.0;
+  br %v3 - %v3 - %v3 >> %v3 - -41164945323 * %v3 + 84644906429 * %v3 - select %v0 != 0.375, 368980063799, 321374752915 == %v3 + 210033448772 - -196296691205 * %v3 - %v3 * %v3, ^b2, ^b6;
+^b2:
+  store %p1, %v3 - ~%v3;
+  %pp1 = addr %p1;
+  %nav0 = addr %a0[1];
+  %ap0 = addr %a0;
+  br -19397624 as i40 - %pa1 as i40 <= 2113929216 as i40 - -2113929241 - %v1 as i40, ^b3, ^b11;
+^b3:
+  %ap0 = addr %a0;
+  %vec0[3] = %v1 - -2 * %v1;
+  %p1 = load %pp0;
+  br ^b4;
+^b4:
+  %v2 = ~%pa0;
+  %a0[0].f0 = -33554431 as f32 + %pa0 as f32;
+  %p0 = addr %v1;
+  br ~%v2 - 0 * %v2 > -2145794625 - select %v3 > 0, -2129540651, 0, ^b5, ^exit;
+^b5:
+  %vec0[0] = 47 as i8 - 4 * %v1;
+  store %p1, -1048578 as i40 + %v3;
+  require %pa0 != 0, "div nonzero";
+  %v2 = -1093 - 1718974513 / %pa0;
+  %p0 = addr %v1;
+  require -1048578 < -1048576, "coef large negative";
+  require -1074790400 < -1048576, "coef large negative";
+  require 1718974513 > 1048576, "coef large positive";
+  br ^b6;
+^b6:
+  %nav0 = addr %a0[0];
+  %pp1 = addr %p1;
+  store %pp1, %p1;
+  %nav0 = addr %a0[1];
+  br ^b7;
+^b7:
+  %a0[0].f0 = -1 as f32 + %pa0 as f32;
+  %v0 = -5.0 * %pa2 + -3.0 * %pa2;
+  %v2 = -2147483016 - call @saturating_mul(-56040748 - %pa0, 1075312752 - -1944583148 ^ %pa0 - -2147483644 & %pa0);
+  require -56040748 < -1048576, "coef large negative";
+  require 1075312752 > 1048576, "coef large positive";
+  require -1944583148 < -1048576, "coef large negative";
+  require -2147483644 < -1048576, "coef large negative";
+  br ^b8;
+^b8:
+  %v1 = 0 as i8 + %v2 as i8;
+  %v3 = 1048614 as i40 - %v1 as i40;
+  store %p1, -1210977095 as i40 + 449125 * %v3 + 1148190880;
+  store %pp0, %p1;
+  %v0 = %pa0 as f64 + -3144683 as f64;
+  require 127 > 126, "coef large positive";
+  require 1048614 > 1048576, "coef large positive";
+  require 1073741824 > 1048576, "coef large positive";
+  require -1210977095 < -1048576, "coef large negative";
+  require 1148190880 > 1048576, "coef large positive";
+  br ^b9;
+^b9:
+  %pp1 = %pp0;
+  %p1 = addr %v3;
+  %vec0[3] = -118 as i8 + load %p0;
+  br -513 | %v2 - -2147483647 >= -402920683 - 256 * %pa0 + -16, ^b10, ^b14;
+^b10:
+  require %pa0 != 0, "div nonzero";
+  %v2 = -1612207125 / %pa0;
+  %pp0 = %pp1;
+  %p0 = addr %v1;
+  require -1612207125 < -1048576, "coef large negative";
+  br -34111460 - 23 * %pa0 != 1073741824 - 1071654401 + 1 * %v2, ^b11, ^b14;
+^b11:
+  %a0[0].f1 = %v2 as i16 - 20810 - 9757 - 1961 + -7541 + -1802;
+  %p1 = load %pp0;
+  %p0 = addr %v1;
+  %v3 = %pa1 as i40 - -508111846077;
+  %p1 = load %pp1;
+  %v3 = %pa0 as i40 - 259245584799;
+  br ^b12;
+^b12:
+  %v2 = call @func_80b9ae_83(%pa1, 37.938460014924935, 14.92717860992614) + select %pa2 > -1.125, 1134299472, 1935946204 + call @func_80b9ae_38(100, 79, %v2) - %pa0;
+  %nav0 = addr %a0[0];
+  %ap0 = addr %a0;
+  %p1 = load %pp0;
+  %nav0 = addr %a0[0];
+  store %pp1, %p1;
+  store %p1, %v3 - -356650827128 & %v3 + 368619497284 >> %v3 + 147742745650;
+  %a0[1].f0 = 0.0 + %v1 as f32;
+  br ^b13;
+^b13:
+  %v1 = %pa1 as i8 + -107 + 99;
+  %v3 = %pa1 as i40 - -47015614610 - -29094667050 + 92768790029 + 442504268422 - -373633237842;
+  store %pp1, %p1;
+  %ap0 = addr %a0;
+  %ap0 = addr %a0;
+  %vec0[3] = %v1 - load %p0 + -52;
+  %a0[0].f0 = -1.5 + %v1 as f32;
+  br ^b14;
+^b14:
+  store %pp0, load %pp0;
+  store %p0, -122 as i8 + 127 + 1 * %v1;
+  %pp1 = %pp0;
+  %v1 = 127 as i8 + %v2 as i8;
+  %nav0 = addr %a0[0];
+  require 127 > 126, "coef large positive";
+  br ^exit;
+^exit:
+  %_chk = 0;
+  %_chk = call @crc32_update(%_chk, %v0 as i32);
+  %_chk = call @crc32_update(%_chk, %v1 as i32);
+  %_chk = call @crc32_update(%_chk, %v2);
+  %_chk = call @crc32_update(%_chk, %a0[0].f0 as i32);
+  %_chk = call @crc32_update(%_chk, %a0[0].f1 as i32);
+  %_chk = call @crc32_update(%_chk, %a0[1].f0 as i32);
+  %_chk = call @crc32_update(%_chk, %a0[1].f1 as i32);
+  %_chk = call @crc32_update(%_chk, %v3 as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[0] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[1] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[2] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[3] as i32);
+  %_chk = call @crc32_update(%_chk, %pa0);
+  %_chk = call @crc32_update(%_chk, %pa1 as i32);
+  %_chk = call @crc32_update(%_chk, %pa2 as i32);
+  %_pld_0 = load %p0;
+  %_chk = call @crc32_update(%_chk, %_pld_0 as i32);
+  %_pld_1 = load %p1;
+  %_chk = call @crc32_update(%_chk, %_pld_1 as i32);
+  ret %_chk;
+}
+
+fun @func_80b9ae_8(%pa0: f32, %pa1: f64, %pa2: i40) : i32 {
+  let mut %v0: i64 = -31;
+  let mut %a0: [1] i16 = {-166};
+  let mut %v1: i16 = 68;
+  let mut %v2: i64 = -38;
+  let mut %a1: [3] [1] i32 = {{237}, {2147483647}, {1140385787}};
+  let mut %v3: i32 = -1104156209;
+  let mut %p0: ptr i16 = undef;
+  let mut %p1: ptr i32 = undef;
+  let mut %pp0: ptr ptr i32 = undef;
+  let mut %pp1: ptr ptr i32 = undef;
+  let mut %ap0: ptr [1] i16 = undef;
+  let mut %_chk: i32 = 0;
+  let mut %_pld_0: i16 = undef;
+^entry:
+  %p0 = addr %v1;
+  %p1 = addr %v3;
+  %pp0 = addr %p1;
+  %pp1 = addr %p1;
+  %ap0 = addr %a0;
+  require 1 != 0, "nonzero input";
+  %ap0 = addr %a0;
+  %pp1 = %pp0;
+  %p1 = load %pp1;
+  br ^b0;
+^b0:
+  store %p1, -1 * %v3 - -1043327438;
+  %p0 = addr %v1;
+  %v3 = %v1 as i32;
+  %p1 = addr %a1[1][0];
+  br -2 as i40 + 1 % %pa2 + -2147483647 != 2147483647 as i40 - 0 * %pa2, ^b1, ^b13;
+^b1:
+  %a0[0] = -12387 as i16 - ~%v1 - -423 * %v1;
+  %a0[0] = %v1 - -1 * %v1;
+  %v1 = 16414 as i16 + %v0 as i16;
+  br 2147483579 ^ %v3 > 0 - -97 / %v3, ^b2, ^entry;
+^b2:
+  %pp1 = addr %p1;
+  %v1 = -1 as i16 + load %p0 - -16;
+  %v1 = 541 as i16 + %v0 as i16;
+  br 32767 as i16 + -1 * %v1 > 0 as i16 - -1 * %v1 - -1, ^b3, ^b5;
+^b3:
+  %v1 = 32767 as i16 + -32752 + %v0 as i16;
+  %pp0 = %pp1;
+  %pp1 = %pp0;
+  require 32767 > 32766, "coef large positive";
+  br 68 ^ %v3 - -1 * %v3 < -1 * %v3 + call @midpoint(855634440 / %v3 - -31395599 * %v3, 1073741823 - -1073741823 + -31580641 * %v3) - -1 * %v3, ^b4, ^b6;
+^b4:
+  %v2 = %v0 - 32738;
+  %v1 = 32767 as i16 - %v2 as i16;
+  %v0 = 32768 as i64 + %v2;
+  require 32767 > 32766, "coef large positive";
+  br ^b5;
+^b5:
+  store %pp0, addr %v3;
+  require %v2 != 0, "div nonzero";
+  %v0 = 66060288 as i64 + 2147385342 % %v2;
+  %v2 = %v0 - 7 ^ %v0;
+  %v2 = -209849659 as i64 - 0 * %v0 - 486539260 | %v0;
+  require 66060288 > 1048576, "coef large positive";
+  require 486539260 > 1048576, "coef large positive";
+  br ^b6;
+^b6:
+  %v0 = %v2 + -230514307;
+  %p0 = ptrindex %ap0, 0;
+  %v1 = 32767 as i16 + %v0 as i16;
+  require -230514307 < -1048576, "coef large negative";
+  require 32767 > 32766, "coef large positive";
+  br ^b7;
+^b7:
+  %pp0 = addr %p1;
+  %a0[0] = 31112 as i16 - 6 * %v1;
+  %p1 = addr %a1[0][0];
+  br -5186 as i16 - ~%v1 > 32766 as i16 - %v3 as i16, ^b8, ^b13;
+^b8:
+  %ap0 = addr %a0;
+  %pp0 = %pp1;
+  %v0 = %v2 + %v2 - 5405192836774836341 - %v2 ^ %v2;
+  store %p0, %v1 + -12531 + load %p0 - -6009 - -14141 - %v1;
+  %p1 = load %pp0 - 64;
+  %v3 = %v2 as i32 + -1417124540 - call @func_80b9ae_22(%v3, 54, %v0) - 67709993;
+  %p1 = load %pp1;
+  br %v3 - -1628446096 * %v3 - select call @func_80b9ae_15(%pa0, %v0, 24) >= 1541355990, -1087932937, %v3 - %v3 * %v3 == %v3 + 1832366750 * %v3, ^b9, ^exit;
+^b9:
+  %p1 = addr %a1[2][0];
+  store %pp0, addr %a1[1][0];
+  %p1 = addr %v3;
+  %v2 = %v0 + %v0 * %v0 - 5015719382444380903 * %v0 - %v1 as i64;
+  store %pp0, load %pp0;
+  %v2 = %v0 - %v0 * %v0 + %v0 * %v0 + select %pa1 >= -0.25, 7583202516447921610, %v0 + -3073850375697429317 * %v0 - %v0;
+  %v3 = %pa2 as i32 - -1577735635 - 1440158302 + 1266225056;
+  %v3 = %v0 as i32 + -249257256 - 2084763644 - -1136876915 - 5788727;
+  br ^b10;
+^b10:
+  %v1 = %v2 as i16 + -16302 - 7876;
+  %v3 = %pa2 as i32 + 1451361727 - 808217573;
+  %pp1 = %pp0;
+  store %pp1, addr %v3;
+  %pp1 = addr %p1 + 35;
+  store %p1, %v3 - -102330782 - %v3 * %v3 + -621286841 | %v3;
+  %pp0 = %pp1;
+  %p1 = addr %a1[2][0];
+  br %v0 - 5497993994787813791 / %v0 - -7542924942349457390 * %v0 - %v0 * %v0 - %v2 % %v2 > %v2 + -6696557322967139075 >>> %v0, ^b11, ^exit;
+^b11:
+  %v0 = %v2 - 7187889665590488598 * %v2 + 3669709683156300882;
+  %p0 = addr %v1;
+  store %pp0, load %pp0;
+  %p0 = addr %v1 + 49;
+  store %p0, %v1 - 20448 + -30092 - 18343 + load %p0;
+  %pp1 = %pp0 - 36;
+  %v0 = %v2 + -8894301080888980798 + 1976391183662106627 >>> %v2;
+  %ap0 = addr %a0;
+  br %v3 - -260750137 - %v3 >> %v3 > %v3 - -1028987673 * %v3 + -2098998125, ^b12, ^b13;
+^b12:
+  %p1 = addr %v3;
+  store %p0, %v1 - %v1 ^ %v1 - %v1 >>> %v1 + 27963 % %v1 + -23661 / %v1 + call @rotl(select %pa0 != 2.0, 12121, %v1 + %v0 as i16 + -20196 << %v1 + %v1 + -25803 * %v1, call @signum(-23116 - %v1 * %v1 - load %p0 + -21131 * %v1 - load %p0) - -1960 + 2700 * %v1 + 19799 * %v1);
+  %p0 = addr %v1;
+  %p0 = addr %v1;
+  %p0 = addr %a0[0];
+  %a0[0] = %v1 + -25641 & %v1 - -11250 | %v1 - 31236 ^ %v1;
+  %v0 = %v2 - -2934673946087860397 << %v2 - %v2 >>> %v2;
+  br %pa2 - %v3 as i40 - %pa2 << %pa2 + %pa2 & %pa2 + select %v2 == -3251264622876961418, 428605540884, %pa2 - 187037593515 * %pa2 != %pa2 + select %v3 > 94588384, %pa2, %pa2 - select %v0 >= 7162860031569018364, -459693206431, 287256381449 - %pa2 * %pa2 + select %pa1 <= -0.125, %pa2, -122219750348, ^b13, ^exit;
+^b13:
+  %v3 = 265702521 - %v1 as i32 + %v2 as i32;
+  %v1 = -27204 as i16 - %v0 as i16;
+  %p1 = load %pp0;
+  br ^b14;
+^b14:
+  %p0 = ptrindex %ap0, 0;
+  %ap0 = addr %a0;
+  %a0[0] = -13066 as i16 - -32768 + -14 * %v1;
+  require -32768 < -32767, "coef large negative";
+  br -1506 as i16 - 3903 + 0 * %v1 <= %v1 + %v2 as i16 - -17759, ^exit, ^b8;
+^exit:
+  %_chk = 0;
+  %_chk = call @crc32_update(%_chk, %v0 as i32);
+  %_chk = call @crc32_update(%_chk, %a0[0] as i32);
+  %_chk = call @crc32_update(%_chk, %v1 as i32);
+  %_chk = call @crc32_update(%_chk, %v2 as i32);
+  %_chk = call @crc32_update(%_chk, %a1[0][0]);
+  %_chk = call @crc32_update(%_chk, %a1[1][0]);
+  %_chk = call @crc32_update(%_chk, %a1[2][0]);
+  %_chk = call @crc32_update(%_chk, %v3);
+  %_chk = call @crc32_update(%_chk, %pa0 as i32);
+  %_chk = call @crc32_update(%_chk, %pa1 as i32);
+  %_chk = call @crc32_update(%_chk, %pa2 as i32);
+  %_pld_0 = load %p0;
+  %_chk = call @crc32_update(%_chk, %_pld_0 as i32);
+  %_chk = call @crc32_update(%_chk, load %p1);
+  ret %_chk;
+}
+
+fun @func_80b9ae_38(%pa0: i16, %pa1: i32, %pa2: i32) : i32 {
+  let mut %v0: i40 = 56;
+  let mut %v1: i8 = 111;
+  let mut %a0: [1] ptr f64 = {undef};
+  let mut %v2: i64 = 50;
+  let mut %v3: f64 = 8.0;
+  let mut %v4: i64 = 255;
+  let mut %v5: i32 = 92;
+  let mut %p0: ptr i8 = undef;
+  let mut %p1: ptr f64 = undef;
+  let mut %pp0: ptr ptr i8 = undef;
+  let mut %pp1: ptr ptr f64 = undef;
+  let mut %ap0: ptr [1] ptr f64 = undef;
+  let mut %_chk: i32 = 0;
+  let mut %_pld_0: i8 = undef;
+  let mut %_pld_1: f64 = undef;
+^entry:
+  %v5 = call @func_80b9ae_83(8388608, 536870912.0, -1364464706.0) + -2045057605;
+  %p0 = addr %v1;
+  %p1 = addr %v3;
+  %pp0 = addr %p0;
+  %pp1 = addr %p1;
+  %ap0 = addr %a0;
+  require 1 != 0, "nonzero input";
+  %pp1 = addr %p1;
+  %p1 = addr %v3;
+  %v1 = -128 as i8 + %pa1 as i8;
+  require -128 < -127, "coef large negative";
+  br %v2 + 2147483647 + 2147483647 <= %v2 + call @wrapping_mul(%v2 - 0 & %v4 - ~%v4, %v2 - 0 * %v2), ^b0, ^b13;
+^b0:
+  %v4 = %v2 + -2826777558355926116 - %pa0 as i64 + 3685022455278333421 - %v2 + 3127656705665955096;
+  %v2 = %v4 + select %v0 == -208477407245, 4891713209294982911, %v4 + %v4 * %v4;
+  %pp0 = addr %p0 - 42;
+  %v2 = %v4 - -2517164755588734654 * %v4 - %v4 * %v4 + -2235821715910472794;
+  %v2 = %v4 - 8693600523678474903 + -8330867683048204305 * %v4 + -97798256561944423 - -799251412734671769 - -2148548546509117569;
+  %v4 = %v2 + -9149627749774130250 - 5493903448792513377 * %v2 + %v2;
+  br %pa2 - select %v3 != 3.0, %pa2, 1682166833 + 916147573 * %v5 + 396551678 >= %v5 + select %v1 == -59, 1284605794, -597064315 - 1475896483 ^ %v5 - 743968062 - -1544092899, ^b1, ^b3;
+^b1:
+  %pp1 = addr %a0[0];
+  %v5 = %pa1 + select %v0 != -384715932613, %pa1, %pa1 + -1812356981 + -1517567889 + select %pa2 == -245071258, -917801243, 1446188648;
+  %v3 = 0.375 + %v0 as f64;
+  store %pp0, addr %v1;
+  %pp1 = addr %a0[0];
+  store %p0, %v1 + call @midpoint(select %v4 <= 1358499330070226476, -63, %v1 - %v1 >>> %v1 - 11 * %v1 + 9 * %v1, call @ilog2(-13 >> %v1 + select %pa1 > -267928048, %v1, -41 + select %pa0 >= -31410, %v1, -11 + 45 ^ %v1) + %v1 * %v1 + -30 * %v1 + %v1 ^ %v1);
+  %pp0 = addr %p0 - 40;
+  %v5 = %pa1 - -1118958845 - 1106423092 * %pa2 - 258269009 - -1138692529;
+  br %v5 + select %v3 >= -2.5, %v5, %pa1 + 1195924748 + call @rotl(-1402035946 * %v5 + %pa1 & %pa1 - select %v0 == -126673562820, -1206277498, 1641938233 - 1261438313 / %pa1 - 743426361 * %v5 + %v5, %v4 as i32 + 1334571857) + select %pa0 == 24346, -959183656, 1957185285 - 1262683553 != %v5 + -194046506 | %pa2 - 1521287491 ^ %pa2 - %pa2 - select %pa0 == -23371, -1414617030, 1776421861 + -1971338175, ^b2, ^b13;
+^b2:
+  %v5 = %pa1 - 2131058358 - %pa1 | %pa2 - %pa2 << %pa1 - 395516312 + -570727160;
+  store %p1, 0.625 + %v3 * %v3;
+  %p0 = load %pp0;
+  store %pp0, addr %v1;
+  %v3 = 1.0 + %v0 as f64;
+  store %p1, 8.0 * %v3 + 3.75;
+  %v3 = 0.125 + %v0 as f64;
+  store %p1, 2.0 + %v3 / %v3;
+  %v5 = %pa1 + 148895802 >> %pa1 - -1175117867 + 1938807495 / %pa2;
+  %pp0 = addr %p0;
+  br ^b3;
+^b3:
+  %pp0 = addr %p0;
+  %v3 = -3.0 + -8.0;
+  store %p0, %v1 - select %v0 != -317968783781, 95, %v1 + %v1 + %v1 / %v1;
+  %ap0 = addr %a0;
+  store %pp0, addr %v1;
+  %v3 = 0.0 + %v0 as f64;
+  %v4 = %v2 - %v2 * %v2;
+  %v2 = %v4 + 9041243640961139518;
+  br %v4 - -3585103918797370998 % %v4 - %v2 & %v4 + 8175829029913741589 * %v2 < %v4 + -5066218670216153479 % %v2 + -8904970043710613929 - -8169894679465873284, ^b4, ^b13;
+^b4:
+  %v2 = %v4 - -1090615509649371822 + -4743472531527648549 * %v4;
+  store %p0, %v1 + %v1 << %v1;
+  %v3 = -0.5 + %v0 as f64;
+  %ap0 = addr %a0;
+  %v0 = %v5 as i40 - 10464973941 + 132178471798 - -100479897524 + -175440401030;
+  %pp1 = addr %a0[0] + 21;
+  %ap0 = addr %a0;
+  br %pa0 + %pa0 & %pa0 + %pa1 as i16 - %pa0 % %pa0 + -28860 * %pa0 + 13673 & %pa0 > %pa0 - -30000 * %pa0 - 31007 & %pa0 - %pa0 - -21173 - %pa0 * %pa0, ^b5, ^b11;
+^b5:
+  %v3 = -3.0 + %v0 as f64;
+  %p1 = addr %v3;
+  store %p1, %v3 + %v3;
+  %v3 = -2.5 + %v0 as f64;
+  %v5 = %pa1 - 1577491589 * %pa2 + 1416560367 * %pa1 + %pa2 * %pa2;
+  %v5 = %pa1 - 1911526927 >> %pa2 + select %pa2 <= -1764595854, 448260642, -2114670394 + 576913121 >>> %pa2 + 1933562018;
+  %v5 = call @func_80b9ae_83(%v4, 36.406591999706656, %v3) - 1956086953 + -1260190490 + %v0 as i32 - 972023602 & %pa2 + select %pa2 != -1490550905, 220716164, -456078024;
+  br %v2 - 7195246987536294934 - %v2 * %v4 + 2876143234263538131 * %v2 + select %v2 > 7331949114541984263, %v2, 4258256915008071269 - %v1 as i64 <= %v4 + 7984306819316074212 * %v2 + select %pa1 >= -1408024421, %v4, 3440361138541877577 + select %pa2 <= 1006668777, %v4, -1595239445776546411 + -4031825362714755743, ^b6, ^b13;
+^b6:
+  %v4 = %v2 + 6103419328383163218 - select %v0 < 211891790861, -6750988386830290604, -6283666542642790747 + select %pa0 != 8908, 4095902773376132064, %v2;
+  %v1 = %pa0 as i8 + -103 + 104 - -81;
+  %v2 = %v4 - %v4 ^ %v4 + -8849357949093315831 + -3813738586545754843 - %v5 as i64;
+  %v5 = %pa2 - 389382454 + -14720709;
+  store %pp0, addr %v1;
+  %v1 = %pa2 as i8 - -53;
+  %v5 = %pa2 - 1168822266;
+  br ^b7;
+^b7:
+  %p1 = addr %v3;
+  %v5 = %pa1 - %pa1 * %pa2 + %pa2 * %pa2 + -2106755642;
+  %v3 = 0.625 + %v0 as f64;
+  %v5 = %pa2 + 724979698 ^ %pa2 + select %v1 < 55, -1858213717, 1730965569;
+  %v5 = %pa2 - %pa2 - 259485107 * %pa1;
+  %p0 = load %pp0;
+  br %pa1 - 733891514 * %pa2 + select %v1 <= 83, 63891320, -268579303 + 1989970768 << %v5 + -1298852932 | %pa1 > %v5 - -1284303528 ^ %v5 + select %v0 > -253384429379, 183603329, -42985663, ^b8, ^b12;
+^b8:
+  store %pp0, %p0;
+  %pp1 = addr %p1;
+  %ap0 = addr %a0;
+  %v1 = %v4 as i8 + -125 + 67;
+  %p1 = load %pp1;
+  %v4 = %v2 - -2846908026064760163 + 3306809500080536778;
+  %pp0 = addr %p0;
+  br ^b9;
+^b9:
+  store %pp0, %p0;
+  %ap0 = addr %a0;
+  %p1 = addr %v3 + 44;
+  %v2 = %v4 - 7521540692123170591;
+  store %p1, %v3 + %v3 / %v3;
+  %p1 = load %pp1;
+  %v1 = %v4 as i8 + -116;
+  %p0 = addr %v1;
+  br %v0 + 369696360675 >>> %v0 + -96114911914 & %v0 + 432517197009 >= %v0 + select %v0 != -193238843156, 238890784661, -518941986281 + -297458576828 + call @wrapping_shl(159465670665 * %v0 - %v0 - call @saturating_mul(%v0 << %v0 - %v0 / %v0 + select %pa2 < 1763716441, %v0, 475431845216 + 436847480013 * %v0 - 250050563319, %v0 * %v0 + %v0 * %v0 + %v0 * %v0 - select %v0 <= 320048168891, %v0, %v0 + %v0 * %v0 + 481668946294 % %v0) + %v0 * %v0 + -443977978174 - %v0 % %v0, -192460562999 >>> %v0 + %v0 ^ %v0 + %v0 * %v0 - 31828374053), ^b10, ^b12;
+^b10:
+  %ap0 = addr %a0;
+  %v0 = %pa1 as i40 + 235328575079 + 429511526570 - 300351312219 + 395247959944;
+  %v4 = %v2 + select %pa0 != 1504, 1535270383121152202, 3242050869650087658 + select %pa2 >= -234640216, 906266299790517694, 2452980175344579890;
+  %ap0 = addr %a0;
+  %pp1 = addr %p1;
+  %pp0 = addr %p0;
+  br %v5 - %pa2 * %pa2 - %pa2 * %pa1 - select %pa2 == -538451716, 283208238, -672235689 <= %v5 - %pa2 * %v5, ^b11, ^b8;
+^b11:
+  %ap0 = addr %a0;
+  %v4 = %v2 - select %pa1 < 1957343994, 6911009507212250251, %v2 + -3040970158435281027 - 4870130606640345078 + -8322210451998303787 - select %v1 < 57, 7611055024011361167, 8983105592726001881;
+  %v5 = %pa2 - -1823532934 % %pa2 + select %pa1 >= -504891367, -200255627, 1107362778 + -958048347 * %pa1;
+  %pp1 = addr %p1;
+  %ap0 = addr %a0;
+  %v2 = %v4 - 6386443650798499373 % %v4 - %v4 - -742498464265025410 - select %v5 < 1159589917, 7049172523583264518, -6833420216298890515 - %v4 * %v4;
+  br %pa1 - -1347162952 & %pa1 - %pa2 / %v5 + -48906479 + %v5 < %pa2 - %v5 >>> %pa2, ^b12, ^exit;
+^b12:
+  %pp1 = addr %p1;
+  %p0 = addr %v1 - 20;
+  %v1 = %pa2 as i8 + 69 + 31 + -115 + 32 - 98;
+  %v4 = %v2 - 5437859923475859273 + select %v3 > 3.75, -791844099679627116, %v2 + select %v5 == -1037466735, -2249886526887558060, -2441826954708919378;
+  store %pp1, %p1;
+  %ap0 = addr %a0;
+  %pp1 = addr %a0[0] + 13;
+  br ^b13;
+^b13:
+  %pp1 = addr %a0[0];
+  %v1 = 58 as i8 - select %pa0 <= 0, -56, -56 - %v2 as i8;
+  store %p0, 115 as i8 - 127 & %v1;
+  %pp1 = addr %p1;
+  require 127 > 126, "coef large positive";
+  br 16383 as i16 - call @midpoint(-32768 as i16 + -32257 & %pa0, -32768 as i16 - 0 * %pa0 + 32767) <= 0 as i16 + 0 * %pa0, ^b14, ^exit;
+^b14:
+  %v0 = %pa2 as i40 + -376564103110 - 357051269038 - -4641042065 + 235138399082 + 326886457173;
+  %p1 = load %pp1;
+  store %p1, %v3 / %v3 + -1.125 * %v3;
+  %pp1 = addr %p1;
+  %v0 = %v2 as i40 - -235187988516 - -96220207834 - -112701728409 + -297546949207;
+  %v0 = %v4 as i40 - -96663164328;
+  store %p1, %v3 + 1.75 * %v3;
+  %v1 = %pa1 as i8 + -15 + -118;
+  br %pa2 + call @min(-1005578447 - %pa1 * %v5 + 858532475, -1368173425 - 1770550209 >>> %pa2 + select %v0 > 82762581087, 972412510, 1151752423 - select %pa2 >= 62523464, %pa2, %v5 - 424565361 >>> %pa2 + -646646047) - %v1 as i32 - select %v2 >= 8325841141612376717, 181461046, %pa1 - -1058031333 >>> %pa1 + -47056100 != %pa2 + -164584747 ^ %pa2 + select %v2 != 7191185462223264145, -1618738619, 1827920818 + 367673325 / %pa1 - -1880547490 * %pa1, ^exit, ^b0;
+^exit:
+  %_chk = 0;
+  %_chk = call @crc32_update(%_chk, %v0 as i32);
+  %_chk = call @crc32_update(%_chk, %v1 as i32);
+  %_chk = call @crc32_update(%_chk, %v2 as i32);
+  %_chk = call @crc32_update(%_chk, %v3 as i32);
+  %_chk = call @crc32_update(%_chk, %v4 as i32);
+  %_chk = call @crc32_update(%_chk, %v5);
+  %_chk = call @crc32_update(%_chk, %pa0 as i32);
+  %_chk = call @crc32_update(%_chk, %pa1);
+  %_chk = call @crc32_update(%_chk, %pa2);
+  %_pld_0 = load %p0;
+  %_chk = call @crc32_update(%_chk, %_pld_0 as i32);
+  %_pld_1 = load %p1;
+  %_chk = call @crc32_update(%_chk, %_pld_1 as i32);
+  ret %_chk;
+}
+
+fun @func_80b9ae_22(%pa0: i32, %pa1: i40, %pa2: i64) : i32 {
+  let mut %a0: [2] i8 = {106, -128};
+  let mut %v0: f64 = -8.0;
+  let mut %t0: @struct_80b9ae_22_0 = {{405876767, 30, -103}, 13139};
+  let mut %v1: i8 = 9;
+  let mut %t1: @struct_80b9ae_22_1 = {{-7804949122703285740, 6301151342712695693}, 126};
+  let mut %v2: i8 = -1;
+  let mut %v3: i32 = -1518587928;
+  let mut %p0: ptr i32 = undef;
+  let mut %p1: ptr i8 = undef;
+  let mut %pp0: ptr ptr i8 = undef;
+  let mut %pp1: ptr ptr i32 = undef;
+  let mut %ap0: ptr @struct_80b9ae_22_1 = undef;
+  let mut %nav0: ptr [2] i64 = undef;
+  let mut %_chk: i32 = 0;
+  let mut %_pld_0: i8 = undef;
+^entry:
+  %p0 = addr %v3;
+  %p1 = addr %v1;
+  %pp0 = addr %p1;
+  %pp1 = addr %p0;
+  %ap0 = addr %t1;
+  require 1 != 0, "nonzero input";
+  %t0.f0[0] = 5476048 + %pa1 as i32 - -262144 & %v3;
+  %v0 = %pa0 as f64 + %pa0 as f64;
+  %v1 = 94 as i8 - %v2;
+  br %v2 - -1 <= %v1 - -31 - 1 * %v2, ^b0, ^b10;
+^b0:
+  %p0 = addr %t0.f0[1];
+  %v2 = -128 as i8 - select %pa0 >= 0, -96, %v1 + -1 & %v1;
+  %v1 = 127 as i8 - 127 ^ %v2 - 66;
+  require -128 < -127, "coef large negative";
+  require 127 > 126, "coef large positive";
+  require 127 > 126, "coef large positive";
+  br %pa2 + 2147483647 <= 0 as i64 - ~%pa2, ^b1, ^b14;
+^b1:
+  %ap0 = addr %t1;
+  %v0 = 3.0 + %v1 as f64;
+  %ap0 = addr %t1;
+  %t0.f0[2] = %pa0 + load %p0;
+  %pp0 = addr %p1 + 28;
+  %p0 = addr %t0.f0[1];
+  br %v3 + select %v3 <= -1845108857, -902544915, 964681124 + -348155010 * %v3 - 100606125 + 984945895 | %pa0 > %pa0 - 487677593 * %pa0 - -998394641 - -798482088 + load %p0, ^b2, ^b0;
+^b2:
+  %a0[1] = %v2 + -15 * %v1 + %v1 * %v2;
+  %v2 = %v1 - -99;
+  %pp0 = addr %p1 - 46;
+  %nav0 = ptrfield %ap0, f0;
+  %ap0 = addr %t1;
+  %nav0 = ptrfield %ap0, f0;
+  br %pa0 + call @wrapping_add(%v3 * %v3 - %pa0 % %pa0 - 929468221, -1419094704 >>> %pa0 - -1135413911) + -568396188 >> %v3 + 1457059043 - %v3 << %v3 - 38946457 * %pa0 > %v3 + %v3 ^ %v3 + -172836184 - -1935443352 & %v3, ^b3, ^exit;
+^b3:
+  %nav0 = addr %t1.f0;
+  %pp0 = addr %p1;
+  %t1.f0[1] = %pa2 + -7807329414412105742 - %pa2 >>> %pa2 - 4155510533279916831 - select %pa2 < -6822089019224551637, -6305283393531468665, 2760007944241248851 - %pa2 / %pa2;
+  store %p1, %v1 + %pa2 as i8 - 92 + -69 >> %v2;
+  store %p0, %pa0 - %pa0 >> %v3 + 150748467 - select %v3 == 1195831118, %pa0, 1371565008 - -353954910 >>> %pa0;
+  %pp0 = addr %p1 + 59;
+  %nav0 = ptrfield %ap0, f0;
+  %a0[0] = %v1 + load %p1 + %v2 & %v2 + load %p1 + %v2 * %v1;
+  br ^b4;
+^b4:
+  store %p0, %pa0 + 1020328441 + %v3 * %v3 + select %pa1 != -289333024594, %v3, %v3 + 898386365 & %v3 + 945959182;
+  %v1 = %v2 + select %v0 <= -1.5, %v2, -13;
+  %v1 = %v2 - select %v2 >= -47, -75, 12 - load %p1 + -89 - %v2 * %v2 - 127 & %v2;
+  store %p0, %pa0 + 713366247 * %pa0 - %pa0 * %pa0;
+  %a0[0] = %v2 - %v1 % %v2 - select %v2 == 106, -62, -119 - 82 & %v1 - -86 - -53;
+  %v0 = -8.0 + %v1 as f64;
+  %a0[1] = %v1 + -111 ^ %v2;
+  %v3 = %pa0 - 984676611 | %pa0;
+  br ^b5;
+^b5:
+  %pp0 = addr %p1;
+  %a0[0] = %v2 - %v1 * %v2 + call @bitreverse(%pa2 as i8 - -43 * %v1 - 127 ^ %v2 + 18) - -6 * %v2;
+  %pp1 = addr %p0;
+  %v0 = 1.125 + %v1 as f64;
+  %t1.f0[1] = %pa2 + %pa2 * %pa2 - call @abs_diff(select %v0 >= -3.75, %pa2, %pa2 - %pa2 + %pa2 * %pa2 - 9079107524964294547 * %pa2 - %pa2 * %pa2, call @div_euclid(%pa2 & %pa2 - %pa2 / %pa2 + -6644281317924251939 - %v3 as i64 + select %pa2 < 3665165158879643434, %pa2, %pa2 - 8501492166337893367 ^ %pa2, 4526867303438369009 - 4747779699769550024) - -6351888131790618361 ^ %pa2 - -6821282474266557531 * %pa2 - %pa2 + call @ctz(-8975901124338802498 ^ %pa2 + 3095035139817003066 + select %v3 == 1759489565, 8539816957448146027, 61417491193781617 - call @abs_diff(%pa2 * %pa2 - -2621542982587244154 - -7328822150643357662 * %pa2 - call @div_euclid(-7615296782306415433 / %pa2 - -9211224064728245163 + 7406830373785265733 * %pa2 + %pa2 & %pa2 - %pa2 * %pa2, %pa2 % %pa2 - -3451369917673083886 - -2445513991464016944 * %pa2 + -5454763436785002572 + select %pa2 >= 2142839942667294032, %pa2, -3705599509736270849 - -7471792580167780919 * %pa2) - -5454809937893465582 - 6755890169433486206 & %pa2, 2135701270949790452 * %pa2 - -5305107523403765786 * %pa2 + -2106463728641755969 + %pa2 * %pa2 - -2958781858729304022 + %pa2 >>> %pa2)) - select %v2 > -19, %pa2, %pa2) + 3625596296092539782;
+  %v2 = %v1 - -54 << %v1;
+  br %pa2 - %pa2 != %pa2 + select %pa1 >= -5075464064, -8226372175615459427, -6992654391822059178 + -5093405734071192555 & %pa2, ^b6, ^exit;
+^b6:
+  %p0 = load %pp1;
+  store %pp1, addr %t0.f0[1];
+  %nav0 = addr %t1.f0;
+  store %pp1, addr %t0.f0[1];
+  %ap0 = addr %t1;
+  %t0.f0[0] = %pa0 + -1720209638 >>> %pa0 - %v3 - -72787083;
+  %p0 = addr %v3;
+  %v1 = %v2 + load %p1 - load %p1 - 18 & %v2 + 25 - 7;
+  br %v2 - %v1 != %v2 - -68 - 15 - -110 | %v2 - 22, ^b7, ^b14;
+^b7:
+  %t1.f1 = %v2 - 125 ^ %v2 + 66 * %v1 - %v2 - 113 % %v2 + 71 >>> %v2;
+  %ap0 = addr %t1;
+  %v0 = -3.75 + %v1 as f64;
+  %t0.f1 = %pa1 as i16 - 24762 + 23460 + -8720;
+  %nav0 = ptrfield %ap0, f0;
+  store %p1, %v1 - 112 & %v1 - %v2 >>> %v1 - load %p1 - 1 * %v2;
+  %t1.f0[0] = %pa2 + 2470438722079786277 / %pa2;
+  br ^b8;
+^b8:
+  store %p1, %v2 + 108 - %v1 - %v1 & %v2 + -35 + 12;
+  %t1.f1 = %v2 + -7 - 8;
+  %nav0 = addr %t1.f0;
+  %nav0 = ptrfield %ap0, f0;
+  %pp1 = addr %p0;
+  %pp0 = addr %p1;
+  store %p0, %pa0 - -2105172353 * %pa0;
+  %v0 = 3.0 + %v1 as f64;
+  br %pa1 - call @rotr(-395187175563 - select %pa2 <= 7881018213549264476, -458342629590, -117943158486 + select %v2 <= 8, -518363010738, %pa1 - -245028269550 & %pa1, -295746438707 + %pa1 * %pa1 - 220659951090 / %pa1 + 80634980966 << %pa1 + -410223953946 - 34724728302 * %pa1) - -350636314633 & %pa1 - 498149722408 * %pa1 > %pa1 - 177275903699 - %pa1 & %pa1 - select %v0 < -0.125, -490122968988, -83719446438 + %pa1 ^ %pa1 - -304370888601, ^b9, ^b12;
+^b9:
+  %v2 = %v1 + -95 + 100 - -9 % %v1 - -109 >> %v1;
+  store %p0, %pa0 - -1976478067 >> %pa0 - %v3 << %v3 - %v3 ^ %v3 + %v3 | %pa0;
+  %nav0 = ptrfield %ap0, f0;
+  %t1.f0[1] = %pa2 + %v3 as i64;
+  %a0[1] = %v2 - select %pa1 > 379312976855, -36, 79 + %v1 - -105 | %v2;
+  store %p1, %v1 - -39 - -12 - %v1 * %v1 + -110 - %v2;
+  %nav0 = addr %t1.f0;
+  %pp0 = addr %p1 + 48;
+  br %pa2 - -7291730228905467411 % %pa2 - %pa2 * %pa2 + call @clz(select %pa2 >= -1350427084203331905, %pa2, 6872268245093867965 + select %v3 <= -2061381842, %pa2, 8884646160756772363 - %pa2 - select %pa1 <= -231014712848, 7028269708287708898, 5873083624321233441) > %pa2 - %pa2 + 7551443820316689238 * %pa2 - 5274491819634106512 ^ %pa2 - call @clamp(8859390752192299637 - %pa2 * %pa2 + -3948741864449769276 >>> %pa2, 2801023003084264184 + %pa0 as i64 + -1501855722539289134 + %pa2 << %pa2 - 2899028245686743846 * %pa2, %pa2 >> %pa2 + -7127538080386928408 * %pa2 + 7187053267252896541 * %pa2), ^b10, ^b5;
+^b10:
+  store %p0, %v3 + -333182362 - %pa0 * %pa0 - -1380343724 + -493325316 - call @wrapping_sub(call @wrapping_shr(call @abs(-575925292 + 327235120 * %v3 + -1262329418 + -830226175 * %v3 + -869932700 - %v3 | %v3) - load %p0, 411233373 * %pa0 - 3385835 - %v3 / %v3 - -515732710 << %pa0 + -1587622146 * %v3) + -716774922, %v3 >>> %pa0 + 793129561 + 729916008 - -9297764 % %pa0 + -469458314 * %v3 - 1474694969);
+  store %p0, %pa0 - call @rotr(1437369443 - %pa0 * %pa0, load %p0 + select %pa1 == 106175907804, %v3, -1680029355 - load %p0 + select %v3 >= 1676723584, 720972399, -1095189723 + -2062241484) + select %v1 == 1, 1064581806, 1813953356;
+  %a0[0] = %v1 + 91 + 70 * %v1;
+  %p1 = load %pp0;
+  %pp0 = addr %p1;
+  %pp1 = addr %p0;
+  %p0 = addr %t0.f0[0];
+  store %pp0, addr %a0[1];
+  %ap0 = addr %t1;
+  br %pa1 - %pa1 ^ %pa1 + 147110266733 + %pa1 | %pa1 + select %pa1 < 169527400069, %pa1, 482786393338 - 336024491135 * %pa1 >= %pa1 - select %pa0 > -435125083, 44669704090, 260256278012 - 196447260003, ^b11, ^b13;
+^b11:
+  %a0[1] = %v1 + select %pa0 > -1260804616, -97, 27 + call @clz(-127 * %v2 + 114 * %v2 + -110 % %v2 - -72);
+  %v0 = -3.0 + %v1 as f64;
+  %v0 = 0.125 + %v1 as f64;
+  %p1 = ptrfield %ap0, f1 + 26;
+  store %pp0, ptrfield %ap0, f1;
+  %nav0 = ptrfield %ap0, f0;
+  %v2 = %v1 + 20 * %v1 - load %p1 - 126 % %v1;
+  br %v2 - -106 + 39 - %v1 >>> %v2 + -68 + %v2 * %v2 >= %v1 - load %p1 + 122 ^ %v1 - -123 - 17 + %v1 * %v2, ^b12, ^exit;
+^b12:
+  %pp0 = addr %p1;
+  %p0 = addr %t0.f0[1];
+  %v1 = %v2 + %v2 - %v2 & %v2 + call @min(load %p1 - call @wrapping_shr(%pa1 as i8 - select %v2 <= -59, %v2, %v2, 60 % %v2 + 107 << %v2 + -18) + -113 + 34 + %v2 + load %p1, select %pa2 < 4175166305371651964, 56, -39 - %v2) + %v2 + 89 * %v2;
+  %v3 = %pa0 - %pa0 * %pa0 - -1715305870 % %pa0;
+  %a0[1] = %v1 + select %v2 == -5, -119, %v2;
+  %v3 = %pa0 - %pa0 * %pa0 - %pa0 + 1485492777 * %pa0;
+  br ^b13;
+^b13:
+  %pp1 = addr %p0;
+  %a0[1] = %v2 - 56;
+  %ap0 = addr %t1;
+  %pp0 = addr %p1;
+  store %p0, %pa0 - select %pa1 < 386199728096, %v3, %pa0 + -462853909 * %v3 + load %p0 - 1652023817 - select %v3 == 321061359, %pa0, 1264083130;
+  %p1 = addr %t1.f1;
+  store %p0, %pa0 - load %p0 + %v3 * %pa0 + %pa1 as i32 - %pa0 % %v3;
+  %nav0 = addr %t1.f0;
+  br %pa1 - %pa1 >>> %pa1 + %pa1 * %pa1 + %pa1 & %pa1 >= %pa1 - -497165526842, ^b14, ^exit;
+^b14:
+  %v0 = 3.0 + %v1 as f64;
+  %pp0 = addr %p1;
+  %p0 = addr %t0.f0[0];
+  br ^exit;
+^exit:
+  %_chk = 0;
+  %_chk = call @crc32_update(%_chk, %a0[0] as i32);
+  %_chk = call @crc32_update(%_chk, %a0[1] as i32);
+  %_chk = call @crc32_update(%_chk, %v0 as i32);
+  %_chk = call @crc32_update(%_chk, %t0.f0[0]);
+  %_chk = call @crc32_update(%_chk, %t0.f0[1]);
+  %_chk = call @crc32_update(%_chk, %t0.f0[2]);
+  %_chk = call @crc32_update(%_chk, %t0.f1 as i32);
+  %_chk = call @crc32_update(%_chk, %v1 as i32);
+  %_chk = call @crc32_update(%_chk, %t1.f0[0] as i32);
+  %_chk = call @crc32_update(%_chk, %t1.f0[1] as i32);
+  %_chk = call @crc32_update(%_chk, %t1.f1 as i32);
+  %_chk = call @crc32_update(%_chk, %v2 as i32);
+  %_chk = call @crc32_update(%_chk, %v3);
+  %_chk = call @crc32_update(%_chk, %pa0);
+  %_chk = call @crc32_update(%_chk, %pa1 as i32);
+  %_chk = call @crc32_update(%_chk, %pa2 as i32);
+  %_chk = call @crc32_update(%_chk, load %p0);
+  %_pld_0 = load %p1;
+  %_chk = call @crc32_update(%_chk, %_pld_0 as i32);
+  ret %_chk;
+}
+
+fun @func_80b9ae_83(%pa0: i64, %pa1: f32, %pa2: f64) : i32 {
+  let mut %v0: i64 = -228;
+  let mut %v1: f32 = 8.0;
+  let mut %t0: @struct_80b9ae_83_0 = {-9223372036854775807, -26370, {1.0, -3.0}};
+  let mut %v2: f32 = 3.75;
+  let mut %v3: i16 = -144;
+  let mut %v4: i8 = 62;
+  let mut %v5: i32 = -115240962;
+  let mut %p0: ptr i32 = undef;
+  let mut %p1: ptr i16 = undef;
+  let mut %pp0: ptr ptr i16 = undef;
+  let mut %pp1: ptr ptr i32 = undef;
+  let mut %ap0: ptr @struct_80b9ae_83_0 = undef;
+  let mut %nav0: ptr [2] f64 = undef;
+  let mut %_chk: i32 = 0;
+  let mut %_pld_0: i16 = undef;
+^entry:
+  %p0 = addr %v5;
+  %p1 = addr %v3;
+  %pp0 = addr %p1;
+  %pp1 = addr %p0;
+  %ap0 = addr %t0;
+  require 1 != 0, "nonzero input";
+  %v3 = -4156 as i16 - %v0 as i16;
+  %v4 = 86 as i8 - %v0 as i8;
+  store %pp0, load %pp0;
+  %pp1 = addr %p0;
+  br %v3 + 3928 >= 14503 as i16 - -14336 - 1 * %v3, ^b0, ^b6;
+^b0:
+  %pp1 = addr %p0;
+  %pp0 = addr %p1 - 58;
+  %pp0 = addr %p1;
+  %v5 = %v4 as i32 + -1819456212 - -1518555597 + 994004123;
+  %pp1 = addr %p0;
+  %pp1 = addr %p0;
+  br call @func_80b9ae_15(99.14163862472697, 92, %v4) - %v5 / %v5 + %v5 & %v5 + 447472246 >> %v5 + 1226536932 + -1122439230 / %v5 != %v5 + 1445249015 + 669459374 + %v5 / %v5 + 130677720 | %v5, ^b1, ^entry;
+^b1:
+  %p1 = addr %v3 - 56;
+  %v5 = %v4 as i32 - -1311401920 + 2095660530 + 2031171845 + 1916610238;
+  store %p1, %v3 - %v3 / %v3;
+  %nav0 = ptrfield %ap0, f2;
+  store %pp0, ptrfield %ap0, f1;
+  %pp0 = addr %p1;
+  %pp0 = addr %p1 - 17;
+  store %p1, %v3 - -24425 - -30136 - -12477 * %v3 - call @clamp(%v3 * %v3 - 29198 * %v3, load %p1 + -30652 - 3507 & %v3 - 14799 >>> %v3 - 25683, load %p1 - -22984 - %v3 / %v3);
+  %pp1 = addr %p0;
+  br ^b2;
+^b2:
+  store %pp1, addr %v5;
+  %pp1 = addr %p0;
+  store %p0, %v5 + 1214932619 >>> %v5 + -1216444107 - -874710525 * %v5 - %v3 as i32;
+  %p0 = load %pp1;
+  %v4 = %v0 as i8 - -74 + -51 - -19;
+  %p1 = addr %t0.f1 + 31;
+  %v5 = %v4 as i32 - 236815621 - -1477798493;
+  store %pp0, %p1;
+  store %p1, %v3 - -11118 % %v3 - 20473 + load %p1 + 10608 & %v3 + 12214;
+  store %pp1, addr %v5;
+  %v4 = %v3 as i8 - -23 - -127 - 75 - 62 - -26;
+  br %pa0 - select %pa0 < 7846915283642152121, 435653917776968312, %pa0 + select %pa0 < -413857258187313298, %pa0, 634542975988243028 + select %v1 <= 0.625, -507444773164529332, %v0 + 1167219832402066585 + -627583638787768133 << %v0 > %v0 - %v5 as i64 - %pa0 | %v0, ^b3, ^b4;
+^b3:
+  %v1 = %v2 + %pa1 * %pa1;
+  %v0 = %pa0 + 6182948084213376969 * %pa0 - %pa0 | %pa0 + 5052498511227704815;
+  store %p1, %v3 - 18249 | %v3 + %pa0 as i16 - 13324;
+  %ap0 = addr %t0;
+  %ap0 = addr %t0;
+  %pp1 = addr %p0;
+  %p0 = addr %v5;
+  br %v3 - 23787 - -1588 != %v3 - call @wrapping_sub(-12134 - 25451 % %v3, 4062 * %v3 - 2531 * %v3 - call @ilog2(2803 >>> %v3 + %v3 - %v3 | %v3 - %v3 >> %v3 - 12760 * %v3 - 4477) + -31491), ^b4, ^b5;
+^b4:
+  %nav0 = ptrfield %ap0, f2;
+  store %p0, %v5 + 67764701 >> %v5 - select %v2 < -2.5, %v5, %v5;
+  store %p1, %v3 + %v4 as i16 + 29197 - select %pa2 > 1.0, -4125, 18880 + call @ctz(20377 + -6440 * %v3 - %v3 * %v3 - -29674 * %v3 + 8920) + -25430;
+  %nav0 = ptrfield %ap0, f2;
+  %v2 = %v1 + %v1;
+  store %p1, %v3 - -25985 - 14452 >>> %v3 - -3783 * %v3;
+  %v0 = %pa0 - select %v5 >= -2100274766, %pa0, 5414324291329082288 - select %v5 != -300650128, %pa0, %pa0;
+  store %pp0, load %pp0;
+  %v2 = 0.125 + %v1;
+  %v5 = %v3 as i32 + 744077308 + -1931518158;
+  br ^b5;
+^b5:
+  %p0 = load %pp1;
+  %v5 = %v0 as i32 + -1442758717 + 1937235217 - -684989324 + -891003943;
+  %t0.f0 = %v0 - call @bswap(select %v3 <= -15238, -7343399629161288534, -2847392257366208511 - select %v1 == -2.5, -782747141445534210, %pa0) + 1232111168348166932 >>> %pa0;
+  %v1 = -0.625 % %v2 + %v2;
+  %p0 = load %pp1 - 38;
+  %v2 = %v1 % %v1 + -2.5 * %v1;
+  br %v4 + select %v2 < 0.0, 36, -39 - %v3 as i8 - call @ilog2(%v4 * %v4 - %v4 + %v4 + 19 << %v4 - 70 - 58) >= %v4 + %v4 >>> %v4 - %v4 * %v4 + 37 * %v4, ^b6, ^b3;
+^b6:
+  %v1 = %v5 as f32 + %v5 as f32;
+  %t0.f2[1] = 528461824 as f64 + 0.5 * %pa2;
+  %v5 = %v3 as i32 - 1073737897;
+  require 1073737897 > 1048576, "coef large positive";
+  br ^b7;
+^b7:
+  %v5 = %v3 as i32;
+  %v1 = 134217724 as f32 + %v2;
+  store %p1, %v3 - 3 * %v3;
+  store %pp0, load %pp0;
+  store %p1, %v3 - 32767 - -24898;
+  %ap0 = addr %t0;
+  require 32767 > 32766, "coef large positive";
+  br ^b8;
+^b8:
+  %p0 = load %pp1;
+  store %pp1, %p0;
+  require %pa0 != 0, "div nonzero";
+  %v0 = %pa0 + -1082130214 + -2106660347 / %pa0;
+  store %p1, %v3 - 74 * %v3;
+  %pp1 = addr %p0;
+  require -1082130214 < -1048576, "coef large negative";
+  require -2106660347 < -1048576, "coef large negative";
+  br %v0 - -1073741857 ^ %v0 > %v0 + ~%v0 - 1342177312, ^b9, ^exit;
+^b9:
+  %v1 = -8388612 as f32 + %v2;
+  %pp1 = addr %p0;
+  store %pp0, load %pp0;
+  store %p1, -24962 as i16 + -4 * %v3;
+  %nav0 = ptrfield %ap0, f2;
+  br ^b10;
+^b10:
+  %nav0 = addr %t0.f2;
+  %p0 = addr %v5;
+  %nav0 = ptrfield %ap0, f2;
+  br ^b11;
+^b11:
+  store %p1, -32768 as i16 - %v3;
+  %pp1 = addr %p0;
+  %nav0 = ptrfield %ap0, f2;
+  %v5 = %v3 as i32 + 4010;
+  require -32768 < -32767, "coef large negative";
+  br ^b12;
+^b12:
+  %pp0 = addr %p1;
+  store %p1, %v3 - 7 * %v3;
+  %v2 = 5.0 * %v1;
+  %ap0 = addr %t0;
+  br ^b13;
+^b13:
+  %p0 = load %pp1;
+  %pp1 = addr %p0;
+  %ap0 = addr %t0;
+  br %v3 + 0 * %v3 >= 32640 as i16 + -32768 % %v3, ^b14, ^exit;
+^b14:
+  %p0 = load %pp1;
+  %v1 = 2.0 * %v2 + %v5 as f32;
+  %v2 = 12 as f32 + %v5 as f32;
+  br ^exit;
+^exit:
+  %_chk = 0;
+  %_chk = call @crc32_update(%_chk, %v0 as i32);
+  %_chk = call @crc32_update(%_chk, %v1 as i32);
+  %_chk = call @crc32_update(%_chk, %t0.f0 as i32);
+  %_chk = call @crc32_update(%_chk, %t0.f1 as i32);
+  %_chk = call @crc32_update(%_chk, %t0.f2[0] as i32);
+  %_chk = call @crc32_update(%_chk, %t0.f2[1] as i32);
+  %_chk = call @crc32_update(%_chk, %v2 as i32);
+  %_chk = call @crc32_update(%_chk, %v3 as i32);
+  %_chk = call @crc32_update(%_chk, %v4 as i32);
+  %_chk = call @crc32_update(%_chk, %v5);
+  %_chk = call @crc32_update(%_chk, %pa0 as i32);
+  %_chk = call @crc32_update(%_chk, %pa1 as i32);
+  %_chk = call @crc32_update(%_chk, %pa2 as i32);
+  %_chk = call @crc32_update(%_chk, load %p0);
+  %_pld_0 = load %p1;
+  %_chk = call @crc32_update(%_chk, %_pld_0 as i32);
+  ret %_chk;
+}
+
+fun @func_80b9ae_15(%pa0: f32, %pa1: i64, %pa2: i8) : i32 {
+  let mut %v0: i16 = -1;
+  let mut %v1: i8 = 125;
+  let mut %v2: i16 = -2431;
+  let mut %v3: i16 = 12924;
+  let mut %a0: [3] [3] i16 = {{59, 1794, -24}, {-15594, -25958, -34}, {-13629, -10491, 107}};
+  let mut %vec0: <2> i32 = {165, -1597537380};
+  let mut %v4: i32 = -138576269;
+  let mut %p0: ptr i16 = undef;
+  let mut %p1: ptr i8 = undef;
+  let mut %pp0: ptr ptr i8 = undef;
+  let mut %pp1: ptr ptr i16 = undef;
+  let mut %ap0: ptr [3] [3] i16 = undef;
+  let mut %nav0: ptr [3] i16 = undef;
+  let mut %_chk: i32 = 0;
+  let mut %_pld_0: i16 = undef;
+  let mut %_pld_1: i8 = undef;
+^entry:
+  %p0 = addr %v2;
+  %p1 = addr %v1;
+  %pp0 = addr %p1;
+  %pp1 = addr %p0;
+  %ap0 = addr %a0;
+  require 1 != 0, "nonzero input";
+  %nav0 = addr %a0[0];
+  %v4 = -1073741825 - %v0 as i32;
+  %v4 = -1073741825 + 0 - %v0 as i32;
+  br -12924 as i64 + %v3 as i64 - -1 < %pa1 - -2147430333 + 2147483647, ^b0, ^b8;
+^b0:
+  %ap0 = addr %a0;
+  %p0 = ptrindex %nav0, 2 - 1;
+  %v4 = %v0 as i32 - -2;
+  br 43 as i8 - -88 ^ %v1 != 63 as i8 - -4 | %v1, ^b1, ^b13;
+^b1:
+  %v1 = %pa2 + -4 | %pa2;
+  %v1 = %pa2 + -2 - 127 ^ %pa2;
+  %ap0 = addr %a0;
+  require 127 > 126, "coef large positive";
+  br 0 as i8 + -128 % %pa2 + -2 >= %pa2 + -128, ^b2, ^b9;
+^b2:
+  %v1 = -62 as i8 + -2 * %pa2 + 127;
+  %vec0[0] = -1 * %v4;
+  store %p1, %v1 + select %v3 != 0, %pa2, 0;
+  %ap0 = addr %a0;
+  require 127 > 126, "coef large positive";
+  br select %v4 >= 0, %v4, %v4 - 1 + 2147483647 == 523925375 + select %v4 < 0, %v4, -523925376, ^b3, ^b0;
+^b3:
+  %v1 = %pa2 - -99 - %pa2;
+  %vec0[1] = %v4 + %v4 * %v4;
+  %p1 = load %pp0 - 12;
+  store %pp1, load %pp1;
+  %v2 = %v3 - 3591 * %v0 - 31281 & %v3 + 8044;
+  store %p1, %pa2 - -56 * %pa2 - load %p1;
+  %v1 = %pa2 - -112 + %pa2 - -50 - %v4 as i8;
+  %ap0 = addr %a0;
+  br ^b4;
+^b4:
+  %v1 = %pa2 + %pa2 * %pa2 - select %pa0 <= -0.5, 106, -15 - 17 - 21 >> %pa2 - 115 * %pa2;
+  %v2 = %v0 + -28530;
+  %v4 = %v1 as i32 - -973316800 - 1621000375;
+  %ap0 = addr %a0;
+  %p1 = addr %v1 - 52;
+  %vec0[1] = %v4 + 1679240216 * %v4 - 2091027270;
+  br %v4 - select %v3 > -22325, -978288868, 437905600 + select %v2 <= 2559, 140723824, -1960932197 + -1296256505 * %v4 + select %v0 != 18918, 399896013, -1141548308 != %v4 + -741485769 * %v4, ^b5, ^b14;
+^b5:
+  store %p0, %v0 + %v2 + 740 - %v3 * %v3 + %pa1 as i16 - -9951;
+  store %pp0, load %pp0;
+  %v4 = %v3 as i32 - -558634690 - -1982033873 + 1469089454 - 513778252;
+  %v1 = %pa2 - 96 - -81 * %pa2 - load %p1 + load %p1;
+  %v3 = %v2 + load %p0 + 22493 - load %p0 - -3945;
+  %pp1 = addr %p0;
+  %pp1 = addr %p0 + 13;
+  store %p0, %v0 - %v2 + -21626 << %v2 + 4511 ^ %v2 + select %v4 < -1099254819, -25118, -23450 + -16595;
+  %v2 = %v0 + -118 * %v3 + -20552 + %v3 % %v3 - -10588;
+  br %v4 - 847834183 * %v4 <= %v4 + -815697912 * %v4 - -914068485 - -916351720 * %v4 - -1334607949 * %v4 + %v4, ^b6, ^b4;
+^b6:
+  %p1 = addr %v1;
+  store %p0, %v3 - 29216;
+  store %p0, %v3 - %v3 & %v2 + 17835 ^ %v3;
+  %nav0 = ptrindex %ap0, 2;
+  %p0 = ptrindex %nav0, 1;
+  %pp1 = addr %p0;
+  %p1 = load %pp0;
+  %nav0 = addr %a0[0];
+  %v2 = %v0 + load %p0 - -15120 * %v0 - 6345 * %v0 + 18022 * %v0 - -22979 & %v0;
+  br ^b7;
+^b7:
+  %v3 = %v0 + %v4 as i16 + 29617 << %v2 + 9424 - -29837 + %v2 * %v0;
+  %vec0[0] = %v4 + select %v2 < 7330, -908679188, 878959297 + 1481748935;
+  %v1 = %pa2 - 31 % %pa2 - select %v2 <= 9587, -51, %pa2 + -77 * %pa2;
+  %p0 = addr %a0[1][1] - 33;
+  %v4 = %v3 as i32 - 161755964 + -185023618 - -2113771998 + 486662502 + -10577338;
+  %v3 = %v2 - call @clz(call @min(select %pa1 >= 4627818404365239014, -274, -28809 + load %p0, 10138 & %v2 + load %p0 + load %p0 + 27678 & %v0 - select %pa2 > 70, -13834, -6689 - select %v2 == 106, -26891, %v2) - %v1 as i16);
+  br %v0 + %v2 & %v3 - load %p0 < %v2 - select %pa0 > 8.0, %v3, 11568 + %v3 & %v3 + 26912 >>> %v0, ^b8, ^b10;
+^b8:
+  %v1 = %pa2 + select %v3 >= 8692, %pa2, %pa2 + 106 + 113 - %pa2 ^ %pa2 + %pa2;
+  %v0 = %v3 - load %p0 + 12987 * %v2 + 30076 - %v2 * %v2;
+  %pp1 = addr %p0;
+  %v0 = %v2 + %v4 as i16 + %v3 * %v3;
+  %v0 = %v3 - %v2 % %v3 - -31183 * %v2 - 26775 * %v2 + 18384 >> %v2;
+  %v1 = %pa2 + -33 % %pa2 + -33 * %pa2 - %pa2 >> %pa2;
+  br %v1 - select %pa0 < 0.125, 105, %v1 + 90 % %v1 != %pa2 + %v1 * %v1, ^b9, ^b10;
+^b9:
+  %v3 = %v0 - %v4 as i16 - %v0 - %v0 + select %pa1 > 3449485617673883824, 210, %v2 + 17408 >> %v2;
+  %p1 = addr %v1;
+  %v3 = %v0 + -26816 + load %p0 + %v0 ^ %v0;
+  %vec0[1] = %v4 - select %pa1 < 8629919483390616468, %v4, 864752246 + -392563631 * %v4 - call @rem_euclid(call @wrapping_shl(-60987488 - call @rem_euclid(select %pa2 >= 83, -1424698666, %v4 + %v4 * %v4 + -1862443499 * %v4 + 1557166191 * %v4, select %v1 < -57, -11464775, -1278061649 + %v4 * %v4 - %v4 & %v4 + 1145069826 - call @min(-831127200 & %v4 - select %v2 >= -15634, -1731496233, -2134481542, call @wrapping_shl(1487735172 * %v4 + 2040995661 + -1368607879 ^ %v4 - call @abs(%v4 + 1805092030 + select %pa1 != -7974748644954785478, 1539479988, %v4 - -2016188065 - 1329045445) - 1835641065 % %v4 + call @saturating_mul(-1923290040 * %v4 + %pa1 as i32, 1066543216 * %v4 + 1057310923), 1999997103 / %v4 - -348779413 + %v0 as i32 + %v4 << %v4 - %v4 % %v4) - -192443299) + %v4 >> %v4) + 2140775517 ^ %v4, select %v4 > -606309770, -1800655367, -200330381 - -1755649704 & %v4 + -2092809759) - -1634910014 - 1382975140 - select %v0 > 15447, -763560164, 136120907 + 968794696 - select %v4 > 1112098165, %v4, 268553035, select %pa0 <= 3.0, -1828576789, 1061417057 + select %pa2 > 18, -561991498, -180488628) - select %pa1 > 835250014223724696, -271868045, 36198680 - -170709159;
+  %v2 = %v0 - 31602 + -28095;
+  %v4 = %v3 as i32 - 35967323;
+  br ^b10;
+^b10:
+  %vec0[1] = %v4 - %v4 & %v4 - %v4 << %v4 + -937066645;
+  store %pp1, addr %a0[1][2];
+  %pp0 = addr %p1 - 23;
+  %p1 = addr %v1;
+  %v2 = %v3 + 14976 - %v4 as i16 + -24136 * %v3 + select %v0 >= 22890, %v3, -23492;
+  %pp0 = addr %p1;
+  %vec0[0] = %v4 - -786242133;
+  br %v2 - -10671 + -15274 | %v2 + 28688 % %v0 + %v2 * %v3 + 12324 < %v3 + 16662 >>> %v3 + %v0 * %v0 + 32460 * %v3, ^b11, ^b12;
+^b11:
+  %ap0 = addr %a0;
+  %pp1 = addr %p0;
+  store %p0, %v2 - call @wrapping_neg(load %p0 + %v2 * %v3 + -19897 >>> %v3 + -7827);
+  %v3 = %v0 + select %v0 > 7460, 22048, %v0 - 21258 + 20890 * %v0 - %v0 * %v0 + call @clamp(-26751 - %v1 as i16 - -23628 >> %v0, select %v2 <= -26402, %v2, 25745 - select %v1 == -99, -21162, 15107 + 27693 + %v0 - 3791 << %v0, 31275 + -1003 - %v0 & %v2 + -6562 - 21446);
+  %pp0 = addr %p1;
+  %v0 = %v3 - %v3 ^ %v2 - -13300;
+  %p1 = addr %v1 + 21;
+  br ^b12;
+^b12:
+  %vec0[1] = %v4 + select %pa2 < -10, %v4, 557921872 + select %v0 == -25552, 363160022, -1223103604;
+  %v0 = %v3 + call @rem_euclid(27500 * %v3 - 7560 + -12663 + %v3 & %v3, %v3 % %v2 - %v2 + 9069) + 20350 ^ %v2 + %v2 - 1608 * %v3 - 24878 * %v3;
+  %v1 = %pa2 - -120 + load %p1 - load %p1 + -42;
+  %p0 = addr %a0[1][0];
+  %nav0 = addr %a0[2];
+  %v1 = %pa2 - -73 * %pa2 - 102 >>> %pa2 + call @rotr(load %p1 - %pa2 >>> %pa2, -84 + %v4 as i8 - -84) + 28;
+  br %v1 + -85 - %v0 as i8 + select %v0 == 27362, 121, -9 - -92 >= %pa2 + select %pa0 >= -4.0, %v1, -28 + -32 * %v1, ^b13, ^exit;
+^b13:
+  %pp0 = addr %p1;
+  require %v1 != 0, "div nonzero";
+  store %p1, %v1 + call @wrapping_neg(2 as i8 + -127 / %v1 + %pa1 as i8);
+  %v4 = -1073741825 - %v0 as i32;
+  %v2 = -2831 as i16 - 2 * %v3;
+  br ^b14;
+^b14:
+  %v4 = %v3 as i32 + 588561900 - select %pa2 < 0, 0, -1558908823;
+  %v4 = 1597556741 - %v2 as i32;
+  %v0 = -10465 as i16 + 1542 - %v3;
+  br ^exit;
+^exit:
+  %_chk = 0;
+  %_chk = call @crc32_update(%_chk, %v0 as i32);
+  %_chk = call @crc32_update(%_chk, %v1 as i32);
+  %_chk = call @crc32_update(%_chk, %v2 as i32);
+  %_chk = call @crc32_update(%_chk, %v3 as i32);
+  %_chk = call @crc32_update(%_chk, %a0[0][0] as i32);
+  %_chk = call @crc32_update(%_chk, %a0[0][1] as i32);
+  %_chk = call @crc32_update(%_chk, %a0[0][2] as i32);
+  %_chk = call @crc32_update(%_chk, %a0[1][0] as i32);
+  %_chk = call @crc32_update(%_chk, %a0[1][1] as i32);
+  %_chk = call @crc32_update(%_chk, %a0[1][2] as i32);
+  %_chk = call @crc32_update(%_chk, %a0[2][0] as i32);
+  %_chk = call @crc32_update(%_chk, %a0[2][1] as i32);
+  %_chk = call @crc32_update(%_chk, %a0[2][2] as i32);
+  %_chk = call @crc32_update(%_chk, %vec0[0]);
+  %_chk = call @crc32_update(%_chk, %vec0[1]);
+  %_chk = call @crc32_update(%_chk, %v4);
+  %_chk = call @crc32_update(%_chk, %pa0 as i32);
+  %_chk = call @crc32_update(%_chk, %pa1 as i32);
+  %_chk = call @crc32_update(%_chk, %pa2 as i32);
+  %_pld_0 = load %p0;
+  %_chk = call @crc32_update(%_chk, %_pld_0 as i32);
+  %_pld_1 = load %p1;
+  %_chk = call @crc32_update(%_chk, %_pld_1 as i32);
+  ret %_chk;
+}
+
+fun @main() : i32 {
+  let mut %r: i32 = undef;
+^entry:
+  %r = call @func_80b9ae_74(-1537228675672440390, -0.0, 0);
+  %r = call @check_chksum(-1979676050, %r);
+  ret 0;
+}
+
+intrinsic @abs(%x0: i12) : i12;
+
+intrinsic @abs(%x0: i16) : i16;
+
+intrinsic @midpoint(%x0: i16, %x1: i16) : i16;
+
+intrinsic @bitreverse(%x0: i16) : i16;
+
+intrinsic @wrapping_neg(%x0: i12) : i12;
+
+intrinsic @saturating_neg(%x0: i12) : i12;
+
+intrinsic @crc32_update(%state: i32, %val: i32) : i32;
+
+intrinsic @ctz(%x0: i32) : i32;
+
+intrinsic @abs_diff(%x0: i8, %x1: i8) : i8;
+
+intrinsic @wrapping_sub(%x0: i16, %x1: i16) : i16;
+
+intrinsic @saturating_neg(%x0: i32) : i32;
+
+intrinsic @saturating_mul(%x0: i32, %x1: i32) : i32;
+
+intrinsic @signum(%x0: i16) : i16;
+
+intrinsic @midpoint(%x0: i32, %x1: i32) : i32;
+
+intrinsic @rotl(%x0: i16, %x1: i16) : i16;
+
+intrinsic @min(%x0: i32, %x1: i32) : i32;
+
+intrinsic @midpoint(%x0: i8, %x1: i8) : i8;
+
+intrinsic @rotl(%x0: i32, %x1: i32) : i32;
+
+intrinsic @ilog2(%x0: i8) : i8;
+
+intrinsic @wrapping_mul(%x0: i64, %x1: i64) : i64;
+
+intrinsic @wrapping_shl(%x0: i40, %x1: i40) : i40;
+
+intrinsic @saturating_mul(%x0: i40, %x1: i40) : i40;
+
+intrinsic @abs(%x0: i32) : i32;
+
+intrinsic @min(%x0: i8, %x1: i8) : i8;
+
+intrinsic @clz(%x0: i8) : i8;
+
+intrinsic @clz(%x0: i64) : i64;
+
+intrinsic @ctz(%x0: i64) : i64;
+
+intrinsic @abs_diff(%x0: i64, %x1: i64) : i64;
+
+intrinsic @clamp(%x0: i64, %x1: i64, %x2: i64) : i64;
+
+intrinsic @bitreverse(%x0: i8) : i8;
+
+intrinsic @rotr(%x0: i32, %x1: i32) : i32;
+
+intrinsic @rotr(%x0: i40, %x1: i40) : i40;
+
+intrinsic @wrapping_add(%x0: i32, %x1: i32) : i32;
+
+intrinsic @wrapping_sub(%x0: i32, %x1: i32) : i32;
+
+intrinsic @wrapping_shr(%x0: i8, %x1: i8) : i8;
+
+intrinsic @wrapping_shr(%x0: i32, %x1: i32) : i32;
+
+intrinsic @div_euclid(%x0: i64, %x1: i64) : i64;
+
+intrinsic @ctz(%x0: i16) : i16;
+
+intrinsic @clamp(%x0: i16, %x1: i16, %x2: i16) : i16;
+
+intrinsic @bswap(%x0: i64) : i64;
+
+intrinsic @ilog2(%x0: i16) : i16;
+
+intrinsic @min(%x0: i16, %x1: i16) : i16;
+
+intrinsic @clz(%x0: i16) : i16;
+
+intrinsic @rotr(%x0: i8, %x1: i8) : i8;
+
+intrinsic @wrapping_neg(%x0: i8) : i8;
+
+intrinsic @wrapping_neg(%x0: i16) : i16;
+
+intrinsic @wrapping_shl(%x0: i32, %x1: i32) : i32;
+
+intrinsic @rem_euclid(%x0: i16, %x1: i16) : i16;
+
+intrinsic @rem_euclid(%x0: i32, %x1: i32) : i32;
+
+intrinsic @check_chksum(%expected: i32, %actual: i32) : i32;

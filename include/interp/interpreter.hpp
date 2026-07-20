@@ -53,12 +53,17 @@ namespace refractir {
     // Optional state-capture hook. When set, it is invoked with the live
     // local Store at the entry of every executed block (`instrIdx == -1`)
     // and, when `perInstr` is true, again after each instruction
-    // (`instrIdx == i`). It is the low-level primitive behind reify's
-    // StateProfile, which records per-program-point concrete state so
-    // equivalence-preserving rewrites (e.g. rytwin) can reproduce the
+    // (`instrIdx == i`). `funcName` is the executing function and
+    // `frameId` its activation (unique per function entry within one run),
+    // so interprocedural traces keep frames apart even when block labels
+    // collide across functions. It is the low-level primitive behind
+    // reify's StateProfile, which records per-program-point concrete state
+    // so equivalence-preserving rewrites (e.g. rytwin) can reproduce the
     // exact state a block sees under the generated input. No-op when unset.
-    using StateHook =
-        std::function<void(const std::string &blockLabel, int instrIdx, const Store &store)>;
+    using StateHook = std::function<void(
+        const std::string &funcName, std::uint64_t frameId, const std::string &blockLabel,
+        int instrIdx, const Store &store
+    )>;
 
     void setStateHook(StateHook hook, bool perInstr = false) {
       stateHook_ = std::move(hook);
@@ -125,6 +130,9 @@ namespace refractir {
     // Optional per-program-point state-capture hook (see setStateHook).
     StateHook stateHook_;
     bool stateHookPerInstr_ = false;
+    // Activation counter for StateHook frame ids: each runBlocks entry
+    // (top-level run or nested call) claims the next id.
+    std::uint64_t nextFrameId_ = 0;
 
     RuntimeValue evalExpr(const Expr &e, const Store &store);
     // evalAtom dispatches on the Atom variant; each alternative's evaluation

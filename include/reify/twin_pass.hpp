@@ -30,18 +30,24 @@
 //
 // v1 scope: candidate blocks are memory-free and call-free (no
 // load/store/addr/ptr navigation, intrinsic calls only) and every leaf
-// they read or write is concrete (no pointer / undef). `B'` is currently
-// a constant reconstruction of `s'` and will grow richer
-// (solver-generated) later.
+// they read or write is concrete (no pointer / undef).
+//
+// `B'` is solver-generated through the injected `TwinGenFn` (see
+// reify/twin_gen.hpp): random statements whose net effect from `s` is
+// exactly `s'`, verified bit-exactly. When generation is disabled or no
+// attempt verifies, `B'` falls back to a constant reconstruction of the
+// leaves the block writes.
 
 #include <memory>
 
 #include "reify/pass.hpp"
+#include "reify/twin_gen.hpp"
 
 namespace refractir::reify {
 
   // Build the twin pass. `pTwin` in [0,1] is the per-candidate-block
-  // probability of grafting a twin.
-  std::unique_ptr<Pass> makeTwinPass(double pTwin);
+  // probability of grafting a twin. `twinGen` generates the twin body; an
+  // empty function selects constant reconstruction.
+  std::unique_ptr<Pass> makeTwinPass(double pTwin, TwinGenFn twinGen = {});
 
 } // namespace refractir::reify

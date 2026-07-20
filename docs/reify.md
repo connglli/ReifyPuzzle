@@ -176,7 +176,7 @@ Each chosen leaf function brings its own solved realization (one of the `--n-ini
 
 A twin program of a given program is its equivalent variant. Twin-program generation is based on leaf functions, too.
 
-Given a leaf function `f1` together with the exact input `i` that concretizes it, the whole execution is deterministic and known. `rytwin` obtains, for each on-path program point, the concrete value of every initialized local/parameter — the state the program passes through — from the `.state.json` sidecar when `f1` was generated with `rysmith --emit-state`, and otherwise by interpreting `f1` on `i` in-process. For a chosen basic block `B`, let `s` be the state at `B`'s entry and `s' = B(s)` the state at its exit. Twin-program generation synthesizes a **twin block** `B'` that reproduces `s'` from `s` and grafts a guarded diamond:
+Given a leaf function `f1` together with the exact input `i` that concretizes it, the whole execution is deterministic and known. `rytwin` obtains, for each on-path program point, the concrete value of every initialized local/parameter — the state the program passes through — from the `.state.json` sidecar when `f1` was generated with `rysmith --emit-state`, and otherwise by interpreting `f1` on `i` in-process. For a chosen basic block `B`, let `s` be the state at `B`'s entry and `s' = B(s)` the state at its exit. Twin-program generation synthesizes a **twin block** `B'` whose net effect from `s` is exactly `s'` and grafts a guarded diamond:
 
 ```
 ^X  (guard):  br call @__twg_<fn>_<X>(<state>) != 0  ->  ^X__twin  else  ^X__orig
@@ -186,6 +186,8 @@ Given a leaf function `f1` together with the exact input `i` that concretizes it
 ```
 
 The guard fires only when the live-in state equals `s`, so on the profiled input the twin runs (producing exactly what `B` would) and on every other state the original runs — hence full equivalence. The guard is a generated function `@__twg_<fn>_<label> : i1`, one per twin site. It consumes the **entire** definitely-initialized state at `B`'s entry — not only `B`'s read set — as a conjunction of per-leaf equalities. The conjunction is total (no UB) and collision-free, so it preserves the equivalence on all inputs, not just the profiled one, and it cannot fire on any state other than `s`. Scalar roots cross into the guard by value, vector roots per-lane, and aggregate roots by address (`ptr [N] T` / `ptr @S` parameters, navigated inside the guard with in-bounds `ptrindex`/`ptrfield` + `load`). Each candidate block is twinned with probability `--p-twin`.
+
+`B'` is generated the same way rysmith generates blocks: random statements with `%?` symbols over the live state (UB-safety `require`s spliced automatically), one fresh additive correction symbol per touched leaf so any target stays reachable, and one equality `require` per leaf pinning the final state to `s'`. The resulting single-block mini-program is solved in-process with the SMT solver, concretized by printing with the model and re-parsing, and then verified **bit-exactly** by re-running the interpreter (the solver's FP equality is IEEE and would conflate `+0.0`/`-0.0`). The scaffolding equality requires are stripped from the graft; the UB-safety requires remain (they hold on the guarded state). On UNSAT/timeout the attempt is retried with fresh statements (`--twin-retries`), and when every attempt fails — or with `--no-twin-smith` — `B'` falls back to a constant reconstruction of the leaves `B` writes.
 
 **Limitations**. Eligible blocks currently cover scalars, structs, arrays, vectors (guard and `B'` operate leaf-by-leaf off the state profile), `require`/`assume`, and pure intrinsic calls. Pointers and memory (`load`/`store`/`addr`/`ptr`-navigation) are not yet twinned — that needs the state profile to carry pointer targets.
 
@@ -377,7 +379,7 @@ rylink -n 5 --target c --structured-lowering random -i pool/ -o progs/
 
 ## Tool: rytwin
 
-`rytwin` is an **equivalence-preserving program transformer**. Given a rysmith program `f1` (a concrete `.sir`), it emits an equivalent program `f2` such that `f1(i) == f2(i)` for **every** input `i` — same result, same undefined-behaviour outcome.
+`rytwin` is an **equivalence-preserving program transformer**. Given a generated program `f1` (a rysmith leaf or a rylink whole program), it emits an equivalent program `f2` such that `f1(i) == f2(i)` for **every** input `i` — same result, same undefined-behaviour outcome. Whole programs are profiled from `@main`, and twins are grafted into any function along the executed trace; the state capture is frame-aware, so states are attributed to the right activation even when block labels repeat across functions.
 
 ### Usage
 
@@ -391,9 +393,12 @@ The descriptor (`func_<id>_<i>.json`) and, when present, the state profile (`<st
 |---|---|---|
 | `-o, --output PATH` | — | Output `.sir` (`f2`) |
 | `--p-twin P` | 0.5 | Probability of grafting a twin for each candidate block |
+| `--no-twin-smith` | off | Disable rysmith-style twin generation; reconstruct the post state with constants |
+| `--twin-stmts N` | 3 | Random statements per generated twin |
+| `--twin-retries N` | 3 | Generation attempts per twin before falling back |
 | `--seed N` | random | RNG seed |
 | `--target sir\|c\|wasm` | `sir` | Optionally compile `f2` via the in-process backend |
-| `--validate` | off | Run `symiri` on `f1` and `f2` with the profiled input and assert they agree |
+| `--validate` | off | Run `symiri` on `f1` and `f2` with the profiled input, assert they agree, and assert at least one twin block actually executed |
 | `--keep-require` | off | Keep `require` checks in compiled output |
 | `--emit-main` | off | Keep `@main` un-mangled in compiled output |
 

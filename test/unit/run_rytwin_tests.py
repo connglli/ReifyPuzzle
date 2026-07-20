@@ -401,6 +401,328 @@ def test_guard_compiles_c_and_wasm(rytwin, rysmith):
       )
 
 
+def twin_block_bodies(src):
+  """Return the instruction text of every ^..__twin block in src."""
+  bodies = []
+  cur = None
+  for line in src.splitlines():
+    stripped = line.strip()
+    if stripped.startswith("^") and stripped.endswith(":"):
+      if cur is not None:
+        bodies.append("\n".join(cur))
+        cur = None
+      if stripped.rstrip(":").endswith("__twin"):
+        cur = []
+      continue
+    if cur is not None:
+      if stripped.startswith("}"):
+        bodies.append("\n".join(cur))
+        cur = None
+      else:
+        cur.append(stripped)
+  if cur is not None:
+    bodies.append("\n".join(cur))
+  return bodies
+
+
+def has_computed_rhs(body):
+  """True if some assignment's RHS references a local — i.e. the twin is a
+  computation, not a constant reconstruction."""
+  for line in body.splitlines():
+    if " = " in line and not line.startswith("require") and not line.startswith("br"):
+      rhs = line.split(" = ", 1)[1]
+      if "%" in rhs:
+        return True
+  return False
+
+
+def test_twin_is_generated(rytwin, rysmith):
+  """[Stage 3] By default twin blocks are
+  solver-generated computations, not bare constant reconstructions: some
+  twin RHS references a variable."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, emit_state=False)
+    if not sirs:
+      check("twin-gen setup (rysmith gen)", False, "generation failed")
+      return
+    computed = total = 0
+    for p1 in sirs:
+      p2 = p1[:-4] + ".p2.sir"
+      r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p2])
+      if r.returncode != 0:
+        continue
+      for b in twin_block_bodies(open(p2).read()):
+        total += 1
+        if has_computed_rhs(b):
+          computed += 1
+    check(
+      "some twin blocks are generated computations",
+      computed > 0,
+      f"{computed}/{total} twin blocks computed",
+    )
+
+
+def test_twin_fully_concrete(rytwin, rysmith):
+  """[Stage 3] Generated twins are concretized before grafting: no %?
+  symbol survives into p2."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, emit_state=False)
+    if not sirs:
+      check("twin-concrete setup (rysmith gen)", False, "generation failed")
+      return
+    got = first_twinned(rytwin, sirs, extra=None)
+    if not got:
+      check("twin-concrete setup (twinnable program)", False, "no twin grafted")
+      return
+    check("no %? symbol left in p2", "%?" not in open(got[1]).read(), "")
+
+
+def test_twin_gen_equivalence(rytwin, rysmith, symiri):
+  """[Stage 3] The full equivalence sweep holds with generated twins."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, seed="303", emit_state=False)
+    if sirs is None:
+      check("twin-gen equivalence setup", False, "generation failed")
+      return
+    equivalence_over_pool(rytwin, symiri, d, sirs, "twin-gen", extra=None)
+
+
+def test_twin_gen_fallback(rytwin, rysmith):
+  """[Stage 3] --no-twin-smith twins via constant reconstruction, and
+  a generation budget of zero falls back instead of crashing."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, emit_state=False)
+    if not sirs:
+      check("twin-gen fallback setup", False, "generation failed")
+      return
+    got = first_twinned(rytwin, sirs, extra=["--no-twin-smith"])
+    check("--no-twin-smith twins via constants", got is not None, "")
+    if got:
+      bodies = twin_block_bodies(open(got[1]).read())
+      check(
+        "constant twins have no computed RHS",
+        bodies and not any(has_computed_rhs(b) for b in bodies),
+        "",
+      )
+    got = first_twinned(rytwin, sirs, extra=["--twin-retries", "0"])
+    check("zero retries falls back cleanly", got is not None, "")
+
+
+def test_twin_requires_stripped(rytwin, rysmith):
+  """[Stage 3] The equality requires that pin the generated twin to s' are
+  solver-side scaffolding; they are stripped from the graft. UB-safety
+  requires may remain and must survive --keep-require compilation."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, emit_state=False, extra=["--emit-main"])
+    if not sirs:
+      check("requires-stripped setup", False, "generation failed")
+      return
+    got = first_twinned(
+      rytwin,
+      sirs,
+      extra=["--keep-require", "--target", "c", "--emit-main"],
+    )
+    if not got:
+      check("requires-stripped setup (twinnable program)", False, "no twin")
+      return
+    bodies = twin_block_bodies(open(got[1]).read())
+    eq_requires = [
+      ln
+      for b in bodies
+      for ln in b.splitlines()
+      if ln.startswith("require") and "==" in ln
+    ]
+    check(
+      "no equality require left in twin blocks", not eq_requires, str(eq_requires[:3])
+    )
+    check("--keep-require --target c compiles", os.path.exists(got[1][:-4] + ".c"), "")
+
+
+WHOLE_PROG_FIXTURE = """fun @leaf(%pa0: i32) : i32 {
+  let mut %a: i32 = 3;
+^entry:
+  br ^work;
+^work:
+  %a = 2 * %a + %pa0;
+  br ^exit;
+^exit:
+  ret %a;
+}
+
+fun @main() : i32 {
+  let mut %r: i32 = undef;
+^entry:
+  %r = call @leaf(41);
+  ret %r;
+}
+"""
+
+
+def dump_trace(symiri, path, entry="@main", args=None):
+  r = run([symiri, "--dump-trace", "--main", entry, path, "--"] + (args or []))
+  return r.stdout + r.stderr
+
+
+def test_whole_program_twin_fires(rytwin, symiri):
+  """[whole-program] The program's entry is @main; the twin lives in a
+  callee. The guard must be keyed on the state the callee actually sees at
+  runtime (args from @main's call site), so the twin executes."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "prog.sir")
+    open(p1, "w").write(WHOLE_PROG_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p2])
+    check("whole-program p1 twinned", r.returncode == 0, r.stderr[:200])
+    if r.returncode != 0:
+      return
+    check(
+      "twin block executes on the real input",
+      "__twin" in dump_trace(symiri, p2),
+      "",
+    )
+
+
+def test_validate_asserts_twin_fires(rytwin, symiri):
+  """[whole-program] --validate interprets p2 on the profiled input and
+  confirms at least one twin actually executed — a dead twin is a failure,
+  not a silent success."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "prog.sir")
+    open(p1, "w").write(WHOLE_PROG_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "--validate", "-o", p2])
+    check("--validate exits 0 on whole program", r.returncode == 0, r.stderr[:200])
+    check(
+      "--validate reports twin execution",
+      re.search(r"twin exec", r.stdout) is not None,
+      r.stdout[:200],
+    )
+
+
+LABEL_COLLIDE_FIXTURE = """fun @leafa(%pa0: i32) : i32 {
+  let mut %a: i32 = 3;
+^entry:
+  br ^work;
+^work:
+  %a = 2 * %a + %pa0;
+  br ^exit;
+^exit:
+  ret %a;
+}
+
+fun @leafb(%pa0: i32) : i32 {
+  let mut %b: i32 = 5;
+^entry:
+  br ^work;
+^work:
+  %b = 3 * %b + %pa0;
+  br ^exit;
+^exit:
+  ret %b;
+}
+
+fun @main() : i32 {
+  let mut %r: i32 = undef;
+  let mut %s: i32 = undef;
+^entry:
+  %r = call @leafa(41);
+  %s = call @leafb(17);
+  %r = %r + %s;
+  ret %r;
+}
+"""
+
+
+def test_label_collision_across_functions(rytwin, symiri):
+  """[whole-program] Two callees share the label ^work. Each must get its
+  own guard keyed on its own frame state, and both twins must execute."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "prog.sir")
+    open(p1, "w").write(LABEL_COLLIDE_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p2])
+    check("collision p1 twinned", r.returncode == 0, r.stderr[:200])
+    if r.returncode != 0:
+      return
+    src = open(p2).read()
+    names = {nm for nm, _ in GUARD_FN_RE.findall(src)}
+    check(
+      "one guard per function, frame-scoped names",
+      "@__twg_leafa_work" in names and "@__twg_leafb_work" in names,
+      str(names),
+    )
+    check(
+      "both twins execute",
+      dump_trace(symiri, p2).count("__twin") >= 2,
+      "",
+    )
+    r1 = symiri_result(symiri, p1, "@main", [])
+    r2 = symiri_result(symiri, p2, "@main", [])
+    check("collision program equivalent", r1[1:] == r2[1:], f"{r1} vs {r2}")
+
+
+TWICE_CALLED_FIXTURE = """fun @leaf(%pa0: i32) : i32 {
+  let mut %a: i32 = 3;
+^entry:
+  br ^work;
+^work:
+  %a = 2 * %a + %pa0;
+  br ^exit;
+^exit:
+  ret %a;
+}
+
+fun @main() : i32 {
+  let mut %r: i32 = undef;
+  let mut %s: i32 = undef;
+^entry:
+  %r = call @leaf(41);
+  %s = call @leaf(7);
+  %r = %r + %s;
+  ret %r;
+}
+"""
+
+
+def test_first_visit_across_activations(rytwin, symiri):
+  """[whole-program] A callee invoked twice with different args: the twin is
+  planned from the first activation's state, fires there and only there, and
+  the program stays equivalent."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "prog.sir")
+    open(p1, "w").write(TWICE_CALLED_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p2])
+    check("twice-called p1 twinned", r.returncode == 0, r.stderr[:200])
+    if r.returncode != 0:
+      return
+    trace = dump_trace(symiri, p2)
+    check(
+      "twin fires exactly once",
+      trace.count("__twin:") == 1,
+      f"count={trace.count('__twin:')}",
+    )
+    r1 = symiri_result(symiri, p1, "@main", [])
+    r2 = symiri_result(symiri, p2, "@main", [])
+    check("twice-called program equivalent", r1[1:] == r2[1:], f"{r1} vs {r2}")
+
+
+def test_real_rylink_regression(rytwin, symiri):
+  """[whole-program] The checked-in rylink program (structs, vectors, odd
+  widths, 8 callees + @main) twins and the twin executes at runtime."""
+  fixture = os.path.join(os.path.dirname(__file__), "fixtures", "rylink_twin_p1.sir")
+  with tempfile.TemporaryDirectory() as d:
+    p2 = os.path.join(d, "p2.sir")
+    r = run([rytwin, fixture, "--p-twin", "1.0", "--seed", "3", "-o", p2])
+    check("rylink fixture twinned", r.returncode == 0, r.stderr[:200])
+    if r.returncode != 0:
+      return
+    check("rylink twin executes", "__twin" in dump_trace(symiri, p2), "")
+    r1 = symiri_result(symiri, fixture, "@main", [])
+    r2 = symiri_result(symiri, p2, "@main", [])
+    check("rylink program equivalent", r1[1:] == r2[1:], f"{r1} vs {r2}")
+
+
 def test_solved_header_fallback(rytwin, rysmith, symiri):
   """[Stage 1] With no descriptor AND no sidecar, rytwin recovers the
   profiled input from p1's `// SOLVED:` header (a wrong input would trap on
@@ -468,7 +790,7 @@ def parse_entry(src):
   return fm.group(1), pnames, ptypes, [kv.get(p, "0") for p in pnames]
 
 
-def equivalence_over_pool(rytwin, symiri, d, sirs, tag):
+def equivalence_over_pool(rytwin, symiri, d, sirs, tag, extra=None):
   """Twin every program in the pool with --p-twin 1.0 and assert p1 === p2 on
   the profiled input AND on other inputs (where the guard does not fire)."""
   import random
@@ -482,7 +804,9 @@ def equivalence_over_pool(rytwin, symiri, d, sirs, tag):
       continue
     fn, pnames, ptypes, iargs = parse_entry(open(p1).read())
     p2 = os.path.join(d, stem + ".p2.sir")
-    rr = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p2])
+    rr = run(
+      [rytwin, p1, "--p-twin", "1.0", "--seed", "3"] + (extra or []) + ["-o", p2]
+    )
     if rr.returncode != 0:
       # A block-free-of-eligible-scalars program now exits non-zero with a
       # "no twin" message — expected, skip it. Anything else is a failure.
@@ -670,6 +994,46 @@ def main():
     (
       "TwinPass: guard functions compile (C binary + wasm)",
       lambda: test_guard_compiles_c_and_wasm(rytwin, rysmith),
+    ),
+    (
+      "twin_gen: twin blocks are generated computations",
+      lambda: test_twin_is_generated(rytwin, rysmith),
+    ),
+    (
+      "twin_gen: twins fully concrete",
+      lambda: test_twin_fully_concrete(rytwin, rysmith),
+    ),
+    (
+      "twin_gen: equivalence sweep",
+      lambda: test_twin_gen_equivalence(rytwin, rysmith, symiri),
+    ),
+    (
+      "twin_gen: fallback paths",
+      lambda: test_twin_gen_fallback(rytwin, rysmith),
+    ),
+    (
+      "twin_gen: equality requires stripped",
+      lambda: test_twin_requires_stripped(rytwin, rysmith),
+    ),
+    (
+      "whole-program: twin fires via @main",
+      lambda: test_whole_program_twin_fires(rytwin, symiri),
+    ),
+    (
+      "whole-program: --validate asserts twin execution",
+      lambda: test_validate_asserts_twin_fires(rytwin, symiri),
+    ),
+    (
+      "whole-program: label collision across functions",
+      lambda: test_label_collision_across_functions(rytwin, symiri),
+    ),
+    (
+      "whole-program: first visit across activations",
+      lambda: test_first_visit_across_activations(rytwin, symiri),
+    ),
+    (
+      "whole-program: real rylink regression",
+      lambda: test_real_rylink_regression(rytwin, symiri),
     ),
     ("rytwin: missing args usage", lambda: test_missing_args_usage(rytwin)),
     (

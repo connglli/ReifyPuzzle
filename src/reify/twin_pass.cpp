@@ -236,47 +236,6 @@ namespace refractir::reify {
       return cur;
     }
 
-    struct Leaf {
-      std::vector<Access> path; // from the root
-      StateValue val;
-    };
-
-    // Enumerate scalar leaves of `v`, appending each with its full access path
-    // (starting from `path`). Flags whether a pointer / undef leaf was seen.
-    void enumLeaves(
-        const StateValue &v, std::vector<Access> &path, std::vector<Leaf> &out, bool &hasPtr,
-        bool &hasUndef
-    ) {
-      switch (v.kind) {
-        case StateValue::Kind::Int:
-        case StateValue::Kind::Float:
-          out.push_back({path, v});
-          break;
-        case StateValue::Kind::Array:
-        case StateValue::Kind::Vec:
-          for (std::size_t i = 0; i < v.elems.size(); ++i) {
-            path.push_back(AccessIndex{Index{IntLit{(std::int64_t) i, {}}}, {}});
-            enumLeaves(v.elems[i], path, out, hasPtr, hasUndef);
-            path.pop_back();
-          }
-          break;
-        case StateValue::Kind::Struct:
-          for (const auto &f: v.fields) {
-            path.push_back(AccessField{f.first, {}});
-            enumLeaves(f.second, path, out, hasPtr, hasUndef);
-            path.pop_back();
-          }
-          break;
-        case StateValue::Kind::Ptr:
-          hasPtr = true;
-          break;
-        case StateValue::Kind::Undef:
-        default:
-          hasUndef = true;
-          break;
-      }
-    }
-
     // Resolve any variable indices in `accs` to concrete IntLit indices using
     // the entry state `s`. Returns false if an index var has no scalar-int
     // value in `s`.
@@ -382,6 +341,7 @@ namespace refractir::reify {
       std::string name;
       TypePtr type; // the root's static type in the entry function
       Kind kind;
+      bool isParam = false;        // immutable in the entry function
       std::vector<LeafRef> leaves; // expected values from `s`
     };
 
@@ -389,6 +349,7 @@ namespace refractir::reify {
       std::vector<GuardRoot> guardRoots; // the entire guardable state, in
                                          // profile (name-sorted) order
       std::vector<LeafRef> defs;         // per-leaf constant reconstruction of s'
+      std::vector<Instr> twinInstrs;     // solver-generated B' (empty = use defs)
     };
 
     // Locate a root's declaration in the entry function.
@@ -478,11 +439,10 @@ namespace refractir::reify {
             guardable = decl->isMutable && !containsVec(decl->type, structs);
           }
         }
-        std::vector<Leaf> leaves;
+        std::vector<StateLeaf> leaves;
         if (guardable) {
-          std::vector<Access> path;
           bool hasPtr = false, hasUndef = false;
-          enumLeaves(val, path, leaves, hasPtr, hasUndef);
+          enumStateLeaves(val, leaves, hasPtr, hasUndef);
           guardable = !hasPtr && !hasUndef && !leaves.empty();
         }
         if (!guardable) {
@@ -490,7 +450,7 @@ namespace refractir::reify {
             return false; // the block depends on state we cannot guard
           continue;
         }
-        GuardRoot root{name, decl->type, kind, {}};
+        GuardRoot root{name, decl->type, kind, decl->isParam, {}};
         for (auto &lf: leaves)
           root.leaves.push_back({name, std::move(lf.path), lf.val});
         plan.guardRoots.push_back(std::move(root));
@@ -511,18 +471,18 @@ namespace refractir::reify {
         const StateValue *sub = navigate(*it->second, concrete);
         if (!sub)
           return false;
-        std::vector<Leaf> leaves;
-        std::vector<Access> base = concrete;
+        std::vector<StateLeaf> leaves;
         bool hasPtr = false, hasUndef = false;
-        enumLeaves(*sub, base, leaves, hasPtr, hasUndef);
+        enumStateLeaves(*sub, leaves, hasPtr, hasUndef);
         if (hasPtr || hasUndef)
           return false; // can't reconstruct a pointer / undef leaf
         for (auto &lf: leaves) {
-          // Compute the key before moving lf.path into the value — doing both
-          // in one statement would read a moved-from path and collapse the
-          // key to the bare root, silently dropping all but one leaf.
-          std::string key = leafKey(w.root, lf.path);
-          defMap[key] = {w.root, std::move(lf.path), lf.val};
+          // Leaf paths are relative to `sub`; prepend the concrete write
+          // prefix to root them at the variable.
+          std::vector<Access> full = concrete;
+          full.insert(full.end(), lf.path.begin(), lf.path.end());
+          std::string key = leafKey(w.root, full);
+          defMap[key] = {w.root, std::move(full), lf.val};
         }
       }
       if (defMap.empty())
@@ -697,9 +657,25 @@ namespace refractir::reify {
       return args;
     }
 
+    // Add `decls` to the program's intrinsic section, skipping declarations
+    // it already has (same name, return type, and arity).
+    void mergeIntrinsics(Program &prog, std::vector<IntrinsicDecl> &&decls) {
+      for (auto &d: decls) {
+        bool dup = false;
+        for (const auto &e: prog.intrinsics)
+          if (e.name.name == d.name.name && e.params.size() == d.params.size() &&
+              TypeUtils::areTypesEqual(e.retType, d.retType)) {
+            dup = true;
+            break;
+          }
+        if (!dup)
+          prog.intrinsics.push_back(std::move(d));
+      }
+    }
+
     class TwinPass : public Pass {
     public:
-      explicit TwinPass(double pTwin) : pTwin_(pTwin) {}
+      TwinPass(double pTwin, TwinGenFn twinGen) : pTwin_(pTwin), twinGen_(std::move(twinGen)) {}
 
       std::string_view name() const override { return "TwinPass"; }
 
@@ -713,88 +689,147 @@ namespace refractir::reify {
         for (const auto &sd: prog.structs)
           structs[sd.name.name] = &sd;
 
-        for (auto &[fname, profile]: ctx.profiles) {
-          std::size_t fnIdx = prog.funs.size();
-          for (std::size_t i = 0; i < prog.funs.size(); ++i)
-            if (prog.funs[i].name.name == fname) {
-              fnIdx = i;
-              break;
-            }
-          if (fnIdx == prog.funs.size())
-            continue;
-          FunDecl *fn = &prog.funs[fnIdx];
-
-          std::unordered_map<std::string, const Block *> byLabel;
-          for (const auto &b: fn->blocks)
-            byLabel[b.label.name] = &b;
-
-          std::vector<const StatePoint *> pts;
-          for (const auto &pt: profile.trace)
-            if (pt.instr == -1)
-              pts.push_back(&pt);
-
-          std::unordered_map<std::string, TwinPlan> decided;
-          for (std::size_t t = 0; t + 1 < pts.size(); ++t) {
-            const std::string &label = pts[t]->block;
-            if (decided.count(label))
-              continue; // first visit only
-            // Never re-twin the residue of a previous rytwin run.
-            if (label.find("__twin") != std::string::npos ||
-                label.find("__orig") != std::string::npos ||
-                label.find("__merge") != std::string::npos)
+        for (auto &[pfKey, profile]: ctx.profiles) {
+          // Group block-entry points by executing function. Sidecar files
+          // that predate frame capture have no per-point function; those
+          // traces are single-frame by construction (the leaf entry).
+          std::unordered_map<std::string, std::vector<const StatePoint *>> byFn;
+          std::vector<std::string> fnOrder;
+          for (const auto &pt: profile.trace) {
+            if (pt.instr != -1)
               continue;
-            auto bit = byLabel.find(label);
-            if (bit == byLabel.end())
-              continue;
-
-            StateMap s = toStateMap(pts[t]->vars);
-            StateMap sPrime = toStateMap(pts[t + 1]->vars);
-            TwinPlan plan;
-            if (!planBlock(*fn, *bit->second, pts[t]->vars, s, sPrime, structs, plan))
-              continue;
-            if (coin(ctx.rng) >= pTwin_)
-              continue;
-            decided.emplace(label, std::move(plan));
+            const std::string &fnName = pt.func.empty() ? profile.func : pt.func;
+            auto [it, inserted] = byFn.try_emplace(fnName);
+            if (inserted)
+              fnOrder.push_back(fnName);
+            it->second.push_back(&pt);
           }
-          if (decided.empty())
-            continue;
 
-          const std::string fnStem = fname.empty() || fname[0] != '@' ? fname : fname.substr(1);
-          std::vector<FunDecl> guardFuns;
-          std::vector<Block> nb;
-          nb.reserve(fn->blocks.size() + 3 * decided.size());
-          for (auto &b: fn->blocks) {
-            auto dit = decided.find(b.label.name);
-            if (dit == decided.end()) {
-              nb.push_back(std::move(b));
+          // Guard functions must be declared before their (sole) caller;
+          // insert them after all functions are processed so the indices
+          // stay stable while grafting.
+          std::vector<std::pair<std::string, std::vector<FunDecl>>> pendingGuards;
+
+          for (const auto &fnName: fnOrder) {
+            FunDecl *fn = nullptr;
+            for (auto &f: prog.funs)
+              if (f.name.name == fnName) {
+                fn = &f;
+                break;
+              }
+            if (!fn)
               continue;
-            }
-            std::string labelStem = b.label.name;
-            if (!labelStem.empty() && labelStem[0] == '^')
-              labelStem.erase(0, 1);
-            std::string guardName = "@__twg_" + fnStem + "_" + labelStem;
-            guardFuns.push_back(buildGuardFun(guardName, dit->second, structs));
-            graft(b, dit->second, guardName, nb);
-            ++rep.sites;
-          }
-          fn->blocks = std::move(nb);
 
-          // Callees must be declared before their call sites; put the guard
-          // functions directly in front of the entry function. (This
-          // invalidates `fn` — it is not used past this point.)
-          prog.funs.insert(
-              prog.funs.begin() + fnIdx, std::make_move_iterator(guardFuns.begin()),
-              std::make_move_iterator(guardFuns.end())
-          );
+            std::unordered_map<std::string, const Block *> byLabel;
+            for (const auto &b: fn->blocks)
+              byLabel[b.label.name] = &b;
+
+            const auto &pts = byFn[fnName];
+            std::unordered_map<std::string, TwinPlan> decided;
+            for (std::size_t t = 0; t + 1 < pts.size(); ++t) {
+              // s' is the next point of the SAME activation: a point from
+              // another frame (the caller resuming, a fresh call) says
+              // nothing about this block's effect.
+              if (pts[t]->frame != pts[t + 1]->frame)
+                continue;
+              const std::string &label = pts[t]->block;
+              if (decided.count(label))
+                continue; // first visit only
+              // Never re-twin the residue of a previous rytwin run.
+              if (label.find("__twin") != std::string::npos ||
+                  label.find("__orig") != std::string::npos ||
+                  label.find("__merge") != std::string::npos)
+                continue;
+              auto bit = byLabel.find(label);
+              if (bit == byLabel.end())
+                continue;
+
+              StateMap s = toStateMap(pts[t]->vars);
+              StateMap sPrime = toStateMap(pts[t + 1]->vars);
+              TwinPlan plan;
+              if (!planBlock(*fn, *bit->second, pts[t]->vars, s, sPrime, structs, plan))
+                continue;
+              if (coin(ctx.rng) >= pTwin_)
+                continue;
+              maybeGenerateTwin(prog, plan, s, sPrime, ctx);
+              decided.emplace(label, std::move(plan));
+            }
+            if (decided.empty())
+              continue;
+
+            const std::string fnStem =
+                fnName.empty() || fnName[0] != '@' ? fnName : fnName.substr(1);
+            std::vector<FunDecl> guardFuns;
+            std::vector<Block> nb;
+            nb.reserve(fn->blocks.size() + 3 * decided.size());
+            for (auto &b: fn->blocks) {
+              auto dit = decided.find(b.label.name);
+              if (dit == decided.end()) {
+                nb.push_back(std::move(b));
+                continue;
+              }
+              std::string labelStem = b.label.name;
+              if (!labelStem.empty() && labelStem[0] == '^')
+                labelStem.erase(0, 1);
+              std::string guardName = "@__twg_" + fnStem + "_" + labelStem;
+              guardFuns.push_back(buildGuardFun(guardName, dit->second, structs));
+              graft(b, dit->second, guardName, nb);
+              ++rep.sites;
+            }
+            fn->blocks = std::move(nb);
+            pendingGuards.emplace_back(fnName, std::move(guardFuns));
+          }
+
+          for (auto &[fnName, guards]: pendingGuards) {
+            for (std::size_t i = 0; i < prog.funs.size(); ++i)
+              if (prog.funs[i].name.name == fnName) {
+                prog.funs.insert(
+                    prog.funs.begin() + i, std::make_move_iterator(guards.begin()),
+                    std::make_move_iterator(guards.end())
+                );
+                break;
+              }
+          }
         }
         return rep;
       }
 
     private:
+      // Try the injected solver-backed generator for B'. The generated body
+      // must reproduce s' for every guarded root, so it is only sound when
+      // the guarded set covers every root the block writes (defs) and every
+      // root has a target value in s'. On any miss, plan.twinInstrs stays
+      // empty and graft falls back to constant reconstruction.
+      void maybeGenerateTwin(
+          Program &prog, TwinPlan &plan, const StateMap &s, const StateMap &sPrime, PassCtx &ctx
+      ) {
+        if (!twinGen_)
+          return;
+        std::unordered_set<std::string> guarded;
+        for (const auto &r: plan.guardRoots)
+          guarded.insert(r.name);
+        for (const auto &d: plan.defs)
+          if (!guarded.count(d.root))
+            return;
+        std::vector<TwinGenRoot> roots;
+        roots.reserve(plan.guardRoots.size());
+        for (const auto &r: plan.guardRoots) {
+          auto si = s.find(r.name);
+          auto ti = sPrime.find(r.name);
+          if (si == s.end() || ti == sPrime.end())
+            return;
+          roots.push_back({r.name, r.type, r.isParam, *si->second, *ti->second});
+        }
+        if (auto res = twinGen_(prog, roots, ctx.rng)) {
+          plan.twinInstrs = std::move(res->instrs);
+          mergeIntrinsics(prog, std::move(res->intrinsics));
+        }
+      }
+
       // Expand block `b` into the guard / twin / orig / merge quartet. The
       // guard block is just a branch on the guard-function call.
       static void
-      graft(Block &b, const TwinPlan &plan, const std::string &guardName, std::vector<Block> &out) {
+      graft(Block &b, TwinPlan &plan, const std::string &guardName, std::vector<Block> &out) {
         const std::string base = b.label.name;
         const std::string twinL = base + "__twin";
         const std::string origL = base + "__orig";
@@ -809,8 +844,12 @@ namespace refractir::reify {
 
         Block twin;
         twin.label = BlockLabel{twinL, {}};
-        for (const auto &d: plan.defs)
-          twin.instrs.push_back(assignLV(d.lvalue(), simpleExpr(coefAtom(litCoef(d.val)))));
+        if (!plan.twinInstrs.empty()) {
+          twin.instrs = std::move(plan.twinInstrs);
+        } else {
+          for (const auto &d: plan.defs)
+            twin.instrs.push_back(assignLV(d.lvalue(), simpleExpr(coefAtom(litCoef(d.val)))));
+        }
         twin.term = brTo(mergeL);
 
         Block orig;
@@ -829,10 +868,13 @@ namespace refractir::reify {
       }
 
       double pTwin_;
+      TwinGenFn twinGen_;
     };
 
   } // namespace
 
-  std::unique_ptr<Pass> makeTwinPass(double pTwin) { return std::make_unique<TwinPass>(pTwin); }
+  std::unique_ptr<Pass> makeTwinPass(double pTwin, TwinGenFn twinGen) {
+    return std::make_unique<TwinPass>(pTwin, std::move(twinGen));
+  }
 
 } // namespace refractir::reify

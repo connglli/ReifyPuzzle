@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <ostream>
 #include <sstream>
 
@@ -60,10 +61,93 @@ namespace refractir::reify {
     return sv;
   }
 
+  namespace {
+    void enumStateLeavesRec(
+        const StateValue &v, std::vector<Access> &path, std::vector<StateLeaf> &out, bool &hasPtr,
+        bool &hasUndef
+    ) {
+      switch (v.kind) {
+        case StateValue::Kind::Int:
+        case StateValue::Kind::Float:
+          out.push_back({path, v});
+          break;
+        case StateValue::Kind::Array:
+        case StateValue::Kind::Vec:
+          for (std::size_t i = 0; i < v.elems.size(); ++i) {
+            path.push_back(AccessIndex{Index{IntLit{(std::int64_t) i, {}}}, {}});
+            enumStateLeavesRec(v.elems[i], path, out, hasPtr, hasUndef);
+            path.pop_back();
+          }
+          break;
+        case StateValue::Kind::Struct:
+          for (const auto &f: v.fields) {
+            path.push_back(AccessField{f.first, {}});
+            enumStateLeavesRec(f.second, path, out, hasPtr, hasUndef);
+            path.pop_back();
+          }
+          break;
+        case StateValue::Kind::Ptr:
+          hasPtr = true;
+          break;
+        case StateValue::Kind::Undef:
+        default:
+          hasUndef = true;
+          break;
+      }
+    }
+  } // namespace
+
+  void
+  enumStateLeaves(const StateValue &v, std::vector<StateLeaf> &out, bool &hasPtr, bool &hasUndef) {
+    std::vector<Access> path;
+    enumStateLeavesRec(v, path, out, hasPtr, hasUndef);
+  }
+
+  bool bitExactEq(const StateValue &a, const StateValue &b) {
+    if (a.kind != b.kind)
+      return false;
+    switch (a.kind) {
+      case StateValue::Kind::Int:
+        return a.intVal == b.intVal;
+      case StateValue::Kind::Float: {
+        std::uint64_t ba, bb;
+        static_assert(sizeof(ba) == sizeof(a.floatVal));
+        std::memcpy(&ba, &a.floatVal, sizeof(ba));
+        std::memcpy(&bb, &b.floatVal, sizeof(bb));
+        return ba == bb;
+      }
+      case StateValue::Kind::Array:
+      case StateValue::Kind::Vec: {
+        if (a.elems.size() != b.elems.size())
+          return false;
+        for (std::size_t i = 0; i < a.elems.size(); ++i)
+          if (!bitExactEq(a.elems[i], b.elems[i]))
+            return false;
+        return true;
+      }
+      case StateValue::Kind::Struct: {
+        if (a.fields.size() != b.fields.size())
+          return false;
+        for (std::size_t i = 0; i < a.fields.size(); ++i)
+          if (a.fields[i].first != b.fields[i].first ||
+              !bitExactEq(a.fields[i].second, b.fields[i].second))
+            return false;
+        return true;
+      }
+      default:
+        return true; // Ptr / Undef: kind-only comparison
+    }
+  }
+
   void attachStateProfile(Interpreter &interp, StateProfile &out, StateGranularity gran) {
     interp.setStateHook(
-        [&out](const std::string &blockLabel, int instrIdx, const Store &store) {
+        [&out](
+            const std::string &funcName, std::uint64_t frameId, const std::string &blockLabel,
+            int instrIdx, const Store &store
+        ) {
           StatePoint pt;
+          pt.func = funcName;
+          pt.frame = frameId;
           pt.block = blockLabel;
           pt.instr = instrIdx;
           // Collect names first so the record is deterministically ordered.
@@ -309,6 +393,10 @@ namespace refractir::reify {
             p.eat(':');
             if (k2 == "block") {
               pt.block = p.str();
+            } else if (k2 == "fn") {
+              pt.func = p.str();
+            } else if (k2 == "frame") {
+              pt.frame = static_cast<std::uint64_t>(p.num());
             } else if (k2 == "instr") {
               pt.instr = static_cast<int>(p.num());
             } else if (k2 == "vars") {
@@ -345,7 +433,9 @@ namespace refractir::reify {
     os << "  \"trace\": [\n";
     for (std::size_t i = 0; i < profile.trace.size(); ++i) {
       const StatePoint &pt = profile.trace[i];
-      os << "    {\"block\": ";
+      os << "    {\"fn\": ";
+      writeString(os, pt.func);
+      os << ", \"frame\": " << pt.frame << ", \"block\": ";
       writeString(os, pt.block);
       os << ", \"instr\": " << pt.instr << ", \"vars\": {";
       for (std::size_t j = 0; j < pt.vars.size(); ++j) {

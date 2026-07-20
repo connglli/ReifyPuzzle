@@ -38,6 +38,7 @@ namespace refractir {
     _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_OFF);
 #endif
     dumpExec_ = dumpExec;
+    nextFrameId_ = 0;
     const FunDecl *entry = nullptr;
     for (const auto &f: prog_.funs) {
       if (f.name.name == entryFuncName) {
@@ -307,6 +308,7 @@ namespace refractir {
     if (diags.hasErrors())
       throw std::runtime_error("CFG Build failed during interp");
 
+    const std::uint64_t frameId = nextFrameId_++;
     std::size_t pc = cfg.entry;
 
     while (true) {
@@ -318,7 +320,7 @@ namespace refractir {
       // State-capture hook (see setStateHook): record the store the block
       // sees on entry, before any of its instructions run.
       if (stateHook_)
-        stateHook_(block.label.name, -1, store);
+        stateHook_(f.name.name, frameId, block.label.name, -1, store);
 
       int instrIdx = 0;
       for (const auto &ins: block.instrs) {
@@ -495,7 +497,7 @@ namespace refractir {
         );
         // pp-granularity capture: record the store after each instruction.
         if (stateHook_ && stateHookPerInstr_)
-          stateHook_(block.label.name, instrIdx, store);
+          stateHook_(f.name.name, frameId, block.label.name, instrIdx, store);
         ++instrIdx;
       }
 

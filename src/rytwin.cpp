@@ -1,16 +1,18 @@
 /**
  * rytwin — equivalence-preserving RefractIR program transformer (v0.2.3).
  *
- * Given a rysmith program `p1` (a concrete .sir), rytwin produces an
- * equivalent program `p2`. It first obtains `p1`'s state profile — loading
- * the `.state.json` sidecar (rysmith --emit-state) when present, and
- * otherwise interpreting `p1` in-process on its solved input (descriptor
- * realization or `// SOLVED:` header) to capture the per-block concrete
- * state trace — then grafts, into selected basic blocks, a synthesized
- * twin block `B'` that reproduces `B`'s effect on the exact state `B`
- * sees, guarded by a check on that live-in state so `B'` runs only on it
- * and the original `B` runs otherwise. Thus `p1(i) == p2(i)` for every
- * input `i` (see docs/reify.md).
+ * Given a generated program `p1` (a rysmith leaf or a rylink whole
+ * program), rytwin produces an equivalent program `p2`. It first obtains
+ * `p1`'s state profile — loading the `.state.json` sidecar (rysmith
+ * --emit-state) when present, and otherwise interpreting `p1` in-process:
+ * from `@main` when the program has one (so callee-frame states match what
+ * runtime execution sees), else on the entry's solved input (descriptor
+ * realization or `// SOLVED:` header). It then grafts, into selected
+ * basic blocks of any profiled function, a synthesized twin block `B'`
+ * that reproduces `B`'s effect on the exact state `B` sees, guarded by a
+ * check on that live-in state so `B'` runs only on it and the original
+ * `B` runs otherwise. Thus `p1(i) == p2(i)` for every input `i` (see
+ * docs/reify.md).
  *
  * This driver wires the CLI, infers and loads the descriptor from the
  * input path, obtains the profile, runs the Pass pipeline (TwinPass), and
@@ -35,6 +37,7 @@
 #include "reify/func_desc.hpp"
 #include "reify/pass.hpp"
 #include "reify/state_profile.hpp"
+#include "reify/twin_gen.hpp"
 #include "reify/twin_pass.hpp"
 #include "solver/solver.hpp"
 #if defined(USE_BITWUZLA)
@@ -166,6 +169,12 @@ int main(int argc, char **argv) {
                 cxxopts::value<std::string>())
     ("p-twin",  "Probability of grafting a twin for each candidate block",
                 cxxopts::value<double>()->default_value("0.5"))
+    ("no-twin-smith", "Disable rysmith-style twin generation; reconstruct the "
+                "post state with constants instead")
+    ("twin-stmts", "Random statements per generated twin",
+                cxxopts::value<int>()->default_value("3"))
+    ("twin-retries", "Generation attempts per twin before falling back",
+                cxxopts::value<int>()->default_value("3"))
     ("seed",    "RNG seed (default: random)", cxxopts::value<uint32_t>())
     ("target",  "Compile p2 to a target (sir = no compilation)",
                 cxxopts::value<std::string>()->default_value("sir"))
@@ -197,6 +206,8 @@ int main(int argc, char **argv) {
   double pTwin = result["p-twin"].as<double>();
   uint32_t seed =
       result.count("seed") ? result["seed"].as<uint32_t>() : (uint32_t) std::random_device{}();
+
+  bool twinSmith = result.count("no-twin-smith") == 0;
 
   std::string target = result["target"].as<std::string>();
   if (target != "sir" && target != "c" && target != "wasm") {
@@ -251,18 +262,24 @@ int main(int argc, char **argv) {
   // `.state.json` sidecar (rysmith --emit-state) when one is present —
   // existing pipelines keep working unchanged — and otherwise derive the
   // profile from p1 itself by interpreting it in-process on its solved
-  // input.
+  // input. A whole program (rylink output, or a leaf with --emit-main) is
+  // profiled from `@main`: it encodes the realized input at every call
+  // site, so callee-frame states match what runtime execution sees.
   const FunDecl *entryFn = nullptr;
-  for (const auto &f: prog.funs)
-    if (f.name.name == entry) {
+  bool hasMain = false;
+  for (const auto &f: prog.funs) {
+    if (f.name.name == entry)
       entryFn = &f;
-      break;
-    }
+    if (f.name.name == "@main")
+      hasMain = true;
+  }
   if (!entryFn) {
     std::cerr << "rytwin: entry function " << entry << " not found in " << inputPath << "\n";
     return 1;
   }
-  std::vector<std::string> args = resolveParamArgs(*entryFn, inputPath, desc, src);
+  const std::string profEntry = hasMain ? "@main" : entry;
+  std::vector<std::string> args =
+      hasMain ? std::vector<std::string>{} : resolveParamArgs(*entryFn, inputPath, desc, src);
   std::optional<StateProfile> profile;
   fs::path statePath = dir / (stem + ".state.json");
   if (fs::exists(statePath)) {
@@ -273,7 +290,7 @@ int main(int argc, char **argv) {
   }
   if (!profile) {
     try {
-      profile = profileProgram(prog, entry, args, StateGranularity::Pbb);
+      profile = profileProgram(prog, profEntry, args, StateGranularity::Pbb);
     } catch (const std::exception &e) {
       std::cerr << "rytwin: failed to profile " << inputPath.filename()
                 << " on its recorded input: " << e.what() << "\n";
@@ -287,9 +304,19 @@ int main(int argc, char **argv) {
   ctx.solverFactory = makeSolverFactory();
   if (desc)
     ctx.descriptors[entry] = *desc;
-  ctx.profiles[entry] = *profile;
+  ctx.profiles[profile->func] = *profile;
+  TwinGenFn twinGen;
+  if (twinSmith) {
+    TwinGenConfig gcfg;
+    gcfg.nStmts = result["twin-stmts"].as<int>();
+    gcfg.retries = result["twin-retries"].as<int>();
+    auto factory = ctx.solverFactory;
+    twinGen = [gcfg, factory](
+                  const Program &p, const std::vector<TwinGenRoot> &roots, std::mt19937 &rng
+              ) { return generateTwin(p, roots, rng, factory, gcfg); };
+  }
   PassPipeline pipe;
-  pipe.add(makeTwinPass(pTwin));
+  pipe.add(makeTwinPass(pTwin, std::move(twinGen)));
   PassReport rep = pipe.run(prog, ctx);
   if (!rep.ok) {
     std::cerr << "rytwin: pass failed: " << rep.message << "\n";
@@ -330,10 +357,19 @@ int main(int argc, char **argv) {
   // 7. Validate equivalence: run p1 and p2 on the profiled input and assert
   // they agree (same Result, or both trap).
   if (doValidate) {
-    auto r1 = runSymiriCaptureResult(inputPath, entry, args);
-    auto r2 = runSymiriCaptureResult(outputPath, entry, args);
+    auto r1 = runSymiriCaptureResult(inputPath, profEntry, args);
+    StateProfile p2Prof;
+    auto r2 = runSymiriCaptureResult(outputPath, profEntry, args, &p2Prof);
     bool ok = (r1.has_value() == r2.has_value()) && (!r1.has_value() || *r1 == *r2);
-    std::cout << "rytwin: validated: " << (ok ? "OK" : "FAIL");
+    // A twin that never executes on the profiled input is dead code — the
+    // guard was keyed on a state the run never reaches. That is a bug in
+    // the graft, not a property of p1, so fail loudly.
+    std::size_t fired = 0;
+    for (const auto &pt: p2Prof.trace)
+      if (pt.instr == -1 && pt.block.find("__twin") != std::string::npos)
+        ++fired;
+    ok = ok && fired > 0;
+    std::cout << "rytwin: validated: " << (ok ? "OK" : "FAIL") << " (" << fired << " twin exec(s))";
     if (!ok)
       std::cout << " (p1=" << (r1 ? *r1 : "<trap>") << " p2=" << (r2 ? *r2 : "<trap>") << ")";
     std::cout << "\n";

@@ -1,7 +1,11 @@
 #pragma once
 
+#include <set>
+#include <string>
+#include <utility>
 #include <vector>
 #include "analysis/intrinsics.hpp"
+#include "ast/ast.hpp"
 
 namespace refractir::reify {
 
@@ -56,6 +60,38 @@ namespace refractir::reify {
         {IntrinsicKind::RemEuclid, "@rem_euclid", 2, false},
     };
     return list;
+  }
+
+  // Append one IntrinsicDecl per used (kind, bitwidth) pair. This is the
+  // single place a whitelist entry becomes a declaration; func_gen and
+  // twin_gen both emit their `intrinsic` sections through it.
+  inline void appendUsedIntrinsicDecls(
+      const std::set<std::pair<IntrinsicKind, uint32_t>> &used, std::vector<IntrinsicDecl> &out
+  ) {
+    auto makeIntTy = [](uint32_t bits) {
+      if (bits == 32)
+        return std::make_shared<Type>(Type{IntType{IntType::Kind::I32, {}, {}}, {}});
+      if (bits == 64)
+        return std::make_shared<Type>(Type{IntType{IntType::Kind::I64, {}, {}}, {}});
+      return std::make_shared<Type>(Type{IntType{IntType::Kind::ICustom, (int) bits, {}}, {}});
+    };
+    for (const auto &[kind, bits]: used) {
+      for (const auto &wi: getIntrinsicWhitelist()) {
+        if (wi.kind != kind)
+          continue;
+        IntrinsicDecl id;
+        id.name = GlobalId{std::string(wi.name), {}};
+        id.retType = makeIntTy(bits);
+        for (int pi = 0; pi < wi.paramCount; pi++) {
+          ParamDecl pd;
+          pd.name = LocalId{"%x" + std::to_string(pi), {}};
+          pd.type = makeIntTy(bits);
+          id.params.push_back(std::move(pd));
+        }
+        out.push_back(std::move(id));
+        break;
+      }
+    }
   }
 
 } // namespace refractir::reify

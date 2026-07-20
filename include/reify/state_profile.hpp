@@ -53,11 +53,17 @@ namespace refractir::reify {
     double floatVal = 0.0;
     std::uint32_t bits = 0;                                 // scalar bit-width (Int / Float)
     std::vector<StateValue> elems;                          // Array / Vec, in order
-    std::vector<std::pair<std::string, StateValue>> fields; // Struct, in declaration order
+    std::vector<std::pair<std::string, StateValue>> fields; // Struct, sorted by field name
   };
 
   // One captured program point.
   struct StatePoint {
+    // Executing function ("@f") and its activation id, so interprocedural
+    // traces keep frames apart even when block labels collide across
+    // functions. Old sidecar files lack both: `func` stays empty (consumers
+    // fall back to the profile's entry) and `frame` stays 0.
+    std::string func;
+    std::uint64_t frame = 0;
     std::string block; // block label, e.g. "^b3"
     int instr = -1;    // -1 = block entry; >= 0 = after instruction `instr`
     // Initialized locals + parameters visible at this point, in a stable
@@ -73,6 +79,25 @@ namespace refractir::reify {
 
   // Convert one interpreter RuntimeValue into a StateValue tree.
   StateValue toStateValue(const RuntimeValue &rv);
+
+  // One scalar leaf of a StateValue tree: its access path from the root
+  // (concrete IntLit indices / field names) and its value.
+  struct StateLeaf {
+    std::vector<Access> path;
+    StateValue val;
+  };
+
+  // Enumerate the scalar leaves of `v` in tree order, appending to `out`.
+  // Sets `hasPtr` / `hasUndef` when a pointer / undef leaf is seen (those
+  // carry no value and are not appended). Struct fields follow the
+  // StateValue's own (name-sorted) order.
+  void
+  enumStateLeaves(const StateValue &v, std::vector<StateLeaf> &out, bool &hasPtr, bool &hasUndef);
+
+  // Bit-exact structural equality of two state trees. Floats compare by
+  // bit pattern (so +0.0 != -0.0), ints by value, aggregates recursively;
+  // Ptr / Undef leaves compare by kind only.
+  bool bitExactEq(const StateValue &a, const StateValue &b);
 
   // Install a state-capture hook on `interp` that appends each program
   // point it sees to `out.trace` (at the granularity `gran`). The caller
