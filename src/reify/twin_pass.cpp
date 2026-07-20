@@ -9,6 +9,7 @@
 
 #include "analysis/type_utils.hpp"
 #include "ast/ast.hpp"
+#include "interp/type_layout.hpp"
 #include "reify/state_profile.hpp"
 #include "reify/type_gen.hpp"
 
@@ -92,101 +93,123 @@ namespace refractir::reify {
 
     // --- read-set scanning ----------------------------------------------
     //
-    // Collect the base names an expression *reads* and reject any atom with a
-    // memory effect or call: load / addr / ptr-navigation / call are not v1
-    // twin candidates (they need pointer provenance we don't yet model). A
-    // block that reads or writes a pointer is likewise rejected downstream,
-    // when the profile value tree turns up a Ptr leaf.
+    // Collect the base names an expression *reads* and whether it touches
+    // memory (load / addr / ptr navigation; stores are flagged by the
+    // instruction scan). Memory-op blocks are twin candidates: their effect
+    // is the frame-state diff, and the full-state guard pins every value a
+    // load can observe — planBlock therefore requires the WHOLE state to be
+    // guardable for such blocks. Only non-intrinsic calls still reject: a
+    // callee given a pointer into an outer frame could mutate state this
+    // frame's diff does not see.
 
-    void scanIndices(const LValue &lv, std::unordered_set<std::string> &reads) {
+    struct ReadScan {
+      std::unordered_set<std::string> reads;
+      bool mem = false;
+    };
+
+    void scanIndices(const LValue &lv, ReadScan &rs) {
       for (const auto &acc: lv.accesses)
         if (auto ai = std::get_if<AccessIndex>(&acc))
           if (auto id = std::get_if<LocalOrSymId>(&ai->index))
-            std::visit([&](auto &&v) { reads.insert(v.name); }, *id);
+            std::visit([&](auto &&v) { rs.reads.insert(v.name); }, *id);
     }
 
-    void scanLV(const LValue &lv, std::unordered_set<std::string> &reads) {
-      reads.insert(lv.base.name);
-      scanIndices(lv, reads);
+    void scanLV(const LValue &lv, ReadScan &rs) {
+      rs.reads.insert(lv.base.name);
+      scanIndices(lv, rs);
     }
 
-    void scanCoef(const Coef &c, std::unordered_set<std::string> &reads) {
+    void scanCoef(const Coef &c, ReadScan &rs) {
       if (auto id = std::get_if<LocalOrSymId>(&c))
-        std::visit([&](auto &&v) { reads.insert(v.name); }, *id);
+        std::visit([&](auto &&v) { rs.reads.insert(v.name); }, *id);
     }
 
-    void scanSelectVal(const SelectVal &sv, std::unordered_set<std::string> &reads) {
+    void scanSelectVal(const SelectVal &sv, ReadScan &rs) {
       if (auto rv = std::get_if<RValue>(&sv))
-        scanLV(*rv, reads);
+        scanLV(*rv, rs);
       else if (auto co = std::get_if<Coef>(&sv))
-        scanCoef(*co, reads);
+        scanCoef(*co, rs);
     }
 
-    bool scanAtom(const Atom &a, std::unordered_set<std::string> &reads);
+    bool scanAtom(const Atom &a, ReadScan &rs);
 
-    bool scanExpr(const Expr &e, std::unordered_set<std::string> &reads) {
-      if (!scanAtom(e.first, reads))
+    bool scanExpr(const Expr &e, ReadScan &rs) {
+      if (!scanAtom(e.first, rs))
         return false;
       for (const auto &t: e.rest)
-        if (!scanAtom(t.atom, reads))
+        if (!scanAtom(t.atom, rs))
           return false;
       return true;
     }
 
-    bool scanCond(const Cond &c, std::unordered_set<std::string> &reads) {
-      return scanExpr(c.lhs, reads) && scanExpr(c.rhs, reads);
+    bool scanCond(const Cond &c, ReadScan &rs) {
+      return scanExpr(c.lhs, rs) && scanExpr(c.rhs, rs);
     }
 
-    bool scanAtom(const Atom &a, std::unordered_set<std::string> &reads) {
+    bool scanAtom(const Atom &a, ReadScan &rs) {
       return std::visit(
           [&](auto &&arg) -> bool {
             using T = std::decay_t<decltype(arg)>;
             if constexpr (std::is_same_v<T, CoefAtom>) {
-              scanCoef(arg.coef, reads);
+              scanCoef(arg.coef, rs);
               return true;
             } else if constexpr (std::is_same_v<T, RValueAtom>) {
-              scanLV(arg.rval, reads);
+              scanLV(arg.rval, rs);
               return true;
             } else if constexpr (std::is_same_v<T, OpAtom>) {
-              scanCoef(arg.coef, reads);
-              scanLV(arg.rval, reads);
+              scanCoef(arg.coef, rs);
+              scanLV(arg.rval, rs);
               return true;
             } else if constexpr (std::is_same_v<T, UnaryAtom>) {
-              scanLV(arg.rval, reads);
+              scanLV(arg.rval, rs);
               return true;
             } else if constexpr (std::is_same_v<T, CmpAtom>) {
-              scanSelectVal(arg.lhs, reads);
-              scanSelectVal(arg.rhs, reads);
+              scanSelectVal(arg.lhs, rs);
+              scanSelectVal(arg.rhs, rs);
               return true;
             } else if constexpr (std::is_same_v<T, CastAtom>) {
               if (auto lv = std::get_if<LValue>(&arg.src))
-                scanLV(*lv, reads);
+                scanLV(*lv, rs);
               else if (auto si = std::get_if<SymId>(&arg.src))
-                reads.insert(si->name);
+                rs.reads.insert(si->name);
               return true;
             } else if constexpr (std::is_same_v<T, SelectAtom>) {
-              if (arg.cond && !scanCond(*arg.cond, reads))
+              if (arg.cond && !scanCond(*arg.cond, rs))
                 return false;
-              if (arg.maskExpr && !scanExpr(*arg.maskExpr, reads))
+              if (arg.maskExpr && !scanExpr(*arg.maskExpr, rs))
                 return false;
-              scanSelectVal(arg.vtrue, reads);
-              scanSelectVal(arg.vfalse, reads);
+              scanSelectVal(arg.vtrue, rs);
+              scanSelectVal(arg.vfalse, rs);
               return true;
             } else if constexpr (std::is_same_v<T, CallAtom>) {
-              // Intrinsic calls are pure value functions (no memory side
-              // effects, no pointer arguments), so a call's result is just
-              // another scalar the twin reconstructs — we only need to cover
-              // its argument reads. A non-intrinsic call (resolvedIntrinsic
-              // unset) could have effects, so reject it.
+              // Intrinsic calls are pure value functions; only their
+              // argument reads matter. A non-intrinsic call could have
+              // out-of-frame effects, so reject it.
               if (!arg.resolvedIntrinsic)
                 return false;
               for (const auto &e: arg.args)
-                if (e && !scanExpr(*e, reads))
+                if (e && !scanExpr(*e, rs))
                   return false;
               return true;
+            } else if constexpr (std::is_same_v<T, AddrAtom>) {
+              rs.mem = true;
+              scanIndices(arg.lv, rs); // the address itself is state-free
+              return true;
+            } else if constexpr (std::is_same_v<T, LoadAtom>) {
+              rs.mem = true;
+              scanLV(arg.rval, rs);
+              return true;
+            } else if constexpr (std::is_same_v<T, PtrIndexAtom>) {
+              rs.mem = true;
+              scanLV(arg.rval, rs);
+              if (auto id = std::get_if<LocalOrSymId>(&arg.index))
+                std::visit([&](auto &&v) { rs.reads.insert(v.name); }, *id);
+              return true;
             } else {
-              // AddrAtom / LoadAtom / PtrIndexAtom / PtrFieldAtom
-              return false;
+              static_assert(std::is_same_v<T, PtrFieldAtom>);
+              rs.mem = true;
+              scanLV(arg.rval, rs);
+              return true;
             }
           },
           a.v
@@ -236,31 +259,6 @@ namespace refractir::reify {
       return cur;
     }
 
-    // Resolve any variable indices in `accs` to concrete IntLit indices using
-    // the entry state `s`. Returns false if an index var has no scalar-int
-    // value in `s`.
-    bool
-    resolveAccesses(const std::vector<Access> &accs, const StateMap &s, std::vector<Access> &out) {
-      for (const auto &acc: accs) {
-        if (auto af = std::get_if<AccessField>(&acc)) {
-          out.push_back(*af);
-        } else {
-          const auto &ai = std::get<AccessIndex>(acc);
-          if (auto il = std::get_if<IntLit>(&ai.index)) {
-            out.push_back(AccessIndex{Index{*il}, {}});
-          } else {
-            std::string nm;
-            std::visit([&](auto &&v) { nm = v.name; }, std::get<LocalOrSymId>(ai.index));
-            auto it = s.find(nm);
-            if (it == s.end() || it->second->kind != StateValue::Kind::Int)
-              return false;
-            out.push_back(AccessIndex{Index{IntLit{it->second->intVal, {}}}, {}});
-          }
-        }
-      }
-      return true;
-    }
-
     // Canonical key for a (root, path) leaf so repeated writes dedup.
     std::string leafKey(const std::string &root, const std::vector<Access> &path) {
       std::string k = root;
@@ -277,9 +275,23 @@ namespace refractir::reify {
       std::string root;
       std::vector<Access> path;
       StateValue val;
+      // Ptr leaves only: the static `ptr T` type of the cell, and the
+      // lvalue whose address reproduces the captured pointer (unset for
+      // null pointers).
+      TypePtr ptrType;
+      std::optional<LValue> ptrTarget;
 
       LValue lvalue() const { return LValue{LocalId{root, {}}, path, {}}; }
+
+      bool isPtr() const { return val.kind == StateValue::Kind::Ptr; }
     };
+
+    // The RHS that reproduces a pointer leaf: `addr <target>` or `null`.
+    Atom ptrRhsAtom(const LeafRef &leaf) {
+      if (leaf.ptrTarget)
+        return Atom{AddrAtom{*leaf.ptrTarget, {}}, {}};
+      return coefAtom(Coef{NullLit{}});
+    }
 
     // --- static-type walking ---------------------------------------------
 
@@ -337,6 +349,7 @@ namespace refractir::reify {
         Scalar, // by-value parameter of the root's own type
         Vec,    // one by-value parameter per lane
         Agg,    // by-address parameter (ptr [N] T / ptr @S), navigated inside
+        Ptr,    // by-value ptr parameter, compared against an expected addr
       };
       std::string name;
       TypePtr type; // the root's static type in the entry function
@@ -372,43 +385,83 @@ namespace refractir::reify {
       return std::nullopt;
     }
 
-    // A block is a twin candidate iff it has no store, its assignment RHSs and
-    // any assume/require conditions are free of memory/call atoms, every
-    // scalar leaf it reads or writes is concrete (no pointer / undef), and its
-    // whole read set is guardable. Fills `plan` with the guard roots (the
-    // ENTIRE definitely-initialized state at block entry, compared to `s`)
-    // and the def leaves (exactly the leaves the block writes, reconstructed
-    // from `sPrime`).
+    // Fill a ptr leaf's static type and reconstruction target. Returns
+    // false when the leaf cannot be reproduced or guarded: unresolved
+    // provenance, a target root that is missing / immutable / not
+    // addressable, or an offset the static type cannot express as an
+    // access path (e.g. one-past-the-end).
+    bool fillPtrLeaf(
+        LeafRef &leaf, const FunDecl &fn, const StructMap &structs, const TypeLayout &layout,
+        const TypePtr &rootType
+    ) {
+      // Static type of the cell: walk the root type along the leaf path.
+      TypePtr t = rootType;
+      for (const auto &acc: leaf.path) {
+        t = stepType(t, acc, structs);
+        if (!t)
+          return false;
+      }
+      if (!isPtrType(t))
+        return false;
+      leaf.ptrType = t;
+      if (leaf.val.ptrNull)
+        return true;
+      if (leaf.val.ptrRoot.empty())
+        return false; // opaque pointer — no way to reproduce it
+      auto target = findRoot(fn, leaf.val.ptrRoot);
+      if (!target || !target->isMutable)
+        return false; // addr needs a mutable root
+      auto path = ptrAccessPath(target->type, leaf.val.ptrOfs, pointeeType(t), layout);
+      if (!path)
+        return false;
+      leaf.ptrTarget = LValue{LocalId{leaf.val.ptrRoot, {}}, std::move(*path), {}};
+      return true;
+    }
+
+    // A block is a twin candidate iff its instructions are free of
+    // non-intrinsic calls, its whole read set is guardable, and its effect
+    // (the bit-exact state diff s -> s') is reproducible: scalar leaves as
+    // literals, pointer leaves as `addr <target>` / `null`. Memory-op
+    // blocks additionally require the ENTIRE state to be guardable — a
+    // load can observe any root through a pointer. Fills `plan` with the
+    // guard roots (all definitely-initialized state at block entry,
+    // compared to `s`) and the def leaves (the diff, from `sPrime`).
     bool planBlock(
         const FunDecl &fn, const Block &b,
-        const std::vector<std::pair<std::string, StateValue>> &sVars, const StateMap &s,
-        const StateMap &sPrime, const StructMap &structs, TwinPlan &plan
+        const std::vector<std::pair<std::string, StateValue>> &sVars,
+        const std::vector<std::pair<std::string, StateValue>> &sPrimeVars, const StateMap &s,
+        const StructMap &structs, const TypeLayout &layout, TwinPlan &plan
     ) {
-      std::unordered_set<std::string> reads;
+      // Roots whose whole value is assigned in the entry block are
+      // definitely initialized in every OTHER block: the entry block is
+      // straight-line and dominates the CFG. This admits the rysmith
+      // pointer pattern (`let mut %p: ptr T = undef;` + `%p = addr ...`
+      // in ^entry) into the guardable state.
+      std::unordered_set<std::string> entryAssigned;
+      if (!fn.blocks.empty() && fn.blocks.front().label.name != b.label.name)
+        for (const auto &ins: fn.blocks.front().instrs)
+          if (auto ai = std::get_if<AssignInstr>(&ins))
+            if (ai->lhs.accesses.empty())
+              entryAssigned.insert(ai->lhs.base.name);
 
-      struct WriteSite {
-        std::string root;
-        std::vector<Access> accesses;
-      };
-
-      std::vector<WriteSite> writes;
-
+      ReadScan rs;
       for (const auto &ins: b.instrs) {
         bool ok = std::visit(
             [&](auto &&i) -> bool {
               using T = std::decay_t<decltype(i)>;
               if constexpr (std::is_same_v<T, AssignInstr>) {
-                if (!scanExpr(i.rhs, reads))
+                if (!scanExpr(i.rhs, rs))
                   return false;
-                scanIndices(i.lhs, reads); // indices are read; the base is written
-                writes.push_back({i.lhs.base.name, i.lhs.accesses});
+                scanIndices(i.lhs, rs); // indices are read; the base is written
                 return true;
               } else if constexpr (std::is_same_v<T, AssumeInstr>) {
-                return scanCond(i.cond, reads);
+                return scanCond(i.cond, rs);
               } else if constexpr (std::is_same_v<T, RequireInstr>) {
-                return scanCond(i.cond, reads);
+                return scanCond(i.cond, rs);
               } else {
-                return false; // StoreInstr — memory effect
+                static_assert(std::is_same_v<T, StoreInstr>);
+                rs.mem = true;
+                return scanExpr(i.ptr, rs) && scanExpr(i.val, rs);
               }
             },
             ins
@@ -416,21 +469,22 @@ namespace refractir::reify {
         if (!ok)
           return false;
       }
-      if (writes.empty())
-        return false;
 
       // Guard roots: every definitely-initialized root of the entry state.
-      // A root that cannot cross into the guard (pointer-typed, undef or
-      // pointer leaves, immutable aggregate, vector nested in an aggregate)
-      // is skipped when the block does not read it — soundness only needs
-      // guard-set ⊇ read-set — and rejects the block when it does.
+      // A root that cannot cross into the guard (undef leaves, opaque
+      // pointers, immutable aggregate, vector nested in an aggregate) is
+      // skipped when the block neither reads it nor touches memory —
+      // soundness needs guard-set ⊇ read-set, and memory ops can read any
+      // root — and rejects the block otherwise.
       std::unordered_set<std::string> guarded;
       for (const auto &[name, val]: sVars) {
         auto decl = findRoot(fn, name);
-        bool guardable = decl.has_value() && decl->initialized && !isPtrType(decl->type);
+        bool guardable = decl.has_value() && (decl->initialized || entryAssigned.count(name) > 0);
         GuardRoot::Kind kind = GuardRoot::Kind::Scalar;
         if (guardable) {
-          if (std::holds_alternative<VecType>(decl->type->v))
+          if (isPtrType(decl->type))
+            kind = GuardRoot::Kind::Ptr;
+          else if (std::holds_alternative<VecType>(decl->type->v))
             kind = GuardRoot::Kind::Vec;
           else if (TypeUtils::asArray(decl->type) || TypeUtils::asStruct(decl->type)) {
             kind = GuardRoot::Kind::Agg;
@@ -443,50 +497,60 @@ namespace refractir::reify {
         if (guardable) {
           bool hasPtr = false, hasUndef = false;
           enumStateLeaves(val, leaves, hasPtr, hasUndef);
-          guardable = !hasPtr && !hasUndef && !leaves.empty();
+          guardable = !hasUndef && !leaves.empty();
+        }
+        GuardRoot root;
+        if (guardable) {
+          root = GuardRoot{name, decl->type, kind, decl->isParam, {}};
+          for (auto &lf: leaves) {
+            LeafRef ref{name, std::move(lf.path), lf.val, {}, {}};
+            if (ref.isPtr() && !fillPtrLeaf(ref, fn, structs, layout, decl->type)) {
+              guardable = false;
+              break;
+            }
+            root.leaves.push_back(std::move(ref));
+          }
         }
         if (!guardable) {
-          if (reads.count(name))
+          if (rs.reads.count(name) || rs.mem)
             return false; // the block depends on state we cannot guard
           continue;
         }
-        GuardRoot root{name, decl->type, kind, decl->isParam, {}};
-        for (auto &lf: leaves)
-          root.leaves.push_back({name, std::move(lf.path), lf.val});
         plan.guardRoots.push_back(std::move(root));
-        guarded.insert(name);
       }
       if (plan.guardRoots.empty())
         return false; // no live-in state to key the guard on
 
-      // Defs: exactly the leaves each write touches, from s'.
+      // Defs: the bit-exact diff s -> s' over every root, including roots
+      // that first become initialized inside the block. This subsumes
+      // write-site analysis: store-through-pointer effects surface as
+      // diffs of the pointee root.
       std::map<std::string, LeafRef> defMap;
-      for (const auto &w: writes) {
-        std::vector<Access> concrete;
-        if (!resolveAccesses(w.accesses, s, concrete))
-          return false;
-        auto it = sPrime.find(w.root);
-        if (it == sPrime.end())
-          return false;
-        const StateValue *sub = navigate(*it->second, concrete);
-        if (!sub)
+      for (const auto &[name, val]: sPrimeVars) {
+        auto decl = findRoot(fn, name);
+        if (!decl)
           return false;
         std::vector<StateLeaf> leaves;
         bool hasPtr = false, hasUndef = false;
-        enumStateLeaves(*sub, leaves, hasPtr, hasUndef);
-        if (hasPtr || hasUndef)
-          return false; // can't reconstruct a pointer / undef leaf
+        enumStateLeaves(val, leaves, hasPtr, hasUndef);
+        const StateValue *before = nullptr;
+        if (auto it = s.find(name); it != s.end())
+          before = it->second;
         for (auto &lf: leaves) {
-          // Leaf paths are relative to `sub`; prepend the concrete write
-          // prefix to root them at the variable.
-          std::vector<Access> full = concrete;
-          full.insert(full.end(), lf.path.begin(), lf.path.end());
-          std::string key = leafKey(w.root, full);
-          defMap[key] = {w.root, std::move(full), lf.val};
+          const StateValue *old = before ? navigate(*before, lf.path) : nullptr;
+          if (old && bitExactEq(*old, lf.val))
+            continue;
+          if (decl->isParam || !decl->isMutable)
+            return false; // an immutable root cannot have changed
+          LeafRef ref{name, std::move(lf.path), lf.val, {}, {}};
+          if (ref.isPtr() && !fillPtrLeaf(ref, fn, structs, layout, decl->type))
+            return false;
+          std::string key = leafKey(name, ref.path);
+          defMap[key] = std::move(ref);
         }
       }
       if (defMap.empty())
-        return false;
+        return false; // no effect to twin
       for (auto &[k, v]: defMap)
         plan.defs.push_back(std::move(v));
       return true;
@@ -522,6 +586,8 @@ namespace refractir::reify {
       };
       auto intInit = [](std::int64_t v) { return InitVal{InitVal::Kind::Int, IntLit{v, {}}, {}}; };
       auto zeroInit = [&](const TypePtr &ty) {
+        if (isPtrType(ty))
+          return InitVal{InitVal::Kind::Undef, IntLit{0, {}}, {}};
         if (TypeUtils::getFloatBitWidth(ty))
           return InitVal{InitVal::Kind::Float, FloatLit{0.0, {}}, {}};
         return intInit(0);
@@ -533,9 +599,15 @@ namespace refractir::reify {
       };
 
       // Params, in guard-root order (the caller emits args the same way).
+      // After each root's main parameter(s) come one expected-pointer
+      // parameter per ptr leaf (`%__e<n>`): the caller reconstructs the
+      // expected pointer with `addr` / `null` and the guard compares with
+      // `==`, which is defined even across objects.
+      int eIdx = 0;
       for (const auto &root: plan.guardRoots) {
         switch (root.kind) {
           case GuardRoot::Kind::Scalar:
+          case GuardRoot::Kind::Ptr:
             g.params.push_back({LocalId{root.name, {}}, root.type, {}});
             break;
           case GuardRoot::Kind::Vec: {
@@ -548,6 +620,9 @@ namespace refractir::reify {
             g.params.push_back({LocalId{root.name, {}}, makePtr(root.type), {}});
             break;
         }
+        for (const auto &leaf: root.leaves)
+          if (leaf.isPtr())
+            g.params.push_back({LocalId{"%__e" + std::to_string(eIdx++), {}}, leaf.ptrType, {}});
       }
 
       // i1 is a signed 1-bit type: true is all-ones (-1), so the neutral
@@ -576,12 +651,14 @@ namespace refractir::reify {
       Block e;
       e.label = BlockLabel{"^entry", {}};
       int kIdx = 0;
+      eIdx = 0;
       for (const auto &root: plan.guardRoots) {
         for (const auto &leaf: root.leaves) {
           std::string operand;
           TypePtr leafT;
           switch (root.kind) {
             case GuardRoot::Kind::Scalar:
+            case GuardRoot::Kind::Ptr:
               operand = root.name;
               leafT = root.type;
               break;
@@ -621,9 +698,15 @@ namespace refractir::reify {
               break;
             }
           }
-          std::string k = "%__k" + std::to_string(kIdx++);
-          addLet(k, leafT, litInit(leaf.val), /*mut=*/false);
-          e.instrs.push_back(cmpEqInstr("%__c", operand, k));
+          if (leaf.isPtr()) {
+            // Pointer equality against the caller-reconstructed expected
+            // pointer (defined across objects, so total on every input).
+            e.instrs.push_back(cmpEqInstr("%__c", operand, "%__e" + std::to_string(eIdx++)));
+          } else {
+            std::string k = "%__k" + std::to_string(kIdx++);
+            addLet(k, leafT, litInit(leaf.val), /*mut=*/false);
+            e.instrs.push_back(cmpEqInstr("%__c", operand, k));
+          }
           e.instrs.push_back(andInstr("%__acc", "%__c"));
         }
       }
@@ -638,6 +721,7 @@ namespace refractir::reify {
       for (const auto &root: plan.guardRoots) {
         switch (root.kind) {
           case GuardRoot::Kind::Scalar:
+          case GuardRoot::Kind::Ptr:
             args.push_back(std::make_shared<Expr>(simpleExpr(rvalAtom(localLV(root.name)))));
             break;
           case GuardRoot::Kind::Vec:
@@ -653,6 +737,10 @@ namespace refractir::reify {
             );
             break;
         }
+        // Expected pointers, mirroring buildGuardFun's `%__e<n>` params.
+        for (const auto &leaf: root.leaves)
+          if (leaf.isPtr())
+            args.push_back(std::make_shared<Expr>(simpleExpr(ptrRhsAtom(leaf))));
       }
       return args;
     }
@@ -688,6 +776,7 @@ namespace refractir::reify {
         StructMap structs;
         for (const auto &sd: prog.structs)
           structs[sd.name.name] = &sd;
+        const TypeLayout layout(prog);
 
         for (auto &[pfKey, profile]: ctx.profiles) {
           // Group block-entry points by executing function. Sidecar files
@@ -747,7 +836,9 @@ namespace refractir::reify {
               StateMap s = toStateMap(pts[t]->vars);
               StateMap sPrime = toStateMap(pts[t + 1]->vars);
               TwinPlan plan;
-              if (!planBlock(*fn, *bit->second, pts[t]->vars, s, sPrime, structs, plan))
+              if (!planBlock(
+                      *fn, *bit->second, pts[t]->vars, pts[t + 1]->vars, s, structs, layout, plan
+                  ))
                 continue;
               if (coin(ctx.rng) >= pTwin_)
                 continue;
@@ -818,7 +909,22 @@ namespace refractir::reify {
           auto ti = sPrime.find(r.name);
           if (si == s.end() || ti == sPrime.end())
             return;
-          roots.push_back({r.name, r.type, r.isParam, *si->second, *ti->second});
+          TwinGenRoot g{r.name, r.type, r.isParam, *si->second, *ti->second, {}};
+          // Pointer cells: entry target from the guard leaves (state s),
+          // exit target from the diff when the cell changed, else the same.
+          for (const auto &leaf: r.leaves) {
+            if (!leaf.isPtr())
+              continue;
+            TwinGenPtrFix fx{leaf.path, leaf.ptrType, leaf.ptrTarget, leaf.ptrTarget};
+            const std::string key = leafKey(r.name, leaf.path);
+            for (const auto &d: plan.defs)
+              if (d.isPtr() && leafKey(d.root, d.path) == key) {
+                fx.finalTarget = d.ptrTarget;
+                break;
+              }
+            g.ptrFixes.push_back(std::move(fx));
+          }
+          roots.push_back(std::move(g));
         }
         if (auto res = twinGen_(prog, roots, ctx.rng)) {
           plan.twinInstrs = std::move(res->instrs);
@@ -847,8 +953,10 @@ namespace refractir::reify {
         if (!plan.twinInstrs.empty()) {
           twin.instrs = std::move(plan.twinInstrs);
         } else {
-          for (const auto &d: plan.defs)
-            twin.instrs.push_back(assignLV(d.lvalue(), simpleExpr(coefAtom(litCoef(d.val)))));
+          for (const auto &d: plan.defs) {
+            Atom rhs = d.isPtr() ? ptrRhsAtom(d) : coefAtom(litCoef(d.val));
+            twin.instrs.push_back(assignLV(d.lvalue(), simpleExpr(std::move(rhs))));
+          }
         }
         twin.term = brTo(mergeL);
 

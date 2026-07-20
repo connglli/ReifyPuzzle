@@ -91,6 +91,8 @@ namespace refractir {
 
     const AddrMap &addrMap() const { return addrMap_; }
 
+    const TypeLayout &layout() const { return layout_; }
+
   private:
     const TypeLayout &layout_;
     // heap_: flat address -> RuntimeValue (one slot per element)

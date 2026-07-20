@@ -30,14 +30,27 @@
 
 namespace refractir::reify {
 
+  // A pointer leaf of a root, with the lvalues whose addresses reproduce
+  // the captured pointer at block entry and exit (nullopt = null pointer).
+  // The mini-program declares the cell `null`, assigns `addr <initTarget>`
+  // before the generated body, and reassigns `addr <finalTarget>` after it
+  // — sound whatever the body did to the cell in between.
+  struct TwinGenPtrFix {
+    std::vector<Access> path; // leaf path within the root
+    TypePtr type;             // static `ptr T` of the cell
+    std::optional<LValue> initTarget;
+    std::optional<LValue> finalTarget;
+  };
+
   // One state root the twin must model: its declaration shape in the entry
   // function plus its concrete entry / exit values.
   struct TwinGenRoot {
     std::string name;
     TypePtr type;
-    bool isParam = false; // immutable in the mini-program (never written)
-    StateValue init;      // value at block entry (s)
-    StateValue target;    // required value at block exit (s')
+    bool isParam = false;                // immutable in the mini-program (never written)
+    StateValue init;                     // value at block entry (s)
+    StateValue target;                   // required value at block exit (s')
+    std::vector<TwinGenPtrFix> ptrFixes; // every pointer leaf of the root
   };
 
   struct TwinGenConfig {

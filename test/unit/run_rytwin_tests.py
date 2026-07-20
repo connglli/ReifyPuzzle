@@ -80,7 +80,8 @@ def gen_p1(rysmith, d, seed="5", nparams="2"):
 
 
 def gen_pool(rysmith, d, n="12", seed="202", emit_state=False, extra=None):
-  """Generate a pool of twin-friendly leaves (pointer-free until Stage 4).
+  """Generate a pool of pointer-free leaves (guard/vector/aggregate feature
+  assertions are cleanest without memory ops; gen_ptr_pool covers those).
   Returns the sorted list of concrete .sir paths, or None on failure."""
   cmd = [rysmith, "--emit-desc", "--n-funcs", n, "--seed", seed]
   cmd += ["--n-params", "2", "--n-stmts", "5", "--max-ptr-depth", "0"]
@@ -427,10 +428,13 @@ def twin_block_bodies(src):
 
 def has_computed_rhs(body):
   """True if some assignment's RHS references a local — i.e. the twin is a
-  computation, not a constant reconstruction."""
+  computation, not a constant reconstruction. `addr`/`null` RHSs are the
+  positional pointer reconstruction both twin kinds emit; they don't count."""
   for line in body.splitlines():
     if " = " in line and not line.startswith("require") and not line.startswith("br"):
       rhs = line.split(" = ", 1)[1]
+      if rhs.startswith("addr ") or rhs.startswith("null"):
+        continue
       if "%" in rhs:
         return True
   return False
@@ -536,6 +540,292 @@ def test_twin_requires_stripped(rytwin, rysmith):
       "no equality require left in twin blocks", not eq_requires, str(eq_requires[:3])
     )
     check("--keep-require --target c compiles", os.path.exists(got[1][:-4] + ".c"), "")
+
+
+def gen_ptr_pool(rysmith, d, n="12", seed="404", emit_state=False):
+  """[Stage 4] A pool generated WITH pointers and memory ops (default
+  --max-ptr-depth)."""
+  cmd = [rysmith, "--emit-desc", "--n-funcs", n, "--seed", seed]
+  cmd += ["--n-params", "2", "--n-stmts", "5"]
+  if emit_state:
+    cmd += ["--emit-state", "pbb"]
+  cmd += ["-o", d]
+  r = run(cmd)
+  if r.returncode != 0:
+    return None
+  sirs = [f for f in os.listdir(d) if f.endswith(".sir") and "_sym" not in f]
+  return [os.path.join(d, s) for s in sorted(sirs)]
+
+
+def test_ptr_state_json_provenance(rysmith):
+  """[Stage 4] The state sidecar records pointer provenance (root + path)
+  instead of an opaque ptr marker, and round-trips through the reader."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_ptr_pool(rysmith, d, n="4", emit_state=True)
+    if not sirs:
+      check("ptr-provenance setup (rysmith gen)", False, "generation failed")
+      return
+    states = [f for f in os.listdir(d) if f.endswith(".state.json")]
+    joined = ""
+    for f in states:
+      joined += open(os.path.join(d, f)).read()
+    check("sidecar has ptr entries", '"k":"ptr"' in joined, "")
+    check('ptr entries carry provenance ("root")', '"root"' in joined, "")
+
+
+STORE_FIXTURE = """// SOLVED: %pa0=9
+fun @stfix(%pa0: i32) : i32 {
+  let mut %a: [3] i32 = {1, 2, 3};
+  let mut %p: ptr i32 = undef;
+^entry:
+  %p = addr %a[1];
+  br ^work;
+^work:
+  store %p, 7 * %pa0;
+  %p = addr %a[2];
+  br ^exit;
+^exit:
+  ret %a[1] + %a[0];
+}
+
+fun @main() : i32 {
+  let mut %r: i32 = undef;
+^entry:
+  %r = call @stfix(9);
+  ret %r;
+}
+"""
+
+
+def test_store_block_twinnable(rytwin, symiri):
+  """[Stage 4] A block containing a store (and a pointer reassignment) is a
+  twin candidate: its effect is the state diff, pointers reconstruct via
+  addr, and the twin executes."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "stfix.sir")
+    open(p1, "w").write(STORE_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "--validate", "-o", p2])
+    check("store-bearing fixture twinned", r.returncode == 0, r.stderr[:200])
+    if r.returncode != 0:
+      return
+    src = open(p2).read()
+    check("store block grafted", "^work__twin" in src, "")
+    check(
+      "store twin validated + fired",
+      "validated: OK" in r.stdout and "0 twin exec" not in r.stdout,
+      r.stdout[:160],
+    )
+
+
+MEM_OP_RE = re.compile(r"\b(load|store|addr|ptrindex|ptrfield)\b")
+
+
+def orig_block_bodies(src):
+  """Instruction text of every ^..__orig block in src."""
+  bodies = []
+  cur = None
+  for line in src.splitlines():
+    stripped = line.strip()
+    if stripped.startswith("^") and stripped.endswith(":"):
+      if cur is not None:
+        bodies.append("\n".join(cur))
+        cur = None
+      if stripped.rstrip(":").endswith("__orig"):
+        cur = []
+      continue
+    if cur is not None:
+      if stripped.startswith("}"):
+        bodies.append("\n".join(cur))
+        cur = None
+      else:
+        cur.append(stripped)
+  if cur is not None:
+    bodies.append("\n".join(cur))
+  return bodies
+
+
+def test_equivalence_with_pointers(rytwin, rysmith, symiri):
+  """[Stage 4] The full equivalence sweep holds on programs generated WITH
+  pointers and memory operations, and memory-op blocks are actually being
+  twinned (not just the pointer-free remnant)."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_ptr_pool(rysmith, d)
+    if sirs is None:
+      check("ptr equivalence setup", False, "generation failed")
+      return
+    equivalence_over_pool(rytwin, symiri, d, sirs, "ptr")
+    mem_twins = 0
+    for p1 in sirs:
+      p2 = os.path.join(d, os.path.basename(p1)[:-4] + ".p2.sir")
+      if not os.path.exists(p2):
+        continue
+      for b in orig_block_bodies(open(p2).read()):
+        if MEM_OP_RE.search(b):
+          mem_twins += 1
+    check("memory-op blocks get twinned", mem_twins > 0, f"mem twins={mem_twins}")
+
+
+def test_guard_covers_ptr_leaves(rytwin, rysmith):
+  """[Stage 4] Pointer-valued state crosses into the guard: the caller
+  passes the pointer and its addr-reconstructed expected value, compared
+  with `==` (defined cross-object)."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_ptr_pool(rysmith, d)
+    if not sirs:
+      check("ptr-guard setup (rysmith gen)", False, "generation failed")
+      return
+    saw_expected_ptr = False
+    for p1 in sirs:
+      p2 = p1[:-4] + ".p2.sir"
+      r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p2])
+      if r.returncode != 0:
+        continue
+      # Expected-pointer params are named %__e<k> by the guard builder.
+      for _, params in GUARD_FN_RE.findall(open(p2).read()):
+        if "%__e" in params:
+          saw_expected_ptr = True
+    check("guard takes addr-reconstructed expected-ptr params", saw_expected_ptr, "")
+
+
+def test_ptr_program_targets(rytwin, symiri):
+  """[Stage 4] The store-bearing fixture survives the backends: its twin
+  compiles to C and wasm, and the C binary computes p1's result."""
+  import shutil
+
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "stfix.sir")
+    open(p1, "w").write(STORE_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run(
+      [
+        rytwin,
+        p1,
+        "--p-twin",
+        "1.0",
+        "--seed",
+        "3",
+        "--target",
+        "c",
+        "--emit-main",
+        "-o",
+        p2,
+      ]
+    )
+    check(
+      "store fixture compiles to C",
+      r.returncode == 0 and os.path.exists(p2[:-4] + ".c"),
+      r.stderr[:200],
+    )
+    r = run(
+      [
+        rytwin,
+        p1,
+        "--p-twin",
+        "1.0",
+        "--seed",
+        "3",
+        "--target",
+        "wasm",
+        "--emit-main",
+        "-o",
+        p2[:-4] + ".w.sir",
+      ]
+    )
+    check(
+      "store fixture compiles to wasm",
+      r.returncode == 0 and os.path.exists(p2[:-4] + ".w.wat"),
+      r.stderr[:160],
+    )
+    cc = shutil.which("cc") or shutil.which("gcc")
+    if not cc or not os.path.exists(p2[:-4] + ".c"):
+      return
+    exe = os.path.join(d, "p2.bin")
+    rc = run([cc, "-O1", "-o", exe, p2[:-4] + ".c", "-lm"])
+    check("store fixture p2.c compiles", rc.returncode == 0, rc.stderr[:200])
+    if rc.returncode == 0:
+      rr = run([exe])
+      want = symiri_result(symiri, p1, "@stfix", ["9"])[1]
+      # @main returns the result; the process exit code carries its low
+      # 8 bits.
+      ok = want is not None and rr.returncode == int(want) % 256
+      check(
+        "store fixture binary matches symiri",
+        ok,
+        f"rc={rr.returncode} want={want}",
+      )
+
+
+def test_ptr_state_twin_generated(rytwin, symiri):
+  """[Stage 4b] Pointer-bearing state no longer disables twin generation:
+  the store fixture's twin is a computed body (with its final ptr
+  reconstruction), not a constant replication."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "stfix.sir")
+    open(p1, "w").write(STORE_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "--validate", "-o", p2])
+    check("gen store fixture twinned + validated", r.returncode == 0, r.stderr[:200])
+    if r.returncode != 0:
+      return
+    bodies = twin_block_bodies(open(p2).read())
+    check(
+      "store-fixture twin is a generated computation",
+      any(has_computed_rhs(b) for b in bodies),
+      "\n---\n".join(bodies)[:300],
+    )
+
+
+def test_rylink_generated_twins(rytwin, symiri):
+  """[Stage 4b] The real rylink program gets generated (computed) twin
+  bodies, not 100% constant replication."""
+  fixture = os.path.join(os.path.dirname(__file__), "fixtures", "rylink_twin_p1.sir")
+  with tempfile.TemporaryDirectory() as d:
+    p2 = os.path.join(d, "p2.sir")
+    r = run([rytwin, fixture, "--p-twin", "1.0", "--seed", "3", "--validate", "-o", p2])
+    check("rylink fixture twinned + validated (gen)", r.returncode == 0, r.stderr[:200])
+    if r.returncode != 0:
+      return
+    bodies = twin_block_bodies(open(p2).read())
+    computed = sum(1 for b in bodies if has_computed_rhs(b))
+    check(
+      "some rylink twins are generated computations",
+      computed > 0,
+      f"{computed}/{len(bodies)} computed",
+    )
+    r1 = symiri_result(symiri, fixture, "@main", [])
+    r2 = symiri_result(symiri, p2, "@main", [])
+    check("rylink generated twins stay equivalent", r1[1:] == r2[1:], f"{r1} vs {r2}")
+
+
+def test_ptr_pool_generated(rytwin, rysmith):
+  """[Stage 4b] Across a pointered pool, generation produces computed twin
+  bodies and every one is fully concretized (no %? survives)."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_ptr_pool(rysmith, d)
+    if not sirs:
+      check("ptr-pool gen setup", False, "generation failed")
+      return
+    computed = total = 0
+    leaked = False
+    for p1 in sirs:
+      p2 = p1[:-4] + ".p2.sir"
+      r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p2])
+      if r.returncode != 0:
+        continue
+      src = open(p2).read()
+      if "%?" in src:
+        leaked = True
+      for b in twin_block_bodies(src):
+        total += 1
+        if has_computed_rhs(b):
+          computed += 1
+    check(
+      "pointered pool has generated twins",
+      computed > 0,
+      f"{computed}/{total} computed",
+    )
+    check("no %? leaks into pointered p2s", not leaked, "")
 
 
 WHOLE_PROG_FIXTURE = """fun @leaf(%pa0: i32) : i32 {
@@ -1034,6 +1324,38 @@ def main():
     (
       "whole-program: real rylink regression",
       lambda: test_real_rylink_regression(rytwin, symiri),
+    ),
+    (
+      "pointers: sidecar records provenance",
+      lambda: test_ptr_state_json_provenance(rysmith),
+    ),
+    (
+      "pointers: store-bearing block twinnable",
+      lambda: test_store_block_twinnable(rytwin, symiri),
+    ),
+    (
+      "pointers: equivalence with memory ops",
+      lambda: test_equivalence_with_pointers(rytwin, rysmith, symiri),
+    ),
+    (
+      "pointers: guard covers ptr leaves",
+      lambda: test_guard_covers_ptr_leaves(rytwin, rysmith),
+    ),
+    (
+      "pointers: backends on pointered twins",
+      lambda: test_ptr_program_targets(rytwin, symiri),
+    ),
+    (
+      "twin_gen+ptr: store fixture twin is generated",
+      lambda: test_ptr_state_twin_generated(rytwin, symiri),
+    ),
+    (
+      "twin_gen+ptr: rylink program gets generated twins",
+      lambda: test_rylink_generated_twins(rytwin, symiri),
+    ),
+    (
+      "twin_gen+ptr: pointered pool generates concretized twins",
+      lambda: test_ptr_pool_generated(rytwin, rysmith),
     ),
     ("rytwin: missing args usage", lambda: test_missing_args_usage(rytwin)),
     (

@@ -6,9 +6,100 @@
 #include <ostream>
 #include <sstream>
 
+#include "analysis/type_utils.hpp"
 #include "interp/interpreter.hpp"
+#include "interp/memory.hpp"
+#include "interp/type_layout.hpp"
 
 namespace refractir::reify {
+
+  namespace {
+    // Fill a Ptr StateValue's provenance from the live memory model. Any
+    // resolution miss (foreign frame, freed object, inconsistent base)
+    // leaves the leaf opaque — consumers treat opaque like undef.
+    void resolvePtr(StateValue &sv, const RuntimeValue &rv, const Memory &memory) {
+      if (rv.ptrVal == 0) {
+        sv.ptrNull = true;
+        return;
+      }
+      // rv.ptrBase carries the provenance object's ID (not an address).
+      const ObjectInfo *obj = memory.findObjectByProvId(rv.ptrBase);
+      if (!obj)
+        return;
+      auto it = memory.addrMap().find(obj->varName);
+      if (it == memory.addrMap().end())
+        return;
+      const std::uint64_t rootBase = it->second;
+      // The addrMap is scoped per frame; a caller-frame pointer whose root
+      // name is rebound in this frame would resolve to the wrong local.
+      // Require the pointer to lie inside the object rooted at this
+      // frame's base.
+      const ObjectInfo *rootObj = memory.findObjectByBaseAddress(rootBase);
+      if (!rootObj || rv.ptrVal < rootObj->base || rv.ptrVal > rootObj->end)
+        return;
+      sv.ptrRoot = obj->varName;
+      sv.ptrOfs = rv.ptrVal - rootBase;
+    }
+  } // namespace
+
+  StateValue toStateValue(const RuntimeValue &rv, const Memory &memory) {
+    StateValue sv = toStateValue(rv);
+    if (rv.kind == RuntimeValue::Kind::Ptr) {
+      resolvePtr(sv, rv, memory);
+    } else if (rv.kind == RuntimeValue::Kind::Array || rv.kind == RuntimeValue::Kind::Vec) {
+      for (std::size_t i = 0; i < rv.arrayVal.size(); ++i)
+        sv.elems[i] = toStateValue(rv.arrayVal[i], memory);
+    } else if (rv.kind == RuntimeValue::Kind::Struct) {
+      for (auto &[name, val]: sv.fields)
+        val = toStateValue(rv.structVal.at(name), memory);
+    }
+    return sv;
+  }
+
+  std::optional<std::vector<Access>> ptrAccessPath(
+      const TypePtr &rootType, std::uint64_t ofs, const TypePtr &pointee, const TypeLayout &layout
+  ) {
+    TypePtr t = rootType;
+    std::vector<Access> path;
+    while (true) {
+      if (ofs == 0 && TypeUtils::areTypesEqual(t, pointee))
+        return path;
+      if (const ArrayType *at = TypeUtils::asArray(t)) {
+        std::uint64_t es = layout.sizeofType(at->elem);
+        if (es == 0)
+          return std::nullopt;
+        std::uint64_t idx = ofs / es;
+        if (idx >= at->size)
+          return std::nullopt; // out of bounds / one-past-the-end
+        path.push_back(AccessIndex{Index{IntLit{(std::int64_t) idx, {}}}, {}});
+        ofs -= idx * es;
+        t = at->elem;
+        continue;
+      }
+      if (const StructType *st = TypeUtils::asStruct(t)) {
+        const StructDecl *sd = layout.lookupStruct(st->name.name);
+        if (!sd)
+          return std::nullopt;
+        std::uint64_t fieldOfs = 0;
+        const FieldDecl *hit = nullptr;
+        for (const auto &f: sd->fields) {
+          std::uint64_t sz = layout.sizeofType(f.type);
+          if (ofs < fieldOfs + sz) {
+            hit = &f;
+            break;
+          }
+          fieldOfs += sz;
+        }
+        if (!hit)
+          return std::nullopt;
+        path.push_back(AccessField{hit->name, {}});
+        ofs -= fieldOfs;
+        t = hit->type;
+        continue;
+      }
+      return std::nullopt; // scalar/vec reached but offset or type disagrees
+    }
+  }
 
   StateValue toStateValue(const RuntimeValue &rv) {
     StateValue sv;
@@ -87,6 +178,9 @@ namespace refractir::reify {
           }
           break;
         case StateValue::Kind::Ptr:
+          // Pointer leaves are emitted with their provenance in `val`;
+          // the flag lets consumers that cannot handle them reject fast.
+          out.push_back({path, v});
           hasPtr = true;
           break;
         case StateValue::Kind::Undef:
@@ -134,8 +228,10 @@ namespace refractir::reify {
             return false;
         return true;
       }
+      case StateValue::Kind::Ptr:
+        return a.ptrNull == b.ptrNull && a.ptrRoot == b.ptrRoot && a.ptrOfs == b.ptrOfs;
       default:
-        return true; // Ptr / Undef: kind-only comparison
+        return true; // Undef: kind-only comparison
     }
   }
 
@@ -143,7 +239,7 @@ namespace refractir::reify {
     interp.setStateHook(
         [&out](
             const std::string &funcName, std::uint64_t frameId, const std::string &blockLabel,
-            int instrIdx, const Store &store
+            int instrIdx, const Store &store, const Memory &memory
         ) {
           StatePoint pt;
           pt.func = funcName;
@@ -161,7 +257,7 @@ namespace refractir::reify {
           }
           std::sort(names.begin(), names.end());
           for (const auto &n: names)
-            pt.vars.emplace_back(n, toStateValue(store.at(n)));
+            pt.vars.emplace_back(n, toStateValue(store.at(n), memory));
           out.trace.push_back(std::move(pt));
         },
         /*perInstr=*/gran == StateGranularity::Ppp
@@ -234,7 +330,14 @@ namespace refractir::reify {
           break;
         }
         case StateValue::Kind::Ptr:
-          os << "{\"k\":\"ptr\"}";
+          if (v.ptrNull)
+            os << "{\"k\":\"ptr\",\"null\":1}";
+          else if (!v.ptrRoot.empty()) {
+            os << "{\"k\":\"ptr\",\"root\":";
+            writeString(os, v.ptrRoot);
+            os << ",\"ofs\":" << v.ptrOfs << "}";
+          } else
+            os << "{\"k\":\"ptr\"}";
           break;
         case StateValue::Kind::Undef:
         default:
@@ -330,6 +433,12 @@ namespace refractir::reify {
           v.bits = static_cast<std::uint32_t>(p.num());
         } else if (key == "v") {
           raw = p.str();
+        } else if (key == "root") {
+          v.ptrRoot = p.str();
+        } else if (key == "ofs") {
+          v.ptrOfs = static_cast<std::uint64_t>(p.num());
+        } else if (key == "null") {
+          v.ptrNull = p.num() != 0;
         } else if (key == "e") {
           p.eat('[');
           while (p.ok && !p.peek(']')) {

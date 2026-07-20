@@ -31,6 +31,8 @@
 namespace refractir {
   class Program;
   class Interpreter;
+  class Memory;
+  class TypeLayout;
 } // namespace refractir
 
 namespace refractir::reify {
@@ -42,11 +44,14 @@ namespace refractir::reify {
     Ppp, // additionally one record after each instruction
   };
 
-  // A concrete value tree mirroring the RefractIR type shape. Pointer and
-  // uninitialized (undef) leaves are represented as their own kinds and
-  // carry no value — rewrites that need pure scalar/vector state ignore
-  // them. Scalars keep their bit-width; float scalars keep a canonical
-  // decimal string (bit-exact) alongside the raw double.
+  // A concrete value tree mirroring the RefractIR type shape.
+  // Uninitialized (undef) leaves are their own kind and carry no value.
+  // Pointer leaves carry their provenance when it resolves: the
+  // originating local (`ptrRoot`) and the byte offset of the pointee cell
+  // from that local's base (`ptrOfs`), or `ptrNull` for the null pointer.
+  // A Ptr leaf with an empty root and no null flag is unresolved (opaque).
+  // Scalars keep their bit-width; float scalars keep a canonical decimal
+  // string (bit-exact) alongside the raw double.
   struct StateValue {
     enum class Kind { Int, Float, Array, Vec, Struct, Ptr, Undef } kind = Kind::Undef;
     std::int64_t intVal = 0;
@@ -54,6 +59,11 @@ namespace refractir::reify {
     std::uint32_t bits = 0;                                 // scalar bit-width (Int / Float)
     std::vector<StateValue> elems;                          // Array / Vec, in order
     std::vector<std::pair<std::string, StateValue>> fields; // Struct, sorted by field name
+    std::string ptrRoot;                                    // Ptr: originating local
+    std::uint64_t ptrOfs = 0;                               // Ptr: byte offset from root base
+    bool ptrNull = false;                                   // Ptr: the null pointer
+
+    bool ptrResolved() const { return ptrNull || !ptrRoot.empty(); }
   };
 
   // One captured program point.
@@ -77,8 +87,19 @@ namespace refractir::reify {
     std::vector<StatePoint> trace; // in execution order
   };
 
-  // Convert one interpreter RuntimeValue into a StateValue tree.
+  // Convert one interpreter RuntimeValue into a StateValue tree. The
+  // overload with a Memory resolves pointer leaves to their provenance
+  // (root local + byte offset); without it pointers stay opaque.
   StateValue toStateValue(const RuntimeValue &rv);
+  StateValue toStateValue(const RuntimeValue &rv, const Memory &memory);
+
+  // Resolve a captured pointer's (root type, byte offset) to an access
+  // path, disambiguated by the pointer's static pointee type (a base
+  // address is shared by `%a`, `%a[0]`, `%a[0].f0`, ...). Returns nullopt
+  // for one-past-the-end offsets or shape mismatches.
+  std::optional<std::vector<Access>> ptrAccessPath(
+      const TypePtr &rootType, std::uint64_t ofs, const TypePtr &pointee, const TypeLayout &layout
+  );
 
   // One scalar leaf of a StateValue tree: its access path from the root
   // (concrete IntLit indices / field names) and its value.

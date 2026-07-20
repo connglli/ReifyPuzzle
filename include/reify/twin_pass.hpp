@@ -28,9 +28,13 @@
 // (`ptr [N] T` / `ptr @S` parameters navigated with ptrindex/ptrfield +
 // load — all in-bounds by construction, so total on every input).
 //
-// v1 scope: candidate blocks are memory-free and call-free (no
-// load/store/addr/ptr navigation, intrinsic calls only) and every leaf
-// they read or write is concrete (no pointer / undef).
+// Candidate blocks may contain memory operations (load/store/addr/ptr
+// navigation): a block's effect is the bit-exact frame-state diff, store
+// effects surface as diffs of the pointee root, and pointer leaves carry
+// provenance so the guard compares them against `addr`-reconstructed
+// expected values and the twin reproduces them positionally. Blocks with
+// non-intrinsic calls stay ineligible — a callee handed a pointer into an
+// outer frame could mutate state the frame diff does not see.
 //
 // `B'` is solver-generated through the injected `TwinGenFn` (see
 // reify/twin_gen.hpp): random statements whose net effect from `s` is

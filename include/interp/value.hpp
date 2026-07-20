@@ -20,7 +20,7 @@ namespace refractir {
     double floatVal = 0.0;
     std::uint32_t bits = 64;    // bitwidth for Int or Float (32/64)
     std::uint64_t ptrVal = 0;   // for Ptr kind: raw address
-    std::uint64_t ptrBase = 0;  // for Ptr kind: base address of provenance object
+    std::uint64_t ptrBase = 0;  // for Ptr kind: provenance object ID (ObjectInfo::provId)
     std::uint64_t elemSize = 1; // for Ptr kind: static element size of the pointee type
     std::vector<RuntimeValue> arrayVal;
     std::unordered_map<std::string, RuntimeValue> structVal;

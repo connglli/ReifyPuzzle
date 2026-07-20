@@ -1,5 +1,6 @@
 #include "reify/twin_gen.hpp"
 
+#include <algorithm>
 #include <set>
 #include <sstream>
 #include <unordered_map>
@@ -53,6 +54,13 @@ namespace refractir::reify {
       t.atom = Atom{CoefAtom{Coef{LocalOrSymId{SymId{symName, {}}}}, {}}, {}};
       e.rest.push_back(std::move(t));
       return e;
+    }
+
+    // `addr <target>` or `null` — the RHS that reproduces a pointer cell.
+    Expr ptrFixExpr(const std::optional<LValue> &target) {
+      if (target)
+        return Expr{Atom{AddrAtom{*target, {}}, {}}, {}, {}};
+      return Expr{Atom{CoefAtom{Coef{NullLit{}}, {}}, {}}, {}, {}};
     }
 
     // StateValue → InitVal of the matching static type. Struct fields are
@@ -110,6 +118,12 @@ namespace refractir::reify {
           iv.value = std::move(elems);
           break;
         }
+        case StateValue::Kind::Ptr:
+          // Declared null; a fixup assign before the body sets the real
+          // provenance (aggregate inits admit null but not addr atoms).
+          iv.kind = InitVal::Kind::Null;
+          iv.value = IntLit{};
+          break;
         default:
           iv.kind = InitVal::Kind::Undef;
           iv.value = IntLit{};
@@ -160,12 +174,26 @@ namespace refractir::reify {
       // -- 2. Random body.
       std::set<IntrinsicUseKey> used;
       ExprGenConfig ecfg;
-      ecfg.enablePtrArith = false; // no pointer vars in the catalogue
       ecfg.usedIntrinsics = &used;
       SymCounter sym;
       Block entry;
       entry.label = BlockLabel{"^entry", {}};
-      entry.instrs = genBlockStmts(rng, &sym, cat, cfg.nStmts, /*onPath=*/true, ecfg);
+      // Pointer cells are declared null; set their real entry provenance
+      // before any generated statement can read them.
+      for (const auto &r: roots)
+        for (const auto &fx: r.ptrFixes)
+          if (fx.initTarget)
+            entry.instrs.push_back(
+                Instr{AssignInstr{leafLV(r.name, fx.path), ptrFixExpr(fx.initTarget), {}}}
+            );
+      auto body = genBlockStmts(rng, &sym, cat, cfg.nStmts, /*onPath=*/true, ecfg);
+      const bool bodyStores = std::any_of(body.begin(), body.end(), [](const Instr &i) {
+        return std::holds_alternative<StoreInstr>(i);
+      });
+      entry.instrs.insert(
+          entry.instrs.end(), std::make_move_iterator(body.begin()),
+          std::make_move_iterator(body.end())
+      );
 
       // Roots the random body wrote: their leaves need corrections too,
       // else the equality requires would demand the random RHS hit the
@@ -187,10 +215,14 @@ namespace refractir::reify {
         bool hp = false, hu = false;
         enumStateLeaves(r.init, initLeaves, hp, hu);
         enumStateLeaves(r.target, targetLeaves, hp, hu);
-        if (hp || hu || initLeaves.size() != targetLeaves.size())
+        if (hu || initLeaves.size() != targetLeaves.size())
           return std::nullopt; // shape drift — cannot model this root
-        bool wholeRoot = written.count(r.name) > 0;
+        // A store in the generated body can write through any pointer, so
+        // every mutable root counts as written.
+        bool wholeRoot = written.count(r.name) > 0 || (bodyStores && !r.isParam);
         for (std::size_t i = 0; i < initLeaves.size(); ++i) {
+          if (initLeaves[i].val.kind == StateValue::Kind::Ptr)
+            continue; // pointer cells are reproduced by the final fixups
           bool diff = !bitExactEq(initLeaves[i].val, targetLeaves[i].val);
           if (!diff && !wholeRoot)
             continue;
@@ -207,6 +239,15 @@ namespace refractir::reify {
         }
       }
 
+      // -- 3b. Reproduce every pointer cell's exit provenance. Whatever
+      // the generated body did to a pointer (reassigned it, left it), the
+      // final fixup lands it on the captured s' target.
+      for (const auto &r: roots)
+        for (const auto &fx: r.ptrFixes)
+          entry.instrs.push_back(
+              Instr{AssignInstr{leafLV(r.name, fx.path), ptrFixExpr(fx.finalTarget), {}}}
+          );
+
       // -- 4. Equality requires pinning the final state to s', one per
       // leaf, against same-typed immutable lets (bare literals in a Cond
       // default to 32 bits). These are solver scaffolding: recorded and
@@ -217,6 +258,8 @@ namespace refractir::reify {
         bool hp = false, hu = false;
         enumStateLeaves(r.target, targetLeaves, hp, hu);
         for (const auto &leaf: targetLeaves) {
+          if (leaf.val.kind == StateValue::Kind::Ptr)
+            continue;
           std::string tn = "%__t" + std::to_string(nEq++);
           LetDecl d;
           d.isMutable = false;

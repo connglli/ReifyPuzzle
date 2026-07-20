@@ -320,7 +320,7 @@ namespace refractir {
       // State-capture hook (see setStateHook): record the store the block
       // sees on entry, before any of its instructions run.
       if (stateHook_)
-        stateHook_(f.name.name, frameId, block.label.name, -1, store);
+        stateHook_(f.name.name, frameId, block.label.name, -1, store, memory_);
 
       int instrIdx = 0;
       for (const auto &ins: block.instrs) {
@@ -497,7 +497,7 @@ namespace refractir {
         );
         // pp-granularity capture: record the store after each instruction.
         if (stateHook_ && stateHookPerInstr_)
-          stateHook_(f.name.name, frameId, block.label.name, instrIdx, store);
+          stateHook_(f.name.name, frameId, block.label.name, instrIdx, store, memory_);
         ++instrIdx;
       }
 

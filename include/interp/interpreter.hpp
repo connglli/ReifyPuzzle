@@ -56,13 +56,15 @@ namespace refractir {
     // (`instrIdx == i`). `funcName` is the executing function and
     // `frameId` its activation (unique per function entry within one run),
     // so interprocedural traces keep frames apart even when block labels
-    // collide across functions. It is the low-level primitive behind
-    // reify's StateProfile, which records per-program-point concrete state
-    // so equivalence-preserving rewrites (e.g. rytwin) can reproduce the
+    // collide across functions. `memory` is the live memory model, so the
+    // consumer can resolve pointer values to their provenance (originating
+    // local + byte offset). It is the low-level primitive behind reify's
+    // StateProfile, which records per-program-point concrete state so
+    // equivalence-preserving rewrites (e.g. rytwin) can reproduce the
     // exact state a block sees under the generated input. No-op when unset.
     using StateHook = std::function<void(
         const std::string &funcName, std::uint64_t frameId, const std::string &blockLabel,
-        int instrIdx, const Store &store
+        int instrIdx, const Store &store, const Memory &memory
     )>;
 
     void setStateHook(StateHook hook, bool perInstr = false) {
