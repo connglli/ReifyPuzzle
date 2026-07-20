@@ -7,8 +7,10 @@
 #include <unordered_set>
 #include <vector>
 
+#include "analysis/type_utils.hpp"
 #include "ast/ast.hpp"
 #include "reify/state_profile.hpp"
+#include "reify/type_gen.hpp"
 
 namespace refractir::reify {
 
@@ -20,12 +22,8 @@ namespace refractir::reify {
       return std::make_shared<Type>(Type{IntType{IntType::Kind::ICustom, 1, {}}, {}});
     }
 
-    TypePtr makeI64() {
-      return std::make_shared<Type>(Type{IntType{IntType::Kind::I64, {}, {}}, {}});
-    }
-
-    TypePtr makeF64() {
-      return std::make_shared<Type>(Type{FloatType{FloatType::Kind::F64, {}}, {}});
+    TypePtr makePtr(TypePtr pointee) {
+      return std::make_shared<Type>(Type{PtrType{std::move(pointee), {}}, {}});
     }
 
     LValue localLV(const std::string &name) { return LValue{LocalId{name, {}}, {}, {}}; }
@@ -50,37 +48,14 @@ namespace refractir::reify {
       return Instr{AssignInstr{std::move(lhs), std::move(rhs), {}}};
     }
 
-    // `%dst = <lvalue> as <ty>` — widen a (possibly sub-lvalue) leaf to a
-    // canonical width for comparison.
-    Instr castLVInstr(const std::string &dst, LValue src, TypePtr ty) {
-      CastAtom c;
-      c.src = std::move(src);
-      c.dstType = std::move(ty);
-      return assignInstr(dst, simpleExpr(Atom{std::move(c), {}}));
-    }
-
+    // `%dst = cmp == %a, %b` — both operands are same-typed locals, so the
+    // equality is exact without any width coercion.
     Instr cmpEqInstr(const std::string &dst, const std::string &a, const std::string &b) {
       CmpAtom c;
       c.op = RelOp::EQ;
       c.lhs = SelectVal{RValue{localLV(a)}};
       c.rhs = SelectVal{RValue{localLV(b)}};
       return assignInstr(dst, simpleExpr(Atom{std::move(c), {}}));
-    }
-
-    // Append `%dst = (<leaf> == k)` (i1). Both sides are widened to a
-    // canonical width (i64 / f64 — lossless) and the literal is loaded into a
-    // same-typed scratch so the CmpAtom's operands agree; a bare literal in a
-    // cmp otherwise defaults to 32 bits. The equality is therefore exact.
-    void emitEq(std::vector<Instr> &out, const std::string &dst, LValue leaf, const StateValue &k) {
-      if (k.kind == StateValue::Kind::Float) {
-        out.push_back(castLVInstr("%__twfa", std::move(leaf), makeF64()));
-        out.push_back(assignInstr("%__twfb", simpleExpr(coefAtom(litCoef(k)))));
-        out.push_back(cmpEqInstr(dst, "%__twfa", "%__twfb"));
-      } else {
-        out.push_back(castLVInstr("%__twa", std::move(leaf), makeI64()));
-        out.push_back(assignInstr("%__twb", simpleExpr(coefAtom(litCoef(k)))));
-        out.push_back(cmpEqInstr(dst, "%__twa", "%__twb"));
-      }
     }
 
     Instr andInstr(const std::string &acc, const std::string &cur) {
@@ -100,9 +75,10 @@ namespace refractir::reify {
       return Terminator{std::move(b)};
     }
 
-    Terminator brIf(const std::string &guard, const std::string &thenL, const std::string &elseL) {
+    // `br <cond-expr> != 0, ^then, ^else` — the guard call site.
+    Terminator brIfExpr(Expr cond, const std::string &thenL, const std::string &elseL) {
       Cond c;
-      c.lhs = simpleExpr(rvalAtom(localLV(guard)));
+      c.lhs = std::move(cond);
       c.op = RelOp::NE;
       c.rhs = simpleExpr(coefAtom(Coef{IntLit{0, {}}}));
       BrTerm b;
@@ -346,18 +322,107 @@ namespace refractir::reify {
       LValue lvalue() const { return LValue{LocalId{root, {}}, path, {}}; }
     };
 
-    struct TwinPlan {
-      std::vector<LeafRef> guard; // per-leaf equalities on the live-in state
-      std::vector<LeafRef> defs;  // per-leaf constant reconstruction of s'
+    // --- static-type walking ---------------------------------------------
+
+    using StructMap = std::unordered_map<std::string, const StructDecl *>;
+
+    // The static type reached from `t` after one access step. Returns nullptr
+    // when the shape doesn't match (unknown struct/field, non-aggregate).
+    TypePtr stepType(const TypePtr &t, const Access &acc, const StructMap &structs) {
+      if (auto af = std::get_if<AccessField>(&acc)) {
+        const StructType *st = TypeUtils::asStruct(t);
+        if (!st)
+          return nullptr;
+        auto it = structs.find(st->name.name);
+        if (it == structs.end())
+          return nullptr;
+        for (const auto &f: it->second->fields)
+          if (f.name == af->field)
+            return f.type;
+        return nullptr;
+      }
+      if (const ArrayType *at = TypeUtils::asArray(t))
+        return at->elem;
+      if (t && std::holds_alternative<VecType>(t->v))
+        return std::get<VecType>(t->v).elem;
+      return nullptr;
+    }
+
+    // Whether an aggregate type contains a vector anywhere. Vector lanes are
+    // not addressable, so such a root cannot be navigated through a pointer
+    // parameter (rysmith never nests vectors in aggregates; hand-written
+    // programs might).
+    bool containsVec(const TypePtr &t, const StructMap &structs) {
+      if (!t)
+        return false;
+      if (std::holds_alternative<VecType>(t->v))
+        return true;
+      if (const ArrayType *at = TypeUtils::asArray(t))
+        return containsVec(at->elem, structs);
+      if (const StructType *st = TypeUtils::asStruct(t)) {
+        auto it = structs.find(st->name.name);
+        if (it == structs.end())
+          return false;
+        for (const auto &f: it->second->fields)
+          if (containsVec(f.type, structs))
+            return true;
+      }
+      return false;
+    }
+
+    // --- twin planning ----------------------------------------------------
+
+    // One state root the guard consumes, with its crossing strategy.
+    struct GuardRoot {
+      enum class Kind {
+        Scalar, // by-value parameter of the root's own type
+        Vec,    // one by-value parameter per lane
+        Agg,    // by-address parameter (ptr [N] T / ptr @S), navigated inside
+      };
+      std::string name;
+      TypePtr type; // the root's static type in the entry function
+      Kind kind;
+      std::vector<LeafRef> leaves; // expected values from `s`
     };
 
+    struct TwinPlan {
+      std::vector<GuardRoot> guardRoots; // the entire guardable state, in
+                                         // profile (name-sorted) order
+      std::vector<LeafRef> defs;         // per-leaf constant reconstruction of s'
+    };
+
+    // Locate a root's declaration in the entry function.
+    struct RootDecl {
+      TypePtr type;
+      bool isParam = false;
+      bool isMutable = false;
+      bool initialized = false; // param, or let with a non-undef declared init
+    };
+
+    std::optional<RootDecl> findRoot(const FunDecl &fn, const std::string &name) {
+      for (const auto &p: fn.params)
+        if (p.name.name == name)
+          return RootDecl{p.type, true, false, true};
+      for (const auto &l: fn.lets)
+        if (l.name.name == name)
+          return RootDecl{
+              l.type, false, l.isMutable, l.init.has_value() && l.init->kind != InitVal::Kind::Undef
+          };
+      return std::nullopt;
+    }
+
     // A block is a twin candidate iff it has no store, its assignment RHSs and
-    // any assume/require conditions are free of memory/call atoms, and every
-    // scalar leaf it reads or writes is concrete (no pointer / undef). Fills
-    // `plan` with the guard leaves (defined scalar leaves of every read root,
-    // compared to `s`) and the def leaves (exactly the leaves the block
-    // writes, reconstructed from `sPrime`).
-    bool planBlock(const Block &b, const StateMap &s, const StateMap &sPrime, TwinPlan &plan) {
+    // any assume/require conditions are free of memory/call atoms, every
+    // scalar leaf it reads or writes is concrete (no pointer / undef), and its
+    // whole read set is guardable. Fills `plan` with the guard roots (the
+    // ENTIRE definitely-initialized state at block entry, compared to `s`)
+    // and the def leaves (exactly the leaves the block writes, reconstructed
+    // from `sPrime`).
+    bool planBlock(
+        const FunDecl &fn, const Block &b,
+        const std::vector<std::pair<std::string, StateValue>> &sVars, const StateMap &s,
+        const StateMap &sPrime, const StructMap &structs, TwinPlan &plan
+    ) {
       std::unordered_set<std::string> reads;
 
       struct WriteSite {
@@ -393,22 +458,46 @@ namespace refractir::reify {
       if (writes.empty())
         return false;
 
-      // Guard: every defined scalar leaf of every read root, compared to s.
-      for (const auto &root: reads) {
-        auto it = s.find(root);
-        if (it == s.end())
-          continue; // not in the live-in state (e.g. written-before-read)
+      // Guard roots: every definitely-initialized root of the entry state.
+      // A root that cannot cross into the guard (pointer-typed, undef or
+      // pointer leaves, immutable aggregate, vector nested in an aggregate)
+      // is skipped when the block does not read it — soundness only needs
+      // guard-set ⊇ read-set — and rejects the block when it does.
+      std::unordered_set<std::string> guarded;
+      for (const auto &[name, val]: sVars) {
+        auto decl = findRoot(fn, name);
+        bool guardable = decl.has_value() && decl->initialized && !isPtrType(decl->type);
+        GuardRoot::Kind kind = GuardRoot::Kind::Scalar;
+        if (guardable) {
+          if (std::holds_alternative<VecType>(decl->type->v))
+            kind = GuardRoot::Kind::Vec;
+          else if (TypeUtils::asArray(decl->type) || TypeUtils::asStruct(decl->type)) {
+            kind = GuardRoot::Kind::Agg;
+            // `addr %root` needs a mutable root; vector lanes inside an
+            // aggregate cannot be reached through a pointer at all.
+            guardable = decl->isMutable && !containsVec(decl->type, structs);
+          }
+        }
         std::vector<Leaf> leaves;
-        std::vector<Access> path;
-        bool hasPtr = false, hasUndef = false;
-        enumLeaves(*it->second, path, leaves, hasPtr, hasUndef);
-        if (hasPtr)
-          return false; // reads a pointer — not modeled
+        if (guardable) {
+          std::vector<Access> path;
+          bool hasPtr = false, hasUndef = false;
+          enumLeaves(val, path, leaves, hasPtr, hasUndef);
+          guardable = !hasPtr && !hasUndef && !leaves.empty();
+        }
+        if (!guardable) {
+          if (reads.count(name))
+            return false; // the block depends on state we cannot guard
+          continue;
+        }
+        GuardRoot root{name, decl->type, kind, {}};
         for (auto &lf: leaves)
-          plan.guard.push_back({root, std::move(lf.path), lf.val});
+          root.leaves.push_back({name, std::move(lf.path), lf.val});
+        plan.guardRoots.push_back(std::move(root));
+        guarded.insert(name);
       }
-      if (plan.guard.empty())
-        return false; // no live-in scalar to key the guard on
+      if (plan.guardRoots.empty())
+        return false; // no live-in state to key the guard on
 
       // Defs: exactly the leaves each write touches, from s'.
       std::map<std::string, LeafRef> defMap;
@@ -443,9 +532,174 @@ namespace refractir::reify {
       return true;
     }
 
+    // --- guard-function synthesis ------------------------------------------
+
+    std::string vecLaneParam(const std::string &root, std::int64_t lane) {
+      return root + "__l" + std::to_string(lane);
+    }
+
+    std::int64_t laneOf(const LeafRef &leaf) {
+      return std::get<IntLit>(std::get<AccessIndex>(leaf.path.front()).index).value;
+    }
+
+    // Build `fun @<name>(<state>) : i1` — a total, collision-free equality
+    // check of the crossing state against the plan's expected values. Scalars
+    // arrive by value, vectors per-lane, aggregates by address (navigated
+    // with in-bounds ptrindex/ptrfield chains + load, so the body is UB-free
+    // on EVERY input, matched or not).
+    FunDecl buildGuardFun(const std::string &name, const TwinPlan &plan, const StructMap &structs) {
+      FunDecl g;
+      g.name = GlobalId{name, {}};
+      g.retType = makeI1();
+
+      auto addLet = [&g](const std::string &nm, TypePtr ty, InitVal iv, bool mut) {
+        LetDecl d;
+        d.isMutable = mut;
+        d.name = LocalId{nm, {}};
+        d.type = std::move(ty);
+        d.init = std::move(iv);
+        g.lets.push_back(std::move(d));
+      };
+      auto intInit = [](std::int64_t v) { return InitVal{InitVal::Kind::Int, IntLit{v, {}}, {}}; };
+      auto zeroInit = [&](const TypePtr &ty) {
+        if (TypeUtils::getFloatBitWidth(ty))
+          return InitVal{InitVal::Kind::Float, FloatLit{0.0, {}}, {}};
+        return intInit(0);
+      };
+      auto litInit = [&](const StateValue &v) {
+        if (v.kind == StateValue::Kind::Float)
+          return InitVal{InitVal::Kind::Float, FloatLit{v.floatVal, {}}, {}};
+        return intInit(v.intVal);
+      };
+
+      // Params, in guard-root order (the caller emits args the same way).
+      for (const auto &root: plan.guardRoots) {
+        switch (root.kind) {
+          case GuardRoot::Kind::Scalar:
+            g.params.push_back({LocalId{root.name, {}}, root.type, {}});
+            break;
+          case GuardRoot::Kind::Vec: {
+            const auto &vt = std::get<VecType>(root.type->v);
+            for (const auto &leaf: root.leaves)
+              g.params.push_back({LocalId{vecLaneParam(root.name, laneOf(leaf)), {}}, vt.elem, {}});
+            break;
+          }
+          case GuardRoot::Kind::Agg:
+            g.params.push_back({LocalId{root.name, {}}, makePtr(root.type), {}});
+            break;
+        }
+      }
+
+      // i1 is a signed 1-bit type: true is all-ones (-1), so the neutral
+      // AND accumulator starts at -1.
+      addLet("%__acc", makeI1(), intInit(-1), /*mut=*/true);
+      addLet("%__c", makeI1(), intInit(0), /*mut=*/true);
+
+      // Navigation / load scratch locals, one per distinct type.
+      std::vector<std::pair<TypePtr, std::string>> ptrScratch, loadScratch;
+      auto getScratch = [&](std::vector<std::pair<TypePtr, std::string>> &pool, const TypePtr &ty,
+                            const char *prefix, bool isPtr) {
+        for (const auto &[t, nm]: pool)
+          if (TypeUtils::areTypesEqual(t, ty))
+            return nm;
+        std::string nm = std::string(prefix) + std::to_string(pool.size());
+        pool.emplace_back(ty, nm);
+        InitVal iv;
+        if (isPtr)
+          iv = InitVal{InitVal::Kind::Undef, IntLit{0, {}}, {}};
+        else
+          iv = zeroInit(ty);
+        addLet(nm, ty, std::move(iv), /*mut=*/true);
+        return nm;
+      };
+
+      Block e;
+      e.label = BlockLabel{"^entry", {}};
+      int kIdx = 0;
+      for (const auto &root: plan.guardRoots) {
+        for (const auto &leaf: root.leaves) {
+          std::string operand;
+          TypePtr leafT;
+          switch (root.kind) {
+            case GuardRoot::Kind::Scalar:
+              operand = root.name;
+              leafT = root.type;
+              break;
+            case GuardRoot::Kind::Vec:
+              operand = vecLaneParam(root.name, laneOf(leaf));
+              leafT = std::get<VecType>(root.type->v).elem;
+              break;
+            case GuardRoot::Kind::Agg: {
+              // ptrindex/ptrfield down to the leaf cell, then load it. The
+              // constant indices come from the state tree, which mirrors the
+              // static type, so every step is in-bounds on any input.
+              std::string cur = root.name;
+              TypePtr curT = root.type; // pointee of `cur`
+              for (const auto &acc: leaf.path) {
+                TypePtr nextT = stepType(curT, acc, structs);
+                std::string nxt = getScratch(ptrScratch, makePtr(nextT), "%__p", true);
+                Atom nav =
+                    std::holds_alternative<AccessField>(acc)
+                        ? Atom{PtrFieldAtom{localLV(cur), std::get<AccessField>(acc).field, {}}, {}}
+                        : Atom{
+                              PtrIndexAtom{
+                                  localLV(cur),
+                                  Index{std::get<IntLit>(std::get<AccessIndex>(acc).index)},
+                                  {}
+                              },
+                              {}
+                          };
+                e.instrs.push_back(assignInstr(nxt, simpleExpr(std::move(nav))));
+                cur = nxt;
+                curT = nextT;
+              }
+              operand = getScratch(loadScratch, curT, "%__v", false);
+              e.instrs.push_back(
+                  assignInstr(operand, simpleExpr(Atom{LoadAtom{localLV(cur), {}}, {}}))
+              );
+              leafT = curT;
+              break;
+            }
+          }
+          std::string k = "%__k" + std::to_string(kIdx++);
+          addLet(k, leafT, litInit(leaf.val), /*mut=*/false);
+          e.instrs.push_back(cmpEqInstr("%__c", operand, k));
+          e.instrs.push_back(andInstr("%__acc", "%__c"));
+        }
+      }
+      e.term = Terminator{RetTerm{simpleExpr(rvalAtom(localLV("%__acc"))), {}}};
+      g.blocks.push_back(std::move(e));
+      return g;
+    }
+
+    // The caller-side argument list matching buildGuardFun's parameters.
+    std::vector<std::shared_ptr<Expr>> buildGuardArgs(const TwinPlan &plan) {
+      std::vector<std::shared_ptr<Expr>> args;
+      for (const auto &root: plan.guardRoots) {
+        switch (root.kind) {
+          case GuardRoot::Kind::Scalar:
+            args.push_back(std::make_shared<Expr>(simpleExpr(rvalAtom(localLV(root.name)))));
+            break;
+          case GuardRoot::Kind::Vec:
+            for (const auto &leaf: root.leaves) {
+              LValue lane = localLV(root.name);
+              lane.accesses.push_back(leaf.path.front());
+              args.push_back(std::make_shared<Expr>(simpleExpr(rvalAtom(std::move(lane)))));
+            }
+            break;
+          case GuardRoot::Kind::Agg:
+            args.push_back(
+                std::make_shared<Expr>(simpleExpr(Atom{AddrAtom{localLV(root.name), {}}, {}}))
+            );
+            break;
+        }
+      }
+      return args;
+    }
+
     class TwinPass : public Pass {
     public:
-      TwinPass(double pTwin, TwinGuard guard) : pTwin_(pTwin), guard_(guard) {}
+      explicit TwinPass(double pTwin) : pTwin_(pTwin) {}
 
       std::string_view name() const override { return "TwinPass"; }
 
@@ -453,22 +707,22 @@ namespace refractir::reify {
 
       PassReport apply(Program &prog, PassCtx &ctx) override {
         PassReport rep;
-        if (guard_ != TwinGuard::Exact) {
-          rep.ok = false;
-          rep.message = "only --guard exact is implemented in this version";
-          return rep;
-        }
         std::uniform_real_distribution<double> coin(0.0, 1.0);
 
+        StructMap structs;
+        for (const auto &sd: prog.structs)
+          structs[sd.name.name] = &sd;
+
         for (auto &[fname, profile]: ctx.profiles) {
-          FunDecl *fn = nullptr;
-          for (auto &f: prog.funs)
-            if (f.name.name == fname) {
-              fn = &f;
+          std::size_t fnIdx = prog.funs.size();
+          for (std::size_t i = 0; i < prog.funs.size(); ++i)
+            if (prog.funs[i].name.name == fname) {
+              fnIdx = i;
               break;
             }
-          if (!fn)
+          if (fnIdx == prog.funs.size())
             continue;
+          FunDecl *fn = &prog.funs[fnIdx];
 
           std::unordered_map<std::string, const Block *> byLabel;
           for (const auto &b: fn->blocks)
@@ -484,6 +738,11 @@ namespace refractir::reify {
             const std::string &label = pts[t]->block;
             if (decided.count(label))
               continue; // first visit only
+            // Never re-twin the residue of a previous rytwin run.
+            if (label.find("__twin") != std::string::npos ||
+                label.find("__orig") != std::string::npos ||
+                label.find("__merge") != std::string::npos)
+              continue;
             auto bit = byLabel.find(label);
             if (bit == byLabel.end())
               continue;
@@ -491,7 +750,7 @@ namespace refractir::reify {
             StateMap s = toStateMap(pts[t]->vars);
             StateMap sPrime = toStateMap(pts[t + 1]->vars);
             TwinPlan plan;
-            if (!planBlock(*bit->second, s, sPrime, plan))
+            if (!planBlock(*fn, *bit->second, pts[t]->vars, s, sPrime, structs, plan))
               continue;
             if (coin(ctx.rng) >= pTwin_)
               continue;
@@ -500,8 +759,8 @@ namespace refractir::reify {
           if (decided.empty())
             continue;
 
-          addScratch(*fn, decided);
-
+          const std::string fnStem = fname.empty() || fname[0] != '@' ? fname : fname.substr(1);
+          std::vector<FunDecl> guardFuns;
           std::vector<Block> nb;
           nb.reserve(fn->blocks.size() + 3 * decided.size());
           for (auto &b: fn->blocks) {
@@ -510,62 +769,32 @@ namespace refractir::reify {
               nb.push_back(std::move(b));
               continue;
             }
-            graft(b, dit->second, nb);
+            std::string labelStem = b.label.name;
+            if (!labelStem.empty() && labelStem[0] == '^')
+              labelStem.erase(0, 1);
+            std::string guardName = "@__twg_" + fnStem + "_" + labelStem;
+            guardFuns.push_back(buildGuardFun(guardName, dit->second, structs));
+            graft(b, dit->second, guardName, nb);
             ++rep.sites;
           }
           fn->blocks = std::move(nb);
+
+          // Callees must be declared before their call sites; put the guard
+          // functions directly in front of the entry function. (This
+          // invalidates `fn` — it is not used past this point.)
+          prog.funs.insert(
+              prog.funs.begin() + fnIdx, std::make_move_iterator(guardFuns.begin()),
+              std::make_move_iterator(guardFuns.end())
+          );
         }
         return rep;
       }
 
     private:
-      // Two i1 scratch locals plus the widening operands. Their live ranges
-      // never overlap (each guard computes and consumes them before
-      // branching), so one set serves every twin. Only the kinds actually
-      // used are declared.
+      // Expand block `b` into the guard / twin / orig / merge quartet. The
+      // guard block is just a branch on the guard-function call.
       static void
-      addScratch(FunDecl &fn, const std::unordered_map<std::string, TwinPlan> &decided) {
-        bool needInt = false, needFloat = false, needTwc = false;
-        for (const auto &[lbl, plan]: decided) {
-          if (plan.guard.size() > 1)
-            needTwc = true;
-          for (const auto &g: plan.guard)
-            (g.val.kind == StateValue::Kind::Float ? needFloat : needInt) = true;
-        }
-        auto add = [&](const std::string &nm, TypePtr ty, bool isFloat) {
-          for (const auto &l: fn.lets)
-            if (l.name.name == nm)
-              return;
-          LetDecl d;
-          d.isMutable = true;
-          d.name = LocalId{nm, {}};
-          d.type = std::move(ty);
-          InitVal iv;
-          if (isFloat) {
-            iv.kind = InitVal::Kind::Float;
-            iv.value = FloatLit{0.0, {}};
-          } else {
-            iv.kind = InitVal::Kind::Int;
-            iv.value = IntLit{0, {}};
-          }
-          d.init = iv;
-          fn.lets.push_back(std::move(d));
-        };
-        add("%__twg", makeI1(), false);
-        if (needTwc)
-          add("%__twc", makeI1(), false);
-        if (needInt) {
-          add("%__twa", makeI64(), false);
-          add("%__twb", makeI64(), false);
-        }
-        if (needFloat) {
-          add("%__twfa", makeF64(), true);
-          add("%__twfb", makeF64(), true);
-        }
-      }
-
-      // Expand block `b` into the guard / twin / orig / merge quartet.
-      static void graft(Block &b, const TwinPlan &plan, std::vector<Block> &out) {
+      graft(Block &b, const TwinPlan &plan, const std::string &guardName, std::vector<Block> &out) {
         const std::string base = b.label.name;
         const std::string twinL = base + "__twin";
         const std::string origL = base + "__orig";
@@ -573,13 +802,10 @@ namespace refractir::reify {
 
         Block guard;
         guard.label = BlockLabel{base, {}};
-        for (std::size_t i = 0; i < plan.guard.size(); ++i) {
-          const std::string dst = i == 0 ? "%__twg" : "%__twc";
-          emitEq(guard.instrs, dst, plan.guard[i].lvalue(), plan.guard[i].val);
-          if (i > 0)
-            guard.instrs.push_back(andInstr("%__twg", "%__twc"));
-        }
-        guard.term = brIf("%__twg", twinL, origL);
+        CallAtom call;
+        call.callee = GlobalId{guardName, {}};
+        call.args = buildGuardArgs(plan);
+        guard.term = brIfExpr(simpleExpr(Atom{std::move(call), {}}), twinL, origL);
 
         Block twin;
         twin.label = BlockLabel{twinL, {}};
@@ -603,13 +829,10 @@ namespace refractir::reify {
       }
 
       double pTwin_;
-      TwinGuard guard_;
     };
 
   } // namespace
 
-  std::unique_ptr<Pass> makeTwinPass(double pTwin, TwinGuard guard) {
-    return std::make_unique<TwinPass>(pTwin, guard);
-  }
+  std::unique_ptr<Pass> makeTwinPass(double pTwin) { return std::make_unique<TwinPass>(pTwin); }
 
 } // namespace refractir::reify

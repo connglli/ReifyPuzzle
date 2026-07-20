@@ -206,6 +206,201 @@ def test_sidecar_preferred(rytwin, rysmith):
     check("valid sidecar loaded in preference to interpreting", rescued > 0, "")
 
 
+GUARD_FN_RE = re.compile(r"fun\s+(@__twg_\w+)\s*\(([^)]*)\)")
+GUARD_CALL_RE = re.compile(r"br\s+call\s+@__twg_\w+\s*\([^)]*\)\s*!=\s*0")
+
+
+def guard_fun_bodies(src):
+  """Return {guard_fn_name: body_text} for every @__twg_ function in src."""
+  out = {}
+  for m in GUARD_FN_RE.finditer(src):
+    start = src.index("{", m.end())
+    depth, i = 1, start + 1
+    while depth and i < len(src):
+      depth += {"{": 1, "}": -1}.get(src[i], 0)
+      i += 1
+    out[m.group(1)] = src[start:i]
+  return out
+
+
+def test_guard_is_function(rytwin, rysmith):
+  """[Stage 2] The guard lives in a dedicated `fun @__twg_... : i1`; the
+  twinned block's terminator is `br call @__twg_...(...) != 0, ...` and the
+  old in-block scratch locals (%__twg/%__twa/...) are gone."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, emit_state=False)
+    if not sirs:
+      check("guard-fn setup (rysmith gen)", False, "generation failed")
+      return
+    got = first_twinned(rytwin, sirs)
+    if not got:
+      check("guard-fn setup (twinnable program)", False, "no twin grafted")
+      return
+    src = open(got[1]).read()
+    check("p2 declares a fun @__twg_", "fun @__twg_" in src, "")
+    check("twinned block branches on call @__twg_", bool(GUARD_CALL_RE.search(src)), "")
+    check(
+      "no in-block guard scratch locals remain",
+      "%__twg" not in src and "%__twa" not in src and "%__twfa" not in src,
+      "",
+    )
+
+
+def test_guard_covers_full_state(rytwin):
+  """[Stage 2] The guard consumes the ENTIRE live-in state, not just the
+  block's read set: %b is never read by the twinned block, yet its value
+  (1234567) must appear in the guard function."""
+  fixture = """// SOLVED: %pa0=7
+fun @guardfix(%pa0: i32) : i32 {
+  let mut %a: i32 = 3;
+  let mut %b: i32 = 1234567;
+  ^entry:
+    br ^work;
+  ^work:
+    %a = 2 * %a + %pa0;
+    br ^exit;
+  ^exit:
+    ret %a;
+}
+"""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "guardfix.sir")
+    open(p1, "w").write(fixture)
+    p2 = os.path.join(d, "p2.sir")
+    r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "--validate", "-o", p2])
+    check("fixture twinned", r.returncode == 0, r.stderr[:200])
+    if r.returncode != 0:
+      return
+    bodies = guard_fun_bodies(open(p2).read())
+    check(
+      "guard consumes the unread variable %b",
+      any("1234567" in b for b in bodies.values()),
+      f"guards={list(bodies)}",
+    )
+
+
+def test_guard_unique_names(rytwin, rysmith):
+  """[Stage 2] One guard function per twin site, names unique; the rewritten
+  program re-analyzes (rytwin exits 0)."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, emit_state=False)
+    if not sirs:
+      check("guard-names setup (rysmith gen)", False, "generation failed")
+      return
+    found = False
+    for p1 in sirs:
+      p2 = p1[:-4] + ".p2.sir"
+      r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p2])
+      m = re.search(r"\((\d+) twin", r.stdout)
+      if r.returncode != 0 or not m or int(m.group(1)) < 2:
+        continue
+      found = True
+      n = int(m.group(1))
+      names = GUARD_FN_RE.findall(open(p2).read())
+      check(
+        "guard fn per site, all names distinct",
+        len(names) == n and len({nm for nm, _ in names}) == n,
+        f"twins={n} fns={names}",
+      )
+      break
+    if not found:
+      check("guard-names setup (>=2-twin program)", False, "none found")
+
+
+def test_guard_aggregates_and_vectors(rytwin, rysmith, symiri):
+  """[Stage 2] Aggregate state roots cross into the guard by address
+  (`ptr [N] T` / `ptr @S` params, `addr %root` args, ptrindex/ptrfield+load
+  navigation inside); vector roots cross per-lane (`%v[i]` args). The twins
+  stay equivalent on the profiled input."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, emit_state=False)
+    if not sirs:
+      check("agg/vec guard setup (rysmith gen)", False, "generation failed")
+      return
+    saw_ptr_param = saw_addr_arg = saw_lane_arg = False
+    bad = 0
+    for p1 in sirs:
+      p2 = p1[:-4] + ".p2.sir"
+      r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p2])
+      if r.returncode != 0:
+        continue
+      src = open(p2).read()
+      for _, params in GUARD_FN_RE.findall(src):
+        if "ptr [" in params or "ptr @" in params:
+          saw_ptr_param = True
+      for m in re.finditer(r"br\s+call\s+@__twg_\w+\s*\(([^)]*)\)", src):
+        if "addr %" in m.group(1):
+          saw_addr_arg = True
+        if re.search(r"%\w+\[\d+\]", m.group(1)):
+          saw_lane_arg = True
+      fn, pnames, _, iargs = parse_entry(open(p1).read())
+      if (
+        symiri_result(symiri, p1, fn, iargs)[1:]
+        != symiri_result(symiri, p2, fn, iargs)[1:]
+      ):
+        bad += 1
+    check("some guard takes an aggregate by pointer", saw_ptr_param, "")
+    check("some caller passes addr %root", saw_addr_arg, "")
+    check("some caller passes vector lanes %v[i]", saw_lane_arg, "")
+    check("agg/vec twins preserve the profiled result", bad == 0, f"{bad} mismatch(es)")
+
+
+def test_guard_compiles_c_and_wasm(rytwin, rysmith):
+  """[Stage 2] Guard functions survive both backends: p1 and p2 compile via
+  --target c --emit-main, the C binaries agree, and --target wasm emits."""
+  import shutil
+
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, emit_state=False, extra=["--emit-main"])
+    if not sirs:
+      check("backend setup (rysmith gen)", False, "generation failed")
+      return
+    got = first_twinned(rytwin, sirs, extra=["--target", "c", "--emit-main"])
+    if not got:
+      check("backend setup (twinnable program)", False, "no twin grafted")
+      return
+    p1, p2, _ = got
+    check("compiled p2 uses guard functions", "fun @__twg_" in open(p2).read(), "")
+    p2c = p2[:-4] + ".c"
+    check("p2.c emitted", os.path.exists(p2c), "")
+    r = run(
+      [
+        rytwin,
+        p1,
+        "--p-twin",
+        "1.0",
+        "--seed",
+        "3",
+        "--target",
+        "wasm",
+        "--emit-main",
+        "-o",
+        p2[:-4] + ".w.sir",
+      ]
+    )
+    check(
+      "p2 compiles to wasm",
+      r.returncode == 0 and os.path.exists(p2[:-4] + ".w.wat"),
+      r.stderr[:160],
+    )
+    cc = shutil.which("cc") or shutil.which("gcc")
+    if not cc or not os.path.exists(p2c):
+      return
+    # p2's @main asserts the profiled checksum via @check_chksum, so a clean
+    # run of the compiled binary proves the twinned program still computes
+    # p1's result through the C backend.
+    exe = os.path.join(d, "p2.bin")
+    rc = run([cc, "-O1", "-o", exe, p2c, "-lm"])
+    check("p2.c compiles", rc.returncode == 0, rc.stderr[:200])
+    if rc.returncode == 0:
+      rr = run([exe])
+      check(
+        "p2 binary runs clean (checksum assert passes)",
+        rr.returncode == 0,
+        f"rc={rr.returncode} out={rr.stdout[:120]}",
+      )
+
+
 def test_solved_header_fallback(rytwin, rysmith, symiri):
   """[Stage 1] With no descriptor AND no sidecar, rytwin recovers the
   profiled input from p1's `// SOLVED:` header (a wrong input would trap on
@@ -239,7 +434,8 @@ def test_validate_without_sidecar(rytwin, rysmith):
 
 
 def test_bad_guard_rejected(rytwin, rysmith):
-  """--guard must be sum|crc32."""
+  """[Stage 2] The --guard flag is gone (the full-state guard function is
+  the only guard); passing it is an unknown-option error."""
   with tempfile.TemporaryDirectory() as d:
     g = gen_p1(rysmith, d)
     if not g:
@@ -248,7 +444,7 @@ def test_bad_guard_rejected(rytwin, rysmith):
     p1, desc, _, _ = g
     p2 = os.path.join(d, "p2.sir")
     r = run([rytwin, p1, "--guard", "bogus", "-o", p2])
-    check("invalid --guard rejected (rc != 0)", r.returncode != 0, f"rc={r.returncode}")
+    check("removed --guard rejected (rc != 0)", r.returncode != 0, f"rc={r.returncode}")
 
 
 def test_missing_args_usage(rytwin):
@@ -454,6 +650,26 @@ def main():
     (
       "rytwin: invalid --guard rejected",
       lambda: test_bad_guard_rejected(rytwin, rysmith),
+    ),
+    (
+      "TwinPass: guard is a function",
+      lambda: test_guard_is_function(rytwin, rysmith),
+    ),
+    (
+      "TwinPass: guard covers the full state",
+      lambda: test_guard_covers_full_state(rytwin),
+    ),
+    (
+      "TwinPass: guard function names unique per site",
+      lambda: test_guard_unique_names(rytwin, rysmith),
+    ),
+    (
+      "TwinPass: aggregates by pointer, vectors per-lane",
+      lambda: test_guard_aggregates_and_vectors(rytwin, rysmith, symiri),
+    ),
+    (
+      "TwinPass: guard functions compile (C binary + wasm)",
+      lambda: test_guard_compiles_c_and_wasm(rytwin, rysmith),
     ),
     ("rytwin: missing args usage", lambda: test_missing_args_usage(rytwin)),
     (

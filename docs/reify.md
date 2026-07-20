@@ -179,13 +179,13 @@ A twin program of a given program is its equivalent variant. Twin-program genera
 Given a leaf function `f1` together with the exact input `i` that concretizes it, the whole execution is deterministic and known. `rytwin` obtains, for each on-path program point, the concrete value of every initialized local/parameter — the state the program passes through — from the `.state.json` sidecar when `f1` was generated with `rysmith --emit-state`, and otherwise by interpreting `f1` on `i` in-process. For a chosen basic block `B`, let `s` be the state at `B`'s entry and `s' = B(s)` the state at its exit. Twin-program generation synthesizes a **twin block** `B'` that reproduces `s'` from `s` and grafts a guarded diamond:
 
 ```
-^X  (guard):  if state() == s  ->  ^X__twin  else  ^X__orig
+^X  (guard):  br call @__twg_<fn>_<X>(<state>) != 0  ->  ^X__twin  else  ^X__orig
 ^X__twin:     B'   ->  ^X__merge      (reproduces B's effect at s)
 ^X__orig:     B    ->  ^X__merge      (the original block body)
 ^X__merge:    <B's original terminator>
 ```
 
-The guard fires only when the live-in state equals `s`, so on the profiled input the twin runs (producing exactly what `B` would) and on every other state the original runs — hence full equivalence. A simplest **exact** guard is a conjunction of per-variable equalities over the live-in scalar leaves; being total (no UB) and collision-free, it preserves the equivalence on all inputs, not just the profiled one. Each candidate block is twinned with probability `--p-twin`.
+The guard fires only when the live-in state equals `s`, so on the profiled input the twin runs (producing exactly what `B` would) and on every other state the original runs — hence full equivalence. The guard is a generated function `@__twg_<fn>_<label> : i1`, one per twin site. It consumes the **entire** definitely-initialized state at `B`'s entry — not only `B`'s read set — as a conjunction of per-leaf equalities. The conjunction is total (no UB) and collision-free, so it preserves the equivalence on all inputs, not just the profiled one, and it cannot fire on any state other than `s`. Scalar roots cross into the guard by value, vector roots per-lane, and aggregate roots by address (`ptr [N] T` / `ptr @S` parameters, navigated inside the guard with in-bounds `ptrindex`/`ptrfield` + `load`). Each candidate block is twinned with probability `--p-twin`.
 
 **Limitations**. Eligible blocks currently cover scalars, structs, arrays, vectors (guard and `B'` operate leaf-by-leaf off the state profile), `require`/`assume`, and pure intrinsic calls. Pointers and memory (`load`/`store`/`addr`/`ptr`-navigation) are not yet twinned — that needs the state profile to carry pointer targets.
 
@@ -391,7 +391,6 @@ The descriptor (`func_<id>_<i>.json`) and, when present, the state profile (`<st
 |---|---|---|
 | `-o, --output PATH` | — | Output `.sir` (`f2`) |
 | `--p-twin P` | 0.5 | Probability of grafting a twin for each candidate block |
-| `--guard exact\|crc32` | `exact` | Twin guard (`exact` = per-variable equality; `crc32` planned) |
 | `--seed N` | random | RNG seed |
 | `--target sir\|c\|wasm` | `sir` | Optionally compile `f2` via the in-process backend |
 | `--validate` | off | Run `symiri` on `f1` and `f2` with the profiled input and assert they agree |

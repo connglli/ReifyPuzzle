@@ -143,14 +143,14 @@ static std::string descriptorStem(const std::string &sirStem) {
   return sirStem;
 }
 
-// The entry function of a rysmith leaf program: the sole `fun` that isn't
-// the optional `@main` wrapper. Prefer the descriptor's name when we have
-// one, since it is authoritative.
+// The entry function of a rysmith leaf program: the sole `fun` that is not
+// the optional `@main` wrapper or a `@__twg_` guard from an earlier rytwin
+// run. Prefer the descriptor's name when we have one — it is authoritative.
 static std::string findEntry(const Program &prog, const std::optional<FuncDescriptor> &desc) {
   if (desc && !desc->name.empty())
     return desc->name;
   for (const auto &f: prog.funs)
-    if (f.name.name != "@main")
+    if (f.name.name != "@main" && f.name.name.rfind("@__twg_", 0) != 0)
       return f.name.name;
   return prog.funs.empty() ? std::string{} : prog.funs.front().name.name;
 }
@@ -166,8 +166,6 @@ int main(int argc, char **argv) {
                 cxxopts::value<std::string>())
     ("p-twin",  "Probability of grafting a twin for each candidate block",
                 cxxopts::value<double>()->default_value("0.5"))
-    ("guard",   "twin guard: exact (per-variable equality; total, collision-free) or crc32 (checksum; planned)",
-                cxxopts::value<std::string>()->default_value("exact"))
     ("seed",    "RNG seed (default: random)", cxxopts::value<uint32_t>())
     ("target",  "Compile p2 to a target (sir = no compilation)",
                 cxxopts::value<std::string>()->default_value("sir"))
@@ -197,16 +195,8 @@ int main(int argc, char **argv) {
   fs::path inputPath = result["input"].as<std::string>();
   fs::path outputPath = result["output"].as<std::string>();
   double pTwin = result["p-twin"].as<double>();
-  std::string guard = result["guard"].as<std::string>();
   uint32_t seed =
       result.count("seed") ? result["seed"].as<uint32_t>() : (uint32_t) std::random_device{}();
-  (void) pTwin; // consumed by TwinGraftPass (next chunk)
-
-  if (guard != "exact" && guard != "crc32") {
-    std::cerr << "rytwin: --guard must be 'exact' or 'crc32' (got '" << guard << "')\n";
-    return 2;
-  }
-  TwinGuard twinGuard = guard == "crc32" ? TwinGuard::Crc32 : TwinGuard::Exact;
 
   std::string target = result["target"].as<std::string>();
   if (target != "sir" && target != "c" && target != "wasm") {
@@ -299,7 +289,7 @@ int main(int argc, char **argv) {
     ctx.descriptors[entry] = *desc;
   ctx.profiles[entry] = *profile;
   PassPipeline pipe;
-  pipe.add(makeTwinPass(pTwin, twinGuard));
+  pipe.add(makeTwinPass(pTwin));
   PassReport rep = pipe.run(prog, ctx);
   if (!rep.ok) {
     std::cerr << "rytwin: pass failed: " << rep.message << "\n";
