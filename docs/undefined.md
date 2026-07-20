@@ -1,6 +1,6 @@
 # RefractIR Strict Undefined Behavior (UB)
 
-This document is a per-rule companion to the formal spec (§7 of `SPEC_v0.2.2.md`). Each section names the rule, the spec reference, and how each of `symiri` (interpreter), `symirc` (compiler), and `symirsolve` (solver) enforces it.
+This document is a per-rule companion to the formal spec (§7 of `SPEC_v0.2.3.md`). Each section names the rule, the spec reference, and how each of `symiri` (interpreter), `symirc` (compiler), and `symirsolve` (solver) enforces it.
 
 RefractIR uses **strict UB**: if any operation on the executed path triggers UB, the entire path is **infeasible**.
 

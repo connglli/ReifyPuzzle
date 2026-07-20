@@ -212,7 +212,7 @@ Operators:
 * `/` uses signed truncating division: `bvsdiv`
 * `%` uses signed remainder: `bvsrem`
 
-These match the language semantics in `docs/SPEC_v0.2.2.md`.
+These match the language semantics in `docs/SPEC_v0.2.3.md`.
 
 
 ## Notes on Pointer Support (v0.2.2)

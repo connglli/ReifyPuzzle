@@ -1,6 +1,6 @@
 # RefractIR Standard Intrinsics
 
-> **Spec reference**: §12 of [SPEC_v0.2.2.md](./SPEC_v0.2.2.md)
+> **Spec reference**: §12 of [SPEC_v0.2.3.md](./SPEC_v0.2.3.md)
 > **Implementation files** (one per tool — add new intrinsics to all four):
 >
 > | Tool | File |
@@ -734,7 +734,7 @@ semantics.*
    `CBackend::emitIntrinsicHelper`. Use `__builtin_trap()` for UB paths.
 5. **WASM codegen** (`src/backend/intrinsics_wasm.cpp`): add a branch in
    `WasmBackend::emitIntrinsicHelper`. Use `unreachable` for UB paths.
-6. **Spec**: document the new intrinsic in §12 of `SPEC_v0.2.2.md` and update
+6. **Spec**: document the new intrinsic in §12 of `SPEC_v0.2.3.md` and update
    this file.
 7. **Tests**: add tests in `test/interp/`, `test/compile/`, `test/solver/`,
    and `test/xval/`.

@@ -3,7 +3,7 @@
 > [!WARNING]
 > The project is under active development. APIs and IR details are still evolving, but semantic decisions in `docs/SPEC_v0.2.2.md` are authoritative for the current release (v0.2.2): function calls (`call`), external declarations (`decl`) with link/contract forms, and standard intrinsics.
 >
-> The next version in development is v0.2.3, which will add WASM SIMD support and addressable vectors.
+> The version in development is v0.2.3; `docs/SPEC_v0.2.3.md` doubles as its roadmap: native WASM SIMD-128 lowering, the Python target, horizontal reductions, `shuffle`, addressable vectors, vectors in aggregates, and function attributes are designed and tracked there as **[Planned]** (or **[Shipped]** if already implemented).
 
 RefractIR (internally SymIR) is a **CFG-based symbolic intermediate representation** designed for program synthesis, symbolic execution, and constraint generation for SMT solvers using **bit-vector (BV) logic**.
 
@@ -289,7 +289,9 @@ Find more examples in [./examples](./examples/) and [./test/](./test/).
 
 ## 📚 Documentation
 
-- **[Language Specification (v0.2.2, current)](./docs/SPEC_v0.2.2.md)** — the current normative spec, including v0.2.2 additions: function calls (`call`), interprocedural execution, external declarations (`decl`) with `-I` link resolution and behavioral contracts (`pre`/`post`/`ret`), and standard intrinsics.
+- **[Changelog](./CHANGELOG.md)** — release history from v0.0.1 to the current version.
+- **[Language Specification (v0.2.3, current — in progress)](./docs/SPEC_v0.2.3.md)** — the current normative spec and the roadmap for the v0.2.3 line: the Python target (reducible CFGs only), native WASM SIMD-128 vector lowering, completed intrinsic support on WASM, horizontal `@reduce_*` intrinsics, `shuffle`, addressable vectors, vectors in aggregates, and function attributes.
+- **[Language Specification (v0.2.2, archived)](./docs/SPEC_v0.2.2.md)** — function calls (`call`), interprocedural execution, external declarations (`decl`) with `-I` link resolution and behavioral contracts (`pre`/`post`/`ret`), and standard intrinsics.
 - **[Language Specification (v0.2.1, archived)](./docs/SPEC_v0.2.1.md)** — aggregate pointers (`ptr [N] T`, `ptr @S`, `ptrindex`, `ptrfield`), SIMD vector types (`<N> T`), and `cmp` expressions.
 - **[Language Specification (v0.2.0, archived)](./docs/SPEC_v0.2.0.md)** — the pointer baseline (`ptr T`, `addr`, `load`, `store`, `null`).
 - **[Language Specification (v0.1.0, archived)](./docs/SPEC_v0.1.0.md)** — the pre-pointer baseline, kept for reference.
