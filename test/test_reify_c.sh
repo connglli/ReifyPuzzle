@@ -29,7 +29,9 @@ rm -rf rysmith_out
 # Enter rysmith out to build every .c and run it
 for f in rysmith_out/*.c; do
     gcc $CFLAGS "$f" $LDFLAGS
-    "./a.out"
+    ./a.out
+    ./rytwin -o twin.sir --validate "${f/.c/.sir}" || true
+    [[ -f twin.sir ]] && ./symiri twin.sir && rm -rf twin.sir
 done
 
 # =========================================================================
@@ -46,7 +48,9 @@ rm -rf rylink_out
 for d in rylink_out/prog_*; do
     pushd $d
     gcc $CFLAGS *.c $LDFLAGS
-    "./a.out"
+    ./a.out
+    ../../rytwin -o twin.sir --validate $(ls *.sir) || true
+    [[ -f twin.sir ]] && ../../symiri twin.sir && rm -rf twin.sir
     popd
 done
 
@@ -60,5 +64,7 @@ rm -rf rylink_out
 # Enter rylink out to build every .c and run it
 for f in rylink_out/*.c; do
     gcc $CFLAGS "$f" $LDFLAGS
-    "./a.out"
+    ./a.out
+    ./rytwin -o twin.sir --validate "${f/.c/.sir}" || true
+    [[ -f twin.sir ]] && ./symiri twin.sir && rm -rf twin.sir
 done
