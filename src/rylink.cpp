@@ -462,7 +462,7 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     }
     std::cout << "  compiled: " << compiledReport << "\n";
   } else if (cfg.target == "wasm") {
-    fs::path wasmOut = emitDir / (emitStem + ".wasm");
+    fs::path wasmOut = emitDir / (emitStem + ".wat");
     std::string vecLow = reify::pickVecLowering(rng, cfg.vecLowering, "wasm");
     if (cfg.verbose && !vecLow.empty())
       std::cout << "  vec-lowering: " << vecLow << "\n";

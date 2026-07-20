@@ -1058,8 +1058,12 @@ namespace refractir {
                       }
                     }
                   } else {
-                    indent();
-                    out_ << "local.get " << mangleName(id.name) << "\n";
+                    if (locals_.count(id.name) && locals_.at(id.name).isAggregate) {
+                      emitLValue({id, {}, id.span}, false);
+                    } else {
+                      indent();
+                      out_ << "local.get " << mangleName(id.name) << "\n";
+                    }
                     if (locals_.count(id.name)) {
                       auto const &li = locals_.at(id.name);
                       std::uint32_t srcWidth = li.bitwidth;
@@ -1147,8 +1151,12 @@ namespace refractir {
                       out_ << "i32.wrap_i64\n";
                     }
                   } else {
-                    indent();
-                    out_ << "local.get " << mangleName(id.name) << "\n";
+                    if (locals_.count(id.name) && locals_.at(id.name).isAggregate) {
+                      emitLValue({id, {}, id.span}, false);
+                    } else {
+                      indent();
+                      out_ << "local.get " << mangleName(id.name) << "\n";
+                    }
                     if (locals_.count(id.name)) {
                       std::uint32_t srcWidth = getIntWidth(locals_.at(id.name).refractirType);
                       if (srcWidth > 32) {

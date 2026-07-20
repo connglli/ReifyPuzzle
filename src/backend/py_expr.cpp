@@ -428,6 +428,9 @@ namespace refractir {
                   if constexpr (std::is_same_v<std::decay_t<decltype(id)>, SymId>) {
                     return symCall(id.name);
                   } else {
+                    if (boxedRoots_.count(id.name)) {
+                      return "_rd(" + pyLocal(id.name) + ", 0)";
+                    }
                     return pyLocal(id.name);
                   }
                 },

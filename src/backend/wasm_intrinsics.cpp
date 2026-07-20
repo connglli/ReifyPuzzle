@@ -437,6 +437,7 @@ namespace refractir {
           const std::string &ity
       ) const override {
         // r = (x > 0) - (x < 0)
+        // Comparison operators in WASM always return i32.
         pushArg(backend, 0);
         indent(backend);
         out(backend) << ity << ".const 0\n";
@@ -448,7 +449,11 @@ namespace refractir {
         indent(backend);
         out(backend) << ity << ".lt_s\n";
         indent(backend);
-        out(backend) << ity << ".sub\n";
+        out(backend) << "i32.sub\n";
+        if (W > 32) {
+          indent(backend);
+          out(backend) << "i64.extend_i32_s\n";
+        }
         // [v0.2.2] @parity returns i1 (W=32); sextN(1, 32) yields 0/-1 for true.
         sextN(backend, N, W, ity);
       }

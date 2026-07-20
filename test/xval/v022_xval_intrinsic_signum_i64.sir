@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// EXPECT_RC: 0
+// Cross-validate @signum at i64 between interpreter and compiled C / WASM
+intrinsic @signum(%x: i64) : i64;
+fun @main() : i32 {
+  let mut %a: i64 = 0;
+  let mut %b: i64 = 0;
+  let mut %c: i64 = 0;
+^entry:
+  %a = call @signum(-9223372036854775808 as i64); // INT64_MIN -> -1
+  require %a == -1 as i64, "signum of INT64_MIN";
+  %b = call @signum(0 as i64);                    // 0 -> 0
+  require %b == 0 as i64, "signum of 0";
+  %c = call @signum(9223372036854775807 as i64);  // INT64_MAX -> 1
+  require %c == 1 as i64, "signum of INT64_MAX";
+  ret 0;
+}
