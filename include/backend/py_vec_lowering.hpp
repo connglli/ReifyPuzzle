@@ -20,12 +20,6 @@ namespace refractir {
    * structs stay flat leaf slots of the enclosing boxed root under
    * every strategy (they are the memory model, not locals).
    *
-   * Built-in strategies (see makePyVecLowering):
-   *   "array"         — a plain lane list (the default; the historical
-   *                     representation)
-   *   "scalars"       — N separate variables `v_0 .. v_{N-1}`
-   *   "structarray"   — per-shape class holding a lane list
-   *   "structscalars" — per-shape class with fields l0 .. l{N-1}
    * "vecext" has no python analogue (no native SIMD value type) and is
    * rejected by the driver.
    */
@@ -87,8 +81,16 @@ namespace refractir {
     virtual std::string unpackParam(const std::string &name, const VecType &vt) = 0;
   };
 
-  /// Factory by name. Returns nullptr for unknown names (including
-  /// "vecext"). The python backend's default is "array".
+  /**
+   * Factory by name. Returns nullptr for unknown names (including
+   * "vecext"). The python backend's default is "array".
+   *
+   * Built-in names:
+   *   "array"         — a plain lane list (the default; the historical representation)
+   *   "scalars"       — N separate variables `v_0 .. v_{N-1}`
+   *   "structarray"   — per-shape class holding a lane list
+   *   "structscalars" — per-shape class with fields l0 .. l{N-1}
+   */
   std::unique_ptr<PyVecLowering> makePyVecLowering(const std::string &name);
 
 } // namespace refractir

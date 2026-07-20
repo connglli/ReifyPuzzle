@@ -100,7 +100,12 @@ namespace refractir {
 
   /**
    * Factory by name. Returns nullptr for unknown names. The WASM
-   * backend's default is "array" (the historical shadow-stack storage).
+   * backend's default is "vecext".
+   *
+   * Built-in names:
+   *   "vecext"  — SIMD128 v128 locals (native WASM SIMD)
+   *   "array"   — frame-memory shadow stack
+   *   "scalars" — N separate scalar WASM locals
    */
   std::unique_ptr<WasmVecLowering> makeWasmVecLowering(const std::string &name);
 

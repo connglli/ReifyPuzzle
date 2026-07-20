@@ -24,6 +24,7 @@
 #include <string>
 
 #include "ast/sir_printer.hpp"
+#include "backend/wasm_vec_lowering.hpp"
 #include "cxxopts.hpp"
 #include "frontend/lexer.hpp"
 #include "frontend/parser.hpp"
@@ -147,7 +148,7 @@ int main(int argc, char **argv) {
     ("target",  "Compile p2 to a target (sir = no compilation)",
                 cxxopts::value<std::string>()->default_value("sir"))
     ("keep-require", "Keep require checks in compiled output")
-    ("vec-lowering", "C-backend vector lowering strategy",
+    ("vec-lowering", "Vec-lowering strategy for C/WASM/Python backends",
                 cxxopts::value<std::string>()->default_value("vecext"))
     ("emit-main", "Keep @main un-mangled in compiled output (so p2 is runnable)")
     ("validate", "Run symiri on p1 and p2 with the profiled input and assert they agree")
@@ -192,6 +193,10 @@ int main(int argc, char **argv) {
   bool emitMain = result.count("emit-main") > 0;
   bool doValidate = result.count("validate") > 0;
   std::string vecLowering = result["vec-lowering"].as<std::string>();
+  if (target == "wasm" && vecLowering != "random" && !makeWasmVecLowering(vecLowering)) {
+    std::cerr << "rytwin: wasm target does not support --vec-lowering '" << vecLowering << "'\n";
+    return 2;
+  }
 
   // 1. Load p1. Keep the source alive: Lexer holds a std::string_view into
   // it, so a temporary would dangle.

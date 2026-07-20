@@ -184,7 +184,8 @@ namespace refractir::reify {
   }
 
   bool emitWasmInProcess(
-      Program &prog, const fs::path &outFile, bool keepRequire, bool emitMain, bool verbose
+      Program &prog, const fs::path &outFile, bool keepRequire, const std::string &vecLowering,
+      bool emitMain, bool verbose
   ) {
     if (!runAnalysisPasses(prog, verbose))
       return false;
@@ -194,9 +195,16 @@ namespace refractir::reify {
         std::cerr << "reify: cannot open " << outFile << "\n";
       return false;
     }
+    auto vl = makeWasmVecLowering(vecLowering.empty() ? "vecext" : vecLowering);
+    if (!vl) {
+      if (verbose)
+        std::cerr << "reify: WASM target does not support vec-lowering '" << vecLowering << "'\n";
+      return false;
+    }
     WasmBackend wb(ofs);
     wb.setNoRequire(!keepRequire);
     wb.setNoMainMangle(emitMain);
+    wb.setVecLowering(std::move(vl));
     try {
       wb.emit(prog);
     } catch (const std::exception &e) {
@@ -267,7 +275,7 @@ namespace refractir::reify {
             structuredLowering, emitMain, /*splitBySource=*/false, verbose
         );
       } else if (target == "wasm") {
-        return emitWasmInProcess(prog, outPath, keepRequire, emitMain, verbose);
+        return emitWasmInProcess(prog, outPath, keepRequire, vecLowering, emitMain, verbose);
       } else if (target == "python") {
         return emitPyInProcess(prog, outPath, keepRequire, vecLowering, emitMain, verbose);
       } else {

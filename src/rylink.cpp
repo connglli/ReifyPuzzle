@@ -42,6 +42,7 @@
 #include "backend/c_vec_lowering.hpp"
 #include "backend/py_vec_lowering.hpp"
 #include "backend/wasm_backend.hpp"
+#include "backend/wasm_vec_lowering.hpp"
 #include "cxxopts.hpp"
 #include "frontend/diagnostics.hpp"
 #include "frontend/lexer.hpp"
@@ -462,7 +463,10 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     std::cout << "  compiled: " << compiledReport << "\n";
   } else if (cfg.target == "wasm") {
     fs::path wasmOut = emitDir / (emitStem + ".wasm");
-    if (!emitWasmInProcess(bundle, wasmOut, cfg.keepRequire, cfg.emitMain, cfg.verbose)) {
+    std::string vecLow = reify::pickVecLowering(rng, cfg.vecLowering, "wasm");
+    if (cfg.verbose && !vecLow.empty())
+      std::cout << "  vec-lowering: " << vecLow << "\n";
+    if (!emitWasmInProcess(bundle, wasmOut, cfg.keepRequire, vecLow, cfg.emitMain, cfg.verbose)) {
       if (cfg.verbose)
         std::cerr << "  backend FAIL (" << failTag << ")\n";
       return false;
@@ -525,7 +529,7 @@ int main(int argc, char **argv) {
         cxxopts::value<std::string>()->default_value("rylink_out"))
     ("target", "sir | c | wasm | python",
         cxxopts::value<std::string>()->default_value("sir"))
-    ("vec-lowering", "Vec-lowering strategy for C backend "
+    ("vec-lowering", "Vec-lowering strategy for C/WASM/Python backends "
                      "(random|vecext|scalars|array|structscalars|structarray)",
         cxxopts::value<std::string>()->default_value("random"))
     ("structured-lowering", "Structured (goto-free) lowering for the C target: true|false|random; "
@@ -617,6 +621,11 @@ int main(int argc, char **argv) {
   if (pc.target == "python" && pc.vecLowering != "random" && !makePyVecLowering(pc.vecLowering)) {
     std::cerr << "rylink: python target does not support --vec-lowering '" << pc.vecLowering
               << "' (try random|array|scalars|structscalars|structarray)\n";
+    return 2;
+  }
+  if (pc.target == "wasm" && pc.vecLowering != "random" && !makeWasmVecLowering(pc.vecLowering)) {
+    std::cerr << "rylink: wasm target does not support --vec-lowering '" << pc.vecLowering
+              << "' (try random|vecext|array|scalars)\n";
     return 2;
   }
   // Validate `--vec-lowering` up-front so a typo bites before any

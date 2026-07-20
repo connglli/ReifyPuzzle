@@ -38,6 +38,12 @@ namespace refractir::reify {
       std::uniform_int_distribution<int> d(0, 3);
       return pyStrategies[d(rng)];
     }
+    if (target == "wasm") {
+      // The python backend supports every strategy except struct-related ones
+      static const char *wasmStrategies[] = {"vecext", "array", "scalars"};
+      std::uniform_int_distribution<int> d(0, 2);
+      return wasmStrategies[d(rng)];
+    }
     static const char *strategies[] = {
         "vecext", "scalars", "array", "structscalars", "structarray"
     };
@@ -271,7 +277,7 @@ namespace refractir::reify {
   // Compile a Program to WASM (in-process).
   bool emitWasmInProcess(
       refractir::Program &prog, const std::filesystem::path &outFile, bool keepRequire,
-      bool emitMain, bool verbose
+      const std::string &vecLowering, bool emitMain, bool verbose
   );
 
   // [v0.2.3] Compile a Program to Python (in-process). Requires a

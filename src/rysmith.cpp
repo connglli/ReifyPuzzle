@@ -28,6 +28,7 @@
 #include "analysis/pass_manager.hpp"
 #include "ast/sir_printer.hpp"
 #include "backend/py_vec_lowering.hpp"
+#include "backend/wasm_vec_lowering.hpp"
 #include "cxxopts.hpp"
 #include "error.hpp"
 #include "frontend/diagnostics.hpp"
@@ -583,7 +584,7 @@ int main(int argc, char **argv) {
                           cxxopts::value<std::string>()->default_value("rysmith_out"))
     ("target",            "Compile concrete .sir to target (sir, c, wasm, python); sir = no compilation",
                           cxxopts::value<std::string>()->default_value("sir"))
-    ("vec-lowering",      "Vec-lowering strategy for C backend (random|vecext|scalars|array|structscalars|structarray)",
+    ("vec-lowering",      "Vec-lowering strategy for C/WASM/Python backends (random|vecext|scalars|array|structscalars|structarray)",
                           cxxopts::value<std::string>()->default_value("random"))
     ("structured-lowering", "Structured (goto-free) lowering for the C target: true|false|random; true/random imply --require-reducible",
                           cxxopts::value<std::string>()->default_value("false"))
@@ -785,6 +786,12 @@ int main(int argc, char **argv) {
   if (target == "python" && vecLoweringOpt != "random" && !makePyVecLowering(vecLoweringOpt)) {
     std::cerr << "error: python target does not support --vec-lowering '" << vecLoweringOpt
               << "' (try random|array|scalars|structscalars|structarray)\n";
+    return 1;
+  }
+  // The WASM backend rejects struct-related strategies.
+  if (target == "wasm" && vecLoweringOpt != "random" && !makeWasmVecLowering(vecLoweringOpt)) {
+    std::cerr << "error: wasm target does not support --vec-lowering '" << vecLoweringOpt
+              << "' (try random|vecext|array|scalars)\n";
     return 1;
   }
 
