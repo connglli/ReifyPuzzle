@@ -12,7 +12,7 @@ set -e
 cd "$(dirname "$0")/.."
 
 seed="$RANDOM$RANDOM"
-NUM_FUNCS=10
+NUM_FUNCS=100
 NUM_PROGS=$((NUM_FUNCS * 20))
 
 # =========================================================================
