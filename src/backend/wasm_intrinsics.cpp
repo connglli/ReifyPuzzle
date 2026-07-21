@@ -59,6 +59,7 @@ namespace refractir {
 
   protected:
     static std::ostream &out(WasmBackend &backend);
+    static bool noUbGuards(WasmBackend &backend); // [v0.2.3]
     static void indent(WasmBackend &backend);
     static void incrIndent(WasmBackend &backend);
     static void decrIndent(WasmBackend &backend);
@@ -113,6 +114,14 @@ namespace refractir {
     }
 
     static void unreachableIfTop(WasmBackend &backend) {
+      // [v0.2.3] --no-ub-guards: the UB precondition is already on the
+      // stack; discard it (no trap) instead of trapping. The guard's
+      // condition computation is left as (dead) stack-neutral code.
+      if (noUbGuards(backend)) {
+        indent(backend);
+        out(backend) << "drop\n";
+        return;
+      }
       indent(backend);
       out(backend) << "if\n";
       incrIndent(backend);
@@ -127,6 +136,8 @@ namespace refractir {
   struct WasmIntrinsicRegistry {
     static std::ostream &out(WasmBackend &backend) { return backend.out_; }
 
+    static bool noUbGuards(WasmBackend &backend) { return backend.noUbGuards_; }
+
     static void indent(WasmBackend &backend) { backend.indent(); }
 
     static void incrIndent(WasmBackend &backend) { backend.indent_level_++; }
@@ -136,6 +147,10 @@ namespace refractir {
     using WasmIntrinsicGenFn = std::unique_ptr<WasmIntrinsic>;
     static const std::unordered_map<IntrinsicKind, WasmIntrinsicGenFn> &getRegistry();
   };
+
+  bool WasmIntrinsic::noUbGuards(WasmBackend &backend) {
+    return WasmIntrinsicRegistry::noUbGuards(backend);
+  }
 
   std::ostream &WasmIntrinsic::out(WasmBackend &backend) {
     return WasmIntrinsicRegistry::out(backend);
@@ -734,29 +749,32 @@ namespace refractir {
      */
     static void
     emitRotation(WasmBackend &b, bool leftRot, uint32_t N, uint32_t W, const std::string &ity) {
-      // UB: a1 < 0 || a1 >= N
-      WasmIntrinsicRegistry::indent(b);
-      WasmIntrinsicRegistry::out(b) << "local.get $a1\n";
-      WasmIntrinsicRegistry::indent(b);
-      WasmIntrinsicRegistry::out(b) << ity << ".const 0\n";
-      WasmIntrinsicRegistry::indent(b);
-      WasmIntrinsicRegistry::out(b) << ity << ".lt_s\n";
-      WasmIntrinsicRegistry::indent(b);
-      WasmIntrinsicRegistry::out(b) << "local.get $a1\n";
-      WasmIntrinsicRegistry::indent(b);
-      WasmIntrinsicRegistry::out(b) << ity << ".const " << N << "\n";
-      WasmIntrinsicRegistry::indent(b);
-      WasmIntrinsicRegistry::out(b) << ity << ".ge_s\n";
-      WasmIntrinsicRegistry::indent(b);
-      WasmIntrinsicRegistry::out(b) << "i32.or\n";
-      WasmIntrinsicRegistry::indent(b);
-      WasmIntrinsicRegistry::out(b) << "if\n";
-      WasmIntrinsicRegistry::incrIndent(b);
-      WasmIntrinsicRegistry::indent(b);
-      WasmIntrinsicRegistry::out(b) << "unreachable\n";
-      WasmIntrinsicRegistry::decrIndent(b);
-      WasmIntrinsicRegistry::indent(b);
-      WasmIntrinsicRegistry::out(b) << "end\n";
+      // UB: a1 < 0 || a1 >= N. Stack-neutral, so elided under
+      // --no-ub-guards.
+      if (!WasmIntrinsicRegistry::noUbGuards(b)) {
+        WasmIntrinsicRegistry::indent(b);
+        WasmIntrinsicRegistry::out(b) << "local.get $a1\n";
+        WasmIntrinsicRegistry::indent(b);
+        WasmIntrinsicRegistry::out(b) << ity << ".const 0\n";
+        WasmIntrinsicRegistry::indent(b);
+        WasmIntrinsicRegistry::out(b) << ity << ".lt_s\n";
+        WasmIntrinsicRegistry::indent(b);
+        WasmIntrinsicRegistry::out(b) << "local.get $a1\n";
+        WasmIntrinsicRegistry::indent(b);
+        WasmIntrinsicRegistry::out(b) << ity << ".const " << N << "\n";
+        WasmIntrinsicRegistry::indent(b);
+        WasmIntrinsicRegistry::out(b) << ity << ".ge_s\n";
+        WasmIntrinsicRegistry::indent(b);
+        WasmIntrinsicRegistry::out(b) << "i32.or\n";
+        WasmIntrinsicRegistry::indent(b);
+        WasmIntrinsicRegistry::out(b) << "if\n";
+        WasmIntrinsicRegistry::incrIndent(b);
+        WasmIntrinsicRegistry::indent(b);
+        WasmIntrinsicRegistry::out(b) << "unreachable\n";
+        WasmIntrinsicRegistry::decrIndent(b);
+        WasmIntrinsicRegistry::indent(b);
+        WasmIntrinsicRegistry::out(b) << "end\n";
+      }
 
       // u = a0 [& mask if N < W]
       WasmIntrinsicRegistry::indent(b);
@@ -1848,6 +1866,33 @@ namespace refractir {
       return paramFpBits(intr, i) == 32 ? "f32" : "f64";
     }
 
+    // [v0.2.3] FP result-finiteness UB guard: trap unless the value in
+    // local `$r` is finite (`|$r| < +inf`, false for ±inf and NaN).
+    // Stack-neutral, so under --no-ub-guards the whole block is elided.
+    // `ty` is the float WASM type ("f32"/"f64").
+    static void finiteCheckR(WasmBackend &backend, const std::string &ty) {
+      if (WasmIntrinsicRegistry::noUbGuards(backend))
+        return;
+      indent(backend);
+      out(backend) << "local.get $r\n";
+      indent(backend);
+      out(backend) << ty << ".abs\n";
+      indent(backend);
+      out(backend) << ty << ".const inf\n";
+      indent(backend);
+      out(backend) << ty << ".lt\n";
+      indent(backend);
+      out(backend) << "i32.eqz\n";
+      indent(backend);
+      out(backend) << "if\n";
+      incrIndent(backend);
+      indent(backend);
+      out(backend) << "unreachable\n";
+      decrIndent(backend);
+      indent(backend);
+      out(backend) << "end\n";
+    }
+
     // [v0.2.2] i1-returning FP predicates produce an i32 0/1 from a WASM
     // comparison. Convert to the RefractIR i1 storage convention (0 / -1) by
     // sign-extending bit 0.
@@ -2164,24 +2209,7 @@ namespace refractir {
         // (|r| < +inf) is true iff r is finite. Compute it as
         // (r.abs < +inf): equivalent and avoids an explicit NaN check
         // because NaN comparisons are always false.
-        indent(backend);
-        out(backend) << "local.get $r\n";
-        indent(backend);
-        out(backend) << ty << ".abs\n";
-        indent(backend);
-        out(backend) << ty << ".const inf\n";
-        indent(backend);
-        out(backend) << ty << ".lt\n";
-        indent(backend);
-        out(backend) << "i32.eqz\n";
-        indent(backend);
-        out(backend) << "if\n";
-        incrIndent(backend);
-        indent(backend);
-        out(backend) << "unreachable\n";
-        decrIndent(backend);
-        indent(backend);
-        out(backend) << "end\n";
+        finiteCheckR(backend, ty);
         // Step 3: return the FP value.
         indent(backend);
         out(backend) << "local.get $r\n";
@@ -2216,24 +2244,7 @@ namespace refractir {
         // operand makes sqrt NaN; (|r| < +inf) is true iff r is finite (NaN
         // comparisons are always false).  Same result-finiteness guard as
         // @from_bits, keeping every backend's sqrt UB rule uniform.
-        indent(backend);
-        out(backend) << "local.get $r\n";
-        indent(backend);
-        out(backend) << ty << ".abs\n";
-        indent(backend);
-        out(backend) << ty << ".const inf\n";
-        indent(backend);
-        out(backend) << ty << ".lt\n";
-        indent(backend);
-        out(backend) << "i32.eqz\n";
-        indent(backend);
-        out(backend) << "if\n";
-        incrIndent(backend);
-        indent(backend);
-        out(backend) << "unreachable\n";
-        decrIndent(backend);
-        indent(backend);
-        out(backend) << "end\n";
+        finiteCheckR(backend, ty);
         // Step 3: return the (finite) result.
         indent(backend);
         out(backend) << "local.get $r\n";
@@ -2300,24 +2311,7 @@ namespace refractir {
         out(backend) << "local.set $r\n";
         // Step 2: UB if non-finite (x = ±0.0 → ±inf, or overflow).  Same
         // (|r| < +inf) guard as @sqrt.
-        indent(backend);
-        out(backend) << "local.get $r\n";
-        indent(backend);
-        out(backend) << ty << ".abs\n";
-        indent(backend);
-        out(backend) << ty << ".const inf\n";
-        indent(backend);
-        out(backend) << ty << ".lt\n";
-        indent(backend);
-        out(backend) << "i32.eqz\n";
-        indent(backend);
-        out(backend) << "if\n";
-        incrIndent(backend);
-        indent(backend);
-        out(backend) << "unreachable\n";
-        decrIndent(backend);
-        indent(backend);
-        out(backend) << "end\n";
+        finiteCheckR(backend, ty);
         // Step 3: return the (finite) reciprocal.
         indent(backend);
         out(backend) << "local.get $r\n";

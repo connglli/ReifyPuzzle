@@ -36,6 +36,15 @@ namespace refractir {
 
     void setNoRequire(bool val) { noRequire_ = val; }
 
+    /// [v0.2.3] Omit the dynamic undefined-behavior guards (null/OOB
+    /// pointer traps, FP finiteness traps, intrinsic preconditions).
+    /// Sound only for known-UB-free programs: the guards never fire on
+    /// such a program, so behavior is identical. Value semantics are
+    /// unaffected. Orthogonal to noRequire_. The `unreachable`
+    /// *terminator* (an explicit UB marker) is kept — WASM has no
+    /// no-op unreachable hint and the block still needs a terminator.
+    void setNoUbGuards(bool val) { noUbGuards_ = val; }
+
     void setNoMainMangle(bool val) { noMainMangle_ = val; }
 
     /// [v0.2.3] Select the vector storage strategy (default: "array").
@@ -48,6 +57,7 @@ namespace refractir {
     std::unique_ptr<WasmVecLowering> vecLowering_; // set lazily to "array" in emit()
     bool noModuleTags_ = false;
     bool noRequire_ = false;
+    bool noUbGuards_ = false; // [v0.2.3] see setNoUbGuards
     bool noMainMangle_ = false;
     const Program *prog_ = nullptr; // [v0.2.2] for callee lookup in emitAtom
 

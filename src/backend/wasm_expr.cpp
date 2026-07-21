@@ -163,8 +163,10 @@ namespace refractir {
         // UB.  Save the quotient into a scratch local and trap via
         // `unreachable` when it isn't finite (NaN comparisons fold
         // to false, so `|q| < +inf` is the simplest finiteness
-        // test that catches both inf and NaN).
-        {
+        // test that catches both inf and NaN). Under --no-ub-guards the
+        // whole (stack-neutral) check is elided; the quotient stays on
+        // the stack from the `div` above.
+        if (!noUbGuards_) {
           std::string qLocal = (targetWidth <= 32) ? "$__fmod_q_f32" : "$__fmod_q_f64";
           indent();
           out_ << "local.tee " << qLocal << "\n"; // stack: [x, q]
@@ -387,45 +389,57 @@ namespace refractir {
     }
     uint32_t elemSize = elemType ? getTypeSize(elemType) : 1;
 
+    // The pointer and index are saved to $__ptr_temp / $__idx_temp (they
+    // feed the address computation below); with guards on we also
+    // null-check the pointer and range-check the index. Under
+    // --no-ub-guards those checks are dropped — the `local.tee` copy is
+    // balanced with a `drop`, keeping the stack identical.
     emitLValue(arg.rval, false);
     indent();
     out_ << "local.tee $__ptr_temp\n";
-    indent();
-    out_ << "i32.eqz\n";
-    indent();
-    out_ << "if\n";
-    indent_level_++;
-    indent();
-    out_ << "unreachable\n";
-    indent_level_--;
-    indent();
-    out_ << "end\n";
+    if (!noUbGuards_) {
+      indent();
+      out_ << "i32.eqz\n";
+      indent();
+      out_ << "if\n";
+      indent_level_++;
+      indent();
+      out_ << "unreachable\n";
+      indent_level_--;
+      indent();
+      out_ << "end\n";
+    } else {
+      indent();
+      out_ << "drop\n";
+    }
 
     emitIndex(arg.index);
     indent();
     out_ << "local.tee $__idx_temp\n";
-    indent();
-    out_ << "local.get $__idx_temp\n";
-    indent();
-    out_ << "i32.const 0\n";
-    indent();
-    out_ << "i32.lt_s\n";
-    indent();
-    out_ << "local.get $__idx_temp\n";
-    indent();
-    out_ << "i32.const " << arrSize << "\n";
-    indent();
-    out_ << "i32.gt_s\n";
-    indent();
-    out_ << "i32.or\n";
-    indent();
-    out_ << "if\n";
-    indent_level_++;
-    indent();
-    out_ << "unreachable\n";
-    indent_level_--;
-    indent();
-    out_ << "end\n";
+    if (!noUbGuards_) {
+      indent();
+      out_ << "local.get $__idx_temp\n";
+      indent();
+      out_ << "i32.const 0\n";
+      indent();
+      out_ << "i32.lt_s\n";
+      indent();
+      out_ << "local.get $__idx_temp\n";
+      indent();
+      out_ << "i32.const " << arrSize << "\n";
+      indent();
+      out_ << "i32.gt_s\n";
+      indent();
+      out_ << "i32.or\n";
+      indent();
+      out_ << "if\n";
+      indent_level_++;
+      indent();
+      out_ << "unreachable\n";
+      indent_level_--;
+      indent();
+      out_ << "end\n";
+    }
 
     indent();
     out_ << "local.get $__ptr_temp\n";
@@ -596,19 +610,27 @@ namespace refractir {
       }
     }
 
+    // Save the pointer to $__ptr_temp (used below); null-check it with
+    // guards on, or balance the `local.tee` copy with a `drop` under
+    // --no-ub-guards.
     emitLValue(arg.rval, false);
     indent();
     out_ << "local.tee $__ptr_temp\n";
-    indent();
-    out_ << "i32.eqz\n";
-    indent();
-    out_ << "if\n";
-    indent_level_++;
-    indent();
-    out_ << "unreachable\n";
-    indent_level_--;
-    indent();
-    out_ << "end\n";
+    if (!noUbGuards_) {
+      indent();
+      out_ << "i32.eqz\n";
+      indent();
+      out_ << "if\n";
+      indent_level_++;
+      indent();
+      out_ << "unreachable\n";
+      indent_level_--;
+      indent();
+      out_ << "end\n";
+    } else {
+      indent();
+      out_ << "drop\n";
+    }
 
     if (fieldOffset > 0) {
       indent();
@@ -686,19 +708,23 @@ namespace refractir {
         out_ << "local.get " << mangleName(pname) << "\n";
       }
     };
-    // Null check: push ptr for null test, then keep first for load
+    // Push the pointer for the load. With guards on, push a second copy
+    // and null-test it (leaving the first for the load); under
+    // --no-ub-guards the single push is all that's needed.
     emitPushPtr();
-    emitPushPtr();
-    indent();
-    out_ << "i32.eqz\n";
-    indent();
-    out_ << "if\n";
-    indent_level_++;
-    indent();
-    out_ << "unreachable\n";
-    indent_level_--;
-    indent();
-    out_ << "end\n";
+    if (!noUbGuards_) {
+      emitPushPtr();
+      indent();
+      out_ << "i32.eqz\n";
+      indent();
+      out_ << "if\n";
+      indent_level_++;
+      indent();
+      out_ << "unreachable\n";
+      indent_level_--;
+      indent();
+      out_ << "end\n";
+    }
     // stack: [ptr_for_load]; determine pointee type for load instruction
     uint32_t loadWidth = targetWidth;
     bool loadIsFloat = isFloat;

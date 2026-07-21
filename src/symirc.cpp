@@ -280,6 +280,7 @@ int main(int argc, char **argv) {
         wb.setNoModuleTags(result["no-module-tags"].as<bool>());
       }
       wb.setNoRequire(noRequire);
+      wb.setNoUbGuards(noUbGuards);
       wb.setNoMainMangle(emitMain);
       // [v0.2.3] Vector-lowering strategy (validated above).
       wb.setVecLowering(makeWasmVecLowering(vlName));

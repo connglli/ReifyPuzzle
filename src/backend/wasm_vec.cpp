@@ -187,8 +187,10 @@ namespace refractir {
         indent();
         out_ << prefix << "div\n";
         // [v0.2.2] Same §2.9 intermediate-overflow trap as the
-        // scalar fmod path — applied per lane (rule 21).
-        {
+        // scalar fmod path — applied per lane (rule 21). Under
+        // --no-ub-guards the (stack-neutral) check is elided; the
+        // quotient stays on the stack from the `div` above.
+        if (!noUbGuards_) {
           std::string qLocal = (targetWidth <= 32) ? "$__fmod_q_f32" : "$__fmod_q_f64";
           indent();
           out_ << "local.tee " << qLocal << "\n";

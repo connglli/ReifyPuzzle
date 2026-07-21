@@ -842,22 +842,26 @@ namespace refractir {
                       }
                     }
                   }
-                  // Emit ptr expr → save to $__ptr_temp, null check, then store
+                  // Emit ptr expr; with guards on, save to $__ptr_temp,
+                  // null-check, and restore. Under --no-ub-guards the
+                  // pointer is simply left on the stack for the store.
                   emitExpr(arg.ptr, 32, false);
-                  indent();
-                  out_ << "local.tee $__ptr_temp\n";
-                  indent();
-                  out_ << "i32.eqz\n";
-                  indent();
-                  out_ << "if\n";
-                  indent_level_++;
-                  indent();
-                  out_ << "unreachable\n";
-                  indent_level_--;
-                  indent();
-                  out_ << "end\n";
-                  indent();
-                  out_ << "local.get $__ptr_temp\n";
+                  if (!noUbGuards_) {
+                    indent();
+                    out_ << "local.tee $__ptr_temp\n";
+                    indent();
+                    out_ << "i32.eqz\n";
+                    indent();
+                    out_ << "if\n";
+                    indent_level_++;
+                    indent();
+                    out_ << "unreachable\n";
+                    indent_level_--;
+                    indent();
+                    out_ << "end\n";
+                    indent();
+                    out_ << "local.get $__ptr_temp\n";
+                  }
                   emitExpr(arg.val, storeWidth, storeIsFloat);
                   indent();
                   if (storeIsFloat) {
