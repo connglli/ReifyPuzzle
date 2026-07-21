@@ -63,6 +63,11 @@ namespace refractir {
 
   protected:
     static std::ostream &out(CBackend &backend);
+    // [v0.2.3] Sink for UB-precondition guard lines: `out(backend)`
+    // normally, but a discarding stream under --no-ub-guards, so the
+    // guards vanish from the emitted helper while its computation (which
+    // is only ever reached on UB-free inputs) is untouched.
+    static std::ostream &guardOut(CBackend &backend);
 
     static uint32_t widen(uint32_t N) {
       return (N <= 8) ? 8 : (N <= 16) ? 16 : (N <= 32) ? 32 : 64;
@@ -130,12 +135,25 @@ namespace refractir {
   struct CIntrinsicRegistry {
     static std::ostream &out(CBackend &backend) { return backend.out_; }
 
+    // [v0.2.3] Guard-line sink shared by both intrinsic base classes:
+    // the real stream normally, but a discarding one (null streambuf →
+    // writes set badbit and emit nothing) under --no-ub-guards.
+    // Emission is single-threaded per backend instance.
+    static std::ostream &guardOut(CBackend &backend) {
+      static std::ostream nullSink(nullptr);
+      return backend.noUbGuards_ ? nullSink : backend.out_;
+    }
+
     using CIntrinsicGenFn = std::unique_ptr<class CIntrinsic>;
 
     static const std::unordered_map<IntrinsicKind, CIntrinsicGenFn> &getRegistry();
   };
 
   std::ostream &CIntrinsic::out(CBackend &backend) { return CIntrinsicRegistry::out(backend); }
+
+  std::ostream &CIntrinsic::guardOut(CBackend &backend) {
+    return CIntrinsicRegistry::guardOut(backend);
+  }
 
   namespace {
 
@@ -147,7 +165,8 @@ namespace refractir {
           CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
           const std::string &uty
       ) const override {
-        out(backend) << "  if (a0 == (" << sty << ")" << intMinNExpr(N) << ") __builtin_trap();\n";
+        guardOut(backend) << "  if (a0 == (" << sty << ")" << intMinNExpr(N)
+                          << ") __builtin_trap();\n";
         if (W <= 32)
           out(backend) << "  " << sty << " r = (" << sty << ")abs((int)a0);\n";
         else
@@ -192,7 +211,7 @@ namespace refractir {
         else
           out(backend) << "  " << sty << " r = (" << sty << ")__builtin_popcountll((uint64_t)u);\n";
         int64_t maxN = (N == 64) ? INT64_MAX : ((INT64_C(1) << (N - 1)) - 1);
-        out(backend) << "  if (r > " << maxN << "LL) __builtin_trap();\n";
+        guardOut(backend) << "  if (r > " << maxN << "LL) __builtin_trap();\n";
         out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
       }
     };
@@ -204,7 +223,7 @@ namespace refractir {
           const std::string &uty
       ) const override {
         out(backend) << "  " << uty << " u = " << makeMaskU(N, W, uty, "a0") << ";\n";
-        out(backend) << "  if (u == 0) __builtin_trap();\n";
+        guardOut(backend) << "  if (u == 0) __builtin_trap();\n";
         if (W <= 32) {
           out(backend) << "  " << sty << " r = (" << sty << ")__builtin_clz((uint32_t)u) - "
                        << std::to_string(32 - N) << ";\n";
@@ -223,7 +242,7 @@ namespace refractir {
           const std::string &uty
       ) const override {
         out(backend) << "  " << uty << " u = " << makeMaskU(N, W, uty, "a0") << ";\n";
-        out(backend) << "  if (u == 0) __builtin_trap();\n";
+        guardOut(backend) << "  if (u == 0) __builtin_trap();\n";
         if (W <= 32)
           out(backend) << "  " << sty << " r = (" << sty << ")__builtin_ctz((uint32_t)u);\n";
         else
@@ -247,13 +266,13 @@ namespace refractir {
         if (N < 64) {
           out(backend) << "  int64_t s = (int64_t)a0 - (int64_t)a1;\n";
           out(backend) << "  int64_t r = s < 0 ? -s : s;\n";
-          out(backend) << "  if (r > (int64_t)" << maxN << "LL) __builtin_trap();\n";
+          guardOut(backend) << "  if (r > (int64_t)" << maxN << "LL) __builtin_trap();\n";
           out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")r") << ";\n";
         } else {
           // N == 64: subtraction would overflow i64; use __int128.
           out(backend) << "  __int128 s = (__int128)a0 - (__int128)a1;\n";
           out(backend) << "  __int128 r = s < 0 ? -s : s;\n";
-          out(backend) << "  if (r > (__int128)" << maxN << "LL) __builtin_trap();\n";
+          guardOut(backend) << "  if (r > (__int128)" << maxN << "LL) __builtin_trap();\n";
           out(backend) << "  return (" << sty << ")r;\n";
         }
       }
@@ -285,7 +304,7 @@ namespace refractir {
           CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
           const std::string &uty
       ) const override {
-        out(backend) << "  if (a1 > a2) __builtin_trap();\n";
+        guardOut(backend) << "  if (a1 > a2) __builtin_trap();\n";
         out(backend) << "  " << sty << " r = (a0 < a1) ? a1 : (a0 > a2 ? a2 : a0);\n";
         out(backend) << "  return " << makeSextN(N, W, sty, uty, "r") << ";\n";
       }
@@ -377,7 +396,7 @@ namespace refractir {
           CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
           const std::string &uty
       ) const override {
-        out(backend) << "  if (a1 < 0 || a1 >= " << N << ") __builtin_trap();\n";
+        guardOut(backend) << "  if (a1 < 0 || a1 >= " << N << ") __builtin_trap();\n";
         out(backend) << "  " << uty << " u = " << makeMaskU(N, W, uty, "a0") << ";\n";
         out(backend) << "  " << uty << " n = (" << uty << ")a1;\n";
         out(backend) << "  " << uty << " r = (n == 0) ? u : ((u << n) | (u >> (" << N
@@ -394,7 +413,7 @@ namespace refractir {
           CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
           const std::string &uty
       ) const override {
-        out(backend) << "  if (a1 < 0 || a1 >= " << N << ") __builtin_trap();\n";
+        guardOut(backend) << "  if (a1 < 0 || a1 >= " << N << ") __builtin_trap();\n";
         out(backend) << "  " << uty << " u = " << makeMaskU(N, W, uty, "a0") << ";\n";
         out(backend) << "  " << uty << " n = (" << uty << ")a1;\n";
         out(backend) << "  " << uty << " r = (n == 0) ? u : ((u >> n) | (u << (" << N
@@ -431,7 +450,7 @@ namespace refractir {
           CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
           const std::string &uty
       ) const override {
-        out(backend) << "  if (a0 <= 0) __builtin_trap();\n";
+        guardOut(backend) << "  if (a0 <= 0) __builtin_trap();\n";
         out(backend) << "  " << uty << " u = " << makeMaskU(N, W, uty, "a0") << ";\n";
         if (W <= 32)
           out(backend) << "  " << sty << " r = (" << sty << ")(" << (N - 1)
@@ -532,7 +551,7 @@ namespace refractir {
           CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
           const std::string &uty
       ) const override {
-        out(backend) << "  if (a1 < 0 || a1 >= " << N << ") __builtin_trap();\n";
+        guardOut(backend) << "  if (a1 < 0 || a1 >= " << N << ") __builtin_trap();\n";
         out(backend) << "  " << uty << " ua = " << makeMaskU(N, W, uty, "a0") << ";\n";
         out(backend) << "  " << uty << " r = (" << uty << ")(ua << a1);\n";
         out(backend) << "  return " << makeSextN(N, W, sty, uty, "(" + sty + ")r") << ";\n";
@@ -549,7 +568,7 @@ namespace refractir {
           CBackend &backend, const IntrinsicDecl &, uint32_t N, uint32_t W, const std::string &sty,
           const std::string &uty
       ) const override {
-        out(backend) << "  if (a1 < 0 || a1 >= " << N << ") __builtin_trap();\n";
+        guardOut(backend) << "  if (a1 < 0 || a1 >= " << N << ") __builtin_trap();\n";
         // Sign-extend a0 to W bits so the host >> performs an arithmetic
         // shift over the full iN sign bit, then re-mask/sext into iN.
         out(backend) << "  " << sty << " sa = " << makeSextN(N, W, sty, uty, "a0") << ";\n";
@@ -667,9 +686,9 @@ namespace refractir {
           const std::string &uty
       ) const override {
         std::string loE = intMinNExpr(N);
-        out(backend) << "  if (a1 == 0) __builtin_trap();\n";
-        out(backend) << "  if (a0 == (" << sty << ")" << loE << " && a1 == (" << sty
-                     << ")-1) __builtin_trap();\n";
+        guardOut(backend) << "  if (a1 == 0) __builtin_trap();\n";
+        guardOut(backend) << "  if (a0 == (" << sty << ")" << loE << " && a1 == (" << sty
+                          << ")-1) __builtin_trap();\n";
         out(backend) << "  " << sty << " q = a0 / a1;\n";
         out(backend) << "  " << sty << " r = a0 - q * a1;\n";
         out(backend) << "  if (r < 0) q -= (a1 > 0) ? 1 : -1;\n";
@@ -687,9 +706,9 @@ namespace refractir {
           const std::string &uty
       ) const override {
         std::string loE = intMinNExpr(N);
-        out(backend) << "  if (a1 == 0) __builtin_trap();\n";
-        out(backend) << "  if (a0 == (" << sty << ")" << loE << " && a1 == (" << sty
-                     << ")-1) __builtin_trap();\n";
+        guardOut(backend) << "  if (a1 == 0) __builtin_trap();\n";
+        guardOut(backend) << "  if (a0 == (" << sty << ")" << loE << " && a1 == (" << sty
+                          << ")-1) __builtin_trap();\n";
         out(backend) << "  " << sty << " r = a0 % a1;\n";
         // |a1| does not fit in iN signed when a1 == INT_MIN_N (the
         // negation overflows int32 / int64), even though the final
@@ -718,6 +737,11 @@ namespace refractir {
 
     protected:
       static std::ostream &out(CBackend &backend) { return CIntrinsicRegistry::out(backend); }
+
+      // [v0.2.3] See CIntrinsicRegistry::guardOut — discards under --no-ub-guards.
+      static std::ostream &guardOut(CBackend &backend) {
+        return CIntrinsicRegistry::guardOut(backend);
+      }
     };
 
     class FabsCIntrinsic final : public CFpIntrinsic {
@@ -820,11 +844,11 @@ namespace refractir {
         bool isF32 = std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32;
         if (isF32) {
           out(backend) << "  float r; __builtin_memcpy(&r, &a0, 4);\n";
-          out(backend) << "  if (!__builtin_isfinite(r)) __builtin_trap();\n";
+          guardOut(backend) << "  if (!__builtin_isfinite(r)) __builtin_trap();\n";
           out(backend) << "  return r;\n";
         } else {
           out(backend) << "  double r; __builtin_memcpy(&r, &a0, 8);\n";
-          out(backend) << "  if (!__builtin_isfinite(r)) __builtin_trap();\n";
+          guardOut(backend) << "  if (!__builtin_isfinite(r)) __builtin_trap();\n";
           out(backend) << "  return r;\n";
         }
       }
@@ -844,7 +868,7 @@ namespace refractir {
         bool isF32 = std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32;
         out(backend) << "  " << (isF32 ? "float" : "double")
                      << " r = " << (isF32 ? "__builtin_sqrtf" : "__builtin_sqrt") << "(a0);\n";
-        out(backend) << "  if (!__builtin_isfinite(r)) __builtin_trap();\n";
+        guardOut(backend) << "  if (!__builtin_isfinite(r)) __builtin_trap();\n";
         out(backend) << "  return r;\n";
       }
     };
@@ -898,7 +922,7 @@ namespace refractir {
         bool isF32 = std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32;
         out(backend) << "  " << (isF32 ? "float" : "double") << " r = " << (isF32 ? "1.0f" : "1.0")
                      << " / a0;\n";
-        out(backend) << "  if (!__builtin_isfinite(r)) __builtin_trap();\n";
+        guardOut(backend) << "  if (!__builtin_isfinite(r)) __builtin_trap();\n";
         out(backend) << "  return r;\n";
       }
     };

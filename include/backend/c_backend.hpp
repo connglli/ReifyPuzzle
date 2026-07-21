@@ -43,6 +43,15 @@ namespace refractir {
 
     void setNoRequire(bool val) { noRequire_ = val; }
 
+    /// [v0.2.3] Suppress the dynamic undefined-behavior guards
+    /// (null/OOB pointer traps, FP finiteness traps, integer div/rem
+    /// zero traps, intrinsic-precondition traps, `unreachable`). Only
+    /// sound when the program is known UB-free: on such a program the
+    /// guards never fire, so the emitted code is behaviorally identical
+    /// with or without them. Value semantics (truncating div, masking,
+    /// etc.) are unaffected. Orthogonal to `noRequire_`.
+    void setNoUbGuards(bool val) { noUbGuards_ = val; }
+
     void setNoMainMangle(bool val) { noMainMangle_ = val; }
 
     /// [v0.2.1] Set the vector-lowering strategy. Takes ownership. If
@@ -67,6 +76,7 @@ namespace refractir {
     bool suppressPreamble_ = false;
     int indent_level_ = 0;
     bool noRequire_ = false;
+    bool noUbGuards_ = false; // [v0.2.3] see setNoUbGuards
     bool noMainMangle_ = false;
     bool structuredLowering_ = false; // [v0.2.3] see setStructuredLowering
     const Program *prog_ = nullptr;   // [v0.2.2] for callee lookup in emitAtom

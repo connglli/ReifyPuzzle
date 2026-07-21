@@ -47,6 +47,7 @@ int main(int argc, char **argv) {
     ("Werror", "Make all warnings into errors", cxxopts::value<bool>()->default_value("false"))
     ("no-module-tags", "Omit (module ...) tags in WASM output", cxxopts::value<bool>()->default_value("false"))
     ("no-require", "Omit require checks from emitted code (useful for compiler testing)", cxxopts::value<bool>()->default_value("false"))
+    ("no-ub-guards", "Omit dynamic undefined-behavior guards (null/OOB, div/rem-by-zero, FP finiteness, intrinsic preconditions). Sound only for known-UB-free programs; value semantics are unaffected", cxxopts::value<bool>()->default_value("false"))
     ("vec-lowering", "Vector lowering strategy: vecext|scalars|array|structscalars|structarray (default: target specific)", cxxopts::value<std::string>())
     ("I", "Include path for resolving link-form `decl`s (may repeat)", cxxopts::value<std::vector<std::string>>())
     ("split-by-source", "C target: emit one <stem>.c per source file plus common.h into the directory given by -o (instead of a single bundled .c)", cxxopts::value<bool>()->default_value("false"))
@@ -193,6 +194,7 @@ int main(int argc, char **argv) {
     }
 
     bool noRequire = result["no-require"].as<bool>();
+    bool noUbGuards = result["no-ub-guards"].as<bool>();
     bool emitMain = result["emit-main"].as<bool>();
     bool structuredLowering = result["structured-lowering"].as<bool>();
     // The python backend always emits structured control flow; the
@@ -240,6 +242,7 @@ int main(int argc, char **argv) {
         std::string primaryStem = std::filesystem::path(inputPath).stem().string();
         CBackend cb(std::cout); // sink; unused — emitSplit opens its own streams
         cb.setNoRequire(noRequire);
+        cb.setNoUbGuards(noUbGuards);
         cb.setNoMainMangle(emitMain);
         cb.setStructuredLowering(structuredLowering);
         // [v0.2.1] Set up the vector-lowering strategy.
@@ -258,6 +261,7 @@ int main(int argc, char **argv) {
       } else {
         CBackend cb(*outStream);
         cb.setNoRequire(noRequire);
+        cb.setNoUbGuards(noUbGuards);
         cb.setNoMainMangle(emitMain);
         cb.setStructuredLowering(structuredLowering);
         // [v0.2.1] Set up the vector-lowering strategy.

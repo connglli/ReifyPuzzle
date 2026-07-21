@@ -282,6 +282,7 @@ namespace refractir {
       // matches no fun, so the body loop emits nothing.
       CBackend hdr(cofs);
       hdr.noRequire_ = noRequire_;
+      hdr.noUbGuards_ = noUbGuards_;
       hdr.noMainMangle_ = noMainMangle_;
       hdr.vecLowering_ = makeCVecLowering(vecLowering_ ? vecLowering_->name() : "vecext");
       hdr.emitOnlySourceStem_ = "__refractir_no_fun_bodies__";
@@ -305,6 +306,7 @@ namespace refractir {
         throw std::runtime_error("Cannot open " + p);
       CBackend body(cofs);
       body.noRequire_ = noRequire_;
+      body.noUbGuards_ = noUbGuards_;
       body.noMainMangle_ = noMainMangle_;
       body.structuredLowering_ = structuredLowering_;
       body.vecLowering_ = makeCVecLowering(vecLowering_ ? vecLowering_->name() : "vecext");
@@ -957,7 +959,8 @@ namespace refractir {
             // is UB). The native vec-ext division won't trap on its
             // own and UBSan doesn't catch SIMD div-by-zero, so we
             // emit an explicit check.
-            if (lhsTy && std::holds_alternative<VecType>(lhsTy->v) && arg.lhs.accesses.empty()) {
+            if (!noUbGuards_ && lhsTy && std::holds_alternative<VecType>(lhsTy->v) &&
+                arg.lhs.accesses.empty()) {
               auto &vtFp = std::get<VecType>(lhsTy->v);
               if (vtFp.elem && std::holds_alternative<FloatType>(vtFp.elem->v)) {
                 std::string base = mangleName(arg.lhs.base.name);
@@ -975,7 +978,7 @@ namespace refractir {
             // Also fires for FP element writes (array element / struct
             // field / vector lane) — the check uses the LHS in place.
             bool lhsIsFp = lhsTy && std::holds_alternative<FloatType>(lhsTy->v);
-            if (lhsIsFp) {
+            if (!noUbGuards_ && lhsIsFp) {
               indent();
               out_ << "if (!__builtin_isfinite(";
               emitLValue(arg.lhs);

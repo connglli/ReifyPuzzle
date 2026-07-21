@@ -129,13 +129,47 @@ namespace refractir {
         emitCoef(arg.coef);
         out_ << ", _my = ";
         emitLValue(arg.rval);
-        out_ << "; if (!__builtin_isfinite(_mx / _my)) __builtin_trap(); " << fn
-             << "(_mx, _my); })";
+        out_ << "; ";
+        if (!noUbGuards_)
+          out_ << "if (!__builtin_isfinite(_mx / _my)) __builtin_trap(); ";
+        out_ << fn << "(_mx, _my); })";
+      } else if (!noUbGuards_ && [&] {
+                   auto rt = getLValueType(arg.rval);
+                   return rt && std::holds_alternative<IntType>(rt->v);
+                 }()) {
+        // [v0.2.3] Scalar-integer remainder-by-zero guard (self-contained,
+        // so the emitted C traps without depending on downstream UBSan).
+        // Signed-overflow (INT_MIN % -1) is deliberately left to UBSan.
+        // Only scalar ints: a vecext whole-vector `%` can't take a scalar
+        // `_rz == 0` guard (and integer-vector div/rem stays with UBSan,
+        // as before).
+        out_ << "({ __typeof__(";
+        emitLValue(arg.rval);
+        out_ << ") _rz = ";
+        emitLValue(arg.rval);
+        out_ << "; if (_rz == 0) __builtin_trap(); ";
+        emitCoef(arg.coef);
+        out_ << " % _rz; })";
       } else {
         emitCoef(arg.coef);
         out_ << " % ";
         emitLValue(arg.rval);
       }
+    } else if (arg.op == AtomOpKind::Div && !noUbGuards_ && [&] {
+                 auto rt = getLValueType(arg.rval);
+                 return rt && std::holds_alternative<IntType>(rt->v);
+               }()) {
+      // [v0.2.3] Integer division-by-zero guard (self-contained, so the
+      // emitted C traps without depending on downstream UBSan; float
+      // division-by-zero is caught by the post-assignment isfinite
+      // check instead). Signed-overflow (INT_MIN / -1) is left to UBSan.
+      out_ << "({ __typeof__(";
+      emitLValue(arg.rval);
+      out_ << ") _dz = ";
+      emitLValue(arg.rval);
+      out_ << "; if (_dz == 0) __builtin_trap(); ";
+      emitCoef(arg.coef);
+      out_ << " / _dz; })";
     } else {
       emitCoef(arg.coef);
       switch (arg.op) {
@@ -231,6 +265,14 @@ namespace refractir {
 
   void CBackend::emitLoadAtom(const LoadAtom &arg) {
 
+    if (noUbGuards_) {
+      // No null / typed-access guards: dereference directly.
+      out_ << "(*(";
+      emitLValue(arg.rval);
+      out_ << "))";
+      return;
+    }
+
     // [v0.2.1] Rule 15b (typed-access mismatch): load through a
     // pointer that doesn't have enough room for the pointee. Use
     // __builtin_object_size so we trap when the pointer has been
@@ -246,6 +288,17 @@ namespace refractir {
   }
 
   void CBackend::emitPtrIndexAtom(const PtrIndexAtom &arg) {
+
+    if (noUbGuards_) {
+      // No null / index-bounds guards: navigate directly. `*p` is the
+      // array pointee, which decays to a pointer on `+ i`.
+      out_ << "((*(";
+      emitLValue(arg.rval);
+      out_ << ")) + (int64_t)(";
+      emitIndex(arg.index);
+      out_ << "))";
+      return;
+    }
 
     // [v0.2.1] ptrindex p, i → element pointer. Rule 17 (null nav),
     // rule 18 (undef nav — relies on UBSan), rule 16 (index bounds).
@@ -279,6 +332,14 @@ namespace refractir {
   }
 
   void CBackend::emitPtrFieldAtom(const PtrFieldAtom &arg) {
+
+    if (noUbGuards_) {
+      // No null / one-past-end guards: take the field address directly.
+      out_ << "(&((";
+      emitLValue(arg.rval);
+      out_ << ")->" << arg.field << "))";
+      return;
+    }
 
     // [v0.2.1] ptrfield p, f → field pointer. Rule 17 (null nav)
     // and rule 19 (one-past-end nav). The one-past-end check uses

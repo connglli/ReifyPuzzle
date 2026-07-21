@@ -28,7 +28,7 @@ namespace refractir {
           // an IntLit index the parser already pinned it, so skip the
           // check (the typechecker may also have rejected it).
           bool isLit = std::holds_alternative<IntLit>(ai->index);
-          if (!isLit) {
+          if (!isLit && !noUbGuards_) {
             // Wrap with a GCC statement-expression: evaluate idx once,
             // trap if out of bounds, then read the lane.
             std::string wrapped = "({ int64_t _vi = (" + idxStr +

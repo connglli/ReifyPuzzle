@@ -255,8 +255,10 @@ namespace refractir {
       bool isF32Lane = std::get<FloatType>(vt.elem->v).kind == FloatType::Kind::F32;
       const char *ty = isF32Lane ? "float" : "double";
       const char *fn = isF32Lane ? "fmodf" : "fmod";
-      return std::string("({ ") + ty + " _mx = (" + coefLane + "), _my = (" + rvalLane +
-             "); if (!__builtin_isfinite(_mx / _my)) __builtin_trap(); " + fn + "(_mx, _my); })";
+      std::string guard =
+          noUbGuards_ ? "" : "if (!__builtin_isfinite(_mx / _my)) __builtin_trap(); ";
+      return std::string("({ ") + ty + " _mx = (" + coefLane + "), _my = (" + rvalLane + "); " +
+             guard + fn + "(_mx, _my); })";
     }
     if (arg.op == AtomOpKind::LShr) {
       // Logical (unsigned) right-shift: cast lane to unsigned at

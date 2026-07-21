@@ -178,9 +178,13 @@ namespace refractir {
           } else if constexpr (std::is_same_v<T, ControlTree::Trap>) {
             // Executing `unreachable` is UB; trapping is the C target's
             // closest analogue (and keeps -Wreturn-type quiet where the
-            // goto emitter's bare comment would not).
+            // goto emitter's bare comment would not). Under --no-ub-guards
+            // we assume the block is never reached and emit the pure
+            // optimization hint instead (also -Wreturn-type-quiet).
             indent();
-            out_ << "__builtin_trap(); // unreachable\n";
+            out_
+                << (noUbGuards_ ? "__builtin_unreachable(); // unreachable\n"
+                                : "__builtin_trap(); // unreachable\n");
           } else {
             // FallThrough / JumpJoin are eliminated by StructuredLowering.
             assert(false && "unlowered transfer node reached the structured C emitter");
