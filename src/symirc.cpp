@@ -287,6 +287,7 @@ int main(int argc, char **argv) {
     } else if (target == "python") {
       PyBackend pb(*outStream);
       pb.setNoRequire(noRequire);
+      pb.setNoUbGuards(noUbGuards);
       pb.setNoMainMangle(emitMain);
       pb.setVecLowering(makePyVecLowering(vlName));
       pb.emit(prog);

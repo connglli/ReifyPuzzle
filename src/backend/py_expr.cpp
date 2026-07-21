@@ -26,7 +26,84 @@ namespace refractir {
       return "==";
     }
 
+    // Truncating (toward-zero) integer division as an inline Python
+    // expression. Python `//` floors, so we flip the sign of the
+    // magnitude when the operands disagree in sign. Operands are always
+    // leaf references here, so the duplication is side-effect-free.
+    std::string pyTruncDiv(const std::string &a, const std::string &b) {
+      return "(" + a + " // " + b + " if (" + a + " < 0) == (" + b + " < 0) else -(-" + a + " // " +
+             b + "))";
+    }
+
   } // namespace
+
+  // --- [v0.2.3] Binary-operator lowering (see py_backend.hpp) ---------------
+
+  std::string PyBackend::binInt(
+      const char *helper, char op, const std::string &a, const std::string &b, const std::string &n
+  ) const {
+    if (noUbGuards_)
+      return "(" + a + " " + op + " " + b + ")";
+    return std::string(helper) + "(" + a + ", " + b + ", " + n + ")";
+  }
+
+  std::string
+  PyBackend::binIDiv(const std::string &a, const std::string &b, const std::string &n) const {
+    if (noUbGuards_)
+      return pyTruncDiv(a, b);
+    return "_sdiv(" + a + ", " + b + ", " + n + ")";
+  }
+
+  std::string
+  PyBackend::binIRem(const std::string &a, const std::string &b, const std::string &n) const {
+    if (noUbGuards_)
+      return "(" + a + " - " + b + " * " + pyTruncDiv(a, b) + ")";
+    return "_srem(" + a + ", " + b + ", " + n + ")";
+  }
+
+  std::string PyBackend::binShift(
+      const char *helper, const char *op, const std::string &a, const std::string &b,
+      const std::string &n
+  ) const {
+    if (noUbGuards_)
+      return "(" + a + " " + op + " " + b + ")";
+    return std::string(helper) + "(" + a + ", " + b + ", " + n + ")";
+  }
+
+  std::string
+  PyBackend::binLshr(const std::string &a, const std::string &b, const std::string &n) const {
+    if (noUbGuards_)
+      // Mask to n bits, unsigned-shift, then reinterpret as signed iN
+      // via the retained _cast_int primitive.
+      return "_cast_int((" + a + " & ((1 << " + n + ") - 1)) >> " + b + ", " + n + ")";
+    return "_lshr(" + a + ", " + b + ", " + n + ")";
+  }
+
+  std::string PyBackend::binFloat(
+      const char *helper, char op, const std::string &a, const std::string &b, const std::string &n
+  ) const {
+    if (noUbGuards_) {
+      std::string e = a + " " + op + " " + b;
+      return n == "32" ? "_f32(" + e + ")" : "(" + e + ")";
+    }
+    return std::string(helper) + "(" + a + ", " + b + ", " + n + ")";
+  }
+
+  std::string
+  PyBackend::binFFmod(const std::string &a, const std::string &b, const std::string &n) const {
+    if (noUbGuards_) {
+      std::string e = "math.fmod(" + a + ", " + b + ")";
+      return n == "32" ? "_f32(" + e + ")" : e;
+    }
+    return "_ffmod(" + a + ", " + b + ", " + n + ")";
+  }
+
+  std::string PyBackend::castF2I(const std::string &x, const std::string &n) const {
+    // int() truncates toward zero, matching the finite-only float model.
+    if (noUbGuards_)
+      return "int(" + x + ")";
+    return "_f2i(" + x + ", " + n + ")";
+  }
 
   std::string PyBackend::exprStr(const Expr &expr) {
     std::string acc = atomStr(expr.first);
@@ -42,17 +119,19 @@ namespace refractir {
         std::string rhs = atomStr(tail.atom);
         if (!asVec(getAtomType(tail.atom)))
           rhs = "[" + rhs + "] * " + n;
-        const char *fn = fp ? (tail.op == AddOp::Plus ? "_fadd" : "_fsub")
-                            : (tail.op == AddOp::Plus ? "_iadd" : "_isub");
-        acc =
-            "[" + std::string(fn) + "(x, y, " + w + ") for x, y in zip(" + acc + ", " + rhs + ")]";
+        char op = tail.op == AddOp::Plus ? '+' : '-';
+        std::string lane = fp ? binFloat(op == '+' ? "_fadd" : "_fsub", op, "x", "y", w)
+                              : binInt(op == '+' ? "_iadd" : "_isub", op, "x", "y", w);
+        acc = "[" + lane + " for x, y in zip(" + acc + ", " + rhs + ")]";
       }
       return acc;
     }
     if (std::uint32_t fb = floatWidth(t)) {
       for (const auto &tail: expr.rest) {
-        acc = std::string(tail.op == AddOp::Plus ? "_fadd(" : "_fsub(") + acc + ", " +
-              atomStr(tail.atom) + ", " + std::to_string(fb) + ")";
+        char op = tail.op == AddOp::Plus ? '+' : '-';
+        acc = binFloat(
+            op == '+' ? "_fadd" : "_fsub", op, acc, atomStr(tail.atom), std::to_string(fb)
+        );
       }
       return acc;
     }
@@ -70,8 +149,8 @@ namespace refractir {
           std::string n = atomStr(tail.atom);
           acc = "_padd(" + acc + ", " + (tail.op == AddOp::Plus ? n : "-(" + n + ")") + ")";
         } else {
-          acc = std::string(tail.op == AddOp::Plus ? "_iadd(" : "_isub(") + acc + ", " +
-                atomStr(tail.atom) + ", 64)";
+          char op = tail.op == AddOp::Plus ? '+' : '-';
+          acc = binInt(op == '+' ? "_iadd" : "_isub", op, acc, atomStr(tail.atom), "64");
         }
       }
       return acc;
@@ -80,8 +159,8 @@ namespace refractir {
     if (n == 0)
       n = 32; // defensive: post-typecheck every non-ptr/float expr is integral
     for (const auto &tail: expr.rest) {
-      acc = std::string(tail.op == AddOp::Plus ? "_iadd(" : "_isub(") + acc + ", " +
-            atomStr(tail.atom) + ", " + std::to_string(n) + ")";
+      char op = tail.op == AddOp::Plus ? '+' : '-';
+      acc = binInt(op == '+' ? "_iadd" : "_isub", op, acc, atomStr(tail.atom), std::to_string(n));
     }
     return acc;
   }
@@ -140,13 +219,13 @@ namespace refractir {
       std::string lane;
       switch (arg.op) {
         case AtomOpKind::Mul:
-          lane = (fp ? "_fmul" : "_imul") + std::string("(x, y, ") + w + ")";
+          lane = fp ? binFloat("_fmul", '*', "x", "y", w) : binInt("_imul", '*', "x", "y", w);
           break;
         case AtomOpKind::Div:
-          lane = (fp ? "_fdiv" : "_sdiv") + std::string("(x, y, ") + w + ")";
+          lane = fp ? binFloat("_fdiv", '/', "x", "y", w) : binIDiv("x", "y", w);
           break;
         case AtomOpKind::Mod:
-          lane = fp ? "_ffmod(x, y, " + w + ")" : "_srem(x, y, " + w + ")";
+          lane = fp ? binFFmod("x", "y", w) : binIRem("x", "y", w);
           break;
         case AtomOpKind::And:
           lane = "(x & y)";
@@ -158,13 +237,13 @@ namespace refractir {
           lane = "(x ^ y)";
           break;
         case AtomOpKind::Shl:
-          lane = "_shl(x, y, " + w + ")";
+          lane = binShift("_shl", "<<", "x", "y", w);
           break;
         case AtomOpKind::Shr:
-          lane = "_ashr(x, y, " + w + ")";
+          lane = binShift("_ashr", ">>", "x", "y", w);
           break;
         case AtomOpKind::LShr:
-          lane = "_lshr(x, y, " + w + ")";
+          lane = binLshr("x", "y", w);
           break;
       }
       return "[" + lane + " for x, y in zip(" + C + ", " + R + ")]";
@@ -176,11 +255,11 @@ namespace refractir {
       const std::string b = std::to_string(fb);
       switch (arg.op) {
         case AtomOpKind::Mul:
-          return "_fmul(" + c + ", " + r + ", " + b + ")";
+          return binFloat("_fmul", '*', c, r, b);
         case AtomOpKind::Div:
-          return "_fdiv(" + c + ", " + r + ", " + b + ")";
+          return binFloat("_fdiv", '/', c, r, b);
         case AtomOpKind::Mod:
-          return "_ffmod(" + c + ", " + r + ", " + b + ")";
+          return binFFmod(c, r, b);
         default:
           throw std::runtime_error("python target: bitwise operator on float operands");
       }
@@ -191,11 +270,11 @@ namespace refractir {
     const std::string n = std::to_string(bits);
     switch (arg.op) {
       case AtomOpKind::Mul:
-        return "_imul(" + c + ", " + r + ", " + n + ")";
+        return binInt("_imul", '*', c, r, n);
       case AtomOpKind::Div:
-        return "_sdiv(" + c + ", " + r + ", " + n + ")";
+        return binIDiv(c, r, n);
       case AtomOpKind::Mod:
-        return "_srem(" + c + ", " + r + ", " + n + ")";
+        return binIRem(c, r, n);
       case AtomOpKind::And:
         return "(" + c + " & " + r + ")";
       case AtomOpKind::Or:
@@ -203,11 +282,11 @@ namespace refractir {
       case AtomOpKind::Xor:
         return "(" + c + " ^ " + r + ")";
       case AtomOpKind::Shl:
-        return "_shl(" + c + ", " + r + ", " + n + ")";
+        return binShift("_shl", "<<", c, r, n);
       case AtomOpKind::Shr:
-        return "_ashr(" + c + ", " + r + ", " + n + ")";
+        return binShift("_ashr", ">>", c, r, n);
       case AtomOpKind::LShr:
-        return "_lshr(" + c + ", " + r + ", " + n + ")";
+        return binLshr(c, r, n);
     }
     return "";
   }
@@ -270,7 +349,7 @@ namespace refractir {
   PyBackend::castValueStr(const std::string &src, const TypePtr &srcTy, const TypePtr &dstTy) {
     if (std::uint32_t m = intWidth(dstTy)) {
       if (floatWidth(srcTy))
-        return "_f2i(" + src + ", " + std::to_string(m) + ")";
+        return castF2I(src, std::to_string(m));
       return "_cast_int(" + src + ", " + std::to_string(m) + ")";
     }
     std::uint32_t fb = floatWidth(dstTy);

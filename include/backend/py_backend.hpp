@@ -42,6 +42,14 @@ namespace refractir {
 
     void setNoRequire(bool val) { noRequire_ = val; }
 
+    /// [v0.2.3] Omit the dynamic undefined-behavior guards. Sound only
+    /// for known-UB-free programs: the guards never fire on such a
+    /// program, so behavior is identical. Under this mode the arithmetic
+    /// operators lower to inline Python expressions (`a + b`, truncating
+    /// `//`, …) instead of the checked runtime helpers, and the helper
+    /// preamble drops its `_trap` guards while keeping value semantics.
+    void setNoUbGuards(bool val) { noUbGuards_ = val; }
+
     void setNoMainMangle(bool val) { noMainMangle_ = val; }
 
     /// [v0.2.3] Set the vector-lowering strategy (storage form of
@@ -52,6 +60,7 @@ namespace refractir {
   private:
     std::ostream &out_;
     bool noRequire_ = false;
+    bool noUbGuards_ = false; // [v0.2.3] see setNoUbGuards
     bool noMainMangle_ = false;
     const Program *prog_ = nullptr;
     std::unique_ptr<PyVecLowering> vecLowering_; // [v0.2.3] see py_vec_lowering.hpp
@@ -100,6 +109,31 @@ namespace refractir {
     std::string exprStr(const Expr &expr);
     std::string atomStr(const Atom &atom);
     std::string opAtomStr(const OpAtom &arg);
+
+    // [v0.2.3] Binary-operator lowering, shared by the scalar and
+    // per-lane paths. Each returns the checked-helper call by default
+    // and an inline Python expression under --no-ub-guards (`a`,`b` are
+    // already-emitted operand strings, `n` the bit-width string). The
+    // inline forms reproduce RefractIR's value semantics exactly
+    // (truncating div/rem, logical-shift masking, per-op f32 rounding);
+    // only the UB traps — dead on a UB-free program — are dropped.
+    std::string binInt(
+        const char *helper, char op, const std::string &a, const std::string &b,
+        const std::string &n
+    ) const;
+    std::string binIDiv(const std::string &a, const std::string &b, const std::string &n) const;
+    std::string binIRem(const std::string &a, const std::string &b, const std::string &n) const;
+    std::string binShift(
+        const char *helper, const char *op, const std::string &a, const std::string &b,
+        const std::string &n
+    ) const;
+    std::string binLshr(const std::string &a, const std::string &b, const std::string &n) const;
+    std::string binFloat(
+        const char *helper, char op, const std::string &a, const std::string &b,
+        const std::string &n
+    ) const;
+    std::string binFFmod(const std::string &a, const std::string &b, const std::string &n) const;
+    std::string castF2I(const std::string &x, const std::string &n) const;
     std::string selectAtomStr(const SelectAtom &arg);
     std::string cmpAtomStr(const CmpAtom &arg);
     std::string castAtomStr(const CastAtom &arg);
