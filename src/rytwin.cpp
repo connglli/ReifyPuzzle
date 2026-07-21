@@ -15,8 +15,8 @@
  * docs/reify.md).
  *
  * This driver wires the CLI, infers and loads the descriptor from the
- * input path, obtains the profile, runs the Pass pipeline (TwinPass), and
- * optionally validates and compiles the result.
+ * input path, obtains the profile, runs the transform pipeline
+ * (TwinTransform), and optionally validates and compiles the result.
  */
 
 #include <cctype>
@@ -35,10 +35,10 @@
 #include "frontend/parser.hpp"
 #include "reify/common.hpp"
 #include "reify/func_desc.hpp"
-#include "reify/pass.hpp"
 #include "reify/state_profile.hpp"
+#include "reify/transform.hpp"
 #include "reify/twin_gen.hpp"
-#include "reify/twin_pass.hpp"
+#include "reify/twin_transform.hpp"
 #include "solver/solver.hpp"
 #if defined(USE_BITWUZLA)
 #include "solver/bitwuzla_impl.hpp"
@@ -264,7 +264,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // 3. Obtain the state profile TwinPass keys its guards on. Prefer a
+  // 3. Obtain the state profile TwinTransform keys its guards on. Prefer a
   // `.state.json` sidecar (rysmith --emit-state) when one is present —
   // existing pipelines keep working unchanged — and otherwise derive the
   // profile from p1 itself by interpreting it in-process on its solved
@@ -304,9 +304,10 @@ int main(int argc, char **argv) {
     }
   }
 
-  // 4. Assemble the pass context.
-  PassCtx ctx;
-  ctx.rng.seed(seed);
+  // 4. Assemble the transform context. `rng` is the tool's own stream; the
+  // context borrows it by reference so every draw stays deterministic.
+  std::mt19937 rng(seed);
+  TransformContext ctx(rng);
   ctx.solverFactory = makeSolverFactory();
   if (desc)
     ctx.descriptors[entry] = *desc;
@@ -317,13 +318,14 @@ int main(int argc, char **argv) {
     gcfg.nStmts = result["twin-stmts"].as<int>();
     gcfg.retries = result["twin-retries"].as<int>();
     auto factory = ctx.solverFactory;
-    twinGen = [gcfg, factory](
-                  const Program &p, const std::vector<TwinGenRoot> &roots, std::mt19937 &rng
-              ) { return generateTwin(p, roots, rng, factory, gcfg); };
+    twinGen = [gcfg,
+               factory](const Program &p, const std::vector<TwinGenRoot> &roots, std::mt19937 &r) {
+      return generateTwin(p, roots, r, factory, gcfg);
+    };
   }
-  PassPipeline pipe;
-  pipe.add(makeTwinPass(pTwin, std::move(twinGen)));
-  PassReport rep = pipe.run(prog, ctx);
+  TransformPipeline pipe;
+  pipe.add(makeTwinTransform(pTwin, std::move(twinGen)));
+  TransformReport rep = pipe.run(prog, ctx);
   if (!rep.ok) {
     std::cerr << "rytwin: pass failed: " << rep.message << "\n";
     return 1;

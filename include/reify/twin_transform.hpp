@@ -1,9 +1,9 @@
 #pragma once
 
-// TwinPass — the equivalence-preserving block-twin rewrite behind rytwin.
+// TwinTransform — the equivalence-preserving block-twin rewrite behind rytwin.
 //
-// For the profiled entry function, TwinPass walks the executed trace (the
-// StateProfile in PassCtx). For each eligible on-path block B, with
+// For the profiled entry function, TwinTransform walks the executed trace (the
+// StateProfile in TransformContext). For each eligible on-path block B, with
 // probability `pTwin`, it grafts an equivalent alternative:
 //
 //     ^X (guard):  br call @__twg_<fn>_<X>(<state>) != 0, ^X__twin, ^X__orig
@@ -44,14 +44,14 @@
 
 #include <memory>
 
-#include "reify/pass.hpp"
+#include "reify/transform.hpp"
 #include "reify/twin_gen.hpp"
 
 namespace refractir::reify {
 
-  // Build the twin pass. `pTwin` in [0,1] is the per-candidate-block
+  // Build the twin transform. `pTwin` in [0,1] is the per-candidate-block
   // probability of grafting a twin. `twinGen` generates the twin body; an
   // empty function selects constant reconstruction.
-  std::unique_ptr<Pass> makeTwinPass(double pTwin, TwinGenFn twinGen = {});
+  std::unique_ptr<Transform> makeTwinTransform(double pTwin, TwinGenFn twinGen = {});
 
 } // namespace refractir::reify

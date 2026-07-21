@@ -1,4 +1,4 @@
-#include "reify/twin_pass.hpp"
+#include "reify/twin_transform.hpp"
 
 #include <map>
 #include <random>
@@ -761,16 +761,17 @@ namespace refractir::reify {
       }
     }
 
-    class TwinPass : public Pass {
+    class TwinTransform : public Transform {
     public:
-      TwinPass(double pTwin, TwinGenFn twinGen) : pTwin_(pTwin), twinGen_(std::move(twinGen)) {}
+      TwinTransform(double pTwin, TwinGenFn twinGen) :
+          pTwin_(pTwin), twinGen_(std::move(twinGen)) {}
 
-      std::string_view name() const override { return "TwinPass"; }
+      std::string_view name() const override { return "TwinTransform"; }
 
       bool needsProfile() const override { return true; }
 
-      PassReport apply(Program &prog, PassCtx &ctx) override {
-        PassReport rep;
+      TransformReport apply(Program &prog, TransformContext &ctx) override {
+        TransformReport rep;
         std::uniform_real_distribution<double> coin(0.0, 1.0);
 
         StructMap structs;
@@ -892,7 +893,8 @@ namespace refractir::reify {
       // root has a target value in s'. On any miss, plan.twinInstrs stays
       // empty and graft falls back to constant reconstruction.
       void maybeGenerateTwin(
-          Program &prog, TwinPlan &plan, const StateMap &s, const StateMap &sPrime, PassCtx &ctx
+          Program &prog, TwinPlan &plan, const StateMap &s, const StateMap &sPrime,
+          TransformContext &ctx
       ) {
         if (!twinGen_)
           return;
@@ -981,8 +983,8 @@ namespace refractir::reify {
 
   } // namespace
 
-  std::unique_ptr<Pass> makeTwinPass(double pTwin, TwinGenFn twinGen) {
-    return std::make_unique<TwinPass>(pTwin, std::move(twinGen));
+  std::unique_ptr<Transform> makeTwinTransform(double pTwin, TwinGenFn twinGen) {
+    return std::make_unique<TwinTransform>(pTwin, std::move(twinGen));
   }
 
 } // namespace refractir::reify

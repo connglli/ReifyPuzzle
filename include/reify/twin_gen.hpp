@@ -14,7 +14,7 @@
 // bit-exact re-run does not). The equality requires are scaffolding and are
 // stripped from the returned instructions.
 //
-// The TwinPass consumes this through the `TwinGenFn` callback, injected by
+// The TwinTransform consumes this through the `TwinGenFn` callback, injected by
 // the rytwin driver: the pass library stays free of a solver link
 // dependency (rylink links reify without the solver backend).
 
@@ -66,7 +66,7 @@ namespace refractir::reify {
     std::vector<IntrinsicDecl> intrinsics;
   };
 
-  // Generator callback used by TwinPass. Returns the concrete twin-block
+  // Generator callback used by TwinTransform. Returns the concrete twin-block
   // body, or nullopt when no attempt verified (the pass then falls back to
   // constant reconstruction).
   using TwinGenFn = std::function<std::optional<TwinGenResult>(

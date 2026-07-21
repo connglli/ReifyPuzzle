@@ -1,24 +1,29 @@
 #pragma once
 
-// [v0.2.2] Peephole rewrite engine for rylink.
+// [v0.2.2] Call-realization transform for rylink.
 //
-// Given a caller FunDecl and a callee FuncDescriptor (with its solved
-// param/ret values for one or more realizations), the engine finds
-// semantically-safe rewrite sites in the caller and substitutes them with
-// `call @callee(args)`. v1 ships LiteralToCallRule, which rewrites
-// scalar-literal `let` initializers. The interface is shaped so future
-// rules (unchanged-var-to-call, binop-fold-to-call, etc.) plug in without
-// touching the engine.
+// CallRealizeTransform is the whole-program Transform that turns rylink's
+// chosen call-graph into real `call @callee(args)` sites. For each planned
+// caller->callee edge it finds semantically-safe rewrite sites in the caller
+// and substitutes them with a call whose solved arguments reproduce the
+// original value. The site-finding is a small peephole engine over pluggable
+// RewriteRules; v1 ships LiteralToCallRule, which rewrites scalar-literal
+// `let` initializers. RewriteRule / RewriteSite are the internal peephole
+// sub-tier of this one transform — future rules (unchanged-var-to-call,
+// binop-fold-to-call, etc.) plug in without touching the transform.
 
 #include <memory>
 #include <optional>
 #include <random>
 #include <set>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "ast/ast.hpp"
 #include "reify/func_desc.hpp"
+#include "reify/transform.hpp"
 
 namespace refractir::reify {
 
@@ -73,18 +78,52 @@ namespace refractir::reify {
     int sitesRewritten = 0;
   };
 
-  class RewriteEngine {
+  // One planned call-graph edge: realize a call from `caller` into `callee`,
+  // pinned to `calleeRealizationIdx`. Functions are named (canonical "@...")
+  // rather than pointed-to so the plan is pure data — the transform resolves
+  // the FunDecls out of the Program and the FuncDescriptors out of the
+  // TransformContext at apply() time.
+  struct CallRealizeEdge {
+    std::string caller;
+    std::string callee;
+    std::size_t calleeRealizationIdx = 0;
+  };
+
+  // rylink's composition decision: which caller->callee edges to realize,
+  // in application order. This is the tool's plan (which functions, which
+  // realization); the per-function metadata it needs (descriptors, incl. the
+  // concretized path) rides in the shared TransformContext.
+  struct CallRealizePlan {
+    std::vector<CallRealizeEdge> edges;
+  };
+
+  // Whole-program call-realization transform. Owns the peephole RewriteRules
+  // and walks `plan.edges` in order, realizing each. Build one with
+  // makeCallRealizeTransform (pre-loaded with the v1 literal rule) and run it
+  // through a TransformPipeline like any other Transform.
+  class CallRealizeTransform : public Transform {
   public:
+    explicit CallRealizeTransform(CallRealizePlan plan) : plan_(std::move(plan)) {}
+
     void addRule(std::unique_ptr<RewriteRule> r) { rules_.push_back(std::move(r)); }
 
-    // Rewrite sites in `caller` that call into `callee`. The engine
-    // filters sites to those whose callee matches, then rolls a
-    // count-keyed acceptance coin (pRewriteForMatches) per match under
-    // `rng`, splicing every accepted+appliable site — possibly several
-    // distinct sites per edge — up to the per-edge attempts cap. Each
-    // site is consumed once (see the composition-safety note below), so a
-    // given let-init is never spliced twice. Returns counters for
-    // telemetry.
+    std::string_view name() const override { return "CallRealizeTransform"; }
+
+    // Resolve each planned edge's caller/callee (FunDecl from `prog`,
+    // FuncDescriptor from `ctx.descriptors`) and realize it, drawing all
+    // randomness from `ctx.rng`. Edges whose endpoints are missing are
+    // skipped defensively. `TransformReport::sites` accumulates the spliced
+    // call sites.
+    TransformReport apply(Program &prog, TransformContext &ctx) override;
+
+  private:
+    // Realize sites in `caller` that call into `callee`. Filters sites to
+    // those whose callee matches, then rolls a count-keyed acceptance coin
+    // (pRewriteForMatches) per match under `rng`, splicing every
+    // accepted+appliable site — possibly several distinct sites per edge —
+    // up to the per-edge attempts cap. Each site is consumed once (see the
+    // composition-safety note below), so a given let-init is never spliced
+    // twice. Returns counters for telemetry.
     //
     // `fixedRealizationIdx` pins which realization of the callee the
     // rule must use — it has to be the one whose .sir was actually
@@ -98,11 +137,10 @@ namespace refractir::reify {
     // sub-expressions evaluate left-to-right in RefractIR, so e.g. composing
     // `c → f1() + (c - r1)` with a later rewrite of the literal `(c - r1)`
     // into `f2() + ((c - r1) - r2)` produces `f1() + f2() + …` and that
-    // left-prefix sum can wrap in unintended ways. The engine therefore
+    // left-prefix sum can wrap in unintended ways. The transform therefore
     // marks each (caller, site) it successfully rewrites as consumed and
     // skips it on subsequent edges; one splice per site for the lifetime
-    // of the engine.
-    // [v0.2.2] rewriteEdge performs whole-program call realization.
+    // of the transform.
     // `callerDesc` supplies the metadata of the caller function (including
     // the concretized execution path to target unexecuted blocks safely).
     RewriteResult rewriteEdge(
@@ -110,7 +148,7 @@ namespace refractir::reify {
         const FuncDescriptor &callee, std::size_t fixedRealizationIdx, std::mt19937 &rng
     );
 
-  private:
+    CallRealizePlan plan_;
     std::vector<std::unique_ptr<RewriteRule>> rules_;
     // Identity = (caller FunDecl pointer, site letIdx). Caller pointers
     // are stable across one rylink program (the bundle's funs vector is
@@ -122,5 +160,9 @@ namespace refractir::reify {
     // sites in the same rylink run.
     std::set<std::pair<const FunDecl *, int>> consumed_;
   };
+
+  // Build a CallRealizeTransform pre-loaded with the v1 rule set
+  // (LiteralToCallRule). This is the entry point rylink adds to its pipeline.
+  std::unique_ptr<Transform> makeCallRealizeTransform(CallRealizePlan plan);
 
 } // namespace refractir::reify

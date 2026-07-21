@@ -7,7 +7,7 @@
  *   3. Parse each chosen .sir and merge into one bundled Program
  *      (deduplicating struct decls by name; rysmith already namespaces
  *      structs by genID so collisions only happen across same-id picks).
- *   4. For each (caller→callee) edge in the CG, drive the RewriteEngine
+ *   4. For each (caller→callee) edge in the CG, drive CallRealizeTransform
  *      to splice a `call @callee(args)` into the caller body.
  *   5. Emit `prog_<id>_<i>/program.sir` (bundled, with CG/PARAMS/RET
  *      header comments). The bundled file is the source of truth for
@@ -49,6 +49,7 @@
 #include "frontend/parser.hpp"
 #include "frontend/semchecker.hpp"
 #include "frontend/typechecker.hpp"
+#include "reify/call_realize.hpp"
 #include "reify/cg_gen.hpp"
 #include "reify/checksum.hpp"
 #include "reify/common.hpp"
@@ -56,7 +57,7 @@
 #include "reify/func_pool.hpp"
 #include "reify/hyperparameters.hpp"
 #include "reify/id_gen.hpp"
-#include "reify/rewrite.hpp"
+#include "reify/transform.hpp"
 
 namespace fs = std::filesystem;
 using namespace refractir;
@@ -314,17 +315,23 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
       return false;
   }
 
-  // Run the rewrite engine for each edge.
-  RewriteEngine engine;
-  engine.addRule(makeLiteralToCallRule());
-  for (int i = 0; i < cg.nNodes; ++i) {
-    for (int j: cg.outEdges[i]) {
-      engine.rewriteEdge(
-          *nodes[i].fn, pool.entries[nodes[i].poolIdx].desc, *nodes[j].fn,
-          pool.entries[nodes[j].poolIdx].desc, nodes[j].realizationIdx, rng
-      );
-    }
-  }
+  // Realize the call graph. The per-node descriptors (input/oracle + the
+  // concretized execution path) ride in the shared context, keyed by func
+  // name; the plan carries the composition decision (which edges, which
+  // realization). The context borrows `rng` by reference so the transform's
+  // draws stay on this program's deterministic stream.
+  TransformContext ctx(rng);
+  for (int i = 0; i < cg.nNodes; ++i)
+    ctx.descriptors[nodes[i].funcName] = pool.entries[nodes[i].poolIdx].desc;
+
+  CallRealizePlan plan;
+  for (int i = 0; i < cg.nNodes; ++i)
+    for (int j: cg.outEdges[i])
+      plan.edges.push_back({nodes[i].funcName, nodes[j].funcName, nodes[j].realizationIdx});
+
+  TransformPipeline pipe;
+  pipe.add(makeCallRealizeTransform(std::move(plan)));
+  pipe.run(bundle, ctx);
 
   // Backend-hint roll for callees. The bits live on
   // FunDecl::Attributes — the backend reads them and emits the

@@ -1,4 +1,4 @@
-#include "reify/rewrite.hpp"
+#include "reify/call_realize.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -7,6 +7,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "analysis/type_utils.hpp"
@@ -1008,7 +1009,7 @@ namespace refractir::reify {
     return false;
   }
 
-  RewriteResult RewriteEngine::rewriteEdge(
+  RewriteResult CallRealizeTransform::rewriteEdge(
       FunDecl &caller, const FuncDescriptor &callerDesc, const FunDecl &calleeFn,
       const FuncDescriptor &callee, std::size_t fixedRealizationIdx, std::mt19937 &rng
   ) {
@@ -1028,7 +1029,7 @@ namespace refractir::reify {
         // stacking calls on the same let-init produces left-to-right
         // chains like `f1() + f2() + ...` whose prefix sums can wrap
         // in unintended ways even though each individual rewrite is
-        // BV-sound. See RewriteEngine class header for the full note.
+        // BV-sound. See CallRealizeTransform class header for the full note.
         if (consumed_.count({&caller, s.letIdx}))
           continue;
         cands.push_back({rule.get(), s});
@@ -1069,7 +1070,7 @@ namespace refractir::reify {
         // A site consumed earlier — on a prior edge or earlier in this very
         // loop — must not be rewritten again: stacking calls on one let-init
         // builds an `f1()+f2()+…` left-prefix sum that can wrap. See the
-        // RewriteEngine header note. Without break we now re-check here.
+        // CallRealizeTransform header note. Without break we now re-check here.
         // A workaround is to introduce new variables and statements first.
         // A complete solution would land when RefractIR support parentheses.
         if (consumed_.count({&caller, c.site.letIdx}))
@@ -1107,6 +1108,41 @@ namespace refractir::reify {
     }
 
     return res;
+  }
+
+  TransformReport CallRealizeTransform::apply(Program &prog, TransformContext &ctx) {
+    TransformReport rep;
+
+    // Resolve functions by name once — names are unique across a rylink
+    // bundle (pool picks are without replacement), so a plain map suffices.
+    std::unordered_map<std::string, FunDecl *> byName;
+    for (auto &f: prog.funs)
+      byName[f.name.name] = &f;
+
+    for (const auto &e: plan_.edges) {
+      auto callerIt = byName.find(e.caller);
+      auto calleeIt = byName.find(e.callee);
+      if (callerIt == byName.end() || calleeIt == byName.end())
+        continue;
+      auto callerDesc = ctx.descriptors.find(e.caller);
+      auto calleeDesc = ctx.descriptors.find(e.callee);
+      if (callerDesc == ctx.descriptors.end() || calleeDesc == ctx.descriptors.end())
+        continue;
+
+      RewriteResult r = rewriteEdge(
+          *callerIt->second, callerDesc->second, *calleeIt->second, calleeDesc->second,
+          e.calleeRealizationIdx, ctx.rng
+      );
+      rep.sites += static_cast<std::size_t>(r.sitesRewritten);
+    }
+
+    return rep;
+  }
+
+  std::unique_ptr<Transform> makeCallRealizeTransform(CallRealizePlan plan) {
+    auto t = std::make_unique<CallRealizeTransform>(std::move(plan));
+    t->addRule(makeLiteralToCallRule());
+    return t;
   }
 
 } // namespace refractir::reify

@@ -170,7 +170,7 @@ W5. Lowering           — emit program.sir + optional symirc --split-by-source 
 W6. Validation         — symiri runs the bundled entry with its solved params; check return
 ```
 
-Each chosen leaf function brings its own solved realization (one of the `--n-inits` rysmith concretizations) so the rewrite expression `call + (c − o)` is semantically equivalent to the original literal at runtime. The rewrite engine consumes each rewrite site at most once across the entire program; composing two rewrites on the same literal would produce a left-to-right call chain (`f1() + f2() + …`) whose prefix sums can wrap in unintended ways even though each individual rewrite is BV-sound.
+Each chosen leaf function brings its own solved realization (one of the `--n-inits` rysmith concretizations) so the rewrite expression `call + (c − o)` is semantically equivalent to the original literal at runtime. The call-realization transform (`CallRealizeTransform`, a whole-program `Transform`) consumes each rewrite site at most once across the entire program; composing two rewrites on the same literal would produce a left-to-right call chain (`f1() + f2() + …`) whose prefix sums can wrap in unintended ways even though each individual rewrite is BV-sound.
 
 ## Twin-Program Generation
 

@@ -1119,7 +1119,9 @@ def equivalence_over_pool(rytwin, symiri, d, sirs, tag, extra=None):
         if symiri_result(symiri, p1, fn, a)[1:] != symiri_result(symiri, p2, fn, a)[1:]:
           other_bad += 1
   check(
-    f"TwinPass grafted at least one twin [{tag}]", twinned > 0, f"twinned={twinned}"
+    f"TwinTransform grafted at least one twin [{tag}]",
+    twinned > 0,
+    f"twinned={twinned}",
   )
   check(
     f"every twin preserves the profiled result [{tag}]",
@@ -1135,7 +1137,7 @@ def equivalence_over_pool(rytwin, symiri, d, sirs, tag, extra=None):
 
 def test_twinpass_grafts_and_preserves_equivalence(rytwin, rysmith, symiri):
   """On pointer-free programs (scalars, structs, arrays, vectors and pure
-  intrinsic calls — everything eligibility now covers), TwinPass grafts twins
+  intrinsic calls — everything eligibility now covers), TwinTransform grafts twins
   whose exact guard keeps p1 === p2: identical results on the profiled input
   AND on other inputs."""
   with tempfile.TemporaryDirectory() as d:
@@ -1266,23 +1268,23 @@ def main():
       lambda: test_bad_guard_rejected(rytwin, rysmith),
     ),
     (
-      "TwinPass: guard is a function",
+      "TwinTransform: guard is a function",
       lambda: test_guard_is_function(rytwin, rysmith),
     ),
     (
-      "TwinPass: guard covers the full state",
+      "TwinTransform: guard covers the full state",
       lambda: test_guard_covers_full_state(rytwin),
     ),
     (
-      "TwinPass: guard function names unique per site",
+      "TwinTransform: guard function names unique per site",
       lambda: test_guard_unique_names(rytwin, rysmith),
     ),
     (
-      "TwinPass: aggregates by pointer, vectors per-lane",
+      "TwinTransform: aggregates by pointer, vectors per-lane",
       lambda: test_guard_aggregates_and_vectors(rytwin, rysmith, symiri),
     ),
     (
-      "TwinPass: guard functions compile (C binary + wasm)",
+      "TwinTransform: guard functions compile (C binary + wasm)",
       lambda: test_guard_compiles_c_and_wasm(rytwin, rysmith),
     ),
     (
@@ -1359,11 +1361,11 @@ def main():
     ),
     ("rytwin: missing args usage", lambda: test_missing_args_usage(rytwin)),
     (
-      "TwinPass: grafts twins, preserves equivalence (profiled + other inputs)",
+      "TwinTransform: grafts twins, preserves equivalence (profiled + other inputs)",
       lambda: test_twinpass_grafts_and_preserves_equivalence(rytwin, rysmith, symiri),
     ),
     (
-      "TwinPass: equivalence without sidecar",
+      "TwinTransform: equivalence without sidecar",
       lambda: test_equivalence_without_sidecar(rytwin, rysmith, symiri),
     ),
     (
