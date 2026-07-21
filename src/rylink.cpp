@@ -258,6 +258,7 @@ struct PerProgConfig {
   // on the descriptors' `reducible` flag before generation.
   std::string structuredLowering = "false";
   bool keepRequire = false;
+  bool keepUbGuards = false; // [v0.2.3] force UB guards on even for UB-free bundles
   bool validate = false;
   bool verbose = false;
   bool emitMain = false;
@@ -428,6 +429,18 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
   // `concrete: <path>` line.
   std::cout << "  bundled: " << programSir << "\n";
 
+  // [v0.2.3] The bundle is UB-free iff every constituent leaf is, so the
+  // backends' dynamic UB guards can be dropped only then. A leaf
+  // generated with rysmith --require-ub (has_ub) may trigger UB, so its
+  // presence — or any legacy descriptor conservatively defaulting to
+  // has_ub=true — keeps the guards on.
+  bool noUbGuards = !cfg.keepUbGuards;
+  for (const auto &n: nodes)
+    if (pool.entries[n.poolIdx].desc.hasUb) {
+      noUbGuards = false;
+      break;
+    }
+
   // Target backends. Both code paths run the analysis pipeline on the
   // in-memory bundle and call CBackend / WasmBackend directly so
   // FunDecl::sourceStem (set during mergeInto) survives into emitSplit
@@ -453,8 +466,8 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     if (cfg.verbose && structured)
       std::cout << "  structured-lowering: true\n";
     if (!emitCInProcess(
-            bundle, emitDir, emitStem, cfg.keepRequire, vecLow, structured, cfg.emitMain,
-            cfg.splitBySource, cfg.verbose
+            bundle, emitDir, emitStem, cfg.keepRequire, noUbGuards, vecLow, structured,
+            cfg.emitMain, cfg.splitBySource, cfg.verbose
         )) {
       if (cfg.verbose)
         std::cerr << "  backend FAIL (" << failTag << ")\n";
@@ -466,7 +479,9 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     std::string vecLow = reify::pickVecLowering(rng, cfg.vecLowering, "wasm");
     if (cfg.verbose && !vecLow.empty())
       std::cout << "  vec-lowering: " << vecLow << "\n";
-    if (!emitWasmInProcess(bundle, wasmOut, cfg.keepRequire, vecLow, cfg.emitMain, cfg.verbose)) {
+    if (!emitWasmInProcess(
+            bundle, wasmOut, cfg.keepRequire, noUbGuards, vecLow, cfg.emitMain, cfg.verbose
+        )) {
       if (cfg.verbose)
         std::cerr << "  backend FAIL (" << failTag << ")\n";
       return false;
@@ -479,7 +494,9 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     std::string vecLow = reify::pickVecLowering(rng, cfg.vecLowering, "python");
     if (cfg.verbose && !vecLow.empty())
       std::cout << "  vec-lowering: " << vecLow << "\n";
-    if (!emitPyInProcess(bundle, pyOut, cfg.keepRequire, vecLow, cfg.emitMain, cfg.verbose)) {
+    if (!emitPyInProcess(
+            bundle, pyOut, cfg.keepRequire, noUbGuards, vecLow, cfg.emitMain, cfg.verbose
+        )) {
       if (cfg.verbose)
         std::cerr << "  backend FAIL (" << failTag << ")\n";
       return false;
@@ -537,6 +554,8 @@ int main(int argc, char **argv) {
         cxxopts::value<std::string>()->default_value("false"))
     ("keep-require", "Keep `require` checks in C/WASM output",
         cxxopts::value<bool>()->default_value("false"))
+    ("keep-ub-guards", "Keep dynamic UB guards even when the bundle is UB-free (default: false)",
+        cxxopts::value<bool>()->default_value("false"))
     ("emit-main", "Generate a main wrapper in the output program",
         cxxopts::value<bool>()->default_value("false"))
     ("p-noinline-callees", "Probability each bundled callee is marked noinline",
@@ -587,6 +606,7 @@ int main(int argc, char **argv) {
   pc.target = res["target"].as<std::string>();
   pc.vecLowering = res["vec-lowering"].as<std::string>();
   pc.keepRequire = res["keep-require"].as<bool>();
+  pc.keepUbGuards = res["keep-ub-guards"].as<bool>();
   pc.validate = res["validate"].as<bool>();
   pc.emitMain = res["emit-main"].as<bool>();
   pc.splitBySource = !res["no-split-by-source"].as<bool>();

@@ -492,7 +492,10 @@ static GenerateResult generateLeaf(
           for (const auto &x: produced)
             realizations.push_back(x.rz);
           auto descPath = outDir / (funcName + ".json");
-          writeFuncDescriptorFromProgram(descPath, funcName, prog, pathLabels, realizations, genId);
+          writeFuncDescriptorFromProgram(
+              descPath, funcName, prog, pathLabels, realizations, genId,
+              /*hasUb=*/solMode == SolvingMode::RequireUB
+          );
         }
         if (verbose)
           std::cout << "[emit] init " << initIdx << ": " << concretePath << "\n";
@@ -589,6 +592,7 @@ int main(int argc, char **argv) {
     ("structured-lowering", "Structured (goto-free) lowering for the C target: true|false|random; true/random imply --require-reducible",
                           cxxopts::value<std::string>()->default_value("false"))
     ("keep-require",      "Include require checks in compiled output (default: omitted)")
+    ("keep-ub-guards",    "Keep dynamic UB guards in compiled output even for UB-free programs (default: false)")
     ("keep-symbolic",     "Write intermediate symbolic .sir files to disk")
     ("emit-desc",         "Emit per-function descriptor JSON (func_<id>_<i>.json) — needed by rylink")
     ("emit-state",        "Emit a func_<id>_<i>.state.json profile of the concrete state at each program point — consumed by rytwin. Value selects granularity: pbb (per basic block) or ppp (per program point)",
@@ -758,6 +762,13 @@ int main(int argc, char **argv) {
   bool noCrc32 = result.count("no-crc32") > 0 || solMode == SolvingMode::RequireUB;
   std::string target = result["target"].as<std::string>();
   bool noRequire = !result.count("keep-require");
+  // [v0.2.3] UB-free generation (the default) produces programs the
+  // solver guarantees never trigger UB on the concretized path, so the
+  // backends' dynamic UB guards are dead weight — drop them. --require-ub
+  // deliberately triggers UB, so its guards must stay; --keep-ub-guards
+  // forces guards back on (e.g. to catch a mislabeled UB-free program
+  // trapping at runtime instead of silently misbehaving).
+  bool noUbGuards = (solMode == SolvingMode::UBFree) && result.count("keep-ub-guards") == 0;
   std::string vecLoweringOpt = result["vec-lowering"].as<std::string>();
 
   if (target != "sir" && target != "c" && target != "wasm" && target != "python") {
@@ -885,7 +896,7 @@ int main(int argc, char **argv) {
         if (verbose && structured)
           std::cout << "  structured-lowering: true\n";
         bool ok = compileSirInProcess(
-            p, target, outPath, !noRequire, vecLowering, structured, emitMain, verbose
+            p, target, outPath, !noRequire, noUbGuards, vecLowering, structured, emitMain, verbose
         );
         if (ok)
           std::cout << "  compiled: " << outPath << "\n";

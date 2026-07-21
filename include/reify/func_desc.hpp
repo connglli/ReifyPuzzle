@@ -33,6 +33,14 @@ namespace refractir::reify {
     // conservatively "not known reducible".
     bool reducible = false;
 
+    // [v0.2.3] Whether this function was generated in UB-triggering mode
+    // (rysmith --require-ub): its concretized path deliberately hits
+    // undefined behavior. UB-free generation (the default) sets this
+    // false, letting consumers drop the backends' dynamic UB guards.
+    // Descriptors written before this field default to true —
+    // conservatively "may contain UB" so guards are kept.
+    bool hasUb = true;
+
     struct Param {
       std::string name; // e.g. `%pa0`
       std::string type; // SIR surface syntax
@@ -103,7 +111,8 @@ namespace refractir::reify {
   bool writeFuncDescriptorFromProgram(
       const std::filesystem::path &outPath, const std::string &funcName,
       const refractir::Program &prog, const std::vector<std::string> &pathLabels,
-      const std::vector<FuncDescriptor::Realization> &realizations, const std::string &genId
+      const std::vector<FuncDescriptor::Realization> &realizations, const std::string &genId,
+      bool hasUb
   );
 
   // Parse a descriptor JSON. Returns nullopt on parse error (callers

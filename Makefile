@@ -280,7 +280,7 @@ test-backends: $(TARGET_INTERP) $(TARGET_COMPILER)
 # want to run it on its own (`make cross-validation`).
 test-cross-validation cross-validation: $(TARGET_INTERP) $(TARGET_COMPILER)
 	$(PY) -m test.lib.run_xval_tests test/xval ./$(TARGET_INTERP) ./$(TARGET_COMPILER)
-	$(PY) -m test.lib.run_xval_tests test/xval ./$(TARGET_INTERP) ./$(TARGET_COMPILER) --symirc-extra=--structured-lowering
+	$(PY) -m test.lib.run_xval_tests test/xval ./$(TARGET_INTERP) ./$(TARGET_COMPILER) "--symirc-extra=--structured-lowering --no-ub-guards"
 
 # Solver: symirsolve + curated examples that depend on solving.
 test-solver: $(TARGET_SOLVER) $(TARGET_INTERP)

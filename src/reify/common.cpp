@@ -137,8 +137,8 @@ namespace refractir::reify {
 
   bool emitCInProcess(
       Program &prog, const fs::path &outDir, const std::string &primaryStem, bool keepRequire,
-      const std::string &vecLowering, bool structuredLowering, bool emitMain, bool splitBySource,
-      bool verbose
+      bool noUbGuards, const std::string &vecLowering, bool structuredLowering, bool emitMain,
+      bool splitBySource, bool verbose
   ) {
     if (!runAnalysisPasses(prog, verbose))
       return false;
@@ -149,6 +149,7 @@ namespace refractir::reify {
       std::ofstream sink;
       CBackend cb(sink);
       cb.setNoRequire(!keepRequire);
+      cb.setNoUbGuards(noUbGuards);
       cb.setNoMainMangle(emitMain);
       cb.setStructuredLowering(structuredLowering);
       cb.setVecLowering(std::move(vl));
@@ -170,6 +171,7 @@ namespace refractir::reify {
     }
     CBackend cb(ofs);
     cb.setNoRequire(!keepRequire);
+    cb.setNoUbGuards(noUbGuards);
     cb.setNoMainMangle(emitMain);
     cb.setStructuredLowering(structuredLowering);
     cb.setVecLowering(std::move(vl));
@@ -184,8 +186,8 @@ namespace refractir::reify {
   }
 
   bool emitWasmInProcess(
-      Program &prog, const fs::path &outFile, bool keepRequire, const std::string &vecLowering,
-      bool emitMain, bool verbose
+      Program &prog, const fs::path &outFile, bool keepRequire, bool noUbGuards,
+      const std::string &vecLowering, bool emitMain, bool verbose
   ) {
     if (!runAnalysisPasses(prog, verbose))
       return false;
@@ -203,6 +205,7 @@ namespace refractir::reify {
     }
     WasmBackend wb(ofs);
     wb.setNoRequire(!keepRequire);
+    wb.setNoUbGuards(noUbGuards);
     wb.setNoMainMangle(emitMain);
     wb.setVecLowering(std::move(vl));
     try {
@@ -216,8 +219,8 @@ namespace refractir::reify {
   }
 
   bool emitPyInProcess(
-      Program &prog, const fs::path &outFile, bool keepRequire, const std::string &vecLowering,
-      bool emitMain, bool verbose
+      Program &prog, const fs::path &outFile, bool keepRequire, bool noUbGuards,
+      const std::string &vecLowering, bool emitMain, bool verbose
   ) {
     if (!runAnalysisPasses(prog, verbose))
       return false;
@@ -237,6 +240,7 @@ namespace refractir::reify {
     }
     PyBackend pb(ofs);
     pb.setNoRequire(!keepRequire);
+    pb.setNoUbGuards(noUbGuards);
     pb.setNoMainMangle(emitMain);
     pb.setVecLowering(std::move(vl));
     try {
@@ -251,7 +255,8 @@ namespace refractir::reify {
 
   bool compileSirInProcess(
       const fs::path &sirPath, const std::string &target, const fs::path &outPath, bool keepRequire,
-      const std::string &vecLowering, bool structuredLowering, bool emitMain, bool verbose
+      bool noUbGuards, const std::string &vecLowering, bool structuredLowering, bool emitMain,
+      bool verbose
   ) {
     std::ifstream ifs(sirPath);
     if (!ifs) {
@@ -271,13 +276,17 @@ namespace refractir::reify {
 
       if (target == "c") {
         return emitCInProcess(
-            prog, outPath.parent_path(), outPath.stem().string(), keepRequire, vecLowering,
-            structuredLowering, emitMain, /*splitBySource=*/false, verbose
+            prog, outPath.parent_path(), outPath.stem().string(), keepRequire, noUbGuards,
+            vecLowering, structuredLowering, emitMain, /*splitBySource=*/false, verbose
         );
       } else if (target == "wasm") {
-        return emitWasmInProcess(prog, outPath, keepRequire, vecLowering, emitMain, verbose);
+        return emitWasmInProcess(
+            prog, outPath, keepRequire, noUbGuards, vecLowering, emitMain, verbose
+        );
       } else if (target == "python") {
-        return emitPyInProcess(prog, outPath, keepRequire, vecLowering, emitMain, verbose);
+        return emitPyInProcess(
+            prog, outPath, keepRequire, noUbGuards, vecLowering, emitMain, verbose
+        );
       } else {
         if (verbose)
           std::cerr << "compileSirInProcess: Unknown target " << target << "\n";

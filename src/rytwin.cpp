@@ -179,6 +179,7 @@ int main(int argc, char **argv) {
     ("target",  "Compile p2 to a target (sir = no compilation)",
                 cxxopts::value<std::string>()->default_value("sir"))
     ("keep-require", "Keep require checks in compiled output")
+    ("keep-ub-guards", "Keep dynamic UB guards in compiled output (default: false — the twin is assumed UB-free)")
     ("vec-lowering", "Vec-lowering strategy for C/WASM/Python backends",
                 cxxopts::value<std::string>()->default_value("vecext"))
     ("emit-main", "Keep @main un-mangled in compiled output (so p2 is runnable)")
@@ -215,6 +216,11 @@ int main(int argc, char **argv) {
     return 2;
   }
   bool keepRequire = result.count("keep-require") > 0;
+  // [v0.2.3] The twin is assumed UB-free — the interpreter profiling it
+  // rides on would fail on any UB — so drop the backends' dynamic UB
+  // guards by default. --keep-ub-guards forces them back on (e.g. to
+  // catch a mis-transformed twin trapping instead of misbehaving).
+  bool noUbGuards = result.count("keep-ub-guards") == 0;
   bool emitMain = result.count("emit-main") > 0;
   bool doValidate = result.count("validate") > 0;
   std::string vecLowering = result["vec-lowering"].as<std::string>();
@@ -382,7 +388,7 @@ int main(int argc, char **argv) {
     fs::path outCompiled = outputPath;
     outCompiled.replace_extension(target == "c" ? ".c" : ".wat");
     if (!compileSirInProcess(
-            outputPath, target, outCompiled, keepRequire, vecLowering,
+            outputPath, target, outCompiled, keepRequire, noUbGuards, vecLowering,
             /*structuredLowering=*/false, emitMain, /*verbose=*/false
         )) {
       std::cerr << "rytwin: compile of p2 to " << target << " failed\n";

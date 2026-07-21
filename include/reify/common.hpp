@@ -268,16 +268,18 @@ namespace refractir::reify {
   // Compile a Program to C (in-process). `structuredLowering` selects
   // the goto-free while/do-while body emission; the caller must have
   // ensured the program is reducible.
+  // `noUbGuards` drops the dynamic UB guards (see CBackend::setNoUbGuards);
+  // sound only when the generated program is known UB-free.
   bool emitCInProcess(
       refractir::Program &prog, const std::filesystem::path &outDir, const std::string &primaryStem,
-      bool keepRequire, const std::string &vecLowering, bool structuredLowering, bool emitMain,
-      bool splitBySource, bool verbose
+      bool keepRequire, bool noUbGuards, const std::string &vecLowering, bool structuredLowering,
+      bool emitMain, bool splitBySource, bool verbose
   );
 
   // Compile a Program to WASM (in-process).
   bool emitWasmInProcess(
       refractir::Program &prog, const std::filesystem::path &outFile, bool keepRequire,
-      const std::string &vecLowering, bool emitMain, bool verbose
+      bool noUbGuards, const std::string &vecLowering, bool emitMain, bool verbose
   );
 
   // [v0.2.3] Compile a Program to Python (in-process). Requires a
@@ -286,7 +288,7 @@ namespace refractir::reify {
   // and unknown names fail.
   bool emitPyInProcess(
       refractir::Program &prog, const std::filesystem::path &outFile, bool keepRequire,
-      const std::string &vecLowering, bool emitMain, bool verbose
+      bool noUbGuards, const std::string &vecLowering, bool emitMain, bool verbose
   );
 
   // Parse a .sir file and compile it with the C / WASM / Python
@@ -294,8 +296,8 @@ namespace refractir::reify {
   // the C target only.
   bool compileSirInProcess(
       const std::filesystem::path &sirPath, const std::string &target,
-      const std::filesystem::path &outPath, bool keepRequire, const std::string &vecLowering,
-      bool structuredLowering, bool emitMain, bool verbose
+      const std::filesystem::path &outPath, bool keepRequire, bool noUbGuards,
+      const std::string &vecLowering, bool structuredLowering, bool emitMain, bool verbose
   );
 
 } // namespace refractir::reify

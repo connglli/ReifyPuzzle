@@ -39,6 +39,7 @@ namespace refractir::reify {
     ofs << "  \"name\": \"" << d.name << "\",\n";
     ofs << "  \"ret_type\": \"" << jsonEscape(d.retType) << "\",\n";
     ofs << "  \"reducible\": " << (d.reducible ? "true" : "false") << ",\n";
+    ofs << "  \"has_ub\": " << (d.hasUb ? "true" : "false") << ",\n";
 
     ofs << "  \"params\": [";
     for (size_t i = 0; i < d.params.size(); ++i) {
@@ -101,7 +102,8 @@ namespace refractir::reify {
   bool writeFuncDescriptorFromProgram(
       const std::filesystem::path &outPath, const std::string &funcName,
       const refractir::Program &prog, const std::vector<std::string> &pathLabels,
-      const std::vector<FuncDescriptor::Realization> &realizations, const std::string &genId
+      const std::vector<FuncDescriptor::Realization> &realizations, const std::string &genId,
+      bool hasUb
   ) {
     const refractir::FunDecl *fn = nullptr;
     const std::string mangled = "@" + funcName;
@@ -115,6 +117,7 @@ namespace refractir::reify {
 
     FuncDescriptor d;
     d.id = genId;
+    d.hasUb = hasUb;
     d.name = fn->name.name;
     d.retType = SIRPrinter::typeToString(fn->retType);
     // Reducibility of the emitted function, via the same analyses the
@@ -361,6 +364,9 @@ namespace refractir::reify {
           return std::nullopt;
       } else if (key == "reducible") {
         if (!p.parseBool(d.reducible))
+          return std::nullopt;
+      } else if (key == "has_ub") {
+        if (!p.parseBool(d.hasUb))
           return std::nullopt;
       } else if (key == "params") {
         if (!p.match('['))
