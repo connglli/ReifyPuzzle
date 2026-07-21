@@ -261,10 +261,11 @@ rysmith [OPTIONS]
 | `--structured-lowering true\|false\|random` | `false` | Structured (goto-free) C lowering, resolved per program; `true`/`random` imply `--require-reducible` and reject `--target wasm` |
 | `--vec-lowering <s>` | `random` | Vector lowering strategy, resolved per program; `random` sweeps the target's set (C: all five; python: all but `vecext`) |
 | `--keep-require` | off | Include `require` checks in compiled output |
+| `--keep-ub-guards` | off | Keep the backends' dynamic UB guards in compiled output even for UB-free programs. By default UB-free generation (i.e. without `--require-ub`) drops them — see below |
 | `--keep-symbolic` | off | Write intermediate symbolic `.sir` to disk |
 | `--validate` | off | Run `symiri` on each concrete `.sir` and check its `Result:` line matches the descriptor's captured CRC32 retValue |
 | `--emit-main` | off | Append a `@main()` wrapper that calls the entry with its solver-synthesised params and asserts the CRC32 retValue via `@check_chksum` |
-| `--emit-desc` | off | Emit per-function descriptor JSON (`func_<id>_<i>.json`) used by `rylink`; records a `reducible` bool computed from the emitted function so structuring consumers can filter seeds |
+| `--emit-desc` | off | Emit per-function descriptor JSON (`func_<id>_<i>.json`) used by `rylink`; records a `reducible` bool computed from the emitted function so structuring consumers can filter seeds, and a `has_ub` bool (true under `--require-ub`) so `rylink` knows whether the leaf's UB guards can be dropped |
 | `--emit-state pbb\|ppp` | off | Emit a `func_<id>_<i>.state.json` profile of the concrete state at each program point (`pbb` = per basic-block entry, `ppp` = per program point) — loaded by `rytwin` when present, sparing it the in-process profiling run |
 | `-v, --verbose` | off | Verbose progress output |
 
@@ -315,6 +316,16 @@ By default every generated program is UB-free on its input: the solver asserts e
 
 `--require-ub` **implies `--no-crc32`.** The solver reasons about the *sum-form* checksum (`%_chk = %_chk + <leaf>`, the cheap contract above), and one legitimate way to satisfy "at least one UB on the path" is to overflow that signed accumulator. The post-solve CRC32 rewriter, however, replaces every `%_chk = %_chk + <leaf>` with a total `@crc32_update(...)` call — which cannot overflow — so it would silently *delete* the very UB the solver just proved, leaving the emitted program UB-free. Keeping the sum form (`--no-crc32`) makes the program rysmith emits byte-identical to the one it solved, so a solver-found UB is guaranteed to trap under the interpreter. This costs nothing: a UB-triggering program aborts before it reaches a clean `ret`, so its CRC32 return-value oracle is vestigial anyway.
 
+### Dropping UB guards for UB-free output
+
+The C/WASM/Python backends emit dynamic UB guards (`symirc --no-ub-guards`; see [symirc.md](./symirc.md#omitting-ub-guards---no-ub-guards-v023)). Because those guards only ever fire on a UB path, a program the reify pipeline proves UB-free renders them dead weight, so the tools **drop them automatically** rather than exposing a flag:
+
+- **rysmith** drops the guards whenever it is not in `--require-ub` mode, and records `has_ub` in each `--emit-desc` descriptor accordingly.
+- **rylink** drops them only when *every* selected pool leaf has `has_ub: false` — a bundle is UB-free iff all its leaves are. Legacy descriptors without the field parse as `has_ub: true`, so their guards are conservatively kept.
+- **rytwin** drops them unconditionally: a twin is equivalence-preserving over UB-free input, and the interpreter it profiles `p1` with would itself fail on any UB.
+
+Each tool takes **`--keep-ub-guards`** to force the guards back on — useful for catching a mislabeled UB-free program that *does* trigger UB, which then traps at runtime instead of silently misbehaving.
+
 
 ## Tool: rylink
 
@@ -343,6 +354,7 @@ rylink [OPTIONS]
 | `--structured-lowering true\|false\|random` | `false` | Structured (goto-free) C lowering, resolved per program; rejects `--target wasm` |
 | `--vec-lowering <s>` | `random` | Vector lowering strategy, resolved per program from the target's set (C: all five; python: all but `vecext`) |
 | `--keep-require` | off | Keep `require` checks in C/WASM output |
+| `--keep-ub-guards` | off | Keep the dynamic UB guards even when the bundle is UB-free (default: dropped — see *Dropping UB guards* above) |
 | `--validate` | off | Run `symiri` on each emitted program and assert the entry returns its descriptor's solved value |
 | `-v, --verbose` | off | Per-init log lines (`validated: OK`, `symirc FAIL`, etc.) |
 
@@ -402,6 +414,7 @@ The descriptor (`func_<id>_<i>.json`) and, when present, the state profile (`<st
 | `--target sir\|c\|wasm` | `sir` | Optionally compile `f2` via the in-process backend |
 | `--validate` | off | Run `symiri` on `f1` and `f2` with the profiled input, assert they agree, and assert at least one twin block actually executed |
 | `--keep-require` | off | Keep `require` checks in compiled output |
+| `--keep-ub-guards` | off | Keep the dynamic UB guards in the compiled twin (default: dropped — the twin is assumed UB-free; see *Dropping UB guards* above) |
 | `--emit-main` | off | Keep `@main` un-mangled in compiled output |
 
 ### Example

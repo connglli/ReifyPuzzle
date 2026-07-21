@@ -268,7 +268,47 @@ int32_t refractir_sum(int32_t refractir_n) {
 | `-w`               | Inhibit all warning messages               |
 | `--Werror`         | Make all warnings into errors              |
 | `--no-require`     | Omit `require` checks from emitted code (useful for compiler testing) |
+| `--no-ub-guards`   | Omit the dynamic undefined-behavior guards (null/OOB pointer traps, integer div/rem-by-zero traps, FP finiteness traps, intrinsic preconditions). **Sound only for known-UB-free programs** — see below (C, WASM, Python) |
 | `-h, --help`       | Print usage                                |
+
+## Omitting UB guards (`--no-ub-guards`, v0.2.3)
+
+By default the C, WASM, and Python backends emit dynamic guards that
+trap on RefractIR's undefined behaviors — null / out-of-bounds pointer
+dereference, integer division/remainder by zero, non-finite
+floating-point results, out-of-range intrinsic arguments, and so on.
+They are invaluable when it is unknown whether a program can trigger
+UB, but pure overhead for a program known to be UB-free (e.g. one
+`rysmith` generated in its default UB-free mode).
+
+`--no-ub-guards` drops those guards. It is sound **only when the
+program never triggers UB**: on such a program the guards never fire,
+so the emitted code is behaviorally identical with or without them.
+The invariant the option relies on is exactly this equivalence, and it
+is cross-validated on every UB-free program in `test/xval` (`make
+cross-validation`).
+
+Value semantics are unaffected — truncating division/remainder,
+logical-shift masking, per-operation `f32` rounding, and integer-cast
+wrapping are all preserved; only the traps are removed. The option is
+orthogonal to `--no-require` (which governs the separate `require`
+property assertions); the two may be combined.
+
+Notes per target:
+
+- **C**: pointer / FP / intrinsic traps are elided; integer
+  div/rem-by-zero (which is otherwise trapped self-contained) reverts
+  to a plain `/` / `%`; `unreachable` lowers to `__builtin_unreachable()`
+  (an optimization hint) instead of `__builtin_trap()`.
+- **WASM**: the guard `unreachable` instructions are elided while the
+  surrounding stack shape is preserved; the `unreachable` *terminator*
+  is kept (WASM has no no-op unreachable hint).
+- **Python**: arithmetic operators lower to inline expressions
+  (`a + b`, truncating `//`, …) instead of the checked runtime
+  helpers, and the runtime preamble drops its trap guards.
+
+The `reify` generators drive this automatically — see
+[reify.md](./reify.md) — so it rarely needs to be passed by hand.
 
 
 ## Limitations (v0.2.3)

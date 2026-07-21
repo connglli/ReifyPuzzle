@@ -8,6 +8,14 @@ RefractIR uses **strict UB**: if any operation on the executed path triggers UB,
 - `symirc`-emitted C runs under UBSan with `-fno-sanitize-recover=all`, so UB traps the executable.
 - `symirsolve` adds the UB-precluding constraint to `PC`; satisfiable models avoid the UB.
 
+> **`symirc --no-ub-guards`** (v0.2.3) removes the dynamic guards described
+> in the `symirc:` notes below (the explicit `__builtin_trap` /
+> `unreachable` / runtime-helper checks; not the UBSan-level ones, which
+> belong to the C compiler invocation). It is sound **only for programs
+> known to be UB-free**, where those guards never fire — see
+> [symirc.md](./symirc.md#omitting-ub-guards---no-ub-guards-v023). The
+> `reify` tools set it automatically for their UB-free output.
+
 The rule numbers below match the formal spec's UB rule numbers; rules unique to v0.2.1 are marked **[v0.2.1]**.
 
 ---

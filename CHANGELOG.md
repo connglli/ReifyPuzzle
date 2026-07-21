@@ -50,6 +50,14 @@ considered and dropped (spec §13).
 - **Per-lane vector symbol binding**: `symiri --sym '%?v=1,2,3,4'`.
 - Reify pipeline: Python-target and structured-lowering support with
   per-program strategy sweeps; reducible CFG generation.
+- **`symirc --no-ub-guards`**: omit the backends' dynamic UB guards
+  (null/OOB pointer traps, integer div/rem-by-zero traps, FP-finiteness
+  traps, intrinsic preconditions) across C, WASM, and Python. Sound only
+  for UB-free programs, where the guards never fire; value semantics are
+  preserved. The reify tools drive it automatically — `rysmith`/`rylink`
+  drop the guards for UB-free output (tracked per descriptor via a new
+  `has_ub` field), `rytwin` drops them for its UB-free twin, and
+  `--keep-ub-guards` forces them back on.
 - `make install` target.
 
 ### Changed
