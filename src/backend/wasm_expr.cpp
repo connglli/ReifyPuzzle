@@ -413,9 +413,15 @@ namespace refractir {
       out_ << "drop\n";
     }
 
+    // `local.set` (not tee): the index is only ever re-read from
+    // $__idx_temp below (bounds check + address math), so a stack copy
+    // would be orphaned. The dispatch-loop emitter tolerates such an
+    // orphan (its blocks end in `br`, which discards leftover stack),
+    // but the structured emitter falls through block ends and would
+    // trip WASM's "values remaining on stack" validation.
     emitIndex(arg.index);
     indent();
-    out_ << "local.tee $__idx_temp\n";
+    out_ << "local.set $__idx_temp\n";
     if (!noUbGuards_) {
       indent();
       out_ << "local.get $__idx_temp\n";
