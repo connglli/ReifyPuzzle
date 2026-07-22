@@ -276,6 +276,7 @@ Always follow good practices:
 4. Fix **all compiler warnings**
 5. Keep a clean, layered project structure
 6. Write high-quality comments that explain *why*, not *what*
+7, Keep CHANGELOG concise (multiple related entries can be summarized in one line)
 
 Always check whether a design/implementation is *elegant*:
 

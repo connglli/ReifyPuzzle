@@ -410,12 +410,36 @@ The descriptor (`func_<id>_<i>.json`) and, when present, the state profile (`<st
 | `--no-twin-smith` | off | Disable rysmith-style twin generation; reconstruct the post state with constants |
 | `--twin-stmts N` | 3 | Random statements per generated twin |
 | `--twin-retries N` | 3 | Generation attempts per twin before falling back |
+| `--twin-guard exact\|bijection` | `exact` | Guard surface (see *Guard styles* below) |
 | `--seed N` | random | RNG seed |
 | `--target sir\|c\|wasm` | `sir` | Optionally compile `f2` via the in-process backend |
 | `--validate` | off | Run `symiri` on `f1` and `f2` with the profiled input, assert they agree, and assert at least one twin block actually executed |
 | `--keep-require` | off | Keep `require` checks in compiled output |
 | `--keep-ub-guards` | off | Keep the dynamic UB guards in the compiled twin (default: dropped — the twin is assumed UB-free; see *Dropping UB guards* above) |
 | `--emit-main` | off | Keep `@main` un-mangled in compiled output |
+
+### Guard styles
+
+`--twin-guard` selects how the guard function checks the live-in state
+against `s`. Both styles are **exact and collision-free** — they differ only
+in surface form, so the equivalence holds identically for either.
+
+- **`exact`** (default) — a conjunction of per-leaf `operand == const`. It is
+  plainly readable as "state == s", so a reader (or a solver, or a
+  pattern-matching compiler) can deduce the equivalence of the twin and the
+  original almost by inspection.
+- **`bijection`** — each integer leaf is first run through a *nonlinear
+  bijection* on `iW` before the comparison, and the constant is pre-mixed the
+  same way. Because a bijection collides with nothing, `mix(x) == mix(s)` iff
+  `x == s`, so the guard fires on exactly `s` just as `exact` does. The
+  bijection is built only from overflow-safe operators — `x ^= x >>> a` and
+  the nonlinear `x ^= (x >>> a) & (x >>> b)` — since RefractIR's `+ - * <<`
+  are strict-signed (overflow is UB), which rules out the usual
+  multiply/rotate mixers. The guard body is then an opaque `>>> & ^` chain
+  against constants that bear no visible relation to `s`, so recovering `s`
+  (to prove twin ≡ orig) requires inverting a nonlinear map rather than
+  reading off literals. Float and pointer leaves have no bijective integer
+  primitive and stay exact.
 
 ### Example
 

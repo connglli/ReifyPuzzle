@@ -49,9 +49,31 @@
 
 namespace refractir::reify {
 
+  // How the guard function checks the live-in state against `s`.
+  //
+  //   Exact     — a conjunction of per-leaf `operand == const`. Readable:
+  //               anyone can see it is "state == s".
+  //   Bijection — each integer leaf is first run through a nonlinear
+  //               bijection on iW, built only from overflow-safe ops
+  //               (`x ^= x >>> a`, `x ^= (x>>>a) & (x>>>b)`), and compared
+  //               against the pre-mixed constant. A bijection collides with
+  //               nothing, so `mix(x) == mix(s) ⟺ x == s`: the guard's
+  //               discrimination — and hence the equivalence — is identical
+  //               to Exact, but the surface is an opaque `>>> & ^` chain and
+  //               the raw expected values never appear, so recovering `s` (to
+  //               prove twin ≡ orig) requires inverting a nonlinear map
+  //               rather than reading off literals. Float/pointer leaves have
+  //               no bijective integer primitive and stay exact. (RefractIR's
+  //               `* + << ` are strict-signed — UB on overflow — so the usual
+  //               multiply/rotate mixers cannot be used.)
+  enum class GuardStyle { Exact, Bijection };
+
   // Build the twin transform. `pTwin` in [0,1] is the per-candidate-block
   // probability of grafting a twin. `twinGen` generates the twin body; an
-  // empty function selects constant reconstruction.
-  std::unique_ptr<Transform> makeTwinTransform(double pTwin, TwinGenFn twinGen = {});
+  // empty function selects constant reconstruction. `guard` selects the
+  // guard-function surface (see GuardStyle); both styles are exact and
+  // collision-free.
+  std::unique_ptr<Transform>
+  makeTwinTransform(double pTwin, TwinGenFn twinGen = {}, GuardStyle guard = GuardStyle::Exact);
 
 } // namespace refractir::reify

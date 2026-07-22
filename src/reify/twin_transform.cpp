@@ -59,12 +59,98 @@ namespace refractir::reify {
       return assignInstr(dst, simpleExpr(Atom{std::move(c), {}}));
     }
 
-    Instr andInstr(const std::string &acc, const std::string &cur) {
+    // `%dst = %left <op> %right` — the left operand is an id (coef), the
+    // right an lvalue, matching OpAtom's shape. The type checker requires
+    // both operands share bit-width, so callers keep them same-typed.
+    Instr opInstr(
+        const std::string &dst, const std::string &left, AtomOpKind op, const std::string &right
+    ) {
       OpAtom o;
-      o.op = AtomOpKind::And;
-      o.coef = Coef{LocalOrSymId{LocalId{acc, {}}}};
-      o.rval = localLV(cur);
-      return assignInstr(acc, simpleExpr(Atom{std::move(o), {}}));
+      o.op = op;
+      o.coef = Coef{LocalOrSymId{LocalId{left, {}}}};
+      o.rval = localLV(right);
+      return assignInstr(dst, simpleExpr(Atom{std::move(o), {}}));
+    }
+
+    Instr andInstr(const std::string &acc, const std::string &cur) {
+      return opInstr(acc, acc, AtomOpKind::And, cur);
+    }
+
+    // --- bijection guard: per-leaf bijective mixing -----------------------
+    //
+    // RefractIR arithmetic (`+ - * <<`) is strict signed: overflow is UB, so
+    // the usual multiply/rotate mixers trap. But `x ↦ x ⊕ g(x)` is a
+    // bijection on iW whenever every bit of g(x) depends only on strictly
+    // higher bits of x (invert top-down: the MSB is unchanged, each lower
+    // bit is then recovered from already-known higher bits). That admits two
+    // overflow-free round shapes built only from logical shift `>>>`, `&`,
+    // and `^`:
+    //
+    //   Xorshift(s):     x ^= x >>> s              (linear, s in [1,W-1])
+    //   AndShift(a,b):   x ^= (x >>> a) & (x >>> b) (nonlinear, a,b in [1,W-1])
+    //
+    // Composing them yields a nonlinear bijection on iW, so comparing
+    // mix(operand) against mix(expected) is exactly `operand == expected`
+    // (zero collisions) while presenting an opaque `>>> & ^` surface with no
+    // readable literal and no overflow hazard.
+
+    struct MixRound {
+      enum class Kind { Xorshift, AndShift } kind;
+      std::uint64_t a;     // primary shift
+      std::uint64_t b = 0; // secondary shift (AndShift only)
+    };
+
+    std::uint64_t widthMask(std::uint32_t w) { return w >= 64 ? ~0ull : ((1ull << w) - 1); }
+
+    // Reinterpret a W-bit value as a signed iW literal (range
+    // [-2^(W-1), 2^(W-1)-1], which the type checker enforces).
+    std::int64_t signExtend(std::uint64_t v, std::uint32_t w) {
+      if (w >= 64)
+        return (std::int64_t) v;
+      v &= widthMask(w);
+      std::uint64_t sign = 1ull << (w - 1);
+      if (v & sign)
+        v |= ~widthMask(w); // set the high bits
+      return (std::int64_t) v;
+    }
+
+    // The mixing rounds for width W, derived only from W so codegen and
+    // constant evaluation agree. W <= 1 leaves no room for a shift in
+    // [1,W-1], so the mix degenerates to the identity — still exact, just
+    // unobfuscated (the caller keeps i1 on the direct-compare path).
+    std::vector<MixRound> mixRounds(std::uint32_t w) {
+      if (w <= 1)
+        return {};
+      auto s = [w](std::uint32_t v) -> std::uint64_t {
+        if (v < 1)
+          v = 1;
+        if (v > w - 1)
+          v = w - 1;
+        return v;
+      };
+      return {
+          {MixRound::Kind::Xorshift, s(w / 2)},
+          {MixRound::Kind::AndShift, s(w / 3), s(2 * w / 3)},
+          {MixRound::Kind::Xorshift, s(w / 4)},
+          {MixRound::Kind::AndShift, s(w / 6 + 1), s(5 * w / 6)},
+          {MixRound::Kind::Xorshift, s(3 * w / 5)},
+      };
+    }
+
+    // Apply the same rounds in host arithmetic (masked to W bits) so the
+    // guard's expected constant is bit-exact with what the emitted iW
+    // instructions compute.
+    std::uint64_t evalMix(const std::vector<MixRound> &rounds, std::uint64_t v, std::uint32_t w) {
+      const std::uint64_t mask = widthMask(w);
+      v &= mask;
+      for (const auto &r: rounds) {
+        if (r.kind == MixRound::Kind::Xorshift)
+          v ^= (v >> r.a);
+        else
+          v ^= ((v >> r.a) & (v >> r.b));
+        v &= mask;
+      }
+      return v;
     }
 
     Terminator brTo(const std::string &dest) {
@@ -570,8 +656,12 @@ namespace refractir::reify {
     // check of the crossing state against the plan's expected values. Scalars
     // arrive by value, vectors per-lane, aggregates by address (navigated
     // with in-bounds ptrindex/ptrfield chains + load, so the body is UB-free
-    // on EVERY input, matched or not).
-    FunDecl buildGuardFun(const std::string &name, const TwinPlan &plan, const StructMap &structs) {
+    // on EVERY input, matched or not). With GuardStyle::Signature each
+    // integer leaf is compared after a bijective mix, which is still exact
+    // (see GuardStyle) but obfuscated.
+    FunDecl buildGuardFun(
+        const std::string &name, const TwinPlan &plan, const StructMap &structs, GuardStyle style
+    ) {
       FunDecl g;
       g.name = GlobalId{name, {}};
       g.retType = makeI1();
@@ -648,6 +738,45 @@ namespace refractir::reify {
         return nm;
       };
 
+      // Bijection guard: per-integer-type mixing scaffolding, built lazily
+      // on first use of each type. Each type shares two temp scratch locals
+      // and one const let per distinct shift amount. Keyed by type (not just
+      // width) so the final `hash == const` compare stays same-typed.
+      struct MixLets {
+        std::string hash, t, u;                            // mutable iW scratch
+        std::vector<MixRound> rounds;                      // empty for iW <= 1
+        std::unordered_map<std::uint64_t, std::string> sh; // shift value -> const let
+      };
+
+      std::vector<std::pair<TypePtr, MixLets>> mixPool;
+      auto getMix = [&](const TypePtr &ty, std::uint32_t w) -> MixLets & {
+        for (auto &[mt, ml]: mixPool)
+          if (TypeUtils::areTypesEqual(mt, ty))
+            return ml;
+        MixLets ml;
+        ml.rounds = mixRounds(w);
+        const std::string s = std::to_string(mixPool.size());
+        ml.hash = "%__hh" + s;
+        ml.t = "%__ht" + s;
+        ml.u = "%__hu" + s;
+        addLet(ml.hash, ty, intInit(0), /*mut=*/true);
+        addLet(ml.t, ty, intInit(0), /*mut=*/true);
+        addLet(ml.u, ty, intInit(0), /*mut=*/true);
+        auto needShift = [&](std::uint64_t v) {
+          if (ml.sh.count(v))
+            return;
+          std::string nm = "%__hs" + s + "_" + std::to_string(ml.sh.size());
+          addLet(nm, ty, intInit(signExtend(v, w)), /*mut=*/false);
+          ml.sh.emplace(v, std::move(nm));
+        };
+        for (const auto &r: ml.rounds) {
+          needShift(r.a);
+          if (r.kind == MixRound::Kind::AndShift)
+            needShift(r.b);
+        }
+        return mixPool.emplace_back(ty, std::move(ml)).second;
+      };
+
       Block e;
       e.label = BlockLabel{"^entry", {}};
       int kIdx = 0;
@@ -703,9 +832,39 @@ namespace refractir::reify {
             // pointer (defined across objects, so total on every input).
             e.instrs.push_back(cmpEqInstr("%__c", operand, "%__e" + std::to_string(eIdx++)));
           } else {
+            // Bijection mode mixes integer leaves (width > 1) with a
+            // nonlinear bijection before comparing against the pre-mixed
+            // constant — still exact, just opaque. Float leaves and i1 have
+            // no bijective integer primitive and stay direct.
+            std::uint32_t w = 0;
+            if (style == GuardStyle::Bijection)
+              if (auto b = TypeUtils::getIntBitWidth(leafT))
+                w = *b;
             std::string k = "%__k" + std::to_string(kIdx++);
-            addLet(k, leafT, litInit(leaf.val), /*mut=*/false);
-            e.instrs.push_back(cmpEqInstr("%__c", operand, k));
+            if (w > 1) {
+              MixLets &ml = getMix(leafT, w);
+              e.instrs.push_back(assignInstr(ml.hash, simpleExpr(rvalAtom(localLV(operand)))));
+              for (const auto &r: ml.rounds) {
+                if (r.kind == MixRound::Kind::Xorshift) {
+                  // %h = %h ^ (%h >>> a)
+                  e.instrs.push_back(opInstr(ml.t, ml.hash, AtomOpKind::LShr, ml.sh.at(r.a)));
+                  e.instrs.push_back(opInstr(ml.hash, ml.hash, AtomOpKind::Xor, ml.t));
+                } else {
+                  // %h = %h ^ ((%h >>> a) & (%h >>> b))
+                  e.instrs.push_back(opInstr(ml.t, ml.hash, AtomOpKind::LShr, ml.sh.at(r.a)));
+                  e.instrs.push_back(opInstr(ml.u, ml.hash, AtomOpKind::LShr, ml.sh.at(r.b)));
+                  e.instrs.push_back(opInstr(ml.t, ml.t, AtomOpKind::And, ml.u));
+                  e.instrs.push_back(opInstr(ml.hash, ml.hash, AtomOpKind::Xor, ml.t));
+                }
+              }
+              std::int64_t mixed =
+                  signExtend(evalMix(ml.rounds, (std::uint64_t) leaf.val.intVal, w), w);
+              addLet(k, leafT, intInit(mixed), /*mut=*/false);
+              e.instrs.push_back(cmpEqInstr("%__c", ml.hash, k));
+            } else {
+              addLet(k, leafT, litInit(leaf.val), /*mut=*/false);
+              e.instrs.push_back(cmpEqInstr("%__c", operand, k));
+            }
           }
           e.instrs.push_back(andInstr("%__acc", "%__c"));
         }
@@ -763,8 +922,8 @@ namespace refractir::reify {
 
     class TwinTransform : public Transform {
     public:
-      TwinTransform(double pTwin, TwinGenFn twinGen) :
-          pTwin_(pTwin), twinGen_(std::move(twinGen)) {}
+      TwinTransform(double pTwin, TwinGenFn twinGen, GuardStyle guard) :
+          pTwin_(pTwin), twinGen_(std::move(twinGen)), guard_(guard) {}
 
       std::string_view name() const override { return "TwinTransform"; }
 
@@ -864,7 +1023,7 @@ namespace refractir::reify {
               if (!labelStem.empty() && labelStem[0] == '^')
                 labelStem.erase(0, 1);
               std::string guardName = "@__twg_" + fnStem + "_" + labelStem;
-              guardFuns.push_back(buildGuardFun(guardName, dit->second, structs));
+              guardFuns.push_back(buildGuardFun(guardName, dit->second, structs, guard_));
               graft(b, dit->second, guardName, nb);
               ++rep.sites;
             }
@@ -979,12 +1138,13 @@ namespace refractir::reify {
 
       double pTwin_;
       TwinGenFn twinGen_;
+      GuardStyle guard_;
     };
 
   } // namespace
 
-  std::unique_ptr<Transform> makeTwinTransform(double pTwin, TwinGenFn twinGen) {
-    return std::make_unique<TwinTransform>(pTwin, std::move(twinGen));
+  std::unique_ptr<Transform> makeTwinTransform(double pTwin, TwinGenFn twinGen, GuardStyle guard) {
+    return std::make_unique<TwinTransform>(pTwin, std::move(twinGen), guard);
   }
 
 } // namespace refractir::reify

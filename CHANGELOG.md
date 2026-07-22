@@ -49,6 +49,9 @@ considered and dropped (spec §13).
 - **`rytwin`** (new tool): transforms a generated program into a
   semantically-equivalent variant via SMT-checked twin blocks, driven
   by `rysmith --emit-state` per-program-point state profiles.
+  `--twin-guard bijection` optionally hides each twin's guard behind a
+  collision-free nonlinear `iW` bijection (opaque `>>> & ^`, no literal
+  `state == s`), so deducing twin ≡ orig needs a solver.
 - **UB-directed generation**: `symirsolve --require-ub` and
   `rysmith --require-ub` solve for symbol values that *trigger* UB on
   the chosen path; `rysmith --no-crc32` skips the checksum oracle.

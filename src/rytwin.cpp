@@ -175,6 +175,9 @@ int main(int argc, char **argv) {
                 cxxopts::value<int>()->default_value("3"))
     ("twin-retries", "Generation attempts per twin before falling back",
                 cxxopts::value<int>()->default_value("3"))
+    ("twin-guard", "Guard surface: exact (per-leaf equality) or bijection "
+                "(bijection-mixed leaves — collision-free but opaque)",
+                cxxopts::value<std::string>()->default_value("exact"))
     ("seed",    "RNG seed (default: random)", cxxopts::value<uint32_t>())
     ("target",  "Compile p2 to a target (sir = no compilation)",
                 cxxopts::value<std::string>()->default_value("sir"))
@@ -209,6 +212,13 @@ int main(int argc, char **argv) {
       result.count("seed") ? result["seed"].as<uint32_t>() : (uint32_t) std::random_device{}();
 
   bool twinSmith = result.count("no-twin-smith") == 0;
+
+  std::string guardStyle = result["twin-guard"].as<std::string>();
+  if (guardStyle != "exact" && guardStyle != "bijection") {
+    std::cerr << "rytwin: --twin-guard must be exact or bijection (got '" << guardStyle << "')\n";
+    return 2;
+  }
+  GuardStyle guard = guardStyle == "bijection" ? GuardStyle::Bijection : GuardStyle::Exact;
 
   std::string target = result["target"].as<std::string>();
   if (target != "sir" && target != "c" && target != "wasm") {
@@ -324,7 +334,7 @@ int main(int argc, char **argv) {
     };
   }
   TransformPipeline pipe;
-  pipe.add(makeTwinTransform(pTwin, std::move(twinGen)));
+  pipe.add(makeTwinTransform(pTwin, std::move(twinGen), guard));
   TransformReport rep = pipe.run(prog, ctx);
   if (!rep.ok) {
     std::cerr << "rytwin: pass failed: " << rep.message << "\n";
