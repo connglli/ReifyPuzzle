@@ -22,9 +22,12 @@ the reducibility check has a diagnostic pass surface.
 | Control-tree builder | `structurizer.{hpp,cpp}` | `--dump-control-tree` |
 | Structured lowering | `structured_lowering.{hpp,cpp}` | `--dump-lowered-tree` |
 
-All five stages run inside `symirc`; the Python backend — and the C
-backend under `--structured-lowering` — consume the lowered control
-tree at emit time (see [symirc.md](./symirc.md)).
+All five stages run inside `symirc`. The Python backend — and the C
+backend under `--structured-lowering` — consume the *lowered* control
+tree (§5) at emit time. The WASM backend under `--structured-lowering`
+consumes the *unlowered* tree directly: its native multi-level `br`
+expresses every transfer, so no lowering is needed (§4). See
+[symirc.md](./symirc.md).
 
 
 ## 1. Reducibility
@@ -163,8 +166,10 @@ The resulting `ControlTree` is **target-neutral**: transfer nodes say
 | `JumpJoin{target, levels}` | Forward jump that must skip intermediate join subtrees |
 | `Return` / `Trap` | A `ret` / `unreachable` terminator |
 
-A target with labeled break (or WASM's `br N`) could lower
-`Break{levels=2}` natively; targets without one run structured
+A target with labeled break (or WASM's `br N`) lowers
+`Break{levels=2}` natively — the WASM backend does exactly this,
+emitting a named `br` to the target's `block`/`loop` scope, so it
+consumes this tree unchanged; targets without one run structured
 lowering first (§5).
 
 `--dump-control-tree` (implies `--require-reducible`) prints an
@@ -288,7 +293,7 @@ labels survive as comments, and no guard flags were needed.
 | Flag | Effect |
 |---|---|
 | `--require-reducible` | Reject irreducible functions (any target) |
-| `--structured-lowering` | C target: emit while/do-while/if from the lowered control tree instead of labels+goto (implies `--require-reducible`) |
+| `--structured-lowering` | C target: emit while/do-while/if from the lowered control tree instead of labels+goto. WASM target: emit `block`/`loop`/`if` with named `br` labels from the unlowered tree instead of the `$__pc` dispatch loop. Implies `--require-reducible` |
 | `--dump-domtree` | Print per-function dominator trees and exit |
 | `--dump-loops` | Print per-function loop forests and exit |
 | `--dump-control-tree` | Print structured control trees and exit (implies `--require-reducible`) |
@@ -296,9 +301,10 @@ labels survive as comments, and no guard flags were needed.
 
 `--target python` and `--structured-lowering` register the
 reducibility check automatically. Irreducible input fails with exit
-code 4 (static error). `--structured-lowering` is rejected on the
-wasm target (structured WASM is deferred) and is a no-op on python
-(already structured).
+code 4 (static error). `--structured-lowering` is a no-op on python
+(already structured); on the C and WASM targets it reconstructs
+structured control flow (the WASM default remains the dispatch loop,
+which also handles irreducible CFGs).
 
 
 ## 8. Testing

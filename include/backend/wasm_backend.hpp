@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include "analysis/structurizer.hpp"
 #include "ast/ast.hpp"
 #include "backend/wasm_vec_lowering.hpp"
 
@@ -47,6 +48,11 @@ namespace refractir {
 
     void setNoMainMangle(bool val) { noMainMangle_ = val; }
 
+    /// [v0.2.3] Emit structured control flow (block/loop/if with named
+    /// br labels) instead of the $__pc dispatch loop. The caller must
+    /// have verified reducibility (ReducibilityCheck).
+    void setStructuredLowering(bool val) { structuredLowering_ = val; }
+
     /// [v0.2.3] Select the vector storage strategy (default: "array").
     void setVecLowering(std::unique_ptr<WasmVecLowering> vl);
 
@@ -59,7 +65,8 @@ namespace refractir {
     bool noRequire_ = false;
     bool noUbGuards_ = false; // [v0.2.3] see setNoUbGuards
     bool noMainMangle_ = false;
-    const Program *prog_ = nullptr; // [v0.2.2] for callee lookup in emitAtom
+    bool structuredLowering_ = false; // [v0.2.3] see setStructuredLowering
+    const Program *prog_ = nullptr;   // [v0.2.2] for callee lookup in emitAtom
 
     // Maps local/param names to their WASM local index or info
     struct LocalInfo {
@@ -113,6 +120,23 @@ namespace refractir {
 
     // --- Emission helpers ---
     void indent();
+    // Statement-level emission of one instruction. Shared by the
+    // $__pc dispatch-loop body in emit() and the structured
+    // control-tree emitter (src/backend/wasm_structured.cpp).
+    void emitInstr(const Instr &ins);
+    // `ret` terminator emission: a vector return through the hidden
+    // `$__sret` slot or a scalar result, the shadow-stack teardown,
+    // then `return`. Shared by both emitters likewise.
+    void emitReturn(const RetTerm &ret, const FunDecl &f);
+
+    // --- Structured emission (src/backend/wasm_structured.cpp) ---
+    // [v0.2.3] Function-body emission for --structured-lowering:
+    // structure the (reducible) CFG and emit genuine block/loop/if
+    // WASM. WASM's multi-level `br N` consumes the *unlowered* control
+    // tree directly — no $__pc dispatch loop and no guard flags — with
+    // each loop and each pending join addressed by a named br label.
+    void emitStructuredBody(const FunDecl &f);
+    void emitCTreeNode(const ControlTree &tree, const ControlTree::Node &n, const FunDecl &f);
     void emitType(const TypePtr &type);
     std::string getWasmType(const TypePtr &type);
     std::uint32_t getTypeSize(const TypePtr &type);

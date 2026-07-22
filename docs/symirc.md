@@ -227,9 +227,9 @@ terminator traps (`__builtin_trap()`) instead of falling through.
 Structured C participates fully in cross-validation (`make
 cross-validation` runs both emission modes against the interpreter).
 
-The flag is rejected on `--target wasm` (structured WASM is deferred)
-and is a no-op on `--target python` (already structured). For the
-same program as above, `--structured-lowering` emits:
+The flag is a no-op on `--target python` (already structured) and
+also reconstructs structured control flow on `--target wasm` (see
+below). For the same program as above, `--structured-lowering` emits:
 
 ```c
 int32_t refractir_sum(int32_t refractir_n) {
@@ -242,6 +242,58 @@ int32_t refractir_sum(int32_t refractir_n) {
   }
   return ((refractir_acc));
 }
+```
+
+
+## Structured WASM (`--structured-lowering`, v0.2.3)
+
+WebAssembly has no `goto`, so by default the WASM backend encodes any
+CFG with a `$__pc` + `br_table` **dispatch loop** (which also accepts
+irreducible control flow). With `--structured-lowering` it instead
+reconstructs genuine `block`/`loop`/`if` — smaller, idiomatic, and
+directly optimizable by every engine — and therefore also **requires
+reducible control flow** (the flag implies `--require-reducible`).
+
+Unlike C and Python — whose targets have only single-level
+`break`/`continue`, so they run structured lowering (`bool` guard
+flags) first — WASM consumes the **unlowered** control tree: its
+native multi-level `br N` expresses every transfer directly. Each
+natural loop becomes a `(loop $__cont<h>)` (the *continue* target) and
+each pending join a `(block $__jn<b>)` whose end precedes the join's
+code; a `Continue` is `br $__cont<h>`, a `Break`/`JumpJoin` is
+`br $__jn<b>`, and a fall-through emits nothing. No guard flags are
+ever needed. Expression emission, types, intrinsics, vector lowering,
+symbols, and the `--no-ub-guards` story are identical to the dispatch
+emission. For the loop above, `--structured-lowering --target wasm`
+emits:
+
+```wat
+(func $sum (param $n i32) (result i32) ...
+  ...
+  (block $__jn2
+    (loop $__cont0
+      local.get $i
+      local.get $n
+      i32.lt_s
+      if
+        ;; ^body
+        local.get $acc
+        call $sum__step
+        i32.add
+        local.set $acc
+        local.get $i
+        i32.const 1
+        i32.add
+        local.set $i
+        br $__cont0
+      else
+        br $__jn2
+      end
+    )
+  )
+  local.get $acc
+  return
+  unreachable)
 ```
 
 

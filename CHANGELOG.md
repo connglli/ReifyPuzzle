@@ -29,6 +29,11 @@ considered and dropped (spec §13).
   rotation) — see [docs/reducibility.md](./docs/reducibility.md).
 - **`symirc --structured-lowering`** (C target): reconstructed
   `while`/`do-while`/`if` emission instead of labels+`goto`.
+- **`symirc --structured-lowering`** (WASM target): reconstructed
+  `block`/`loop`/`if` emission instead of the `$__pc`/`br_table`
+  dispatch loop. WASM's native multi-level `br` consumes the
+  *unlowered* control tree directly — no guard flags. The dispatch
+  loop stays the default and still accepts irreducible CFGs.
 - **WASM SIMD-128 vector lowering**: vector locals live in native
   `v128` registers by default; shapes wider than 16 bytes split across
   registers. Fulfils the v0.2.2 §13 plan.

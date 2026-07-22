@@ -64,6 +64,7 @@ BACKEND_SRCS = src/backend/c_backend.cpp src/backend/wasm_backend.cpp \
                src/backend/c_lvalue.cpp src/backend/c_types.cpp \
                src/backend/c_structured.cpp \
                src/backend/wasm_expr.cpp src/backend/wasm_vec.cpp \
+               src/backend/wasm_structured.cpp \
                src/backend/wasm_lvalue.cpp src/backend/wasm_types.cpp \
                src/backend/wasm_vec_lowering_array.cpp \
                src/backend/wasm_vec_lowering_scalars.cpp \
@@ -161,6 +162,7 @@ LIBRARY_OBJS = $(COMMON_OBJS) \
                src/backend/wasm_backend.o \
                src/backend/wasm_expr.o \
                src/backend/wasm_vec.o \
+               src/backend/wasm_structured.o \
                src/backend/wasm_lvalue.o \
                src/backend/wasm_types.o \
                src/backend/wasm_vec_lowering_array.o \
@@ -239,6 +241,7 @@ clean:
 test-unit: $(TARGET_INTERP) $(TARGET_COMPILER) $(TARGET_SOLVER) $(TARGET_RYSMITH) $(TARGET_RYLINK) $(TARGET_RYTWIN)
 	$(PY) -m test.unit.run_param_features_tests ./$(TARGET_INTERP) ./$(TARGET_COMPILER) ./$(TARGET_SOLVER)
 	$(PY) -m test.unit.run_structured_c_tests ./$(TARGET_COMPILER)
+	$(PY) -m test.unit.run_structured_wasm_tests ./$(TARGET_COMPILER)
 	$(PY) -m test.unit.run_rysmith_tests ./$(TARGET_RYSMITH) ./$(TARGET_INTERP) ./$(TARGET_COMPILER)
 	$(PY) -m test.unit.run_rylink_tests ./$(TARGET_RYLINK) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
 	$(PY) -m test.unit.run_rytwin_tests ./$(TARGET_RYTWIN) ./$(TARGET_RYSMITH) ./$(TARGET_INTERP)
@@ -271,6 +274,7 @@ test-backends: $(TARGET_INTERP) $(TARGET_COMPILER)
 	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target c
 	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target c --structured
 	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target wasm
+	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target wasm --structured
 	$(PY) -m test.lib.run_compiler_tests test/ ./$(TARGET_COMPILER) --target python
 
 # Cross-validation: run every test/xval/*.sir through symiri *and* through

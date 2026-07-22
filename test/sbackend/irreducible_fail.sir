@@ -1,5 +1,5 @@
 // EXPECT: FAIL:StaticError
-// SKIP: C, WASM — structured-backend suite; plain c/wasm accept irreducible CFGs
+// COMPILER_ARGS: --structured-lowering
 
 // The python target only accepts reducible control flow.
 fun @main(): i32 {

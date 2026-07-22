@@ -140,13 +140,16 @@ def run_refractirc_test(refractirc_path, target="c", structured=False):
     cmd = [refractirc_path, file_path, "--target", target, "-o", gen_out, "-w"]
     if target == "wasm":
       cmd.append("--no-module-tags")
-    if structured and target == "c":
+    if structured and target in ["c", "wasm"]:
       cmd.append("--structured-lowering")
     # [v0.2.2] Pass through -I include paths from COMPILER_ARGS so tests
     # that consume the test/lib/std library can find their bodies.
     # [v0.2.3] Also pass through --vec-lowering so a test can pin the
     # vector storage strategy it exercises (each target validates the
-    # name itself and rejects strategies it doesn't support).
+    # name itself and rejects strategies it doesn't support), and
+    # --structured-lowering so a fixture can demand structured emission
+    # on every target run (e.g. asserting an irreducible CFG is rejected
+    # regardless of target). Deduped against the --structured flag.
     compiler_args_pass = args.get("COMPILER_ARGS", [])
     i = 0
     while i < len(compiler_args_pass):
@@ -158,6 +161,10 @@ def run_refractirc_test(refractirc_path, target="c", structured=False):
       ):
         cmd.extend(["--vec-lowering", compiler_args_pass[i + 1]])
         i += 2
+      elif compiler_args_pass[i] == "--structured-lowering":
+        if "--structured-lowering" not in cmd:
+          cmd.append("--structured-lowering")
+        i += 1
       else:
         i += 1
 

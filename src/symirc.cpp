@@ -197,12 +197,9 @@ int main(int argc, char **argv) {
     bool noUbGuards = result["no-ub-guards"].as<bool>();
     bool emitMain = result["emit-main"].as<bool>();
     bool structuredLowering = result["structured-lowering"].as<bool>();
-    // The python backend always emits structured control flow; the
-    // flag is meaningful for C and deferred for wasm.
-    if (structuredLowering && target == "wasm") {
-      std::cerr << "Error: --structured-lowering is not supported for the wasm target yet\n";
-      return 1;
-    }
+    // The python backend always emits structured control flow; the flag
+    // reconstructs block/loop/if for the C and wasm targets (both goto-
+    // /dispatch-based by default).
     std::string vlName;
     if (result.count("vec-lowering") > 0) {
       vlName = result["vec-lowering"].as<std::string>();
@@ -282,6 +279,7 @@ int main(int argc, char **argv) {
       wb.setNoRequire(noRequire);
       wb.setNoUbGuards(noUbGuards);
       wb.setNoMainMangle(emitMain);
+      wb.setStructuredLowering(structuredLowering);
       // [v0.2.3] Vector-lowering strategy (validated above).
       wb.setVecLowering(makeWasmVecLowering(vlName));
       wb.emit(prog);

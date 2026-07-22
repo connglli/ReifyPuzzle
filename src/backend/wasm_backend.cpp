@@ -637,358 +637,117 @@ namespace refractir {
         }
       }
 
-      indent();
-      out_ << "i32.const 0\n";
-      indent();
-      out_ << "local.set $__pc\n";
-
-      indent();
-      out_ << "(loop $__refractir_dispatch_loop\n";
-      indent_level_++;
-
-      for (size_t i = 0; i < f.blocks.size(); ++i) {
+      // [v0.2.3] Structured emission (--structured-lowering) rebuilds
+      // genuine block/loop/if from the reducible CFG; the default path
+      // below is the $__pc + br_table dispatch loop, which also handles
+      // irreducible control flow.
+      if (structuredLowering_) {
+        emitStructuredBody(f);
+      } else {
         indent();
-        out_ << "(block " << mangleName(f.blocks[i].label.name) << "\n";
+        out_ << "i32.const 0\n";
+        indent();
+        out_ << "local.set $__pc\n";
+
+        indent();
+        out_ << "(loop $__refractir_dispatch_loop\n";
         indent_level_++;
-      }
 
-      indent();
-      out_ << "local.get $__pc\n";
-      indent();
-      out_ << "br_table";
-      for (int i = f.blocks.size() - 1; i >= 0; --i) {
-        out_ << " " << i;
-      }
-      out_ << " 0\n";
+        for (size_t i = 0; i < f.blocks.size(); ++i) {
+          indent();
+          out_ << "(block " << mangleName(f.blocks[i].label.name) << "\n";
+          indent_level_++;
+        }
 
-      for (int i = f.blocks.size() - 1; i >= 0; --i) {
-        indent_level_--;
         indent();
-        out_ << ") ;; " << f.blocks[i].label.name << "\n";
+        out_ << "local.get $__pc\n";
+        indent();
+        out_ << "br_table";
+        for (int i = f.blocks.size() - 1; i >= 0; --i) {
+          out_ << " " << i;
+        }
+        out_ << " 0\n";
 
-        const auto &b = f.blocks[i];
-        for (const auto &ins: b.instrs) {
+        for (int i = f.blocks.size() - 1; i >= 0; --i) {
+          indent_level_--;
+          indent();
+          out_ << ") ;; " << f.blocks[i].label.name << "\n";
+
+          const auto &b = f.blocks[i];
+          for (const auto &ins: b.instrs)
+            emitInstr(ins);
+
           std::visit(
-              [this](auto &&arg) {
+              [this, &f, &f_blocks = f.blocks](auto &&arg) {
                 using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<T, AssignInstr>) {
-                  if (locals_.count(arg.lhs.base.name)) {
-                    const auto &info = locals_.at(arg.lhs.base.name);
-                    TypePtr lhsTy = getLValueType(arg.lhs);
-                    if (lhsTy && std::holds_alternative<VecType>(lhsTy->v) &&
-                        arg.lhs.accesses.empty()) {
-                      auto &vt = std::get<VecType>(lhsTy->v);
-                      std::uint32_t elemSize = getTypeSize(vt.elem);
-                      bool valIsFloat = std::holds_alternative<FloatType>(vt.elem->v);
-                      uint32_t width = getIntWidth(vt.elem);
-                      // [v0.2.3] `%v = call @f(...)` with a frame-memory
-                      // lhs — write through sret straight into the lhs
-                      // storage, no lane loop. Register-strategy lhs
-                      // falls through: the call materializes once into
-                      // its scratch and the loop below copies lanes out.
-                      if (arg.rhs.rest.empty() && vecLowering_->usesFrameMemory()) {
-                        if (auto ca = std::get_if<CallAtom>(&arg.rhs.first.v)) {
-                          auto [ptypes, rtype] = calleeSignature(*ca);
-                          (void) ptypes;
-                          if (rtype && std::holds_alternative<VecType>(rtype->v)) {
-                            emitCallAtom(*ca, info.offset);
-                            return;
-                          }
-                        }
-                      }
-                      // Nested vector-returning calls evaluate exactly
-                      // once, before the per-lane rhs walk.
-                      materializeVecCalls(arg.rhs);
-                      for (uint64_t i = 0; i < vt.size; ++i) {
-                        if (!vecLowering_->usesFrameMemory()) {
-                          vecLowering_->emitLaneWrite(*this, arg.lhs.base.name, vt, i, [&] {
-                            emitVecExprLane(arg.rhs, vt, i, width, valIsFloat);
-                          });
-                          continue;
-                        }
-                        indent();
-                        out_ << "local.get $__old_sp\n";
-                        indent();
-                        out_ << "i32.const " << (info.offset - i * elemSize) << "\n";
-                        indent();
-                        out_ << "i32.sub\n";
-
-                        emitVecExprLane(arg.rhs, vt, i, width, valIsFloat);
-
-                        indent();
-                        if (valIsFloat) {
-                          out_ << (width == 32 ? "f32.store\n" : "f64.store\n");
-                        } else {
-                          out_ << (width <= 8
-                                       ? "i32.store8"
-                                       : (width <= 16 ? "i32.store16"
-                                                      : (width <= 32 ? "i32.store" : "i64.store")))
-                               << "\n";
-                        }
-                      }
-                    } else if (!arg.lhs.accesses.empty() &&
-                               std::holds_alternative<VecType>(info.refractirType->v) &&
-                               !vecLowering_->usesFrameMemory()) {
-                      // [v0.2.3] `%v[idx] = expr` on a register-strategy
-                      // vector local: the strategy owns the lane write.
-                      const auto &vt = std::get<VecType>(info.refractirType->v);
-                      std::uint32_t width = getIntWidth(vt.elem);
-                      bool valIsFloat = std::holds_alternative<FloatType>(vt.elem->v);
-                      auto emitValue = [&] { emitExpr(arg.rhs, width, valIsFloat); };
-                      if (auto ai = std::get_if<AccessIndex>(&arg.lhs.accesses[0])) {
-                        if (auto lit = std::get_if<IntLit>(&ai->index)) {
-                          vecLowering_->emitLaneWrite(
-                              *this, arg.lhs.base.name, vt, lit->value, emitValue
-                          );
-                        } else {
-                          vecLowering_->emitLaneWriteDyn(
-                              *this, arg.lhs.base.name, vt, [&] { emitIndex(ai->index); }, emitValue
-                          );
-                        }
-                      }
-                    } else if (info.isAggregate || !arg.lhs.accesses.empty()) {
-                      emitAddress(arg.lhs);
-                      TypePtr curType = info.refractirType;
-                      for (const auto &acc: arg.lhs.accesses) {
-                        if (std::holds_alternative<AccessIndex>(acc)) {
-                          if (auto at = std::get_if<ArrayType>(&curType->v))
-                            curType = at->elem;
-                          else if (auto vt = std::get_if<VecType>(&curType->v))
-                            curType = vt->elem;
-                        } else if (auto af = std::get_if<AccessField>(&acc)) {
-                          if (auto st = std::get_if<StructType>(&curType->v)) {
-                            auto &fld = af->field;
-                            if (structLayouts_.count(st->name.name) &&
-                                structLayouts_.at(st->name.name).fields.count(fld))
-                              curType = structLayouts_.at(st->name.name).fields.at(fld).type;
-                          }
-                        }
-                      }
-                      std::uint32_t width = 0;
-                      bool valIsFloat = false;
-                      if (auto bits = TypeUtils::getIntBitWidth(curType)) {
-                        width = *bits;
-                      } else if (curType && std::holds_alternative<FloatType>(curType->v)) {
-                        valIsFloat = true;
-                        width = (std::get<FloatType>(curType->v).kind == FloatType::Kind::F32) ? 32
-                                                                                               : 64;
-                      } else if (curType && std::holds_alternative<PtrType>(curType->v)) {
-                        // WASM pointers are 32-bit (one i32 cell).
-                        width = 32;
-                      }
-
-                      emitExpr(arg.rhs, width, valIsFloat);
-                      indent();
-                      if (valIsFloat) {
-                        out_ << (width == 32 ? "f32.store\n" : "f64.store\n");
-                      } else {
-                        if (width <= 8)
-                          out_ << "i32.store8\n";
-                        else if (width <= 16)
-                          out_ << "i32.store16\n";
-                        else if (width <= 32)
-                          out_ << "i32.store\n";
-                        else
-                          out_ << "i64.store\n";
-                      }
-                    } else {
-                      bool isFloat = std::holds_alternative<FloatType>(info.refractirType->v);
-                      bool isPtr = std::holds_alternative<PtrType>(info.refractirType->v);
-                      if (isPtr) {
-                        emitPtrExpr(arg.rhs, info.refractirType);
-                      } else if (isPtrDiff(arg.rhs)) {
-                        // ptr - ptr → i64 element distance. Emit byte diff, then /sizeof.
-                        emitPtrDiff(arg.rhs);
-                      } else {
-                        emitExpr(arg.rhs, info.bitwidth, isFloat);
-                      }
-                      indent();
-                      out_ << "local.set " << mangleName(arg.lhs.base.name) << "\n";
-                    }
-                  }
-                } else if constexpr (std::is_same_v<T, RequireInstr>) {
-                  if (!noRequire_) {
-                    emitCond(arg.cond);
-                    indent();
-                    out_ << "i32.eqz\n";
+                if constexpr (std::is_same_v<T, BrTerm>) {
+                  if (arg.isConditional) {
+                    emitCond(*arg.cond);
                     indent();
                     out_ << "if\n";
                     indent_level_++;
+                    int thenIdx = -1;
+                    for (size_t j = 0; j < f_blocks.size(); ++j)
+                      if (f_blocks[j].label.name == arg.thenLabel.name)
+                        thenIdx = j;
                     indent();
-                    out_ << "unreachable\n";
+                    out_ << "i32.const " << thenIdx << "\n";
+                    indent();
+                    out_ << "local.set $__pc\n";
                     indent_level_--;
                     indent();
-                    out_ << "end\n";
-                  }
-                } else if constexpr (std::is_same_v<T, StoreInstr>) {
-                  // *ptr = val — with null-pointer trap
-                  // Determine pointee type from the pointer expression
-                  uint32_t storeWidth = 32;
-                  bool storeIsFloat = false;
-                  if (auto rva = std::get_if<RValueAtom>(&arg.ptr.first.v)) {
-                    if (locals_.count(rva->rval.base.name)) {
-                      const auto &pinfo = locals_.at(rva->rval.base.name);
-                      if (auto pt = std::get_if<PtrType>(&pinfo.refractirType->v)) {
-                        if (auto bits = TypeUtils::getIntBitWidth(pt->pointee)) {
-                          storeWidth = *bits;
-                        } else if (pt->pointee &&
-                                   std::holds_alternative<FloatType>(pt->pointee->v)) {
-                          storeIsFloat = true;
-                          storeWidth =
-                              (std::get<FloatType>(pt->pointee->v).kind == FloatType::Kind::F32)
-                                  ? 32
-                                  : 64;
-                        }
-                      }
-                    }
-                  }
-                  // Emit ptr expr; with guards on, save to $__ptr_temp,
-                  // null-check, and restore. Under --no-ub-guards the
-                  // pointer is simply left on the stack for the store.
-                  emitExpr(arg.ptr, 32, false);
-                  if (!noUbGuards_) {
-                    indent();
-                    out_ << "local.tee $__ptr_temp\n";
-                    indent();
-                    out_ << "i32.eqz\n";
-                    indent();
-                    out_ << "if\n";
+                    out_ << "else\n";
                     indent_level_++;
+                    int elseIdx = -1;
+                    for (size_t j = 0; j < f_blocks.size(); ++j)
+                      if (f_blocks[j].label.name == arg.elseLabel.name)
+                        elseIdx = j;
                     indent();
-                    out_ << "unreachable\n";
+                    out_ << "i32.const " << elseIdx << "\n";
+                    indent();
+                    out_ << "local.set $__pc\n";
                     indent_level_--;
                     indent();
                     out_ << "end\n";
                     indent();
-                    out_ << "local.get $__ptr_temp\n";
-                  }
-                  emitExpr(arg.val, storeWidth, storeIsFloat);
-                  indent();
-                  if (storeIsFloat) {
-                    out_ << (storeWidth <= 32 ? "f32.store\n" : "f64.store\n");
+                    out_ << "br $__refractir_dispatch_loop\n";
                   } else {
-                    out_
-                        << (storeWidth <= 8    ? "i32.store8\n"
-                            : storeWidth <= 16 ? "i32.store16\n"
-                            : storeWidth <= 32 ? "i32.store\n"
-                                               : "i64.store\n");
+                    int destIdx = -1;
+                    for (size_t j = 0; j < f_blocks.size(); ++j)
+                      if (f_blocks[j].label.name == arg.dest.name)
+                        destIdx = j;
+                    indent();
+                    out_ << "i32.const " << destIdx << "\n";
+                    indent();
+                    out_ << "local.set $__pc\n";
+                    indent();
+                    out_ << "br $__refractir_dispatch_loop\n";
                   }
+                } else if constexpr (std::is_same_v<T, RetTerm>) {
+                  emitReturn(arg, f);
+                } else if constexpr (std::is_same_v<T, UnreachableTerm>) {
+                  indent();
+                  out_ << "unreachable\n";
                 }
               },
-              ins
+              b.term
           );
         }
 
-        std::visit(
-            [this, &f, &f_blocks = f.blocks](auto &&arg) {
-              using T = std::decay_t<decltype(arg)>;
-              if constexpr (std::is_same_v<T, BrTerm>) {
-                if (arg.isConditional) {
-                  emitCond(*arg.cond);
-                  indent();
-                  out_ << "if\n";
-                  indent_level_++;
-                  int thenIdx = -1;
-                  for (size_t j = 0; j < f_blocks.size(); ++j)
-                    if (f_blocks[j].label.name == arg.thenLabel.name)
-                      thenIdx = j;
-                  indent();
-                  out_ << "i32.const " << thenIdx << "\n";
-                  indent();
-                  out_ << "local.set $__pc\n";
-                  indent_level_--;
-                  indent();
-                  out_ << "else\n";
-                  indent_level_++;
-                  int elseIdx = -1;
-                  for (size_t j = 0; j < f_blocks.size(); ++j)
-                    if (f_blocks[j].label.name == arg.elseLabel.name)
-                      elseIdx = j;
-                  indent();
-                  out_ << "i32.const " << elseIdx << "\n";
-                  indent();
-                  out_ << "local.set $__pc\n";
-                  indent_level_--;
-                  indent();
-                  out_ << "end\n";
-                  indent();
-                  out_ << "br $__refractir_dispatch_loop\n";
-                } else {
-                  int destIdx = -1;
-                  for (size_t j = 0; j < f_blocks.size(); ++j)
-                    if (f_blocks[j].label.name == arg.dest.name)
-                      destIdx = j;
-                  indent();
-                  out_ << "i32.const " << destIdx << "\n";
-                  indent();
-                  out_ << "local.set $__pc\n";
-                  indent();
-                  out_ << "br $__refractir_dispatch_loop\n";
-                }
-              } else if constexpr (std::is_same_v<T, RetTerm>) {
-                if (arg.value && f.retType && std::holds_alternative<VecType>(f.retType->v)) {
-                  // [v0.2.3] Vector return: copy the lanes into the
-                  // caller's sret slot; the function has no WASM result.
-                  const auto &vt = std::get<VecType>(f.retType->v);
-                  std::uint32_t elemSize = getTypeSize(vt.elem);
-                  std::uint32_t width = getIntWidth(vt.elem);
-                  bool valIsFloat = std::holds_alternative<FloatType>(vt.elem->v);
-                  materializeVecCalls(*arg.value);
-                  for (uint64_t i = 0; i < vt.size; ++i) {
-                    indent();
-                    out_ << "local.get $__sret\n";
-                    if (i > 0) {
-                      indent();
-                      out_ << "i32.const " << (i * elemSize) << "\n";
-                      indent();
-                      out_ << "i32.add\n";
-                    }
-                    emitVecExprLane(*arg.value, vt, i, width, valIsFloat);
-                    indent();
-                    if (valIsFloat) {
-                      out_ << (width == 32 ? "f32.store\n" : "f64.store\n");
-                    } else {
-                      out_ << (width <= 8
-                                   ? "i32.store8"
-                                   : (width <= 16 ? "i32.store16"
-                                                  : (width <= 32 ? "i32.store" : "i64.store")))
-                           << "\n";
-                    }
-                  }
-                } else if (arg.value) {
-                  bool isFloat = std::holds_alternative<FloatType>(f.retType->v);
-                  emitExpr(*arg.value, getIntWidth(f.retType), isFloat);
-                }
-                if (stackSize_ > 0) {
-                  indent();
-                  out_ << "local.get $__old_sp\n";
-                  indent();
-                  out_ << "global.set $__stack_pointer\n";
-                }
-                indent();
-                out_ << "return\n";
-              } else if constexpr (std::is_same_v<T, UnreachableTerm>) {
-                indent();
-                out_ << "unreachable\n";
-              }
-            },
-            b.term
-        );
-      }
-
-      indent_level_--;
-      indent();
-      out_ << ") ;; dispatch loop\n";
-
-      if (f.retType && !retVec && !f.blocks.empty()) {
+        indent_level_--;
         indent();
-        bool isFloat = std::holds_alternative<FloatType>(f.retType->v);
-        if (isFloat) {
-          out_ << (getIntWidth(f.retType) <= 32 ? "f32.const 0.0\n" : "f64.const 0.0\n");
-        } else {
-          out_ << (getIntWidth(f.retType) <= 32 ? "i32.const 0\n" : "i64.const 0\n");
+        out_ << ") ;; dispatch loop\n";
+
+        if (f.retType && !retVec && !f.blocks.empty()) {
+          indent();
+          bool isFloat = std::holds_alternative<FloatType>(f.retType->v);
+          if (isFloat) {
+            out_ << (getIntWidth(f.retType) <= 32 ? "f32.const 0.0\n" : "f64.const 0.0\n");
+          } else {
+            out_ << (getIntWidth(f.retType) <= 32 ? "i32.const 0\n" : "i64.const 0\n");
+          }
         }
-      }
+      } // end dispatch-loop path
 
       indent_level_--;
       indent();
@@ -1010,6 +769,262 @@ namespace refractir {
       indent_level_--;
       out_ << ")\n";
     }
+  }
+
+  // Statement-level emission of one instruction. Shared by the $__pc
+  // dispatch-loop body in emit() and the structured control-tree
+  // emitter (src/backend/wasm_structured.cpp).
+  void WasmBackend::emitInstr(const Instr &ins) {
+    std::visit(
+        [this](auto &&arg) {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, AssignInstr>) {
+            if (locals_.count(arg.lhs.base.name)) {
+              const auto &info = locals_.at(arg.lhs.base.name);
+              TypePtr lhsTy = getLValueType(arg.lhs);
+              if (lhsTy && std::holds_alternative<VecType>(lhsTy->v) && arg.lhs.accesses.empty()) {
+                auto &vt = std::get<VecType>(lhsTy->v);
+                std::uint32_t elemSize = getTypeSize(vt.elem);
+                bool valIsFloat = std::holds_alternative<FloatType>(vt.elem->v);
+                uint32_t width = getIntWidth(vt.elem);
+                // [v0.2.3] `%v = call @f(...)` with a frame-memory
+                // lhs — write through sret straight into the lhs
+                // storage, no lane loop. Register-strategy lhs
+                // falls through: the call materializes once into
+                // its scratch and the loop below copies lanes out.
+                if (arg.rhs.rest.empty() && vecLowering_->usesFrameMemory()) {
+                  if (auto ca = std::get_if<CallAtom>(&arg.rhs.first.v)) {
+                    auto [ptypes, rtype] = calleeSignature(*ca);
+                    (void) ptypes;
+                    if (rtype && std::holds_alternative<VecType>(rtype->v)) {
+                      emitCallAtom(*ca, info.offset);
+                      return;
+                    }
+                  }
+                }
+                // Nested vector-returning calls evaluate exactly
+                // once, before the per-lane rhs walk.
+                materializeVecCalls(arg.rhs);
+                for (uint64_t i = 0; i < vt.size; ++i) {
+                  if (!vecLowering_->usesFrameMemory()) {
+                    vecLowering_->emitLaneWrite(*this, arg.lhs.base.name, vt, i, [&] {
+                      emitVecExprLane(arg.rhs, vt, i, width, valIsFloat);
+                    });
+                    continue;
+                  }
+                  indent();
+                  out_ << "local.get $__old_sp\n";
+                  indent();
+                  out_ << "i32.const " << (info.offset - i * elemSize) << "\n";
+                  indent();
+                  out_ << "i32.sub\n";
+
+                  emitVecExprLane(arg.rhs, vt, i, width, valIsFloat);
+
+                  indent();
+                  if (valIsFloat) {
+                    out_ << (width == 32 ? "f32.store\n" : "f64.store\n");
+                  } else {
+                    out_ << (width <= 8 ? "i32.store8"
+                                        : (width <= 16 ? "i32.store16"
+                                                       : (width <= 32 ? "i32.store" : "i64.store")))
+                         << "\n";
+                  }
+                }
+              } else if (!arg.lhs.accesses.empty() &&
+                         std::holds_alternative<VecType>(info.refractirType->v) &&
+                         !vecLowering_->usesFrameMemory()) {
+                // [v0.2.3] `%v[idx] = expr` on a register-strategy
+                // vector local: the strategy owns the lane write.
+                const auto &vt = std::get<VecType>(info.refractirType->v);
+                std::uint32_t width = getIntWidth(vt.elem);
+                bool valIsFloat = std::holds_alternative<FloatType>(vt.elem->v);
+                auto emitValue = [&] { emitExpr(arg.rhs, width, valIsFloat); };
+                if (auto ai = std::get_if<AccessIndex>(&arg.lhs.accesses[0])) {
+                  if (auto lit = std::get_if<IntLit>(&ai->index)) {
+                    vecLowering_->emitLaneWrite(
+                        *this, arg.lhs.base.name, vt, lit->value, emitValue
+                    );
+                  } else {
+                    vecLowering_->emitLaneWriteDyn(
+                        *this, arg.lhs.base.name, vt, [&] { emitIndex(ai->index); }, emitValue
+                    );
+                  }
+                }
+              } else if (info.isAggregate || !arg.lhs.accesses.empty()) {
+                emitAddress(arg.lhs);
+                TypePtr curType = info.refractirType;
+                for (const auto &acc: arg.lhs.accesses) {
+                  if (std::holds_alternative<AccessIndex>(acc)) {
+                    if (auto at = std::get_if<ArrayType>(&curType->v))
+                      curType = at->elem;
+                    else if (auto vt = std::get_if<VecType>(&curType->v))
+                      curType = vt->elem;
+                  } else if (auto af = std::get_if<AccessField>(&acc)) {
+                    if (auto st = std::get_if<StructType>(&curType->v)) {
+                      auto &fld = af->field;
+                      if (structLayouts_.count(st->name.name) &&
+                          structLayouts_.at(st->name.name).fields.count(fld))
+                        curType = structLayouts_.at(st->name.name).fields.at(fld).type;
+                    }
+                  }
+                }
+                std::uint32_t width = 0;
+                bool valIsFloat = false;
+                if (auto bits = TypeUtils::getIntBitWidth(curType)) {
+                  width = *bits;
+                } else if (curType && std::holds_alternative<FloatType>(curType->v)) {
+                  valIsFloat = true;
+                  width = (std::get<FloatType>(curType->v).kind == FloatType::Kind::F32) ? 32 : 64;
+                } else if (curType && std::holds_alternative<PtrType>(curType->v)) {
+                  // WASM pointers are 32-bit (one i32 cell).
+                  width = 32;
+                }
+
+                emitExpr(arg.rhs, width, valIsFloat);
+                indent();
+                if (valIsFloat) {
+                  out_ << (width == 32 ? "f32.store\n" : "f64.store\n");
+                } else {
+                  if (width <= 8)
+                    out_ << "i32.store8\n";
+                  else if (width <= 16)
+                    out_ << "i32.store16\n";
+                  else if (width <= 32)
+                    out_ << "i32.store\n";
+                  else
+                    out_ << "i64.store\n";
+                }
+              } else {
+                bool isFloat = std::holds_alternative<FloatType>(info.refractirType->v);
+                bool isPtr = std::holds_alternative<PtrType>(info.refractirType->v);
+                if (isPtr) {
+                  emitPtrExpr(arg.rhs, info.refractirType);
+                } else if (isPtrDiff(arg.rhs)) {
+                  // ptr - ptr → i64 element distance. Emit byte diff, then /sizeof.
+                  emitPtrDiff(arg.rhs);
+                } else {
+                  emitExpr(arg.rhs, info.bitwidth, isFloat);
+                }
+                indent();
+                out_ << "local.set " << mangleName(arg.lhs.base.name) << "\n";
+              }
+            }
+          } else if constexpr (std::is_same_v<T, RequireInstr>) {
+            if (!noRequire_) {
+              emitCond(arg.cond);
+              indent();
+              out_ << "i32.eqz\n";
+              indent();
+              out_ << "if\n";
+              indent_level_++;
+              indent();
+              out_ << "unreachable\n";
+              indent_level_--;
+              indent();
+              out_ << "end\n";
+            }
+          } else if constexpr (std::is_same_v<T, StoreInstr>) {
+            // *ptr = val — with null-pointer trap
+            // Determine pointee type from the pointer expression
+            uint32_t storeWidth = 32;
+            bool storeIsFloat = false;
+            if (auto rva = std::get_if<RValueAtom>(&arg.ptr.first.v)) {
+              if (locals_.count(rva->rval.base.name)) {
+                const auto &pinfo = locals_.at(rva->rval.base.name);
+                if (auto pt = std::get_if<PtrType>(&pinfo.refractirType->v)) {
+                  if (auto bits = TypeUtils::getIntBitWidth(pt->pointee)) {
+                    storeWidth = *bits;
+                  } else if (pt->pointee && std::holds_alternative<FloatType>(pt->pointee->v)) {
+                    storeIsFloat = true;
+                    storeWidth = (std::get<FloatType>(pt->pointee->v).kind == FloatType::Kind::F32)
+                                     ? 32
+                                     : 64;
+                  }
+                }
+              }
+            }
+            // Emit ptr expr; with guards on, save to $__ptr_temp,
+            // null-check, and restore. Under --no-ub-guards the
+            // pointer is simply left on the stack for the store.
+            emitExpr(arg.ptr, 32, false);
+            if (!noUbGuards_) {
+              indent();
+              out_ << "local.tee $__ptr_temp\n";
+              indent();
+              out_ << "i32.eqz\n";
+              indent();
+              out_ << "if\n";
+              indent_level_++;
+              indent();
+              out_ << "unreachable\n";
+              indent_level_--;
+              indent();
+              out_ << "end\n";
+              indent();
+              out_ << "local.get $__ptr_temp\n";
+            }
+            emitExpr(arg.val, storeWidth, storeIsFloat);
+            indent();
+            if (storeIsFloat) {
+              out_ << (storeWidth <= 32 ? "f32.store\n" : "f64.store\n");
+            } else {
+              out_
+                  << (storeWidth <= 8    ? "i32.store8\n"
+                      : storeWidth <= 16 ? "i32.store16\n"
+                      : storeWidth <= 32 ? "i32.store\n"
+                                         : "i64.store\n");
+            }
+          }
+        },
+        ins
+    );
+  }
+
+  // `ret` terminator emission: a vector return through the hidden
+  // `$__sret` slot or a scalar result, the shadow-stack teardown, then
+  // `return`. Shared by both emitters likewise.
+  void WasmBackend::emitReturn(const RetTerm &arg, const FunDecl &f) {
+    if (arg.value && f.retType && std::holds_alternative<VecType>(f.retType->v)) {
+      // [v0.2.3] Vector return: copy the lanes into the
+      // caller's sret slot; the function has no WASM result.
+      const auto &vt = std::get<VecType>(f.retType->v);
+      std::uint32_t elemSize = getTypeSize(vt.elem);
+      std::uint32_t width = getIntWidth(vt.elem);
+      bool valIsFloat = std::holds_alternative<FloatType>(vt.elem->v);
+      materializeVecCalls(*arg.value);
+      for (uint64_t i = 0; i < vt.size; ++i) {
+        indent();
+        out_ << "local.get $__sret\n";
+        if (i > 0) {
+          indent();
+          out_ << "i32.const " << (i * elemSize) << "\n";
+          indent();
+          out_ << "i32.add\n";
+        }
+        emitVecExprLane(*arg.value, vt, i, width, valIsFloat);
+        indent();
+        if (valIsFloat) {
+          out_ << (width == 32 ? "f32.store\n" : "f64.store\n");
+        } else {
+          out_ << (width <= 8
+                       ? "i32.store8"
+                       : (width <= 16 ? "i32.store16" : (width <= 32 ? "i32.store" : "i64.store")))
+               << "\n";
+        }
+      }
+    } else if (arg.value) {
+      bool isFloat = std::holds_alternative<FloatType>(f.retType->v);
+      emitExpr(*arg.value, getIntWidth(f.retType), isFloat);
+    }
+    if (stackSize_ > 0) {
+      indent();
+      out_ << "local.get $__old_sp\n";
+      indent();
+      out_ << "global.set $__stack_pointer\n";
+    }
+    indent();
+    out_ << "return\n";
   }
 
 } // namespace refractir

@@ -211,15 +211,20 @@ def test_implies_require_reducible(symirc):
 
 
 def test_target_gating(symirc):
-  """(C) wasm rejects --structured-lowering; python accepts it as no-op."""
+  """(C) wasm accepts --structured-lowering (block/loop); python no-ops."""
   path = write_sir(LOOP_SUM)
   try:
     r = run([symirc, path, "--structured-lowering", "--target", "wasm"])
-    wasm_ok = r.returncode != 0 and "structured-lowering" in r.stderr
+    # WASM now reconstructs genuine block/loop/if (no $__pc dispatch loop).
+    wasm_ok = (
+      r.returncode == 0
+      and "(loop $__cont" in r.stdout
+      and "dispatch_loop" not in r.stdout
+    )
     r2 = run([symirc, path, "--structured-lowering", "--target", "python"])
     py_ok = r2.returncode == 0 and "def " in r2.stdout
     check(
-      "structured C: wasm rejects flag, python no-ops",
+      "structured: wasm reconstructs block/loop, python no-ops",
       wasm_ok and py_ok,
       f"wasm rc={r.returncode} stderr={r.stderr[:150]!r}; python rc={r2.returncode}",
     )

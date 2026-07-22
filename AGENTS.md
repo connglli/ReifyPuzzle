@@ -201,7 +201,7 @@ Ensures program well-formedness beyond typing:
 ### 7. Language Lower / Translator
 - Translate a symbolic or concrete program into an existing language
 - First-class support are C, WebAssembly, and Python.
-- The Python target accepts only **reducible** CFGs and reconstructs genuine `while`/`if` control flow (dominator tree → reducibility check → loop forest → control tree → structured lowering; see [./docs/reducibility.md](./docs/reducibility.md)). The C backend emits labels+goto by default and offers the same structured reconstruction (`while`/`do-while`/`if`) behind `--structured-lowering`.
+- The Python target accepts only **reducible** CFGs and reconstructs genuine `while`/`if` control flow (dominator tree → reducibility check → loop forest → control tree → structured lowering; see [./docs/reducibility.md](./docs/reducibility.md)). The C backend emits labels+goto by default and offers the same structured reconstruction (`while`/`do-while`/`if`) behind `--structured-lowering`; the WASM backend emits a `$__pc`/`br_table` dispatch loop by default and, under `--structured-lowering`, reconstructs `block`/`loop`/`if` from the *unlowered* control tree using WASM's native multi-level `br`.
 - For symbolic program translation, use external function declarations to indicate symbols.
   - C: `extern int func_name_symbol_name(...);`
   - WASM: `import func_name symbol_name (func func_name_symbol_name (....))`
