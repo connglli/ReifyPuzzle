@@ -23,6 +23,7 @@
 // work off `descriptors` alone; the fuller per-point `StateProfile` is
 // present only when a tool captured one (rytwin), absent otherwise (rylink).
 
+#include <iosfwd>
 #include <memory>
 #include <random>
 #include <string>
@@ -49,6 +50,9 @@ namespace refractir::reify {
     SymbolicExecutor::SolverFactory solverFactory; // for synthesizing transforms; may be null
     std::unordered_map<std::string, FuncDescriptor> descriptors; // input i / oracle, by func name
     std::unordered_map<std::string, StateProfile> profiles;      // per-point state, by func name
+    // When non-null, transforms may emit human-readable per-decision progress
+    // here (the driver's `--verbose`). Transforms stay silent otherwise.
+    std::ostream *verbose = nullptr;
   };
 
   // Outcome of applying one Transform (or a whole pipeline).

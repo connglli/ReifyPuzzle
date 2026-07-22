@@ -178,6 +178,9 @@ int main(int argc, char **argv) {
     ("twin-guard", "Guard surface: exact (per-leaf equality) or bijection "
                 "(bijection-mixed leaves — collision-free but opaque)",
                 cxxopts::value<std::string>()->default_value("exact"))
+    ("twin-scope", "Twin unit: block (one basic block) or region (the maximal "
+                "dominance region — collapses sequences and whole loops)",
+                cxxopts::value<std::string>()->default_value("block"))
     ("seed",    "RNG seed (default: random)", cxxopts::value<uint32_t>())
     ("target",  "Compile p2 to a target (sir = no compilation)",
                 cxxopts::value<std::string>()->default_value("sir"))
@@ -187,6 +190,7 @@ int main(int argc, char **argv) {
                 cxxopts::value<std::string>()->default_value("vecext"))
     ("emit-main", "Keep @main un-mangled in compiled output (so p2 is runnable)")
     ("validate", "Run symiri on p1 and p2 with the profiled input and assert they agree")
+    ("v,verbose", "Log each twin decision (grafted / skipped / rejected, with reason)")
     ("o,output","Output .sir (p2)", cxxopts::value<std::string>())
     ("h,help",  "Print usage");
   opts.parse_positional({"input"});
@@ -219,6 +223,13 @@ int main(int argc, char **argv) {
     return 2;
   }
   GuardStyle guard = guardStyle == "bijection" ? GuardStyle::Bijection : GuardStyle::Exact;
+
+  std::string scopeStr = result["twin-scope"].as<std::string>();
+  if (scopeStr != "block" && scopeStr != "region") {
+    std::cerr << "rytwin: --twin-scope must be block or region (got '" << scopeStr << "')\n";
+    return 2;
+  }
+  TwinScope scope = scopeStr == "region" ? TwinScope::Region : TwinScope::Block;
 
   std::string target = result["target"].as<std::string>();
   if (target != "sir" && target != "c" && target != "wasm") {
@@ -319,6 +330,8 @@ int main(int argc, char **argv) {
   std::mt19937 rng(seed);
   TransformContext ctx(rng);
   ctx.solverFactory = makeSolverFactory();
+  if (result.count("verbose"))
+    ctx.verbose = &std::cerr;
   if (desc)
     ctx.descriptors[entry] = *desc;
   ctx.profiles[profile->func] = *profile;
@@ -334,7 +347,7 @@ int main(int argc, char **argv) {
     };
   }
   TransformPipeline pipe;
-  pipe.add(makeTwinTransform(pTwin, std::move(twinGen), guard));
+  pipe.add(makeTwinTransform(pTwin, std::move(twinGen), guard, scope));
   TransformReport rep = pipe.run(prog, ctx);
   if (!rep.ok) {
     std::cerr << "rytwin: pass failed: " << rep.message << "\n";

@@ -22,7 +22,7 @@
 // conjunction of per-leaf equalities, which is total (no UB) and
 // collision-free, so it can only fire on exactly `s`. Covering the whole
 // state (not just B's read set) maximizes discrimination; soundness only
-// needs guard-set ⊇ read-set(B), which planBlock guarantees by rejecting
+// needs guard-set ⊇ read-set(B), which planRegion guarantees by rejecting
 // any block whose reads are not guardable. Scalar roots cross into the
 // guard by value, vector roots per-lane, and aggregate roots by address
 // (`ptr [N] T` / `ptr @S` parameters navigated with ptrindex/ptrfield +
@@ -68,12 +68,33 @@ namespace refractir::reify {
   //               multiply/rotate mixers cannot be used.)
   enum class GuardStyle { Exact, Bijection };
 
-  // Build the twin transform. `pTwin` in [0,1] is the per-candidate-block
+  // How much of the CFG each twin replaces.
+  //
+  //   Block  — one basic block (the historical unit). The guard fires on the
+  //            block's entry state, the twin reproduces its effect, and
+  //            control resumes at the block's observed successor.
+  //   Region — the maximal single-entry region rooted at the block: every
+  //            later block the entry *dominates* on the executed path, up to
+  //            the first block it does not (or the function's return). The
+  //            guard fires on the region's entry state, the twin reproduces
+  //            the region's *net* effect, and control jumps straight to the
+  //            region exit — skipping every intermediate block and every loop
+  //            iteration in between. Sound by the same argument as Block:
+  //            RefractIR is deterministic, so the full entry state fixes the
+  //            entire continuation, and the twin is a memoized shortcut for
+  //            exactly that state. A whole loop collapses when its header is
+  //            the region entry; a straight-line run collapses to a single
+  //            block. Block is the degenerate one-block region.
+  enum class TwinScope { Block, Region };
+
+  // Build the twin transform. `pTwin` in [0,1] is the per-candidate
   // probability of grafting a twin. `twinGen` generates the twin body; an
   // empty function selects constant reconstruction. `guard` selects the
   // guard-function surface (see GuardStyle); both styles are exact and
-  // collision-free.
-  std::unique_ptr<Transform>
-  makeTwinTransform(double pTwin, TwinGenFn twinGen = {}, GuardStyle guard = GuardStyle::Exact);
+  // collision-free. `scope` selects the twin unit (see TwinScope).
+  std::unique_ptr<Transform> makeTwinTransform(
+      double pTwin, TwinGenFn twinGen = {}, GuardStyle guard = GuardStyle::Exact,
+      TwinScope scope = TwinScope::Block
+  );
 
 } // namespace refractir::reify

@@ -574,6 +574,227 @@ fun @narrow(%pa0: i8) : i8 {
       check("narrow guard still mixes on i8", ">>>" in body, body[:120])
 
 
+# --- region twins (--twin-scope region) ---------------------------------
+#
+# The region scope generalizes the twin unit from one block to the maximal
+# dominance region rooted at the entry: the guard fires on the entry state,
+# and the twin reproduces the region's net effect and jumps straight to the
+# region exit, skipping every block (and every loop iteration) in between.
+# Sound by determinism — the full entry state fixes the whole continuation.
+
+# A diamond so ^x has a predecessor outside ^e's region (^entry), making it
+# the region exit rather than another dominated block. On %p0!=0 the trace
+# is ^entry -> ^e -> ^b1 -> ^x, so the region rooted at ^e covers {^e,^b1}.
+SEQ_FIXTURE = """// SOLVED: %p0=3
+fun @seqreg(%p0: i32) : i32 {
+  let mut %a: i32 = 1;
+  let mut %b: i32 = 2;
+  ^entry:
+    br %p0 != 0, ^e, ^x;
+  ^e:
+    %a = %a + %p0;
+    br ^b1;
+  ^b1:
+    %a = %a + %b;
+    br ^x;
+  ^x:
+    ret %a;
+}
+"""
+
+# A counting loop; the whole loop is dominated by ^head and everything runs
+# to ^done (ret), so the region collapses all iterations into one twin that
+# jumps to ^done.
+LOOP_FIXTURE = """// SOLVED: %n=3
+fun @loopreg(%n: i32) : i32 {
+  let mut %i: i32 = 0;
+  let mut %s: i32 = 0;
+  ^entry:
+    br ^head;
+  ^head:
+    br %i < %n, ^body, ^done;
+  ^body:
+    %s = %s + %i;
+    %i = %i + 1;
+    br ^head;
+  ^done:
+    ret %s;
+}
+"""
+
+
+def test_scope_flag(rytwin):
+  """--twin-scope region is accepted; an unknown value exits non-zero."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "seqreg.sir")
+    open(p1, "w").write(SEQ_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run(
+      [rytwin, p1, "--p-twin", "1.0", "--seed", "3", "--twin-scope", "region", "-o", p2]
+    )
+    check("rytwin accepts --twin-scope region", r.returncode == 0, r.stderr[:160])
+    rb = run([rytwin, p1, "--twin-scope", "bogus", "-o", p2 + ".x"])
+    check("invalid --twin-scope rejected", rb.returncode != 0, f"rc={rb.returncode}")
+
+
+def test_scope_region_sequence(rytwin, symiri):
+  """Region scope collapses the ^e->^b1 chain: the ^e twin branches straight
+  to ^x, ^b1 stays put (for the orig path), and p1 === p2."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "seqreg.sir")
+    open(p1, "w").write(SEQ_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run(
+      [
+        rytwin,
+        p1,
+        "--p-twin",
+        "1.0",
+        "--seed",
+        "3",
+        "--twin-scope",
+        "region",
+        "--validate",
+        "-o",
+        p2,
+      ]
+    )
+    check("sequence region twinned + validated", r.returncode == 0, r.stderr[:200])
+    if r.returncode != 0:
+      return
+    src = open(p2).read()
+    bodies = twin_block_bodies(src)
+    check(
+      "a twin jumps straight to ^x (skips ^b1)",
+      any("br ^x" in b for b in bodies),
+      str(bodies),
+    )
+    check("skipped block ^b1 is preserved for the orig path", "^b1:" in src, "")
+    check(
+      "sequence p1 === p2",
+      symiri_result(symiri, p1, "@seqreg", ["3"])[1:]
+      == symiri_result(symiri, p2, "@seqreg", ["3"])[1:],
+      "",
+    )
+
+
+def test_scope_region_loop(rytwin, symiri):
+  """Region scope collapses an entire loop: a twin branches straight to
+  ^done, the loop body ^body is preserved, the twin actually executes (so the
+  loop was skipped on the profiled run), and p1 === p2."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "loopreg.sir")
+    open(p1, "w").write(LOOP_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run(
+      [
+        rytwin,
+        p1,
+        "--p-twin",
+        "1.0",
+        "--seed",
+        "3",
+        "--twin-scope",
+        "region",
+        "--validate",
+        "-o",
+        p2,
+      ]
+    )
+    check("loop region twinned + validated", r.returncode == 0, r.stderr[:200])
+    if r.returncode != 0:
+      return
+    src = open(p2).read()
+    bodies = twin_block_bodies(src)
+    check(
+      "a twin jumps straight to ^done (loop collapsed)",
+      any("br ^done" in b for b in bodies),
+      str(bodies),
+    )
+    check("loop body ^body is preserved for the orig path", "^body:" in src, "")
+    check(
+      "loop twin executes on profiled run",
+      "__twin" in dump_trace(symiri, p2, "@loopreg", ["3"]),
+      "",
+    )
+    check(
+      "loop p1 === p2",
+      symiri_result(symiri, p1, "@loopreg", ["3"])[1:]
+      == symiri_result(symiri, p2, "@loopreg", ["3"])[1:],
+      "",
+    )
+
+
+def test_scope_default_is_block(rytwin):
+  """Without --twin-scope the default is single-block: the ^e twin branches
+  to ^e's immediate successor ^b1, never straight to ^x."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "seqreg.sir")
+    open(p1, "w").write(SEQ_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run([rytwin, p1, "--p-twin", "1.0", "--seed", "3", "-o", p2])
+    check("default (block) fixture twinned", r.returncode == 0, r.stderr[:160])
+    if r.returncode != 0:
+      return
+    bodies = twin_block_bodies(open(p2).read())
+    check(
+      "no twin collapses ^e->^x under block scope",
+      not any("br ^x" in b for b in bodies),
+      str(bodies),
+    )
+
+
+def test_scope_region_equivalence(rytwin, rysmith, symiri):
+  """Region scope preserves p1 === p2 on the profiled input AND other inputs
+  across a random pool — the guard still fires only on the entry state."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, n="12", seed="202")
+    if not sirs:
+      check("region-equivalence setup (rysmith gen)", False, "generation failed")
+      return
+    equivalence_over_pool(
+      rytwin, symiri, d, sirs, "region", extra=["--twin-scope", "region"]
+    )
+
+
+def test_scope_region_with_bijection(rytwin, symiri):
+  """Region scope composes with the bijection guard: the loop collapses and
+  the guard is bijection-mixed, and p1 === p2."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "loopreg.sir")
+    open(p1, "w").write(LOOP_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run(
+      [
+        rytwin,
+        p1,
+        "--p-twin",
+        "1.0",
+        "--seed",
+        "3",
+        "--twin-scope",
+        "region",
+        "--twin-guard",
+        "bijection",
+        "--validate",
+        "-o",
+        p2,
+      ]
+    )
+    check("region + bijection twinned + validated", r.returncode == 0, r.stderr[:200])
+    if r.returncode != 0:
+      return
+    src = open(p2).read()
+    gbody = "".join(guard_fun_bodies(src).values())
+    tbodies = twin_block_bodies(src)
+    check(
+      "region collapses under bijection guard",
+      any("br ^done" in b for b in tbodies),
+      "",
+    )
+    check("guard is bijection-mixed", ">>>" in gbody, "")
+
+
 def twin_block_bodies(src):
   """Return the instruction text of every ^..__twin block in src."""
   bodies = []
@@ -1482,6 +1703,30 @@ def main():
     (
       "bijection guard: narrow (i8) width validates",
       lambda: test_bijection_guard_small_width(rytwin),
+    ),
+    (
+      "region scope: --twin-scope option accepted/rejected",
+      lambda: test_scope_flag(rytwin),
+    ),
+    (
+      "region scope: collapses a block sequence to its exit",
+      lambda: test_scope_region_sequence(rytwin, symiri),
+    ),
+    (
+      "region scope: collapses a whole loop to its exit",
+      lambda: test_scope_region_loop(rytwin, symiri),
+    ),
+    (
+      "region scope: default stays single-block",
+      lambda: test_scope_default_is_block(rytwin),
+    ),
+    (
+      "region scope: equivalence sweep (profiled + other)",
+      lambda: test_scope_region_equivalence(rytwin, rysmith, symiri),
+    ),
+    (
+      "region scope: composes with the bijection guard",
+      lambda: test_scope_region_with_bijection(rytwin, symiri),
     ),
     (
       "twin_gen: twin blocks are generated computations",

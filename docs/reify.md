@@ -411,9 +411,11 @@ The descriptor (`func_<id>_<i>.json`) and, when present, the state profile (`<st
 | `--twin-stmts N` | 3 | Random statements per generated twin |
 | `--twin-retries N` | 3 | Generation attempts per twin before falling back |
 | `--twin-guard exact\|bijection` | `exact` | Guard surface (see *Guard styles* below) |
+| `--twin-scope block\|region` | `block` | Twin unit (see *Twin scope* below) |
 | `--seed N` | random | RNG seed |
 | `--target sir\|c\|wasm` | `sir` | Optionally compile `f2` via the in-process backend |
 | `--validate` | off | Run `symiri` on `f1` and `f2` with the profiled input, assert they agree, and assert at least one twin block actually executed |
+| `-v, --verbose` | off | Log each twin decision (grafted / skipped / rejected, with reason) to stderr |
 | `--keep-require` | off | Keep `require` checks in compiled output |
 | `--keep-ub-guards` | off | Keep the dynamic UB guards in the compiled twin (default: dropped — the twin is assumed UB-free; see *Dropping UB guards* above) |
 | `--emit-main` | off | Keep `@main` un-mangled in compiled output |
@@ -440,6 +442,29 @@ in surface form, so the equivalence holds identically for either.
   (to prove twin ≡ orig) requires inverting a nonlinear map rather than
   reading off literals. Float and pointer leaves have no bijective integer
   primitive and stay exact.
+
+### Twin scope
+
+`--twin-scope` selects how much of the CFG each twin replaces.
+
+- **`block`** (default) — one basic block, as above: the guard fires on the
+  block's entry state, the twin reproduces its effect, and control resumes at
+  the block's observed successor.
+- **`region`** — the maximal single-entry region rooted at a block: every
+  later block the entry *dominates* on the executed path, up to the first
+  block it does not (or the function's return). The guard fires on the
+  region's entry state, the twin reproduces the region's **net** effect and
+  jumps straight to the region exit, **skipping every intermediate block and
+  every loop iteration in between**. A whole loop collapses when its header
+  is the region entry; a straight-line run collapses to a single block; a
+  single-block region is the `block` case. This is sound by the same argument
+  as `block`: RefractIR is deterministic, so the full entry state fixes the
+  entire continuation, and the twin is a memoized shortcut for exactly that
+  state — valid on every input that reaches the entry in that state, not only
+  the profiled one. A region is only twinned when its entry state is fully
+  guardable and every skipped block is free of non-intrinsic calls (a callee
+  could mutate outer-frame state the net diff does not see); otherwise it
+  falls back to a single-block twin.
 
 ### Example
 

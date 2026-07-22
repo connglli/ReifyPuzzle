@@ -51,7 +51,10 @@ considered and dropped (spec §13).
   by `rysmith --emit-state` per-program-point state profiles.
   `--twin-guard bijection` optionally hides each twin's guard behind a
   collision-free nonlinear `iW` bijection (opaque `>>> & ^`, no literal
-  `state == s`), so deducing twin ≡ orig needs a solver.
+  `state == s`), so deducing twin ≡ orig needs a solver. `--twin-scope
+  region` widens the twin unit from a single block to a whole dominance
+  region — collapsing straight-line runs and entire loops into one guarded
+  block that jumps straight to the region exit.
 - **UB-directed generation**: `symirsolve --require-ub` and
   `rysmith --require-ub` solve for symbol values that *trigger* UB on
   the chosen path; `rysmith --no-crc32` skips the checksum oracle.
