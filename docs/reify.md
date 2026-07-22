@@ -412,6 +412,7 @@ The descriptor (`func_<id>_<i>.json`) and, when present, the state profile (`<st
 | `--twin-retries N` | 3 | Generation attempts per twin before falling back |
 | `--twin-guard exact\|bijection` | `exact` | Guard surface (see *Guard styles* below) |
 | `--twin-scope block\|region` | `block` | Twin unit (see *Twin scope* below) |
+| `--twin-select random\|interesting` | `random` | Region-selection policy (see *Region selection* below) |
 | `--seed N` | random | RNG seed |
 | `--target sir\|c\|wasm` | `sir` | Optionally compile `f2` via the in-process backend |
 | `--validate` | off | Run `symiri` on `f1` and `f2` with the profiled input, assert they agree, and assert at least one twin block actually executed |
@@ -465,6 +466,31 @@ in surface form, so the equivalence holds identically for either.
   guardable and every skipped block is free of non-intrinsic calls (a callee
   could mutate outer-frame state the net diff does not see); otherwise it
   falls back to a single-block twin.
+
+### Region selection
+
+`--twin-select` is a **policy that assigns each eligible region a twin
+probability**; every region is then twinned by an independent draw (a single
+block is the degenerate one-block region, so the same rule covers both). The
+two policies differ only in that probability:
+
+- **`random`** (default) — every region gets probability `--p-twin` (uniform).
+- **`interesting`** — the probability is tilted by how hard the region's twin
+  is to prove equivalent. Each region is scored
+  `1000·(loop iterations collapsed) + 10·(distinct blocks) + 5·(changed
+  leaves) + (entry fan-in)` — so collapsing a whole loop dominates — the score
+  is normalized to `norm ∈ [0,1]` program-wide, and the twin probability is
+  `p = pTwin ^ exp((0.5 − norm) / T)` with a fixed softmax temperature
+  `T = 0.5`. That is monotone in the score, and is `1` at `--p-twin 1` (twin
+  all) and `0` at `--p-twin 0` (twin none), so `--p-twin` still sets the
+  overall rate while the score biases *which* regions win it.
+
+Overlapping regions are resolved in trace order — the first region drawn
+claims its blocks, and later regions covering any claimed block are dropped.
+Twin bodies are synthesized only for the regions actually chosen. Selection
+spans the **whole program** (all functions in the profiled trace), so on a
+rylink program `interesting` concentrates twins on the hardest regions across
+functions rather than scattering them uniformly.
 
 ### Example
 

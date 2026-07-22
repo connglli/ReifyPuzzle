@@ -795,6 +795,181 @@ def test_scope_region_with_bijection(rytwin, symiri):
     check("guard is bijection-mixed", ">>>" in gbody, "")
 
 
+# --- interesting-region selection (--twin-select) -----------------------
+#
+# `interesting` scores every eligible region (loop iterations collapsed
+# dominate, then size / state-diff / fan-in) and grafts the highest-scoring
+# non-overlapping ones. Two sequential loops under one dominating entry: the
+# entry's whole-function region subsumes both and outscores every inner
+# candidate, so it wins the overlap.
+TWO_LOOP_FIXTURE = """// SOLVED: %p=1
+fun @twoloop(%p: i32) : i32 {
+  let mut %i: i32 = 0;
+  let mut %j: i32 = 0;
+  let mut %s: i32 = 0;
+  ^entry:
+    br %p != 0, ^a_head, ^mid;
+  ^a_head:
+    br %i < 4, ^a_body, ^mid;
+  ^a_body:
+    %s = %s + %i;
+    %i = %i + 1;
+    br ^a_head;
+  ^mid:
+    br ^b_head;
+  ^b_head:
+    br %j < 2, ^b_body, ^done;
+  ^b_body:
+    %s = %s + %j;
+    %j = %j + 1;
+    br ^b_head;
+  ^done:
+    ret %s;
+}
+"""
+
+
+def test_select_flag(rytwin):
+  """--twin-select interesting is accepted; an unknown value exits non-zero."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "twoloop.sir")
+    open(p1, "w").write(TWO_LOOP_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run(
+      [
+        rytwin,
+        p1,
+        "--p-twin",
+        "1.0",
+        "--seed",
+        "3",
+        "--twin-scope",
+        "region",
+        "--twin-select",
+        "interesting",
+        "-o",
+        p2,
+      ]
+    )
+    check("rytwin accepts --twin-select interesting", r.returncode == 0, r.stderr[:160])
+    rb = run([rytwin, p1, "--twin-select", "bogus", "-o", p2 + ".x"])
+    check("invalid --twin-select rejected", rb.returncode != 0, f"rc={rb.returncode}")
+
+
+def test_select_interesting_wins_overlap(rytwin, symiri):
+  """The highest-scored region wins the overlap: the entry's whole-function
+  region (both loops) is grafted and jumps straight to ^done, the losing
+  overlapping candidates are dropped, and p1 === p2."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "twoloop.sir")
+    open(p1, "w").write(TWO_LOOP_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    r = run(
+      [
+        rytwin,
+        p1,
+        "--p-twin",
+        "1.0",
+        "--seed",
+        "3",
+        "--twin-scope",
+        "region",
+        "--twin-select",
+        "interesting",
+        "--verbose",
+        "--validate",
+        "-o",
+        p2,
+      ]
+    )
+    check(
+      "interesting selection twinned + validated", r.returncode == 0, r.stderr[:200]
+    )
+    if r.returncode != 0:
+      return
+    log = r.stdout + r.stderr
+    check(
+      "losing candidates report the overlap",
+      "overlaps a selected region" in log,
+      log[-300:],
+    )
+    bodies = twin_block_bodies(open(p2).read())
+    check(
+      "winning twin collapses both loops to ^done",
+      any("br ^done" in b for b in bodies),
+      str(bodies),
+    )
+    check(
+      "interesting p1 === p2",
+      symiri_result(symiri, p1, "@twoloop", ["1"])[1:]
+      == symiri_result(symiri, p2, "@twoloop", ["1"])[1:],
+      "",
+    )
+
+
+def test_select_interesting_equivalence(rytwin, rysmith, symiri):
+  """Interesting selection preserves p1 === p2 on the profiled input AND
+  other inputs across a random pool."""
+  with tempfile.TemporaryDirectory() as d:
+    sirs = gen_pool(rysmith, d, n="12", seed="202")
+    if not sirs:
+      check("interesting-equivalence setup (rysmith gen)", False, "generation failed")
+      return
+    equivalence_over_pool(
+      rytwin,
+      symiri,
+      d,
+      sirs,
+      "interesting",
+      extra=["--twin-scope", "region", "--twin-select", "interesting"],
+    )
+
+
+def test_select_softmax_probability(rytwin):
+  """The per-region twin probability rises with interestingness: at a low
+  --p-twin the whole-function region (highest score) gets a strictly higher
+  twin probability than a plain one-block region."""
+  with tempfile.TemporaryDirectory() as d:
+    p1 = os.path.join(d, "twoloop.sir")
+    open(p1, "w").write(TWO_LOOP_FIXTURE)
+    p2 = os.path.join(d, "p2.sir")
+    # The probability is deterministic given score/p-twin; the seed only
+    # drives the draw. Scan seeds for a run where both regions declined (so
+    # both probabilities are printed) and compare them.
+    entry_p = body_p = None
+    for s in range(1, 60):
+      r = run(
+        [
+          rytwin,
+          p1,
+          "--p-twin",
+          "0.15",
+          "--seed",
+          str(s),
+          "--twin-scope",
+          "region",
+          "--twin-select",
+          "interesting",
+          "--verbose",
+          "-o",
+          p2,
+        ]
+      )
+      log = r.stdout + r.stderr
+      me = re.search(r"\^entry: skipped \(twin p=([\d.]+)\)", log)
+      mb = re.search(r"\^a_body: skipped \(twin p=([\d.]+)\)", log)
+      if me and mb:
+        entry_p, body_p = float(me.group(1)), float(mb.group(1))
+        break
+    check("captured per-region twin probabilities", entry_p is not None, "")
+    if entry_p is not None:
+      check(
+        "harder region gets a higher twin probability",
+        entry_p > body_p,
+        f"entry={entry_p} body={body_p}",
+      )
+
+
 def twin_block_bodies(src):
   """Return the instruction text of every ^..__twin block in src."""
   bodies = []
@@ -1727,6 +1902,22 @@ def main():
     (
       "region scope: composes with the bijection guard",
       lambda: test_scope_region_with_bijection(rytwin, symiri),
+    ),
+    (
+      "select: --twin-select option accepted/rejected",
+      lambda: test_select_flag(rytwin),
+    ),
+    (
+      "select: interesting wins the overlap (whole-function region)",
+      lambda: test_select_interesting_wins_overlap(rytwin, symiri),
+    ),
+    (
+      "select: interesting-selection equivalence sweep",
+      lambda: test_select_interesting_equivalence(rytwin, rysmith, symiri),
+    ),
+    (
+      "select: softmax per-region probability",
+      lambda: test_select_softmax_probability(rytwin),
     ),
     (
       "twin_gen: twin blocks are generated computations",

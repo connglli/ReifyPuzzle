@@ -42,7 +42,9 @@
 // attempt verifies, `B'` falls back to a constant reconstruction of the
 // leaves the block writes.
 
+#include <functional>
 #include <memory>
+#include <vector>
 
 #include "reify/transform.hpp"
 #include "reify/twin_gen.hpp"
@@ -87,13 +89,46 @@ namespace refractir::reify {
   //            block. Block is the degenerate one-block region.
   enum class TwinScope { Block, Region };
 
-  // Build the twin transform. `pTwin` in [0,1] is the per-candidate
-  // probability of grafting a twin. `twinGen` generates the twin body; an
-  // empty function selects constant reconstruction. `guard` selects the
+  // Interestingness features of one candidate region, handed to a
+  // SelectionPolicy. A single block is the degenerate one-block region, so
+  // these describe blocks and multi-block regions alike.
+  struct CandidateInfo {
+    long loopItersCollapsed = 0; // repeated blocks in the window (a loop swallowed)
+    long distinctBlocks = 0;     // region size
+    long changedLeaves = 0;      // state-diff leaves the twin must reproduce
+    long fanIn = 0;              // predecessors of the region entry
+  };
+
+  // A selection policy maps the candidate regions found across one program to
+  // a per-region twin probability in [0,1] (index-aligned with its input). It
+  // receives all candidates at once so it can normalize across the program;
+  // TwinTransform then twins each region by an independent draw against its
+  // probability, resolving overlaps in trace order. The policy owns its own
+  // parameters, so the transform stays agnostic to how the probability is
+  // chosen.
+  using SelectionPolicy = std::function<std::vector<double>(const std::vector<CandidateInfo> &)>;
+
+  // Uniform policy: every region gets probability `pTwin` (a plain coin).
+  SelectionPolicy uniformPolicy(double pTwin);
+
+  // Default softmax temperature for interestingPolicy — a middling tilt that
+  // favours the harder regions without collapsing to argmax.
+  inline constexpr double kInterestingTemp = 0.5;
+
+  // Interestingness policy: score = 1000·itersCollapsed + 10·blocks +
+  // 5·changedLeaves + fanIn, normalized to [0,1] program-wide, then
+  // `p = pTwin ^ exp((0.5 - norm) / temp)` — monotone in the score, `1` at
+  // `pTwin=1`, `0` at `pTwin=0`, and → the uniform `pTwin` coin as
+  // `temp → ∞`. `temp` must be > 0.
+  SelectionPolicy interestingPolicy(double pTwin, double temp = kInterestingTemp);
+
+  // Build the twin transform. `select` scores candidate regions into twin
+  // probabilities (see SelectionPolicy). `twinGen` generates the twin body;
+  // an empty function selects constant reconstruction. `guard` selects the
   // guard-function surface (see GuardStyle); both styles are exact and
   // collision-free. `scope` selects the twin unit (see TwinScope).
   std::unique_ptr<Transform> makeTwinTransform(
-      double pTwin, TwinGenFn twinGen = {}, GuardStyle guard = GuardStyle::Exact,
+      SelectionPolicy select, TwinGenFn twinGen = {}, GuardStyle guard = GuardStyle::Exact,
       TwinScope scope = TwinScope::Block
   );
 

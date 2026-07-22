@@ -54,7 +54,10 @@ considered and dropped (spec §13).
   `state == s`), so deducing twin ≡ orig needs a solver. `--twin-scope
   region` widens the twin unit from a single block to a whole dominance
   region — collapsing straight-line runs and entire loops into one guarded
-  block that jumps straight to the region exit.
+  block that jumps straight to the region exit. `--twin-select interesting`
+  swaps the uniform `--p-twin` coin for a selection policy that softmax-tilts
+  each region's twin probability by how hard its twin is to prove equivalent
+  (loop-collapse dominating), concentrating twins on the hardest regions.
 - **UB-directed generation**: `symirsolve --require-ub` and
   `rysmith --require-ub` solve for symbol values that *trigger* UB on
   the chosen path; `rysmith --no-crc32` skips the checksum oracle.

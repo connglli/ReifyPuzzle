@@ -181,6 +181,9 @@ int main(int argc, char **argv) {
     ("twin-scope", "Twin unit: block (one basic block) or region (the maximal "
                 "dominance region — collapses sequences and whole loops)",
                 cxxopts::value<std::string>()->default_value("block"))
+    ("twin-select", "Which regions to twin: random (coin per candidate) or "
+                "interesting (per-region softmax probability of interestingness)",
+                cxxopts::value<std::string>()->default_value("random"))
     ("seed",    "RNG seed (default: random)", cxxopts::value<uint32_t>())
     ("target",  "Compile p2 to a target (sir = no compilation)",
                 cxxopts::value<std::string>()->default_value("sir"))
@@ -230,6 +233,17 @@ int main(int argc, char **argv) {
     return 2;
   }
   TwinScope scope = scopeStr == "region" ? TwinScope::Region : TwinScope::Block;
+
+  std::string selectStr = result["twin-select"].as<std::string>();
+  if (selectStr != "random" && selectStr != "interesting") {
+    std::cerr << "rytwin: --twin-select must be random or interesting (got '" << selectStr
+              << "')\n";
+    return 2;
+  }
+  // Bundle the selection knobs into a policy; the transform is agnostic to
+  // how a region's twin probability is chosen.
+  SelectionPolicy selectPolicy =
+      selectStr == "interesting" ? interestingPolicy(pTwin) : uniformPolicy(pTwin);
 
   std::string target = result["target"].as<std::string>();
   if (target != "sir" && target != "c" && target != "wasm") {
@@ -347,7 +361,7 @@ int main(int argc, char **argv) {
     };
   }
   TransformPipeline pipe;
-  pipe.add(makeTwinTransform(pTwin, std::move(twinGen), guard, scope));
+  pipe.add(makeTwinTransform(std::move(selectPolicy), std::move(twinGen), guard, scope));
   TransformReport rep = pipe.run(prog, ctx);
   if (!rep.ok) {
     std::cerr << "rytwin: pass failed: " << rep.message << "\n";

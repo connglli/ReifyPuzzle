@@ -1,6 +1,10 @@
 #include "reify/twin_transform.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <map>
+#include <optional>
 #include <ostream>
 #include <random>
 #include <string>
@@ -955,10 +959,115 @@ namespace refractir::reify {
       }
     }
 
+    // --- candidate region planning + scoring -------------------------------
+
+    // One planned candidate region rooted at trace point `t` (plan filled, no
+    // solver body yet). `t`/`usedEnd` index the function's trace points.
+    struct Cand {
+      std::size_t t = 0, usedEnd = 0, nBlocks = 0;
+      std::string label;
+      TwinPlan plan;
+      bool fellBack = false;
+    };
+
+    std::size_t blockIndex(const CFG &cfg, const std::string &lbl) {
+      auto it = cfg.indexOf.find(lbl);
+      return it == cfg.indexOf.end() ? DomTree::kNone : it->second;
+    }
+
+    // Plan the region rooted at trace point `t` under the given claims (empty
+    // when enumerating globally). Region scope extends the window while the
+    // entry dominates the executed, same-frame, unclaimed block; the exit is
+    // the first block it does not dominate, or the frame's returning block.
+    // Returns the candidate or nullopt with a reason; a rejected region falls
+    // back to a single-block twin.
+    std::optional<Cand> planCandidate(
+        const FunDecl &fn, const std::vector<const StatePoint *> &pts, std::size_t t,
+        TwinScope scope, const CFG &cfg, const DomTree &dt,
+        const std::unordered_map<std::string, const Block *> &byLabel,
+        const std::unordered_set<std::string> &claims, const StructMap &structs,
+        const TypeLayout &layout, std::string &why
+    ) {
+      const std::string &label = pts[t]->block;
+      std::size_t tEnd = t + 1;
+      if (scope == TwinScope::Region) {
+        const std::size_t eIdx = blockIndex(cfg, label);
+        std::size_t j = t + 1, last = t + 1;
+        while (j < pts.size() && pts[j]->frame == pts[t]->frame) {
+          const std::size_t bIdx = blockIndex(cfg, pts[j]->block);
+          if (eIdx == DomTree::kNone || bIdx == DomTree::kNone || !dt.dominates(eIdx, bIdx) ||
+              claims.count(pts[j]->block))
+            break;
+          last = j;
+          ++j;
+        }
+        if (j < pts.size() && pts[j]->frame == pts[t]->frame)
+          tEnd = j;
+        else if (auto lb = byLabel.find(pts[last]->block);
+                 lb != byLabel.end() && std::holds_alternative<RetTerm>(lb->second->term))
+          tEnd = last;
+      }
+      auto tryPlan = [&](std::size_t end, TwinPlan &plan, std::size_t &nBlocks) -> bool {
+        std::vector<const Block *> blocks;
+        std::unordered_set<std::string> seen;
+        for (std::size_t k = t; k < end; ++k) {
+          if (!seen.insert(pts[k]->block).second)
+            continue;
+          auto b2 = byLabel.find(pts[k]->block);
+          if (b2 == byLabel.end()) {
+            why = "block not found: " + pts[k]->block;
+            return false;
+          }
+          blocks.push_back(b2->second);
+        }
+        nBlocks = blocks.size();
+        if (blocks.empty()) {
+          why = "empty window";
+          return false;
+        }
+        plan.exitLabel = pts[end]->block;
+        return planRegion(
+            fn, blocks, /*scanTerms=*/scope == TwinScope::Region, pts[t]->vars, pts[end]->vars,
+            toStateMap(pts[t]->vars), structs, layout, plan, &why
+        );
+      };
+
+      Cand c;
+      c.t = t;
+      c.usedEnd = tEnd;
+      c.label = label;
+      if (!tryPlan(tEnd, c.plan, c.nBlocks)) {
+        if (tEnd == t + 1)
+          return std::nullopt;
+        std::string whyRegion = why;
+        c.plan = TwinPlan{};
+        c.usedEnd = t + 1;
+        if (!tryPlan(t + 1, c.plan, c.nBlocks)) {
+          why = "region: " + whyRegion + "; block: " + why;
+          return std::nullopt;
+        }
+        c.fellBack = true;
+      }
+      return c;
+    }
+
+    // The interestingness features of a candidate: loop iterations collapsed
+    // (a repeated block in the window means a loop was swallowed), region
+    // size, state-diff size, and the entry's fan-in.
+    CandidateInfo candidateInfo(const Cand &c, const CFG &cfg) {
+      CandidateInfo info;
+      info.distinctBlocks = (long) c.nBlocks;
+      info.loopItersCollapsed = (long) (c.usedEnd - c.t) - info.distinctBlocks;
+      info.changedLeaves = (long) c.plan.defs.size();
+      const std::size_t e = blockIndex(cfg, c.label);
+      info.fanIn = e == DomTree::kNone ? 0 : (long) cfg.pred[e].size();
+      return info;
+    }
+
     class TwinTransform : public Transform {
     public:
-      TwinTransform(double pTwin, TwinGenFn twinGen, GuardStyle guard, TwinScope scope) :
-          pTwin_(pTwin), twinGen_(std::move(twinGen)), guard_(guard), scope_(scope) {}
+      TwinTransform(SelectionPolicy select, TwinGenFn twinGen, GuardStyle guard, TwinScope scope) :
+          select_(std::move(select)), twinGen_(std::move(twinGen)), guard_(guard), scope_(scope) {}
 
       std::string_view name() const override { return "TwinTransform"; }
 
@@ -998,152 +1107,44 @@ namespace refractir::reify {
           // stay stable while grafting.
           std::vector<std::pair<std::string, std::vector<FunDecl>>> pendingGuards;
 
-          for (const auto &fnName: fnOrder) {
-            FunDecl *fn = nullptr;
+          auto isResidue = [](const std::string &l) {
+            return l.find("__twin") != std::string::npos || l.find("__orig") != std::string::npos ||
+                   l.find("__merge") != std::string::npos;
+          };
+          auto findFn = [&](const std::string &nm) -> FunDecl * {
             for (auto &f: prog.funs)
-              if (f.name.name == fnName) {
-                fn = &f;
-                break;
-              }
-            if (!fn)
-              continue;
+              if (f.name.name == nm)
+                return &f;
+            return nullptr;
+          };
+          auto byLabelOf = [](const FunDecl &fn) {
+            std::unordered_map<std::string, const Block *> m;
+            for (const auto &b: fn.blocks)
+              m[b.label.name] = &b;
+            return m;
+          };
 
-            std::unordered_map<std::string, const Block *> byLabel;
-            for (const auto &b: fn->blocks)
-              byLabel[b.label.name] = &b;
+          // Synthesize the solver body, log, and record a chosen candidate.
+          auto commit = [&](const std::string &fnName, const std::vector<const StatePoint *> &pts,
+                            Cand &c, std::unordered_map<std::string, TwinPlan> &decided) {
+            StateMap s = toStateMap(pts[c.t]->vars);
+            StateMap sPrime = toStateMap(pts[c.usedEnd]->vars);
+            maybeGenerateTwin(prog, c.plan, s, sPrime, ctx);
+            vlog(
+                fnName + " " + c.label + ": grafted " + (c.nBlocks > 1 ? "region" : "block") +
+                " -> " + c.plan.exitLabel + " (" + std::to_string(c.nBlocks) + " blk, " +
+                (c.plan.twinInstrs.empty() ? "const" : "solver") + " body)" +
+                (c.fellBack ? " [region fell back to block]" : "")
+            );
+            decided.emplace(c.label, std::move(c.plan));
+          };
 
-            // Dominators drive region discovery: a region is the maximal run
-            // of executed blocks the entry dominates. Built unconditionally
-            // (cheap on these CFGs); Block scope simply never consults it.
-            DiagBag diags;
-            const CFG cfg = CFG::build(*fn, diags);
-            const DomTree dt = DomTree::build(cfg);
-            auto domIdx = [&](const std::string &lbl) -> std::size_t {
-              auto it = cfg.indexOf.find(lbl);
-              return it == cfg.indexOf.end() ? DomTree::kNone : it->second;
-            };
-            auto isResidue = [](const std::string &l) {
-              return l.find("__twin") != std::string::npos ||
-                     l.find("__orig") != std::string::npos ||
-                     l.find("__merge") != std::string::npos;
-            };
-
-            const auto &pts = byFn[fnName];
-            std::unordered_map<std::string, TwinPlan> decided;
-            // Labels already inside a grafted region, so their intermediate
-            // blocks are not separately twinned.
-            std::unordered_set<std::string> claimed;
-            for (std::size_t t = 0; t + 1 < pts.size(); ++t) {
-              const std::string &label = pts[t]->block;
-              if (claimed.count(label) || isResidue(label))
-                continue;
-              // s' is the next point of the SAME activation: a point from
-              // another frame (the caller resuming, a fresh call) says
-              // nothing about this block's effect.
-              if (pts[t]->frame != pts[t + 1]->frame)
-                continue;
-              if (byLabel.find(label) == byLabel.end())
-                continue;
-
-              // Window end (exclusive): pts[tEnd] is the region exit X. In
-              // region scope, extend forward while the entry still dominates
-              // the executed block (and it is same-frame and unclaimed); the
-              // exit is the first block it does not dominate, or — when the
-              // whole rest of the frame is dominated — the returning block.
-              std::size_t tEnd = t + 1;
-              if (scope_ == TwinScope::Region) {
-                const std::size_t eIdx = domIdx(label);
-                std::size_t j = t + 1, last = t + 1;
-                while (j < pts.size() && pts[j]->frame == pts[t]->frame) {
-                  const std::size_t bIdx = domIdx(pts[j]->block);
-                  if (eIdx == DomTree::kNone || bIdx == DomTree::kNone ||
-                      !dt.dominates(eIdx, bIdx) || claimed.count(pts[j]->block))
-                    break;
-                  last = j;
-                  ++j;
-                }
-                if (j < pts.size() && pts[j]->frame == pts[t]->frame)
-                  tEnd = j; // block[j] is a same-frame, non-dominated exit
-                else if (auto lb = byLabel.find(pts[last]->block);
-                         lb != byLabel.end() && std::holds_alternative<RetTerm>(lb->second->term))
-                  tEnd = last; // ran to the frame's return — collapse it too
-              }
-
-              // Assemble a plan over the distinct skipped blocks [t, end).
-              // `nBlocks` reports the region size; `why` a rejection reason.
-              auto tryPlan = [&](std::size_t end, TwinPlan &plan, std::size_t &nBlocks,
-                                 std::string &why) -> bool {
-                std::vector<const Block *> blocks;
-                std::unordered_set<std::string> seen;
-                for (std::size_t k = t; k < end; ++k) {
-                  if (!seen.insert(pts[k]->block).second)
-                    continue;
-                  auto b2 = byLabel.find(pts[k]->block);
-                  if (b2 == byLabel.end()) {
-                    why = "block not found: " + pts[k]->block;
-                    return false;
-                  }
-                  blocks.push_back(b2->second);
-                }
-                nBlocks = blocks.size();
-                if (blocks.empty()) {
-                  why = "empty window";
-                  return false;
-                }
-                plan.exitLabel = pts[end]->block;
-                return planRegion(
-                    *fn, blocks, /*scanTerms=*/scope_ == TwinScope::Region, pts[t]->vars,
-                    pts[end]->vars, toStateMap(pts[t]->vars), structs, layout, plan, &why
-                );
-              };
-
-              TwinPlan plan;
-              std::size_t usedEnd = tEnd, nBlocks = 0;
-              std::string why;
-              bool fellBack = false;
-              if (!tryPlan(tEnd, plan, nBlocks, why)) {
-                // A rejected region falls back to a single-block twin.
-                if (tEnd == t + 1) {
-                  vlog(fnName + " " + label + ": rejected (" + why + ")");
-                  continue;
-                }
-                std::string whyRegion = why;
-                plan = TwinPlan{};
-                usedEnd = t + 1;
-                if (!tryPlan(t + 1, plan, nBlocks, why)) {
-                  vlog(
-                      fnName + " " + label + ": rejected (region: " + whyRegion +
-                      "; block: " + why + ")"
-                  );
-                  continue;
-                }
-                fellBack = true;
-              }
-              if (coin(ctx.rng) >= pTwin_) {
-                vlog(fnName + " " + label + ": skipped (--p-twin)");
-                continue;
-              }
-
-              StateMap s = toStateMap(pts[t]->vars);
-              StateMap sPrime = toStateMap(pts[usedEnd]->vars);
-              maybeGenerateTwin(prog, plan, s, sPrime, ctx);
-
-              vlog(
-                  fnName + " " + label + ": grafted " + (nBlocks > 1 ? "region" : "block") +
-                  " -> " + plan.exitLabel + " (" + std::to_string(nBlocks) + " blk, " +
-                  (plan.twinInstrs.empty() ? "const" : "solver") + " body)" +
-                  (fellBack ? " [region fell back to block]" : "")
-              );
-
-              std::unordered_set<std::string> seen;
-              for (std::size_t k = t; k < usedEnd; ++k)
-                if (seen.insert(pts[k]->block).second)
-                  claimed.insert(pts[k]->block);
-              decided.emplace(label, std::move(plan));
-            }
+          // Expand a function's chosen `decided` map into guard/twin/orig
+          // blocks and queue its guard functions.
+          auto graftFunction = [&](FunDecl *fn, const std::string &fnName,
+                                   std::unordered_map<std::string, TwinPlan> &decided) {
             if (decided.empty())
-              continue;
-
+              return;
             const std::string fnStem =
                 fnName.empty() || fnName[0] != '@' ? fnName : fnName.substr(1);
             std::vector<FunDecl> guardFuns;
@@ -1168,6 +1169,84 @@ namespace refractir::reify {
             }
             fn->blocks = std::move(nb);
             pendingGuards.emplace_back(fnName, std::move(guardFuns));
+          };
+
+          // Selection is one loop over every eligible region program-wide:
+          // the SelectionPolicy scores the candidates into per-region twin
+          // probabilities, and each region is twinned by an independent draw.
+          // Overlaps are resolved in enumeration (trace) order: the first
+          // region drawn claims its blocks.
+          struct Scored {
+            std::string fnName;
+            Cand cand;
+            CandidateInfo info;
+          };
+
+          std::vector<Scored> pool;
+          for (const auto &fnName: fnOrder) {
+            FunDecl *fn = findFn(fnName);
+            if (!fn)
+              continue;
+            const auto byLabel = byLabelOf(*fn);
+            DiagBag diags;
+            const CFG cfg = CFG::build(*fn, diags);
+            const DomTree dt = DomTree::build(cfg);
+            const auto &pts = byFn[fnName];
+            const std::unordered_set<std::string> noClaims;
+            std::unordered_set<std::string> enumerated;
+            for (std::size_t t = 0; t + 1 < pts.size(); ++t) {
+              const std::string &label = pts[t]->block;
+              if (isResidue(label) || pts[t]->frame != pts[t + 1]->frame ||
+                  byLabel.find(label) == byLabel.end() || !enumerated.insert(label).second)
+                continue;
+              std::string why;
+              if (auto c = planCandidate(
+                      *fn, pts, t, scope_, cfg, dt, byLabel, noClaims, structs, layout, why
+                  )) {
+                CandidateInfo info = candidateInfo(*c, cfg); // features before moving `c`
+                pool.push_back({fnName, std::move(*c), info});
+              } else
+                vlog(fnName + " " + label + ": rejected (" + why + ")");
+            }
+          }
+          // The policy turns the whole candidate set into per-region twin
+          // probabilities (it owns any normalization and parameters).
+          std::vector<CandidateInfo> infos;
+          infos.reserve(pool.size());
+          for (const auto &a: pool)
+            infos.push_back(a.info);
+          const std::vector<double> probs = select_ ? select_(infos) : std::vector<double>();
+
+          std::unordered_set<std::string> claimed; // "<fn>#<block>"
+          std::unordered_map<std::string, std::unordered_map<std::string, TwinPlan>> decidedByFn;
+          for (std::size_t i = 0; i < pool.size(); ++i) {
+            Scored &a = pool[i];
+            const auto &pts = byFn[a.fnName];
+            auto key = [&](std::size_t k) { return a.fnName + "#" + pts[k]->block; };
+            bool overlap = false;
+            for (std::size_t k = a.cand.t; k < a.cand.usedEnd && !overlap; ++k)
+              overlap = claimed.count(key(k)) > 0;
+            if (overlap) {
+              vlog(a.fnName + " " + a.cand.label + ": skipped (overlaps a selected region)");
+              continue;
+            }
+            const double p = i < probs.size() ? probs[i] : 0.0;
+            if (coin(ctx.rng) >= p) {
+              char buf[16];
+              std::snprintf(buf, sizeof buf, "%.2f", p);
+              vlog(a.fnName + " " + a.cand.label + ": skipped (twin p=" + buf + ")");
+              continue;
+            }
+            for (std::size_t k = a.cand.t; k < a.cand.usedEnd; ++k)
+              claimed.insert(key(k));
+            commit(a.fnName, pts, a.cand, decidedByFn[a.fnName]);
+          }
+          for (const auto &fnName: fnOrder) {
+            FunDecl *fn = findFn(fnName);
+            if (!fn)
+              continue;
+            if (auto it = decidedByFn.find(fnName); it != decidedByFn.end())
+              graftFunction(fn, fnName, it->second);
           }
 
           for (auto &[fnName, guards]: pendingGuards) {
@@ -1313,7 +1392,7 @@ namespace refractir::reify {
         out.push_back(std::move(orig));
       }
 
-      double pTwin_;
+      SelectionPolicy select_;
       TwinGenFn twinGen_;
       GuardStyle guard_;
       TwinScope scope_;
@@ -1321,9 +1400,41 @@ namespace refractir::reify {
 
   } // namespace
 
+  SelectionPolicy uniformPolicy(double pTwin) {
+    return [pTwin](const std::vector<CandidateInfo> &cs) {
+      return std::vector<double>(cs.size(), pTwin);
+    };
+  }
+
+  SelectionPolicy interestingPolicy(double pTwin, double temp) {
+    return [pTwin, temp](const std::vector<CandidateInfo> &cs) {
+      std::vector<double> ps(cs.size(), 0.0);
+      if (cs.empty())
+        return ps;
+      auto score = [](const CandidateInfo &c) {
+        return 1000 * c.loopItersCollapsed + 10 * c.distinctBlocks + 5 * c.changedLeaves + c.fanIn;
+      };
+      long mn = score(cs[0]), mx = mn;
+      for (const auto &c: cs) {
+        const long s = score(c);
+        mn = std::min(mn, s);
+        mx = std::max(mx, s);
+      }
+      const double range = mx > mn ? (double) (mx - mn) : 0.0;
+      for (std::size_t i = 0; i < cs.size(); ++i) {
+        // Normalize the score to [0,1] so the temperature is scale-free, then
+        // p = pTwin ^ exp((0.5 - norm)/temp): monotone in the score, 1 at
+        // pTwin=1, 0 at pTwin=0, and -> the uniform pTwin coin as temp -> inf.
+        const double norm = range > 0.0 ? (double) (score(cs[i]) - mn) / range : 0.5;
+        ps[i] = std::pow(pTwin, std::exp((0.5 - norm) / temp));
+      }
+      return ps;
+    };
+  }
+
   std::unique_ptr<Transform>
-  makeTwinTransform(double pTwin, TwinGenFn twinGen, GuardStyle guard, TwinScope scope) {
-    return std::make_unique<TwinTransform>(pTwin, std::move(twinGen), guard, scope);
+  makeTwinTransform(SelectionPolicy select, TwinGenFn twinGen, GuardStyle guard, TwinScope scope) {
+    return std::make_unique<TwinTransform>(std::move(select), std::move(twinGen), guard, scope);
   }
 
 } // namespace refractir::reify
