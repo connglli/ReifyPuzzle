@@ -723,7 +723,7 @@ def test_structured_lowering_all_seeds_discarded(rylink):
 
 
 def test_structured_lowering_gating(rylink):
-  """Unknown values and the wasm target are rejected up-front."""
+  """An unknown --structured-lowering value is rejected up-front."""
   with tempfile.TemporaryDirectory() as pool:
     r = run(
       [rylink, "--input-dir", pool, "--structured-lowering", "maybe", "--target", "c"]
@@ -733,22 +733,46 @@ def test_structured_lowering_gating(rylink):
       r.returncode != 0,
       f"rc={r.returncode}",
     )
-    r = run(
-      [
-        rylink,
-        "--input-dir",
-        pool,
-        "--structured-lowering",
-        "true",
-        "--target",
-        "wasm",
+
+
+def test_structured_lowering_wasm(rylink, rysmith):
+  """--structured-lowering true over a reducible pool: dispatch-free WASM."""
+  with tempfile.TemporaryDirectory() as pool:
+    seed_pool(rysmith, pool, extra_args=["--require-reducible"])
+    with tempfile.TemporaryDirectory() as out:
+      r = run(
+        [
+          rylink,
+          "--input-dir",
+          pool,
+          "--n-progs",
+          "2",
+          "--seed",
+          "7",
+          "--target",
+          "wasm",
+          "--structured-lowering",
+          "true",
+          "-o",
+          out,
+        ]
+      )
+      if r.returncode != 0:
+        check("rylink --structured-lowering + wasm accepted", False, r.stderr[:300])
+        return
+      wats = _walk_files(out, ".wat")
+      # Structured emission reconstructs block/loop/if; the $__pc +
+      # br_table dispatch loop must be gone.
+      dispatchy = [
+        p
+        for p in wats
+        if "br_table" in open(p).read() or "dispatch_loop" in open(p).read()
       ]
-    )
-    check(
-      "rylink --structured-lowering + wasm rejected",
-      r.returncode != 0 and "structured-lowering" in (r.stderr or ""),
-      f"rc={r.returncode}, stderr={r.stderr[:150]!r}",
-    )
+      check(
+        f"all {len(wats)} rylink structured .wat files are dispatch-free",
+        bool(wats) and not dispatchy,
+        f"dispatch loop in: {dispatchy}" if wats else "no .wat emitted",
+      )
 
 
 def test_target_python(rylink, rysmith):
@@ -847,6 +871,8 @@ def main():
   test_r9_p_noinline_noclone_callees(rylink, rysmith)
   print("=== rylink --structured-lowering: goto-free C ===")
   test_structured_lowering_c(rylink, rysmith)
+  print("=== rylink --structured-lowering: dispatch-free WASM ===")
+  test_structured_lowering_wasm(rylink, rysmith)
   print("=== rylink --structured-lowering: seed filtering ===")
   test_structured_lowering_discards_irreducible_seeds(rylink, rysmith)
   print("=== rylink --structured-lowering: all seeds discarded ===")

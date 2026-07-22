@@ -253,10 +253,11 @@ struct PerProgConfig {
                            // (per-program resolution against `random`
                            // happens inside generateOne so each prog
                            // sweeps independently — matching rysmith).
-  // [v0.2.3] "true" | "false" | "random" — structured (goto-free) C
-  // lowering, resolved per program like vecLowering. true/random (and
-  // the python target) require reducible seeds: the pool is filtered
-  // on the descriptors' `reducible` flag before generation.
+  // [v0.2.3] "true" | "false" | "random" — structured lowering for the
+  // C (goto-free) and WASM (dispatch-free) targets, resolved per program
+  // like vecLowering. true/random (and the python target) require
+  // reducible seeds: the pool is filtered on the descriptors'
+  // `reducible` flag before generation.
   std::string structuredLowering = "false";
   bool keepRequire = false;
   bool keepUbGuards = false; // [v0.2.3] force UB guards on even for UB-free bundles
@@ -486,8 +487,14 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     std::string vecLow = reify::pickVecLowering(rng, cfg.vecLowering, "wasm");
     if (cfg.verbose && !vecLow.empty())
       std::cout << "  vec-lowering: " << vecLow << "\n";
+    // Per-program structured coin, drawn after the vec-lowering pick
+    // (and only for "random") — same stream discipline as the C branch.
+    bool structured = reify::pickStructuredLowering(rng, cfg.structuredLowering);
+    if (cfg.verbose && structured)
+      std::cout << "  structured-lowering: true\n";
     if (!emitWasmInProcess(
-            bundle, wasmOut, cfg.keepRequire, noUbGuards, vecLow, cfg.emitMain, cfg.verbose
+            bundle, wasmOut, cfg.keepRequire, noUbGuards, vecLow, structured, cfg.emitMain,
+            cfg.verbose
         )) {
       if (cfg.verbose)
         std::cerr << "  backend FAIL (" << failTag << ")\n";
@@ -556,7 +563,8 @@ int main(int argc, char **argv) {
     ("vec-lowering", "Vec-lowering strategy for C/WASM/Python backends "
                      "(random|vecext|scalars|array|structscalars|structarray)",
         cxxopts::value<std::string>()->default_value("random"))
-    ("structured-lowering", "Structured (goto-free) lowering for the C target: true|false|random; "
+    ("structured-lowering", "Structured lowering for the C (goto-free) and WASM (dispatch-free) "
+                            "targets: true|false|random; "
                             "true/random discard pool seeds whose descriptor is not reducible",
         cxxopts::value<std::string>()->default_value("false"))
     ("keep-require", "Keep `require` checks in C/WASM output",
@@ -637,10 +645,6 @@ int main(int argc, char **argv) {
   if (pc.structuredLowering != "true" && pc.structuredLowering != "false" &&
       pc.structuredLowering != "random") {
     std::cerr << "rylink: --structured-lowering must be true | false | random\n";
-    return 2;
-  }
-  if (pc.structuredLowering != "false" && pc.target == "wasm") {
-    std::cerr << "rylink: --structured-lowering is not supported for the wasm target yet\n";
     return 2;
   }
   // The python backend rejects vecext (no native SIMD value type);

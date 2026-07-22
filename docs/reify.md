@@ -258,7 +258,7 @@ rysmith [OPTIONS]
 | `-o, --output-dir PATH` | `reify_out` | Output directory for `.sir` files |
 | `--target sir\|c\|wasm\|python` | `sir` | Optionally compile each concrete `.sir` in-process (`python` implies `--require-reducible`) |
 | `--require-reducible` | off | Only generate reducible CFGs (irreducible back edges are repaired away) |
-| `--structured-lowering true\|false\|random` | `false` | Structured (goto-free) C lowering, resolved per program; `true`/`random` imply `--require-reducible` and reject `--target wasm` |
+| `--structured-lowering true\|false\|random` | `false` | Structured lowering for the C (goto-free) and WASM (dispatch-free) targets, resolved per program; `true`/`random` imply `--require-reducible` |
 | `--vec-lowering <s>` | `random` | Vector lowering strategy, resolved per program; `random` sweeps the target's set (C: all five; python: all but `vecext`) |
 | `--keep-require` | off | Include `require` checks in compiled output |
 | `--keep-ub-guards` | off | Keep the backends' dynamic UB guards in compiled output even for UB-free programs. By default UB-free generation (i.e. without `--require-ub`) drops them — see below |
@@ -351,7 +351,7 @@ rylink [OPTIONS]
 | `--n-nodes N` | 4 | Target number of call-graph nodes per program |
 | `--max-outdeg N` | 3 | Maximum out-degree per CG node |
 | `--target sir\|c\|wasm\|python` | `c` | `c` uses `symirc --split-by-source`; `python` emits a single `program.py`; `sir` skips lowering |
-| `--structured-lowering true\|false\|random` | `false` | Structured (goto-free) C lowering, resolved per program; rejects `--target wasm` |
+| `--structured-lowering true\|false\|random` | `false` | Structured lowering for the C (goto-free) and WASM (dispatch-free) targets, resolved per program |
 | `--vec-lowering <s>` | `random` | Vector lowering strategy, resolved per program from the target's set (C: all five; python: all but `vecext`) |
 | `--keep-require` | off | Keep `require` checks in C/WASM output |
 | `--keep-ub-guards` | off | Keep the dynamic UB guards even when the bundle is UB-free (default: dropped — see *Dropping UB guards* above) |

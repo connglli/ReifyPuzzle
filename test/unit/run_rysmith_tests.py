@@ -2489,26 +2489,38 @@ def test_structured_lowering_value_validation(rysmith):
     )
 
 
-def test_structured_lowering_rejects_wasm(rysmith):
-  """structured lowering on the wasm target is rejected (deferred)."""
+def test_structured_lowering_wasm(rysmith):
+  """structured lowering on the wasm target emits dispatch-free WASM."""
   with tempfile.TemporaryDirectory() as d:
     r = run(
       [
         rysmith,
         "--n-funcs",
-        "1",
+        "6",
         "--target",
         "wasm",
         "--structured-lowering",
         "true",
+        "--emit-main",
+        "--seed",
+        "7",
         "-o",
         d,
       ]
     )
+    wats = [f for f in os.listdir(d) if f.endswith(".wat")]
+    # Structured emission reconstructs block/loop/if; the $__pc +
+    # br_table dispatch loop must be gone.
+    dispatchy = [
+      f
+      for f in wats
+      if "br_table" in open(os.path.join(d, f)).read()
+      or "dispatch_loop" in open(os.path.join(d, f)).read()
+    ]
     check(
-      "--structured-lowering + wasm rejected",
-      r.returncode != 0 and "structured-lowering" in (r.stderr or ""),
-      f"rc={r.returncode}, stderr={r.stderr[:150]!r}",
+      f"--structured-lowering + wasm emits {len(wats)} dispatch-free .wat",
+      r.returncode == 0 and bool(wats) and not dispatchy,
+      f"rc={r.returncode}, wats={len(wats)}, dispatch in={dispatchy}, stderr={r.stderr[:150]!r}",
     )
 
 
@@ -2777,8 +2789,8 @@ def main():
   test_structured_lowering_implies_reducible(rysmith, symirc)
   print("=== --structured-lowering value validation ===")
   test_structured_lowering_value_validation(rysmith)
-  print("=== --structured-lowering rejects wasm ===")
-  test_structured_lowering_rejects_wasm(rysmith)
+  print("=== --structured-lowering: dispatch-free wasm ===")
+  test_structured_lowering_wasm(rysmith)
   print("=== --target python ===")
   test_target_python_emits_py(rysmith)
   print("=== python --vec-lowering: explicit / random / vecext ===")

@@ -116,8 +116,8 @@ namespace refractir::reify {
     }
   }
 
-  // [v0.2.3] Structured emission (C --structured-lowering, python) is
-  // only total on reducible CFGs. Callers filter or repair upstream;
+  // [v0.2.3] Structured emission (C/WASM --structured-lowering, python)
+  // is only total on reducible CFGs. Callers filter or repair upstream;
   // verify here so a violation is a clean failure instead of
   // malformed backend output.
   static bool allFunsReducible(const Program &prog, bool verbose) {
@@ -187,9 +187,11 @@ namespace refractir::reify {
 
   bool emitWasmInProcess(
       Program &prog, const fs::path &outFile, bool keepRequire, bool noUbGuards,
-      const std::string &vecLowering, bool emitMain, bool verbose
+      const std::string &vecLowering, bool structuredLowering, bool emitMain, bool verbose
   ) {
     if (!runAnalysisPasses(prog, verbose))
+      return false;
+    if (structuredLowering && !allFunsReducible(prog, verbose))
       return false;
     std::ofstream ofs(outFile);
     if (!ofs) {
@@ -207,6 +209,7 @@ namespace refractir::reify {
     wb.setNoRequire(!keepRequire);
     wb.setNoUbGuards(noUbGuards);
     wb.setNoMainMangle(emitMain);
+    wb.setStructuredLowering(structuredLowering);
     wb.setVecLowering(std::move(vl));
     try {
       wb.emit(prog);
@@ -281,7 +284,8 @@ namespace refractir::reify {
         );
       } else if (target == "wasm") {
         return emitWasmInProcess(
-            prog, outPath, keepRequire, noUbGuards, vecLowering, emitMain, verbose
+            prog, outPath, keepRequire, noUbGuards, vecLowering, structuredLowering, emitMain,
+            verbose
         );
       } else if (target == "python") {
         return emitPyInProcess(

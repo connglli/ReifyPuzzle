@@ -589,7 +589,7 @@ int main(int argc, char **argv) {
                           cxxopts::value<std::string>()->default_value("sir"))
     ("vec-lowering",      "Vec-lowering strategy for C/WASM/Python backends (random|vecext|scalars|array|structscalars|structarray)",
                           cxxopts::value<std::string>()->default_value("random"))
-    ("structured-lowering", "Structured (goto-free) lowering for the C target: true|false|random; true/random imply --require-reducible",
+    ("structured-lowering", "Structured lowering for the C (goto-free) and WASM (dispatch-free) targets: true|false|random; true/random imply --require-reducible",
                           cxxopts::value<std::string>()->default_value("false"))
     ("keep-require",      "Include require checks in compiled output (default: omitted)")
     ("keep-ub-guards",    "Keep dynamic UB guards in compiled output even for UB-free programs (default: false)")
@@ -783,10 +783,6 @@ int main(int argc, char **argv) {
               << "' (expected true, false, random)\n";
     return 1;
   }
-  if (structuredLoweringOpt != "false" && target == "wasm") {
-    std::cerr << "error: --structured-lowering is not supported for the wasm target yet\n";
-    return 1;
-  }
   // Structuring consumers only accept reducible CFGs (mirrors symirc:
   // --structured-lowering and --target python imply the check — here,
   // the generator-side repair).
@@ -891,8 +887,8 @@ int main(int argc, char **argv) {
         std::string vecLowering = reify::pickVecLowering(rng, vecLoweringOpt, target);
         if (verbose && !vecLowering.empty())
           std::cout << "  vec-lowering: " << vecLowering << "\n";
-        bool structured =
-            target == "c" && reify::pickStructuredLowering(rng, structuredLoweringOpt);
+        bool structured = (target == "c" || target == "wasm") &&
+                          reify::pickStructuredLowering(rng, structuredLoweringOpt);
         if (verbose && structured)
           std::cout << "  structured-lowering: true\n";
         bool ok = compileSirInProcess(

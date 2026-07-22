@@ -276,10 +276,14 @@ namespace refractir::reify {
       bool emitMain, bool splitBySource, bool verbose
   );
 
-  // Compile a Program to WASM (in-process).
+  // Compile a Program to WASM (in-process). `structuredLowering`
+  // selects genuine block/loop/if emission over the $__pc dispatch
+  // loop (WasmBackend::setStructuredLowering); the caller must have
+  // ensured the program is reducible.
   bool emitWasmInProcess(
       refractir::Program &prog, const std::filesystem::path &outFile, bool keepRequire,
-      bool noUbGuards, const std::string &vecLowering, bool emitMain, bool verbose
+      bool noUbGuards, const std::string &vecLowering, bool structuredLowering, bool emitMain,
+      bool verbose
   );
 
   // [v0.2.3] Compile a Program to Python (in-process). Requires a
@@ -293,7 +297,7 @@ namespace refractir::reify {
 
   // Parse a .sir file and compile it with the C / WASM / Python
   // backend. Returns true on success. `structuredLowering` applies to
-  // the C target only.
+  // the C and WASM targets (python is always structured).
   bool compileSirInProcess(
       const std::filesystem::path &sirPath, const std::string &target,
       const std::filesystem::path &outPath, bool keepRequire, bool noUbGuards,
