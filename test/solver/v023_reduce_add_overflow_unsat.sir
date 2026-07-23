@@ -1,0 +1,17 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path ^entry
+// SPEC v0.2.3 §12.4 — @reduce_add carries per-step overflow UB (rule 4).
+// Every lane is in [100,127] as i8, so the first fold step 100+100=200
+// always overflows i8: the path is infeasible for the whole domain and the
+// solver must return UNSAT regardless of the require.
+intrinsic @reduce_add(%v: <4> i8) : i8;
+
+fun @main() : i32 {
+  sym %?v: value <4> i8 in [100, 127];
+  let mut %t: <4> i8 = 0;
+^entry:
+  %t = %?v;
+  require call @reduce_add(%t) == 0, "unreachable — overflow prunes the path";
+  ret 0;
+}

@@ -1,0 +1,16 @@
+// EXPECT: PASS
+// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
+// SOLVER_ARGS: --main @main --path ^entry
+// SPEC v0.2.3 §12.4 (V1) — the solver folds a symbolic vector's lane terms
+// into one scalar.  Here the four lanes (each in [0,10]) must sum to 25;
+// the solver synthesizes a satisfying per-lane assignment.
+intrinsic @reduce_add(%v: <4> i32) : i32;
+
+fun @main() : i32 {
+  sym %?v: value <4> i32 in [0, 10];
+  let mut %t: <4> i32 = 0;
+^entry:
+  %t = %?v;
+  require call @reduce_add(%t) == 25, "lanes sum to 25";
+  ret 0;
+}

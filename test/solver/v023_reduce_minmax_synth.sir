@@ -1,0 +1,17 @@
+// EXPECT: PASS
+// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
+// SOLVER_ARGS: --main @main --path ^entry
+// SPEC v0.2.3 §12.4 — min/max fold as an ITE chain over lane terms.  With
+// lanes in [-10,10], require the min lane to be -10 and the max to be 10.
+intrinsic @reduce_min(%v: <4> i32) : i32;
+intrinsic @reduce_max(%v: <4> i32) : i32;
+
+fun @main() : i32 {
+  sym %?v: value <4> i32 in [-10, 10];
+  let mut %t: <4> i32 = 0;
+^entry:
+  %t = %?v;
+  require call @reduce_min(%t) == -10, "min lane is -10";
+  require call @reduce_max(%t) == 10,  "max lane is 10";
+  ret 0;
+}

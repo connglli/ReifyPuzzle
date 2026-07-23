@@ -21,6 +21,7 @@
 #include <unordered_map>
 #include "analysis/intrinsics.hpp"
 #include "analysis/type_utils.hpp"
+#include "internal.hpp"
 
 namespace refractir {
 
@@ -982,6 +983,146 @@ namespace refractir {
       }
     };
 
+    // ── §12.4 Horizontal vector reductions (v0.2.3 V1) ─────────────────────
+    //
+    // A reduction folds the lane terms of its sole vector argument
+    // (SymbolicValue::Kind::Vec, lanes in arrayVal) into one scalar term
+    // via the normative left-to-right order (§9.8: unrolled N-1-step fold,
+    // linear, no fresh symbols, no quantifiers).  Every lane is read, so
+    // each lane's `is_defined` is conjoined to the UB guards (rule 22).  Two
+    // classes split the element domain: the integer fold (bvadd with a
+    // per-step signed-overflow guard / bvand|bvor|bvxor / signed-compare
+    // ITE min/max) and the floating-point fold (fp.add with a per-step
+    // finiteness guard / fp-compare ITE min/max, ties keeping the
+    // accumulator, matching the interpreter).  Add / Min / Max register in
+    // both; the bitwise reductions are integer-only.
+
+    inline const std::vector<SymbolicValue> &
+    reductionLanes(const IntrinsicDecl &intr, const std::vector<SymbolicValue> &argVals) {
+      if (argVals.empty() || argVals[0].kind != SymbolicValue::Kind::Vec ||
+          argVals[0].arrayVal.empty())
+        throw std::runtime_error(
+            "Solver reduction " + intr.name.name + ": argument is not a non-empty vector"
+        );
+      return argVals[0].arrayVal;
+    }
+
+    // Pairwise fp min / max fold steps with IEEE minNum/maxNum signed-zero
+    // tie-break (min prefers -0, max prefers +0), identical to @fmin/@fmax
+    // (FminSolverIntrinsic / FmaxSolverIntrinsic).  §12.4 requires reduce_min
+    // / reduce_max to be order-independent so backends may use pairwise /
+    // hardware reductions; the canonical tie-break provides that (strict
+    // comparison would make ±0 order-observable).
+    inline smt::Term fpMinFold(smt::Term acc, smt::Term x, smt::ISolver &solver) {
+      auto accLt = solver.make_term(smt::Kind::FP_LT, {acc, x});
+      auto xLt = solver.make_term(smt::Kind::FP_LT, {x, acc});
+      auto accNeg = solver.make_term(smt::Kind::FP_IS_NEG, {acc});
+      auto tie = solver.make_term(smt::Kind::ITE, {accNeg, acc, x});
+      auto inner = solver.make_term(smt::Kind::ITE, {xLt, x, tie});
+      return solver.make_term(smt::Kind::ITE, {accLt, acc, inner});
+    }
+
+    inline smt::Term fpMaxFold(smt::Term acc, smt::Term x, smt::ISolver &solver) {
+      auto accGt = solver.make_term(smt::Kind::FP_GT, {acc, x});
+      auto xGt = solver.make_term(smt::Kind::FP_GT, {x, acc});
+      auto accNeg = solver.make_term(smt::Kind::FP_IS_NEG, {acc});
+      auto tie = solver.make_term(smt::Kind::ITE, {accNeg, x, acc});
+      auto inner = solver.make_term(smt::Kind::ITE, {xGt, x, tie});
+      return solver.make_term(smt::Kind::ITE, {accGt, acc, inner});
+    }
+
+    class ReduceIntSolverIntrinsic final : public SolverIntrinsic {
+    public:
+      explicit ReduceIntSolverIntrinsic(IntrinsicKind kind) : kind_(kind) {}
+
+      SymbolicValue solve(
+          const IntrinsicDecl &intr, uint32_t /*N*/, const std::vector<SymbolicValue> &argVals,
+          smt::Sort /*bvN*/, smt::ISolver &solver, std::vector<smt::Term> &ub
+      ) const override {
+        const std::vector<SymbolicValue> &lanes = reductionLanes(intr, argVals);
+        ub.push_back(lanes[0].is_defined);
+        smt::Term acc = lanes[0].term;
+        for (size_t k = 1; k < lanes.size(); ++k) {
+          ub.push_back(lanes[k].is_defined);
+          smt::Term x = lanes[k].term;
+          switch (kind_) {
+            case IntrinsicKind::ReduceAdd: {
+              // Per-step signed-overflow UB (rule 4), same encoding as the
+              // scalar `+` operator (src/solver/expr.cpp).
+              auto ov = solver.make_term(smt::Kind::BV_SADD_OVERFLOW, {acc, x});
+              ub.push_back(solver.make_term(smt::Kind::NOT, {ov}));
+              acc = solver.make_term(smt::Kind::BV_ADD, {acc, x});
+              break;
+            }
+            case IntrinsicKind::ReduceMin: {
+              auto lt = solver.make_term(smt::Kind::BV_SLT, {x, acc});
+              acc = solver.make_term(smt::Kind::ITE, {lt, x, acc});
+              break;
+            }
+            case IntrinsicKind::ReduceMax: {
+              auto gt = solver.make_term(smt::Kind::BV_SGT, {x, acc});
+              acc = solver.make_term(smt::Kind::ITE, {gt, x, acc});
+              break;
+            }
+            case IntrinsicKind::ReduceAnd:
+              acc = solver.make_term(smt::Kind::BV_AND, {acc, x});
+              break;
+            case IntrinsicKind::ReduceOr:
+              acc = solver.make_term(smt::Kind::BV_OR, {acc, x});
+              break;
+            case IntrinsicKind::ReduceXor:
+              acc = solver.make_term(smt::Kind::BV_XOR, {acc, x});
+              break;
+            default:
+              throw std::runtime_error("Solver reduction: unexpected integer kind");
+          }
+        }
+        return SymbolicValue(SymbolicValue::Kind::Int, acc, solver.make_true());
+      }
+
+    private:
+      IntrinsicKind kind_;
+    };
+
+    class ReduceFpSolverIntrinsic final : public SolverFpIntrinsic {
+    public:
+      explicit ReduceFpSolverIntrinsic(IntrinsicKind kind) : kind_(kind) {}
+
+      SymbolicValue solve(
+          const IntrinsicDecl &intr, const std::vector<SymbolicValue> &argVals,
+          smt::ISolver &solver, std::vector<smt::Term> &ub
+      ) const override {
+        const std::vector<SymbolicValue> &lanes = reductionLanes(intr, argVals);
+        ub.push_back(lanes[0].is_defined);
+        smt::Term acc = lanes[0].term;
+        auto rmRNE = solver.make_rm_value(smt::RoundingMode::RNE);
+        for (size_t k = 1; k < lanes.size(); ++k) {
+          ub.push_back(lanes[k].is_defined);
+          smt::Term x = lanes[k].term;
+          switch (kind_) {
+            case IntrinsicKind::ReduceAdd:
+              // Per-step RNE add with a finiteness UB guard (rules 6-7),
+              // same as the scalar `+` operator.
+              acc = solver.make_term(smt::Kind::FP_ADD, {rmRNE, acc, x});
+              assertFPFinite(acc, solver, ub);
+              break;
+            case IntrinsicKind::ReduceMin:
+              acc = fpMinFold(acc, x, solver);
+              break;
+            case IntrinsicKind::ReduceMax:
+              acc = fpMaxFold(acc, x, solver);
+              break;
+            default:
+              throw std::runtime_error("Solver reduction: unexpected float kind");
+          }
+        }
+        return SymbolicValue(SymbolicValue::Kind::Int, acc, solver.make_true());
+      }
+
+    private:
+      IntrinsicKind kind_;
+    };
+
     class SolverFpIntrinsicRegistry {
     public:
       static const SolverFpIntrinsicRegistry &get() {
@@ -1017,6 +1158,15 @@ namespace refractir {
         // §12.6 D.5 — compositions.
         registry_[IntrinsicKind::Fract] = std::make_unique<FractSolverIntrinsic>();
         registry_[IntrinsicKind::Recip] = std::make_unique<RecipSolverIntrinsic>();
+        // §12.4 — floating-point horizontal reductions (v0.2.3 V1). Only the
+        // arithmetic add / min / max fold FP lanes; the bitwise reductions
+        // are integer-only and live solely in the integer registry.
+        registry_[IntrinsicKind::ReduceAdd] =
+            std::make_unique<ReduceFpSolverIntrinsic>(IntrinsicKind::ReduceAdd);
+        registry_[IntrinsicKind::ReduceMin] =
+            std::make_unique<ReduceFpSolverIntrinsic>(IntrinsicKind::ReduceMin);
+        registry_[IntrinsicKind::ReduceMax] =
+            std::make_unique<ReduceFpSolverIntrinsic>(IntrinsicKind::ReduceMax);
       }
 
       std::unordered_map<IntrinsicKind, std::unique_ptr<SolverFpIntrinsic>> registry_;
@@ -1070,6 +1220,21 @@ namespace refractir {
         registry_[IntrinsicKind::SaturatingNeg] = std::make_unique<SaturatingNegIntrinsic>();
         registry_[IntrinsicKind::DivEuclid] = std::make_unique<DivEuclidIntrinsic>();
         registry_[IntrinsicKind::RemEuclid] = std::make_unique<RemEuclidIntrinsic>();
+        // §12.4 — integer horizontal reductions (v0.2.3 V1). All six kinds
+        // fold integer lanes; add / min / max additionally have an FP
+        // overload in the SolverFpIntrinsicRegistry above.
+        registry_[IntrinsicKind::ReduceAdd] =
+            std::make_unique<ReduceIntSolverIntrinsic>(IntrinsicKind::ReduceAdd);
+        registry_[IntrinsicKind::ReduceMin] =
+            std::make_unique<ReduceIntSolverIntrinsic>(IntrinsicKind::ReduceMin);
+        registry_[IntrinsicKind::ReduceMax] =
+            std::make_unique<ReduceIntSolverIntrinsic>(IntrinsicKind::ReduceMax);
+        registry_[IntrinsicKind::ReduceAnd] =
+            std::make_unique<ReduceIntSolverIntrinsic>(IntrinsicKind::ReduceAnd);
+        registry_[IntrinsicKind::ReduceOr] =
+            std::make_unique<ReduceIntSolverIntrinsic>(IntrinsicKind::ReduceOr);
+        registry_[IntrinsicKind::ReduceXor] =
+            std::make_unique<ReduceIntSolverIntrinsic>(IntrinsicKind::ReduceXor);
       }
 
       std::unordered_map<IntrinsicKind, std::unique_ptr<SolverIntrinsic>> registry_;

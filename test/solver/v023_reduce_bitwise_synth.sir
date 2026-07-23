@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
+// SOLVER_ARGS: --main @main --path ^entry
+// SPEC v0.2.3 §12.4 — bitwise reduction fold in SMT (bvor / bvand chain).
+// Lanes in [0,15]: their OR must cover all four low bits (== 15) while their
+// AND is 0.  Satisfiable (e.g. {1,2,4,8}).
+intrinsic @reduce_or(%v: <4> i32) : i32;
+intrinsic @reduce_and(%v: <4> i32) : i32;
+
+fun @main() : i32 {
+  sym %?v: value <4> i32 in [0, 15];
+  let mut %t: <4> i32 = 0;
+^entry:
+  %t = %?v;
+  require call @reduce_or(%t)  == 15, "OR covers low 4 bits";
+  require call @reduce_and(%t) == 0,  "AND of lanes is 0";
+  ret 0;
+}

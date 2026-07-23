@@ -1,0 +1,14 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SKIP: INTERPRETER, COMPILER
+// SOLVER_ARGS: --main @main --path ^entry
+// SPEC v0.2.3 §12.4 — @reduce_add over fN traps on a non-finite intermediate
+// (rules 6-7).  3e38 + 3e38 overflows f32 to +inf at the first fold step, so
+// the path is infeasible → UNSAT.
+intrinsic @reduce_add(%v: <4> f32) : f32;
+
+fun @main() : i32 {
+  let mut %t: <4> f32 = {3.0e38, 3.0e38, 0.0, 0.0};
+^entry:
+  require call @reduce_add(%t) == 0.0, "unreachable — fp overflow prunes the path";
+  ret 0;
+}
