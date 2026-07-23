@@ -1,5 +1,4 @@
 // EXPECT: PASS
-// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
 // SPEC v0.2.3 §12.4 (V1) — integer horizontal reductions fold all lanes
 // left-to-right into one scalar.
 intrinsic @reduce_add(%v: <4> i32) : i32;

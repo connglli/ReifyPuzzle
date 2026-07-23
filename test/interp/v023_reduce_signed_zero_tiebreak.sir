@@ -1,5 +1,4 @@
 // EXPECT: PASS
-// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
 // SPEC v0.2.3 §12.4 — reduce_min/max are order-INdependent (so backends may
 // use pairwise/hardware reductions).  They fold with the IEEE minNum/maxNum
 // signed-zero tie-break, identical to @fmin/@fmax: min yields -0 when any

@@ -1,5 +1,5 @@
 // EXPECT: FAIL:UndefinedBehavior
-// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
+// SKIP: WASM  — WASM does not sanitize arithmetic overflow (docs/symirc.md); reduce_add wraps
 // SPEC v0.2.3 §12.4 — @reduce_add over iN carries the ordinary scalar
 // overflow UB (rule 4) at every intermediate step.  Folding {60,60,60,-100}
 // as i8 left-to-right: 60+60=120 (ok), 120+60=180 overflows i8 (>127) → UB.

@@ -49,11 +49,13 @@ considered and dropped (spec §13).
   host imports — every shipped intrinsic lowers on every compiled
   target.
 - **Horizontal vector reductions** (`@reduce_add`/`min`/`max`/`and`/`or`/
-  `xor`, spec §12.4 V1): fold an `<N> T` vector to a scalar `T`, in the
-  interpreter and solver (sequential per-step-UB fold; min/max
-  order-independent via the `@fmin`/`@fmax` tie-break). Backend lowering
-  stays **[Planned]** — `symirc` rejects such programs with a clear
-  diagnostic. `@reduce_mul` is intentionally absent (nonlinear).
+  `xor`, spec §12.4 V1): fold an `<N> T` vector to a scalar `T` across the
+  interpreter, solver, and all three compiled targets. Sequential
+  per-step-UB fold; min/max order-independent via the `@fmin`/`@fmax`
+  tie-break. Backends lower it to a per-shape helper (C passes the vector
+  by value under boundary-crossing `--vec-lowering` strategies; WASM reads
+  the packed spill by address; Python folds the lane list). `@reduce_mul`
+  is intentionally absent (nonlinear).
 - **`rytwin`** (new tool): transforms a generated program into a
   semantically-equivalent variant via SMT-checked twin blocks, driven
   by `rysmith --emit-state` per-program-point state profiles.

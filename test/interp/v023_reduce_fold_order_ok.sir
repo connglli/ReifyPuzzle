@@ -1,5 +1,4 @@
 // EXPECT: PASS
-// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
 // SPEC v0.2.3 §12.4 — the fold order is semantically observable: the same
 // multiset {60,60,60,-100} that overflows i8 as {60,60,60,-100} stays in
 // range when reordered so no partial sum leaves [-128,127].  Sum is 80.

@@ -1370,17 +1370,45 @@ Order-independent; no UB.
 **Interpreter**: `acc &= v[k]` / `|=` / `^=` on the sign-extended lane
 values, re-masked to `iN` by `makeInt`.
 
-### Backend lowering — **[Planned, V1]**
+### Backend lowering
 
-No compiled target lowers `@reduce_*` yet. All three backends
-(`src/backend/{c,wasm,py}_intrinsics.cpp::emitIntrinsicHelper`) reject a
-reduction with a clear diagnostic — `"<target> target: horizontal vector
-reductions (@reduce_*) are not yet lowered (v0.2.3 V1 backend support is
-planned)"` — so `symirc` fails loudly rather than emitting a trapping
-stub. The planned lowering (spec §11.7) unrolls the sequential fold as a
-helper function over the vector parameter (reusing the `fun`
-vector-parameter ABI and the per-strategy lane storage), with the
-order-insensitive members eligible for pairwise / hardware reductions.
+Each target lowers a reduction to a **helper function** that folds the
+lanes, named `<prefix>_reduce_<op>_v<N>_<elem>` so distinct vector shapes
+get distinct helpers. Helper-name mangling lives in
+`intrinsicHelperName` (C / WASM); the call site emits an ordinary call.
+
+- **C** (`CBackend::emitReductionHelper`): `static inline T
+  H(<vec> a0) { … }` reading lanes through the active `--vec-lowering`
+  strategy's `emitLaneRead`. The vector is passed by value under the
+  strategy's cross-boundary representation, so a reduction — like a
+  `fun` with a vector parameter — requires a boundary-crossing strategy
+  (`vecext` / `structscalars` / `structarray`); `scalars` / `array` are
+  rejected with a clear diagnostic. `@reduce_add` accumulates in a wider
+  type (`int64`/`__int128`) with a per-step range `__builtin_trap`;
+  FP add traps on `!__builtin_isfinite`; FP min/max use the
+  `__builtin_signbit` tie-break. Guards route through the
+  `--no-ub-guards` sink.
+- **WASM** (`WasmBackend::emitReductionHelper`): the vector arrives by
+  address (the frame-memory spill ABI is packed under every strategy),
+  so lanes are read with `<elem>.load offset=k*size` — the same layout
+  `scalars::unpackParam` uses — independent of `--vec-lowering`. Folds
+  with native ops (`i32.add`, `i32.and`, native `fN.min`/`fN.max` for
+  the FP min/max tie-break, compare+`select` for integer min/max).
+  Consistent with the backend's stance that arithmetic UB is not
+  sanitized on WASM (`docs/symirc.md`), the fold emits **no** overflow /
+  finiteness guards; a program that relies on `@reduce_add` trapping on
+  overflow is `// SKIP: WASM`.
+- **Python** (`PyBackend::emitReductionHelperDefs`): the vector arrives
+  as a lane list, folded by a generated `_in_reduce_<op>_<i|f>(v[, n])`
+  reading each lane through `_rd` (undef → trap). Being the strictest
+  target, it keeps the UB guards: `@reduce_add` traps on an out-of-range
+  int partial sum or a non-finite fp intermediate; f32 steps round
+  through `_f32`. Under `--no-ub-guards` the trap lines are dropped
+  (value semantics preserved).
+
+Only the order-insensitive members (`min`/`max`/`and`/`or`/`xor`) may
+use hardware reductions; `@reduce_add`'s sequential fold is reproduced
+bit-exactly (the C target cross-validates against the interpreter).
 
 ### Example
 

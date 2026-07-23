@@ -1,5 +1,4 @@
 // EXPECT: PASS
-// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
 // SPEC v0.2.3 §12.4 (V1) — bitwise reductions over a wider (N=8) integer
 // vector; exercises a lane count other than 4.
 intrinsic @reduce_and(%v: <8> i16) : i16;

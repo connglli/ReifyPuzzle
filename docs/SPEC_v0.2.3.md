@@ -18,7 +18,7 @@ This document is the complete, standalone specification for RefractIR v0.2.3. It
 | T1 | Python compilation target | new in v0.2.3 | **Shipped** |
 | T2 | WASM SIMD-128 vector lowering (`--vec-lowering`) | v0.2.2 §13 *WASM SIMD support* | **Shipped** |
 | T3 | Intrinsic completion on WASM (checksum primitives) | v0.2.2 §12 Batch R WASM gap | **Shipped** |
-| V1 | Horizontal vector reductions (`@reduce_*`) | v0.2.2 §13 | **Planned** — §12.4 |
+| V1 | Horizontal vector reductions (`@reduce_*`) | v0.2.2 §13 | **Shipped** — §12.4 |
 | V2 | Vector shuffles (`shuffle` atom) | v0.2.2 §13 | **Planned** — §5.3, §6.14 |
 | V3 | Addressable vectors (`ptr <N> T`, whole-vector `load`/`store`) | v0.2.2 §13 | **Planned** — §2.8, §6.13, §7.8, §9.8 |
 | V4 | Vectors in aggregates (struct fields, array elements) | v0.2.2 §13 | **Planned** — §3.2, §6.13 |
@@ -42,7 +42,7 @@ T1–T3 changed only the compilation targets and their lowering guarantees. V1�
 
 - The checksum primitives `@crc32_update` / `@check_chksum` (§12.7 of [`docs/intrinsics.md`](./intrinsics.md)) now lower on WASM. Every shipped intrinsic lowers on every compiled target; the WASM rejection layer of the intrinsic tiering is empty.
 
-### V1. Horizontal vector reductions **[Planned]**
+### V1. Horizontal vector reductions **[Shipped]**
 
 - New intrinsics `@reduce_add`, `@reduce_min`, `@reduce_max` (integer and FP) and `@reduce_and`, `@reduce_or`, `@reduce_xor` (integer only) fold all lanes of a vector into one scalar (§12.4). The sequential lane-order fold is normative; `@reduce_mul` is rejected as solver-hostile (nonlinear BV multiplication chains).
 
@@ -1166,7 +1166,7 @@ v0.2.2 line, each adding one solver-friendly group:
   specs. (Batch R shipped without a WASM lowering; that gap was closed
   by T3 in v0.2.3 — §11.6.)
 
-### 12.4 Horizontal reduction intrinsics **[New in v0.2.3 — Planned, V1]**
+### 12.4 Horizontal reduction intrinsics **[New in v0.2.3 — Shipped, V1]**
 
 Reductions fold all lanes of a vector into one scalar. `T` ranges over the scalar element types; `<N> T` over the program's concrete vector shapes.
 

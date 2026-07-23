@@ -1,5 +1,4 @@
 // EXPECT: PASS
-// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
 // SPEC v0.2.3 §12.4 (V1) — call @reduce_add/min/max fold floating-point lanes.
 // FP addition is not associative, so the fold is the normative left-to-right
 // order (§12.4); the values here are exactly representable so the sum is exact.
