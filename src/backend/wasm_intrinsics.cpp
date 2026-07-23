@@ -2396,6 +2396,18 @@ namespace refractir {
     std::string base = intr.name.name;
     if (!base.empty() && base[0] == '@')
       base.erase(0, 1);
+    // [v0.2.3 V1] Reductions overload on vector shape (lane count + element
+    // type); mangle by both so distinct declarations get distinct helpers.
+    if (!intr.params.empty() && intr.params[0].type) {
+      if (auto vt = std::get_if<VecType>(&intr.params[0].type->v)) {
+        std::string el = "i32";
+        if (auto ib = TypeUtils::getIntBitWidth(vt->elem))
+          el = "i" + std::to_string(*ib);
+        else if (auto fp = std::get_if<FloatType>(&vt->elem->v))
+          el = fp->kind == FloatType::Kind::F32 ? "f32" : "f64";
+        return "$_refractir_" + base + "_v" + std::to_string(vt->size) + "_" + el;
+      }
+    }
     bool paramFp = !intr.params.empty() && intr.params[0].type &&
                    std::holds_alternative<FloatType>(intr.params[0].type->v);
     bool retFp = intr.retType && std::holds_alternative<FloatType>(intr.retType->v);
@@ -2435,14 +2447,12 @@ namespace refractir {
   }
 
   void WasmBackend::emitIntrinsicHelper(const IntrinsicDecl &intr) {
-    // [v0.2.3 V1] Horizontal vector reductions (§12.4) are not yet lowered
-    // on any compiled target — interpreter and solver implement them,
-    // backend support is planned. Reject with a clear diagnostic.
-    if (auto k = getIntrinsicKind(intr.name.name); k && isReductionIntrinsic(*k))
-      throw std::runtime_error(
-          "WASM target: horizontal vector reductions (@reduce_*) are not yet lowered "
-          "(v0.2.3 V1 backend support is planned)"
-      );
+    // [v0.2.3 V1] Horizontal vector reductions (§12.4) have a vector
+    // parameter and lower to a dedicated helper (see emitReductionHelper).
+    if (auto k = getIntrinsicKind(intr.name.name); k && isReductionIntrinsic(*k)) {
+      emitReductionHelper(intr);
+      return;
+    }
     // FP-touching path (v0.2.2 extra D.1).
     bool anyFp = (intr.retType && std::holds_alternative<FloatType>(intr.retType->v));
     for (const auto &p: intr.params)
@@ -2518,6 +2528,119 @@ namespace refractir {
 
     indent();
     out_ << "unreachable\n";
+    indent_level_--;
+    indent();
+    out_ << ")\n";
+  }
+
+  // [v0.2.3 V1] Horizontal vector reduction helper (§12.4). The vector arg
+  // is passed by address (the frame-memory spill ABI is packed under every
+  // vec-lowering strategy), so each lane is read directly with
+  // `<elem>.load offset=k*sizeof(elem)` — the same layout the `scalars`
+  // unpackParam uses. Lanes fold left-to-right into an accumulator local.
+  // Consistent with the backend's stance that arithmetic UB is not
+  // sanitized on WASM (docs/symirc.md), the fold emits no overflow /
+  // finiteness guards; min/max use native fN.min/fN.max (correct IEEE
+  // signed-zero tie-break) for floats and compare+select for integers.
+  void WasmBackend::emitReductionHelper(const IntrinsicDecl &intr) {
+    const IntrinsicKind kind = *getIntrinsicKind(intr.name.name);
+    const VecType &vt = std::get<VecType>(intr.params[0].type->v);
+    const uint32_t M = static_cast<uint32_t>(vt.size);
+    const TypePtr &elem = vt.elem;
+    const bool isFloat = std::holds_alternative<FloatType>(elem->v);
+    const std::string retTy = watTypeOf(elem); // scalar WASM type of T
+    const uint32_t elemSize = getTypeSize(elem);
+    const uint32_t width =
+        isFloat ? (std::get<FloatType>(elem->v).kind == FloatType::Kind::F32 ? 32u : 64u)
+                : getIntWidth(elem);
+
+    indent();
+    out_ << "(func " << intrinsicHelperName(intr) << " (param $a0 i32) (result " << retTy << ")\n";
+    indent_level_++;
+    indent();
+    out_ << "(local $acc " << retTy << ")\n";
+
+    // Push lane k (sign-extended for narrow ints), matching the packed
+    // spill layout used by every vec-lowering strategy.
+    auto loadLane = [&](uint32_t k) {
+      indent();
+      out_ << "local.get $a0\n";
+      if (k > 0) {
+        indent();
+        out_ << "i32.const " << (k * elemSize) << "\n";
+        indent();
+        out_ << "i32.add\n";
+      }
+      indent();
+      if (isFloat)
+        out_ << (width == 32 ? "f32.load\n" : "f64.load\n");
+      else
+        out_
+            << (width <= 8    ? "i32.load8_s\n"
+                : width <= 16 ? "i32.load16_s\n"
+                : width <= 32 ? "i32.load\n"
+                              : "i64.load\n");
+    };
+
+    // acc = lane 0.
+    loadLane(0);
+    indent();
+    out_ << "local.set $acc\n";
+
+    for (uint32_t k = 1; k < M; ++k) {
+      if (isFloat && (kind == IntrinsicKind::ReduceMin || kind == IntrinsicKind::ReduceMax)) {
+        // Native fN.min / fN.max — IEEE minNum/maxNum, order-independent.
+        indent();
+        out_ << "local.get $acc\n";
+        loadLane(k);
+        indent();
+        out_ << retTy << (kind == IntrinsicKind::ReduceMin ? ".min\n" : ".max\n");
+      } else if (kind == IntrinsicKind::ReduceMin || kind == IntrinsicKind::ReduceMax) {
+        // Integer min/max: select(acc, x, acc <cmp> x).
+        indent();
+        out_ << "local.get $acc\n";
+        loadLane(k);
+        indent();
+        out_ << "local.get $acc\n";
+        loadLane(k);
+        indent();
+        out_ << retTy << (kind == IntrinsicKind::ReduceMin ? ".lt_s\n" : ".gt_s\n");
+        indent();
+        out_ << "select\n";
+      } else {
+        // Add / and / or / xor — one native binary op per step.
+        indent();
+        out_ << "local.get $acc\n";
+        loadLane(k);
+        indent();
+        const char *op = (kind == IntrinsicKind::ReduceAdd)   ? ".add\n"
+                         : (kind == IntrinsicKind::ReduceAnd) ? ".and\n"
+                         : (kind == IntrinsicKind::ReduceOr)  ? ".or\n"
+                                                              : ".xor\n";
+        out_ << retTy << op;
+      }
+      indent();
+      out_ << "local.set $acc\n";
+    }
+
+    indent();
+    out_ << "local.get $acc\n";
+    // Sign-extend an integer result to its declared width so the caller
+    // sees a valid iN value (a no-op for min/max/bitwise, and for a
+    // UB-free add whose result already fits).
+    if (!isFloat) {
+      uint32_t W = (width <= 32) ? 32 : 64;
+      if (width != W) {
+        indent();
+        out_ << retTy << ".const " << (W - width) << "\n";
+        indent();
+        out_ << retTy << ".shl\n";
+        indent();
+        out_ << retTy << ".const " << (W - width) << "\n";
+        indent();
+        out_ << retTy << ".shr_s\n";
+      }
+    }
     indent_level_--;
     indent();
     out_ << ")\n";

@@ -177,6 +177,11 @@ namespace refractir {
     void emitInitVal(const InitVal &iv, const TypePtr &type, std::uint32_t offset);
     // [v0.2.2] Emit a WASM helper function for one intrinsic.
     void emitIntrinsicHelper(const IntrinsicDecl &intr);
+    // [v0.2.3 V1] Emit the helper for a horizontal vector reduction: the
+    // vector arg arrives by address (the always-packed frame-memory spill
+    // ABI), so lanes are read directly with `<elem>.load offset=k*size`,
+    // strategy-independently, then folded to a scalar.
+    void emitReductionHelper(const IntrinsicDecl &intr);
     std::string intrinsicHelperName(const IntrinsicDecl &intr) const;
     void emitCopy(
         const TypePtr &type, std::uint32_t dstOffset, const std::string &srcName,
