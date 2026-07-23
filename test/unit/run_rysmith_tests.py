@@ -26,6 +26,7 @@ Each test prints PASS or FAIL; exit code reflects the worst result.
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -254,41 +255,42 @@ def test_descriptor_schema(rysmith):
       )
 
 
+# Single-function generation is inherently seed-fragile: the exact seed
+# whose lone function solves drifts whenever the generator's RNG draw
+# sequence changes (a new expression shape, a reordered candidate pool).
+# Rather than pin one seed and chase it on every change, try a handful and
+# use the first that yields a concrete (solved) `func_<gid>_0*.sir`.
+_REPLAY_SEEDS = (25, 42, 22, 7, 101, 13, 314, 2718)
+
+
+def _first_solved_run(rysmith, extra_args):
+  """Generate a single 2-param function, trying _REPLAY_SEEDS until one
+  solves. Returns (gid, sir_path, tmpdir); the caller removes tmpdir. On
+  total failure returns (None, None, None)."""
+  for seed in _REPLAY_SEEDS:
+    d = tempfile.mkdtemp(prefix="replay_")
+    r = run(
+      [rysmith, "--n-funcs", "1", "--seed", str(seed), "--n-params", "2", "-o", d]
+      + extra_args
+    )
+    gid = extract_id(r.stdout) if r.returncode == 0 else None
+    if gid:
+      sirs = sorted(
+        f for f in os.listdir(d) if f.startswith(f"func_{gid}_0") and f.endswith(".sir")
+      )
+      if sirs:
+        return gid, os.path.join(d, sirs[0]), d
+    shutil.rmtree(d, ignore_errors=True)
+  return None, None, None
+
+
 def test_solved_replay(rysmith, symiri):
   """SOLVED header round-trips through symiri positional args."""
-  with tempfile.TemporaryDirectory() as d:
-    r = run(
-      [
-        rysmith,
-        "--n-funcs",
-        "1",
-        "--emit-desc",
-        "--seed",
-        # Arbitrary seed whose single generated function solves; the
-        # specific value drifts whenever the generator's RNG draw sequence
-        # changes (e.g. a new expression shape), so it is a fixture, not a
-        # contract. Repoint it to any solvable seed if generation shifts.
-        "25",
-        "--n-params",
-        "2",
-        "-o",
-        d,
-      ]
-    )
-    if r.returncode != 0:
-      check("rysmith solved-replay setup", False, r.stderr[:200])
-      return
-    gid = extract_id(r.stdout)
-    if gid is None:
-      check("rysmith id discovery for solved-replay", False, "no id in stdout")
-      return
-    sirs = sorted(
-      f for f in os.listdir(d) if f.startswith(f"func_{gid}_0") and f.endswith(".sir")
-    )
-    if not sirs:
-      check("at least one concrete .sir for replay", False, "no sirs")
-      return
-    sir_path = os.path.join(d, sirs[0])
+  gid, sir_path, d = _first_solved_run(rysmith, ["--emit-desc"])
+  if gid is None:
+    check("at least one concrete .sir for replay", False, "no solving seed found")
+    return
+  try:
     header = open(sir_path).readline().strip()
     check("first line is // SOLVED:", header.startswith("// SOLVED:"), header)
     if not header.startswith("// SOLVED:"):
@@ -314,6 +316,8 @@ def test_solved_replay(rysmith, symiri):
       ok,
       f"rc={r2.returncode}, stdout={r2.stdout[:120]!r}",
     )
+  finally:
+    shutil.rmtree(d, ignore_errors=True)
 
 
 def test_rysmith_main(rysmith, symiri):
@@ -1989,39 +1993,13 @@ def test_no_crc32_emit_main_runs_correctly(rysmith, symiri):
 
 def test_no_crc32_solved_header_matches_sum(rysmith, symiri):
   """When --no-crc32 is specified, the SOLVED header matches the return value of symiri."""
-  with tempfile.TemporaryDirectory() as d:
-    r = run(
-      [
-        rysmith,
-        "--n-funcs",
-        "1",
-        "--seed",
-        # Arbitrary seed whose single generated function solves; the
-        # specific value drifts whenever the generator's RNG draw sequence
-        # changes (e.g. a new expression shape), so it is a fixture, not a
-        # contract. Repoint it to any solvable seed if generation shifts.
-        "25",
-        "--n-params",
-        "2",
-        "--no-crc32",
-        "-o",
-        d,
-      ]
+  gid, sir_path, d = _first_solved_run(rysmith, ["--no-crc32"])
+  if gid is None:
+    check(
+      "at least one concrete .sir for no-crc32 replay", False, "no solving seed found"
     )
-    if r.returncode != 0:
-      check("no-crc32 solved header check setup", False, r.stderr[:200])
-      return
-    gid = extract_id(r.stdout)
-    if gid is None:
-      check("rysmith id discovery for no-crc32 solved header", False, "no id in stdout")
-      return
-    sirs = sorted(
-      f for f in os.listdir(d) if f.startswith(f"func_{gid}_0") and f.endswith(".sir")
-    )
-    if not sirs:
-      check("at least one concrete .sir for no-crc32 replay", False, "no sirs")
-      return
-    sir_path = os.path.join(d, sirs[0])
+    return
+  try:
     header = open(sir_path).readline().strip()
     check("no-crc32 first line is // SOLVED:", header.startswith("// SOLVED:"), header)
     if not header.startswith("// SOLVED:"):
@@ -2046,6 +2024,8 @@ def test_no_crc32_solved_header_matches_sum(rysmith, symiri):
       ok,
       f"rc={r2.returncode}, stdout={r2.stdout[:120]!r}",
     )
+  finally:
+    shutil.rmtree(d, ignore_errors=True)
 
 
 def test_no_crc32_descriptor_matches_solved_header(rysmith):
