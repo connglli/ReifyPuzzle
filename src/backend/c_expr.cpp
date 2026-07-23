@@ -1,5 +1,6 @@
 #include <cmath>
 #include <sstream>
+#include "analysis/intrinsics.hpp"
 #include "analysis/type_utils.hpp"
 #include "backend/c_backend.hpp"
 #include "c_internal.hpp"
@@ -395,6 +396,23 @@ namespace refractir {
       out_ << intrinsicHelperName(*intr);
     } else {
       out_ << mangleName(arg.callee.name);
+    }
+    // [v0.2.3 V1] A reduction takes the N lanes of its vector argument as
+    // scalar parameters, emitted per-lane here. This makes the helper
+    // strategy-independent — it works even for `scalars` / `array`, which
+    // cannot pass a vector across a C function boundary by value.
+    if (intr) {
+      if (auto rk = getIntrinsicKind(intr->name.name); rk && isReductionIntrinsic(*rk)) {
+        const VecType &vt = std::get<VecType>(intr->params[0].type->v);
+        out_ << "(";
+        for (std::uint64_t lane = 0; lane < vt.size; ++lane) {
+          if (lane)
+            out_ << ", ";
+          out_ << emitVecExprLane(*arg.args[0], vt, lane);
+        }
+        out_ << ")";
+        return;
+      }
     }
     out_ << "(";
     // Per-arg context: the callee's i-th param type drives

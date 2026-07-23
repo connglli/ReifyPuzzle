@@ -1264,20 +1264,20 @@ namespace refractir {
     const uint32_t M = static_cast<uint32_t>(vt.size);
     const TypePtr &elem = vt.elem;
 
-    // The vector parameter must cross the function boundary in the chosen
-    // strategy — the same requirement as a `fun` with a vector parameter.
-    if (!vecLowering_->canCrossFnBoundary())
-      throw std::runtime_error(
-          "vec-lowering '" + vecLowering_->name() +
-          "' cannot pass a vector into the reduction helper '" + intr.name.name +
-          "'; use vecext, structscalars, or structarray"
-      );
-
+    // The helper takes the N lanes as scalar parameters (the call site emits
+    // them per-lane). This is strategy-independent: it needs no vector to
+    // cross the C function boundary, so it works under every --vec-lowering
+    // strategy, including `scalars` and `array`.
     const std::string retTy = cTypeOf(elem);
-    out_ << "static inline " << retTy << " " << intrinsicHelperName(intr) << "("
-         << vecLowering_->typeString(vt) << " a0) {\n";
+    out_ << "static inline " << retTy << " " << intrinsicHelperName(intr) << "(";
+    for (uint32_t i = 0; i < M; ++i) {
+      if (i)
+        out_ << ", ";
+      out_ << retTy << " a" << i;
+    }
+    out_ << ") {\n";
 
-    auto lane = [&](uint32_t k) { return vecLowering_->emitLaneRead("a0", vt, std::to_string(k)); };
+    auto lane = [&](uint32_t k) { return "a" + std::to_string(k); };
     auto guard = [&](const std::string &s) {
       if (!noUbGuards_)
         out_ << s;

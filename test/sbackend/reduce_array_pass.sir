@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --vec-lowering array
+// SPEC v0.2.3 §12.4 (V1) — reductions lower under the `array` strategy
+// (T[N], which decays to a pointer rather than crossing by value): the C
+// helper takes the lanes as scalar parameters, emitted per-lane.
+intrinsic @reduce_or(%v: <4> i32) : i32;
+intrinsic @reduce_max(%v: <4> i32) : i32;
+intrinsic @reduce_xor(%v: <4> i32) : i32;
+
+fun @main() : i32 {
+  let %v: <4> i32 = {1, 2, 4, 8};
+  let mut %r: i32 = 0;
+^entry:
+  require call @reduce_or(%v)  == 15, "or = 15";
+  require call @reduce_max(%v) == 8,  "max = 8";
+  require call @reduce_xor(%v) == 15, "xor 1^2^4^8 = 15";
+  ret 0;
+}

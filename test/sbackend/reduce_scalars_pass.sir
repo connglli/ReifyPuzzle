@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// COMPILER_ARGS: --vec-lowering scalars
+// SPEC v0.2.3 §12.4 (V1) — reductions lower under the `scalars` strategy
+// (which cannot pass a vector across a C function boundary): the C helper
+// takes the lanes as scalar parameters, emitted per-lane at the call site.
+intrinsic @reduce_add(%v: <4> i32) : i32;
+intrinsic @reduce_and(%v: <4> i32) : i32;
+intrinsic @reduce_min(%v: <4> i32) : i32;
+
+fun @main() : i32 {
+  let %v: <4> i32 = {10, -20, 30, -40};
+  let mut %r: i32 = 0;
+^entry:
+  require call @reduce_add(%v) == -20, "add = -20";
+  require call @reduce_min(%v) == -40, "min = -40";
+  %r = call @reduce_and(%v);
+  ret 0;
+}

@@ -1377,16 +1377,15 @@ lanes, named `<prefix>_reduce_<op>_v<N>_<elem>` so distinct vector shapes
 get distinct helpers. Helper-name mangling lives in
 `intrinsicHelperName` (C / WASM); the call site emits an ordinary call.
 
-- **C** (`CBackend::emitReductionHelper`): `static inline T
-  H(<vec> a0) { … }` reading lanes through the active `--vec-lowering`
-  strategy's `emitLaneRead`. The vector is passed by value under the
-  strategy's cross-boundary representation, so a reduction — like a
-  `fun` with a vector parameter — requires a boundary-crossing strategy
-  (`vecext` / `structscalars` / `structarray`); `scalars` / `array` are
-  rejected with a clear diagnostic. `@reduce_add` accumulates in a wider
-  type (`int64`/`__int128`) with a per-step range `__builtin_trap`;
-  FP add traps on `!__builtin_isfinite`; FP min/max use the
-  `__builtin_signbit` tie-break. Guards route through the
+- **C** (`CBackend::emitReductionHelper`): `static inline T H(T a0, …,
+  T a{N-1}) { … }` — the helper takes the `N` lanes as scalar
+  parameters, and the call site emits them per-lane via
+  `emitVecExprLane`. Because no vector crosses the C boundary, this is
+  strategy-independent: it works under **every** `--vec-lowering`
+  strategy, including `scalars` and `array`. `@reduce_add` accumulates
+  in a wider type (`int64`/`__int128`) with a per-step range
+  `__builtin_trap`; FP add traps on `!__builtin_isfinite`; FP min/max
+  use the `__builtin_signbit` tie-break. Guards route through the
   `--no-ub-guards` sink.
 - **WASM** (`WasmBackend::emitReductionHelper`): the vector arrives by
   address (the frame-memory spill ABI is packed under every strategy),
