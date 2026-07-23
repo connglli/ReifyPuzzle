@@ -421,8 +421,104 @@ def _in_check_chksum(expected, actual):
         throw std::runtime_error("python target: unknown intrinsic " + intr.name.name);
       kinds.insert(*k);
     }
-    for (IntrinsicKind k: kinds)
-      out_ << "\n" << helperSource(k);
+    for (IntrinsicKind k: kinds) {
+      // [v0.2.3 V1] Reductions are generated dynamically (mode- and
+      // width-aware) rather than from a static source string.
+      if (isReductionIntrinsic(k))
+        emitReductionHelperDefs(k);
+      else
+        out_ << "\n" << helperSource(k);
+    }
+  }
+
+  // [v0.2.3 V1] Horizontal vector reductions (§12.4). Each helper takes the
+  // vector as a lane list (the Python function-boundary ABI) and folds it
+  // left-to-right, reading every lane through `_rd` (undef → trap). The
+  // element domain splits int (`_i`) from float (`_f`); @reduce_add carries
+  // per-step UB — an out-of-range int partial sum or a non-finite fp
+  // intermediate — emitted only under UB guards. min/max fold with the
+  // IEEE signed-zero tie-break for floats (matching @fmin/@fmax); the
+  // bitwise members never trap. Python's unbounded ints make the int fold
+  // exact; f32 steps round through `_f32`.
+  void PyBackend::emitReductionHelperDefs(IntrinsicKind k) {
+    const bool g = !noUbGuards_;
+    out_ << "\n";
+    switch (k) {
+      case IntrinsicKind::ReduceAdd:
+        out_ << "def _in_reduce_add_i(v, n):\n";
+        if (g)
+          out_ << "    lo = -(1 << (n - 1)); hi = (1 << (n - 1)) - 1\n";
+        out_ << "    acc = _rd(v, 0)\n"
+                "    for k in range(1, len(v)):\n"
+                "        acc = acc + _rd(v, k)\n";
+        if (g)
+          out_ << "        if acc < lo or acc > hi:\n"
+                  "            _trap(\"@reduce_add overflow\")\n";
+        out_ << "    return acc\n\n";
+        out_ << "def _in_reduce_add_f(v, w):\n"
+                "    acc = _rd(v, 0)\n"
+                "    for k in range(1, len(v)):\n"
+                "        acc = acc + _rd(v, k)\n"
+                "        if w == 32:\n"
+                "            acc = _f32(acc)\n";
+        if (g)
+          out_ << "        if not math.isfinite(acc):\n"
+                  "            _trap(\"@reduce_add non-finite\")\n";
+        out_ << "    return acc\n";
+        break;
+      case IntrinsicKind::ReduceMin:
+      case IntrinsicKind::ReduceMax: {
+        const bool isMin = (k == IntrinsicKind::ReduceMin);
+        const char *cmp = isMin ? "<" : ">";
+        const char *nm = isMin ? "min" : "max";
+        out_ << "def _in_reduce_" << nm
+             << "_i(v):\n"
+                "    acc = _rd(v, 0)\n"
+                "    for k in range(1, len(v)):\n"
+                "        x = _rd(v, k)\n"
+                "        if x "
+             << cmp
+             << " acc:\n"
+                "            acc = x\n"
+                "    return acc\n\n";
+        out_ << "def _in_reduce_" << nm
+             << "_f(v):\n"
+                "    acc = _rd(v, 0)\n"
+                "    for k in range(1, len(v)):\n"
+                "        x = _rd(v, k)\n"
+                "        if x "
+             << cmp
+             << " acc:\n"
+                "            acc = x\n"
+                "        elif not (acc "
+             << cmp << " x):\n"
+             << (isMin ? "            acc = acc if math.copysign(1.0, acc) < 0 else x\n"
+                       : "            acc = x if math.copysign(1.0, acc) < 0 else acc\n")
+             << "    return acc\n";
+        break;
+      }
+      case IntrinsicKind::ReduceAnd:
+      case IntrinsicKind::ReduceOr:
+      case IntrinsicKind::ReduceXor: {
+        const char *op = (k == IntrinsicKind::ReduceAnd)  ? "&"
+                         : (k == IntrinsicKind::ReduceOr) ? "|"
+                                                          : "^";
+        const char *nm = (k == IntrinsicKind::ReduceAnd)  ? "and"
+                         : (k == IntrinsicKind::ReduceOr) ? "or"
+                                                          : "xor";
+        out_ << "def _in_reduce_" << nm
+             << "(v):\n"
+                "    acc = _rd(v, 0)\n"
+                "    for k in range(1, len(v)):\n"
+                "        acc = acc "
+             << op
+             << " _rd(v, k)\n"
+                "    return acc\n";
+        break;
+      }
+      default:
+        throw std::runtime_error("python reduction: unexpected kind");
+    }
   }
 
   std::string
@@ -544,17 +640,27 @@ def _in_check_chksum(expected, actual):
         return "_in_crc32_update(" + join({paramN(1)}) + ")";
       case IntrinsicKind::CheckChksum:
         return "_in_check_chksum(" + join({}) + ")";
-      // [v0.2.3 V1] Reductions are not yet lowered on any compiled target.
-      case IntrinsicKind::ReduceAdd:
+      // [v0.2.3 V1] Reductions: fold the vector-list argument. Add carries a
+      // width (int overflow / f32 rounding); min/max/bitwise do not.
+      case IntrinsicKind::ReduceAdd: {
+        const VecType &vt = std::get<VecType>(intr.params[0].type->v);
+        if (auto fw = floatWidth(vt.elem))
+          return "_in_reduce_add_f(" + join({std::to_string(fw)}) + ")";
+        return "_in_reduce_add_i(" + join({std::to_string(intWidth(vt.elem))}) + ")";
+      }
       case IntrinsicKind::ReduceMin:
-      case IntrinsicKind::ReduceMax:
+      case IntrinsicKind::ReduceMax: {
+        const VecType &vt = std::get<VecType>(intr.params[0].type->v);
+        const char *nm = (k == IntrinsicKind::ReduceMin) ? "min" : "max";
+        const char *suf = floatWidth(vt.elem) ? "_f" : "_i";
+        return std::string("_in_reduce_") + nm + suf + "(" + join({}) + ")";
+      }
       case IntrinsicKind::ReduceAnd:
+        return "_in_reduce_and(" + join({}) + ")";
       case IntrinsicKind::ReduceOr:
+        return "_in_reduce_or(" + join({}) + ")";
       case IntrinsicKind::ReduceXor:
-        throw std::runtime_error(
-            "python target: horizontal vector reductions (@reduce_*) are not yet "
-            "lowered (v0.2.3 V1 backend support is planned)"
-        );
+        return "_in_reduce_xor(" + join({}) + ")";
     }
     return "";
   }

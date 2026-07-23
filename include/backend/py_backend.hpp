@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include "analysis/cfg.hpp"
+#include "analysis/intrinsics.hpp"
 #include "analysis/structurizer.hpp"
 #include "ast/ast.hpp"
 #include "backend/py_vec_lowering.hpp"
@@ -214,6 +215,10 @@ namespace refractir {
 
     // --- Intrinsics ---
     void emitIntrinsicHelpers(const Program &prog);
+    // [v0.2.3 V1] Emit the Python `def`s for a horizontal vector reduction
+    // kind (generated dynamically so the body can vary with --no-ub-guards
+    // and reuse the checked/inline arithmetic of the active preamble).
+    void emitReductionHelperDefs(IntrinsicKind k);
     std::string callIntrinsic(const IntrinsicDecl &intr, const std::vector<std::string> &args);
   };
 
