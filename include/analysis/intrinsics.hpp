@@ -99,6 +99,18 @@ namespace refractir {
     //     diagnostic on stderr (UB in the interpreter).
     Crc32Update,
     CheckChksum,
+    // v0.2.3 V1 — horizontal vector reductions (§12.4). The sole parameter
+    // is a vector `<N> T`; the result is the scalar element type `T`.
+    // Add / Min / Max fold over integer or floating-point lanes; the
+    // bitwise reductions And / Or / Xor are integer-only. `@reduce_mul` is
+    // deliberately absent — a symbolic `N-1`-deep multiplication chain is
+    // solver-hostile (§12.4, §13).
+    ReduceAdd,
+    ReduceMin,
+    ReduceMax,
+    ReduceAnd,
+    ReduceOr,
+    ReduceXor,
   };
 
   /**
@@ -210,7 +222,51 @@ namespace refractir {
       return IntrinsicKind::Crc32Update;
     if (name == "@check_chksum")
       return IntrinsicKind::CheckChksum;
+    // v0.2.3 V1 — horizontal vector reductions (§12.4).
+    if (name == "@reduce_add")
+      return IntrinsicKind::ReduceAdd;
+    if (name == "@reduce_min")
+      return IntrinsicKind::ReduceMin;
+    if (name == "@reduce_max")
+      return IntrinsicKind::ReduceMax;
+    if (name == "@reduce_and")
+      return IntrinsicKind::ReduceAnd;
+    if (name == "@reduce_or")
+      return IntrinsicKind::ReduceOr;
+    if (name == "@reduce_xor")
+      return IntrinsicKind::ReduceXor;
     return std::nullopt;
+  }
+
+  /**
+   * True iff `kind` is a horizontal vector reduction (§12.4) — the only
+   * intrinsic family whose parameter is a vector `<N> T` rather than a
+   * scalar. Callers that special-case the vector-in / scalar-out shape
+   * (frontend WF, interpreter fold, solver lane-fold) branch on this.
+   */
+  inline bool isReductionIntrinsic(IntrinsicKind kind) {
+    switch (kind) {
+      case IntrinsicKind::ReduceAdd:
+      case IntrinsicKind::ReduceMin:
+      case IntrinsicKind::ReduceMax:
+      case IntrinsicKind::ReduceAnd:
+      case IntrinsicKind::ReduceOr:
+      case IntrinsicKind::ReduceXor:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * True iff the reduction `kind` admits a floating-point element type.
+   * @reduce_add / @reduce_min / @reduce_max fold either integer or FP
+   * lanes; the bitwise @reduce_and / @reduce_or / @reduce_xor are
+   * integer-only (§12.4).
+   */
+  inline bool reductionAllowsFloat(IntrinsicKind kind) {
+    return kind == IntrinsicKind::ReduceAdd || kind == IntrinsicKind::ReduceMin ||
+           kind == IntrinsicKind::ReduceMax;
   }
 
 } // namespace refractir

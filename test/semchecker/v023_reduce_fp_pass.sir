@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
+// SPEC v0.2.3 §12.4 (V1) — @reduce_add / @reduce_min / @reduce_max are
+// defined over floating-point element types as well as integer ones.
+intrinsic @reduce_add(%v: <4> f32) : f32;
+intrinsic @reduce_min(%v: <2> f64) : f64;
+intrinsic @reduce_max(%v: <4> f32) : f32;
+
+fun @main() : i32 {
+  let %v: <4> f32 = {1.0, 2.0, 3.0, 4.0};
+  let %w: <2> f64 = {1.0, 2.0};
+  let mut %r: f32 = 0.0;
+  let mut %s: f64 = 0.0;
+^entry:
+  %r = call @reduce_add(%v);
+  %r = call @reduce_max(%v);
+  %s = call @reduce_min(%w);
+  ret 0;
+}

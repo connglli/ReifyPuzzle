@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.3 §12.4 — the bitwise reductions @reduce_and / @reduce_or /
+// @reduce_xor are integer-only; a floating-point element type is rejected.
+intrinsic @reduce_and(%v: <4> f32) : f32;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

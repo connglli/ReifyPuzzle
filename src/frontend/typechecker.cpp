@@ -122,23 +122,30 @@ namespace refractir {
       validateTypeWF(i.retType, diags);
       for (const auto &p: i.params)
         validateTypeWF(p.type, diags);
-      // [v0.2.2 §12 / D.1] Intrinsics are defined over scalar `iN` or
-      // `fN` only. Reject declarations whose parameter or return type is
-      // neither — per-intrinsic correctness (which combinations of iN/fN
-      // are valid for a given @name) is then enforced by the semantic
-      // checker.
+      // [v0.2.2 §12 / D.1] Intrinsics are defined over scalar `iN` or `fN`
+      // — except the v0.2.3 horizontal reductions (§12.4), whose parameter
+      // is a vector `<N> T` of scalar lanes. This is the coarse gate;
+      // per-intrinsic correctness (which iN/fN/`<N> T` combinations a given
+      // @name accepts) is enforced by the semantic checker.
       auto isIntOrFp = [](const TypePtr &t) {
         return t &&
                (std::holds_alternative<IntType>(t->v) || std::holds_alternative<FloatType>(t->v));
       };
+      auto isVecOfScalar = [&](const TypePtr &t) {
+        auto vt = t ? std::get_if<VecType>(&t->v) : nullptr;
+        return vt && isIntOrFp(vt->elem);
+      };
+      // The result of every intrinsic — reductions included — is scalar.
       if (!isIntOrFp(i.retType))
         diags.error(
             "`intrinsic " + i.name.name + "` return type must be `iN` or `fN` (§12)", i.span
         );
       for (const auto &p: i.params)
-        if (!isIntOrFp(p.type))
+        if (!isIntOrFp(p.type) && !isVecOfScalar(p.type))
           diags.error(
-              "`intrinsic " + i.name.name + "` parameter type must be `iN` or `fN` (§12)", i.span
+              "`intrinsic " + i.name.name +
+                  "` parameter type must be `iN`, `fN`, or a vector `<N> T` of these (§12)",
+              i.span
           );
       auto it = callees_.find(i.name.name);
       bool hasNonIntrinsic = false;
@@ -1348,6 +1355,33 @@ namespace refractir {
                 continue;
               if (!ci) {
                 ci = &cand;
+                continue;
+              }
+              // [v0.2.3 V1] Vector-parameter overloads (the horizontal
+              // reductions) are disambiguated by the argument's *exact*
+              // vector type — its lane count and element type. That is the
+              // authoritative signal (a typed vector local, not an
+              // ambiguous literal width), so it dominates the scalar
+              // context / bitwidth heuristics below.
+              auto vecArgMatch = [&](const CalleeInfo &c) -> bool {
+                bool anyVec = false;
+                for (size_t ai = 0; ai < c.paramTypes.size() && ai < arg.args.size(); ++ai) {
+                  const TypePtr &pt = c.paramTypes[ai];
+                  if (!pt || !std::holds_alternative<VecType>(pt->v))
+                    continue;
+                  anyVec = true;
+                  DiagBag td;
+                  Ty at = typeOfExpr(*arg.args[ai], vars, syms, ann, td, std::nullopt);
+                  if (td.hasErrors() || !at.isVec() || !TypeUtils::areTypesEqual(at.vecType(), pt))
+                    return false;
+                }
+                return anyVec;
+              };
+              bool candVec = vecArgMatch(cand);
+              bool ciVec = vecArgMatch(*ci);
+              if (candVec != ciVec) {
+                if (candVec)
+                  ci = &cand;
                 continue;
               }
               // Multiple candidates with same arity — disambiguate by

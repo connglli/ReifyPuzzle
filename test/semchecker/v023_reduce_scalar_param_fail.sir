@@ -1,0 +1,9 @@
+// EXPECT: FAIL:StaticError
+// SPEC v0.2.3 §12.4 — a reduction's sole parameter must be a vector
+// type <N> T.  A scalar parameter is rejected at check time.
+intrinsic @reduce_add(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret 0;
+}

@@ -62,7 +62,20 @@ namespace refractir {
           // distinct lowerings.  Use the FP precision in the sig string so
           // both can be declared in the same program.
           sig += "f" + std::string(ft->kind == FloatType::Kind::F32 ? "32" : "64");
-        else
+        else if (auto vt =
+                     d.params[i].type ? std::get_if<VecType>(&d.params[i].type->v) : nullptr) {
+          // [v0.2.3 V1] Reduction overloads differ by vector shape:
+          // @reduce_add(<4> i32) and @reduce_add(<8> i32) are distinct
+          // declarations.  Encode both the lane count and the element type
+          // so they don't collide on the same arity.
+          sig += "<" + std::to_string(vt->size) + ">";
+          if (auto ebits = TypeUtils::getIntBitWidth(vt->elem))
+            sig += "i" + std::to_string(*ebits);
+          else if (auto eft = vt->elem ? std::get_if<FloatType>(&vt->elem->v) : nullptr)
+            sig += "f" + std::string(eft->kind == FloatType::Kind::F32 ? "32" : "64");
+          else
+            sig += "?";
+        } else
           sig += "?";
       }
       sig += ")";
@@ -493,6 +506,52 @@ namespace refractir {
                 d.params[i].span
             );
         }
+        break;
+      }
+      // [v0.2.3 V1] Horizontal vector reductions (§12.4). The sole
+      // parameter is a vector `<N> T`; the result is the scalar element
+      // type `T`. @reduce_add / @reduce_min / @reduce_max fold integer or
+      // FP lanes; the bitwise @reduce_and / @reduce_or / @reduce_xor are
+      // integer-only.
+      case IntrinsicKind::ReduceAdd:
+      case IntrinsicKind::ReduceMin:
+      case IntrinsicKind::ReduceMax:
+      case IntrinsicKind::ReduceAnd:
+      case IntrinsicKind::ReduceOr:
+      case IntrinsicKind::ReduceXor: {
+        expectArity(1);
+        const VecType *vt = d.params.empty() ? nullptr : std::get_if<VecType>(&d.params[0].type->v);
+        if (!vt) {
+          diags.error(
+              "Intrinsic " + d.name.name + ": parameter 0 must be a vector type `<N> T`",
+              d.params.empty() ? d.span : d.params[0].span
+          );
+          break;
+        }
+        const TypePtr &elem = vt->elem;
+        bool elemIsInt = TypeUtils::getIntBitWidth(elem).has_value();
+        bool elemIsFp = fpBits(elem).has_value();
+        if (reductionAllowsFloat(*kind)) {
+          if (!elemIsInt && !elemIsFp)
+            diags.error(
+                "Intrinsic " + d.name.name +
+                    ": vector element type must be an integer or floating-point type",
+                d.params[0].span
+            );
+        } else if (!elemIsInt) {
+          diags.error(
+              "Intrinsic " + d.name.name +
+                  ": bitwise reduction requires an integer vector element type",
+              d.params[0].span
+          );
+        }
+        // The result of the fold is one lane, so the return type must be
+        // exactly the vector's element type.
+        if (!TypeUtils::areTypesEqual(d.retType, elem))
+          diags.error(
+              "Intrinsic " + d.name.name + ": return type must equal the vector element type `T`",
+              d.span
+          );
         break;
       }
     }

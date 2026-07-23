@@ -1,0 +1,24 @@
+// EXPECT: PASS
+// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
+// SPEC v0.2.3 §12.4 (V1) — horizontal reductions accept a <N> iN vector
+// argument and return the scalar element type.  All six reduction kinds
+// are valid over an integer element type.
+intrinsic @reduce_add(%v: <4> i32) : i32;
+intrinsic @reduce_min(%v: <4> i32) : i32;
+intrinsic @reduce_max(%v: <4> i32) : i32;
+intrinsic @reduce_and(%v: <4> i32) : i32;
+intrinsic @reduce_or(%v: <4> i32) : i32;
+intrinsic @reduce_xor(%v: <4> i32) : i32;
+
+fun @main() : i32 {
+  let %v: <4> i32 = {1, 2, 3, 4};
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @reduce_add(%v);
+  %r = %r + call @reduce_min(%v);
+  %r = %r + call @reduce_max(%v);
+  %r = %r + call @reduce_and(%v);
+  %r = %r + call @reduce_or(%v);
+  %r = %r + call @reduce_xor(%v);
+  ret %r;
+}
