@@ -427,57 +427,94 @@ namespace refractir::reify {
       const std::optional<std::string> &excludeName = std::nullopt
   );
 
-  // Generate an intrinsic-call atom for the given integer target type.
-  // Adds any safety requires from argument generation to extraRequires.
-  // Records the (kind, bitwidth) pair in cfg.usedIntrinsics if non-null.
-  // Now that the toolchain supports overloaded intrinsic declarations,
-  // the same intrinsic can be instantiated at multiple bitwidths.
+  // Generate an intrinsic-call atom producing `targetType`. Every intrinsic
+  // callable for this target competes in one uniform pool: the scalar
+  // whitelist (args are scalar `targetType`) and the horizontal reductions
+  // (arg is a `<N> targetType` vector). A reduction is callable exactly when
+  // a matching vector operand is in scope — that availability is its only
+  // gate. The two shapes differ solely in how the argument list is built;
+  // selection, use-recording and declaration are identical. Scalar-argument
+  // generation may add div-by-zero guards to extraRequires; the reduction's
+  // vector operand needs none (the solver prunes partial-sum overflow and
+  // non-finite intermediates like any other intrinsic UB). Records the used
+  // (kind, element type, lanes) in cfg.usedIntrinsics if non-null.
   static Atom genIntrinsicCallAtom(
       std::mt19937 &rng, SymCounter *sym, const VarCatalogue &vars, const TypePtr &targetType,
       bool onPath, const ExprGenConfig &cfg, std::vector<Instr> &extraRequires,
       const std::optional<std::string> &excludeName = std::nullopt
   ) {
-    // Skip i1-returning intrinsics since i1 is not a commonly generated target type.
-    const auto &all = getIntrinsicWhitelist();
-    uint32_t targetBits = intBitWidth(targetType);
-    std::vector<const WhitelistedIntrinsic *> compatible;
-    for (const auto &wi: all) {
+    const bool isFloat = isFpType(targetType);
+    const uint32_t elemBits =
+        isFloat ? (std::get<FloatType>(targetType->v).kind == FloatType::Kind::F32 ? 32u : 64u)
+                : intBitWidth(targetType);
+
+    // One candidate = one callable intrinsic. `reduceVec` is null for a
+    // scalar intrinsic and the `<N> T` operand var for a reduction.
+    struct Candidate {
+      const char *name;
+      IntrinsicKind kind;
+      int paramCount;            // scalar arg count (unused for reductions)
+      const VarEntry *reduceVec; // non-null ⇒ reduction over this vector var
+    };
+
+    std::vector<Candidate> cands;
+
+    // One pass over the whitelist. An intrinsic is a candidate when its
+    // element domain fits the target (FP targets need `allowsFloat`) and,
+    // for reductions, when a `<N> targetType` vector operand is in scope —
+    // one candidate per available operand.
+    auto vecs = excluding(vars.vecsWithElem(targetType), excludeName);
+    for (const auto &wi: getIntrinsicWhitelist()) {
+      // Skip i1-returning intrinsics — i1 is not a common target type.
       if (wi.returnsI1)
         continue;
-      // [P7] @bswap is the one width-restricted whitelisted intrinsic: the
-      // semchecker rejects it for widths that are not a multiple of 8.
-      if (wi.kind == IntrinsicKind::Bswap && targetBits % 8 != 0)
+      if (isFloat && !wi.allowsFloat)
         continue;
-      compatible.push_back(&wi);
-    }
-    if (compatible.empty())
-      return coefAtom(intCoef(0));
-
-    std::uniform_int_distribution<int> pick(0, (int) compatible.size() - 1);
-    const auto *wi = compatible[pick(rng)];
-
-    // Build argument expressions
-    std::vector<std::shared_ptr<Expr>> args;
-    for (int pi = 0; pi < wi->paramCount; pi++) {
-      if (onPath && sym) {
-        auto [ae, areqs] =
-            genExprWithRequires(rng, sym, vars, targetType, onPath, cfg, excludeName);
-        for (auto &r: areqs)
-          extraRequires.push_back(std::move(r));
-        args.push_back(std::make_shared<Expr>(std::move(ae)));
+      if (wi.vectorParam) {
+        for (auto *vv: vecs)
+          cands.push_back({wi.name, wi.kind, wi.paramCount, vv});
       } else {
-        auto ae = genExpr(rng, sym, vars, targetType, onPath, cfg, excludeName);
-        args.push_back(std::make_shared<Expr>(std::move(ae)));
+        // [P7] @bswap is width-restricted: the semchecker rejects widths
+        // that are not a multiple of 8.
+        if (wi.kind == IntrinsicKind::Bswap && elemBits % 8 != 0)
+          continue;
+        cands.push_back({wi.name, wi.kind, wi.paramCount, nullptr});
       }
     }
 
-    // Record the (kind, bitwidth) use
-    if (cfg.usedIntrinsics)
-      cfg.usedIntrinsics->insert({wi->kind, intBitWidth(targetType)});
+    if (cands.empty())
+      return isFloat ? genConcreteFloatAtom(rng) : coefAtom(intCoef(0));
+
+    const auto &c = cands[std::uniform_int_distribution<int>(0, (int) cands.size() - 1)(rng)];
 
     CallAtom ca;
-    ca.callee = GlobalId{std::string(wi->name), {}};
-    ca.args = std::move(args);
+    ca.callee = GlobalId{std::string(c.name), {}};
+    if (c.reduceVec) {
+      const TypePtr vecTy = c.reduceVec->type;
+      ca.args.push_back(
+          std::make_shared<Expr>(genExpr(rng, sym, vars, vecTy, onPath, cfg, excludeName))
+      );
+      if (cfg.usedIntrinsics)
+        cfg.usedIntrinsics->insert(
+            {c.kind, elemBits, isFloat, (uint32_t) std::get<VecType>(vecTy->v).size}
+        );
+    } else {
+      for (int pi = 0; pi < c.paramCount; pi++) {
+        if (onPath && sym) {
+          auto [ae, areqs] =
+              genExprWithRequires(rng, sym, vars, targetType, onPath, cfg, excludeName);
+          for (auto &r: areqs)
+            extraRequires.push_back(std::move(r));
+          ca.args.push_back(std::make_shared<Expr>(std::move(ae)));
+        } else {
+          ca.args.push_back(
+              std::make_shared<Expr>(genExpr(rng, sym, vars, targetType, onPath, cfg, excludeName))
+          );
+        }
+      }
+      if (cfg.usedIntrinsics)
+        cfg.usedIntrinsics->insert({c.kind, elemBits, false, 0});
+    }
     return Atom{std::move(ca), {}};
   }
 
@@ -767,6 +804,14 @@ namespace refractir::reify {
     if (s < rysmith::hp::kFloatOnPath_SelectEnd && cfg.enableSelect) {
       return genSelectAtom(rng, &sym, vars, targetType, excludeName);
     }
+    if (s < rysmith::hp::kFloatOnPath_IntrinsicEnd && cfg.enableIntrinsics) {
+      // The only FP-typed intrinsics are the reductions; genIntrinsicCallAtom
+      // falls back to a concrete literal when no FP vector operand is in
+      // scope. FP args carry no div guards, so a discarded requires sink is
+      // safe here.
+      std::vector<Instr> reqSink;
+      return genIntrinsicCallAtom(rng, &sym, vars, targetType, true, cfg, reqSink, excludeName);
+    }
     // Concrete float literal
     return genConcreteFloatAtom(rng);
   }
@@ -780,13 +825,23 @@ namespace refractir::reify {
   // non-trivial source to draw from.
   static Atom genFloatAtomOffPath(
       std::mt19937 &rng, const VarCatalogue &vars, const TypePtr &targetType,
-      const std::optional<std::string> &excludeName = std::nullopt
+      const ExprGenConfig &cfg, const std::optional<std::string> &excludeName = std::nullopt
   ) {
     auto fpVars = excluding(vars.scalarsOf(targetType), excludeName);
     std::uniform_int_distribution<int> slot(0, 99);
     int s = slot(rng);
-    if (fpVars.empty())
+    if (fpVars.empty()) {
+      // No FP scalar var to read/scale — an FP reduction is still a valid
+      // same-typed source when a vector operand is in scope (else the call
+      // helper itself falls back to a concrete literal).
+      if (s < rysmith::hp::kFloatOffPath_IntrinsicEnd && cfg.enableIntrinsics) {
+        std::vector<Instr> reqSink;
+        return genIntrinsicCallAtom(
+            rng, /*sym=*/nullptr, vars, targetType, false, cfg, reqSink, excludeName
+        );
+      }
       return genConcreteFloatAtom(rng);
+    }
     if (s < rysmith::hp::kFloatOffPath_ReadEnd) {
       auto *v = pickOne(rng, fpVars);
       return rvalAtom(localLV(v->name));
@@ -808,6 +863,12 @@ namespace refractir::reify {
       return opAtom(
           AtomOpKind::Mod, pickOffPathFpCoef(rng, vars, targetType, excludeName), pickVar()
       );
+    if (s < rysmith::hp::kFloatOffPath_IntrinsicEnd && cfg.enableIntrinsics) {
+      std::vector<Instr> reqSink;
+      return genIntrinsicCallAtom(
+          rng, /*sym=*/nullptr, vars, targetType, false, cfg, reqSink, excludeName
+      );
+    }
     return genConcreteFloatAtom(rng);
   }
 
@@ -1360,7 +1421,7 @@ namespace refractir::reify {
                  ? genIntAtomOnPath(rng, *sym, vars, targetType, cfg, extraRequires, excludeName)
                  : genIntAtomOffPath(rng, vars, targetType, cfg, excludeName);
     return (onPath && sym) ? genFloatAtomOnPath(rng, *sym, vars, targetType, cfg, excludeName)
-                           : genFloatAtomOffPath(rng, vars, targetType, excludeName);
+                           : genFloatAtomOffPath(rng, vars, targetType, cfg, excludeName);
   }
 
   // [P3] Build a cheap, solver-linear atom that reads a runtime LValue and
@@ -1569,7 +1630,7 @@ namespace refractir::reify {
         if (onPath && sym) {
           a = genFloatAtomOnPath(rng, *sym, vars, targetType, cfg, excludeName);
         } else {
-          a = genFloatAtomOffPath(rng, vars, targetType, excludeName);
+          a = genFloatAtomOffPath(rng, vars, targetType, cfg, excludeName);
         }
       } else if (isPtrType(targetType)) {
         a = genPtrAtom(rng, vars, targetType, excludeName);
@@ -1788,7 +1849,7 @@ namespace refractir::reify {
         if (onPath && sym) {
           a = genFloatAtomOnPath(rng, *sym, vars, targetType, cfg, excludeName);
         } else {
-          a = genFloatAtomOffPath(rng, vars, targetType, excludeName);
+          a = genFloatAtomOffPath(rng, vars, targetType, cfg, excludeName);
         }
       } else if (isPtrType(targetType)) {
         a = genPtrAtom(rng, vars, targetType, excludeName);

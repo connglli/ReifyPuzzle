@@ -35,6 +35,14 @@ namespace refractir::reify {
     return result;
   }
 
+  std::vector<const VarEntry *> VarCatalogue::vecsWithElem(const TypePtr &elemT) const {
+    std::vector<const VarEntry *> result;
+    for (const auto &v: vars)
+      if (isVecType(v.type) && typeEquals(std::get<VecType>(v.type->v).elem, elemT))
+        result.push_back(&v);
+    return result;
+  }
+
   std::vector<const VarEntry *> VarCatalogue::ptrsOf(const TypePtr &pointeeT) const {
     std::vector<const VarEntry *> result;
     for (const auto &v: vars)

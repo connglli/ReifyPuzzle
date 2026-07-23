@@ -264,7 +264,11 @@ def test_solved_replay(rysmith, symiri):
         "1",
         "--emit-desc",
         "--seed",
-        "13",
+        # Arbitrary seed whose single generated function solves; the
+        # specific value drifts whenever the generator's RNG draw sequence
+        # changes (e.g. a new expression shape), so it is a fixture, not a
+        # contract. Repoint it to any solvable seed if generation shifts.
+        "25",
         "--n-params",
         "2",
         "-o",
@@ -1992,7 +1996,11 @@ def test_no_crc32_solved_header_matches_sum(rysmith, symiri):
         "--n-funcs",
         "1",
         "--seed",
-        "13",
+        # Arbitrary seed whose single generated function solves; the
+        # specific value drifts whenever the generator's RNG draw sequence
+        # changes (e.g. a new expression shape), so it is a fixture, not a
+        # contract. Repoint it to any solvable seed if generation shifts.
+        "25",
         "--n-params",
         "2",
         "--no-crc32",
@@ -2664,6 +2672,44 @@ def test_target_python_emits_py(rysmith):
     )
 
 
+# ---------------------------------------------------------------------------
+# Horizontal-reduction intrinsics (@reduce_*) — vector-in / scalar-out
+# ---------------------------------------------------------------------------
+
+_REDUCE_SEEDS = (5501, 5502, 5503, 5504, 5505, 5506)
+
+
+def test_reduce_intrinsics_generated(rysmith):
+  """The reduction family (`@reduce_add/min/max/and/or/xor`) is the only
+  intrinsic shape whose operand is a vector `<N> T` and whose result is
+  the scalar `T`. rysmith emits them wherever a matching vector var is in
+  scope, folding both integer and FP lanes. Across a batch, several
+  distinct reductions must appear as actual call sites (loose thresholds
+  keep this robust against RNG drift)."""
+  text = _collect_sym_text(rysmith, _REDUCE_SEEDS)
+  calls = re.findall(r"call @(reduce_[a-z]+)\(", text)
+  kinds = set(calls)
+  check(
+    f"@reduce_* call sites generated ({len(calls)} calls, kinds={sorted(kinds)})",
+    len(calls) >= 3 and len(kinds) >= 2,
+    f"calls={len(calls)} kinds={sorted(kinds)}",
+  )
+
+
+def test_reduce_needs_vectors(rysmith):
+  """A reduction can only fold a vector operand, so with `--no-vec` (no
+  `<N> T` vars are ever generated) not a single `@reduce_*` — declaration
+  or call — may appear. This is the invariant direction of the feature
+  and is not subject to RNG drift."""
+  text = _collect_sym_text(rysmith, _REDUCE_SEEDS, extra_flags=["--no-vec"])
+  leaked = re.findall(r"@reduce_[a-z]+", text)
+  check(
+    "no @reduce_* under --no-vec",
+    not leaked,
+    f"leaked {len(leaked)}: {sorted(set(leaked))}",
+  )
+
+
 def main():
   if len(sys.argv) != 4:
     print("Usage: python3 -m test.lib.run_rysmith_tests <rysmith> <symiri> <symirc>")
@@ -2791,6 +2837,10 @@ def main():
   test_structured_lowering_value_validation(rysmith)
   print("=== --structured-lowering: dispatch-free wasm ===")
   test_structured_lowering_wasm(rysmith)
+  print("=== @reduce_*: reduction intrinsics generated ===")
+  test_reduce_intrinsics_generated(rysmith)
+  print("=== @reduce_*: suppressed under --no-vec ===")
+  test_reduce_needs_vectors(rysmith)
   print("=== --target python ===")
   test_target_python_emits_py(rysmith)
   print("=== python --vec-lowering: explicit / random / vecext ===")

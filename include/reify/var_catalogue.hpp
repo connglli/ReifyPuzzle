@@ -32,6 +32,9 @@ namespace refractir::reify {
     std::vector<const VarEntry *> allScalars() const;
     // [v0.2.1] vec vars of exact type
     std::vector<const VarEntry *> vecsOf(const TypePtr &t) const;
+    // vec vars <N> T whose lane (element) type equals `elemT`, any lane
+    // count N — the operand pool for horizontal-reduction intrinsics.
+    std::vector<const VarEntry *> vecsWithElem(const TypePtr &elemT) const;
     // ptr T vars
     std::vector<const VarEntry *> ptrsOf(const TypePtr &pointeeT) const;
     // ptr ptr T vars (any T)

@@ -80,10 +80,11 @@ namespace refractir::reify::rysmith::hp {
   // (floats admit Mul / Div / Mod) but were never generated; off-path they
   // cost the solver nothing and cannot diverge interpreter-vs-backend
   // because the block never executes.
-  inline constexpr int kFloatOffPath_ReadEnd = 35; // bare same-type read
-  inline constexpr int kFloatOffPath_MulEnd = 55;  // coef * var
-  inline constexpr int kFloatOffPath_DivEnd = 68;  // coef / var
-  inline constexpr int kFloatOffPath_ModEnd = 78;  // coef % var (fmod)
+  inline constexpr int kFloatOffPath_ReadEnd = 35;      // bare same-type read
+  inline constexpr int kFloatOffPath_MulEnd = 55;       // coef * var
+  inline constexpr int kFloatOffPath_DivEnd = 68;       // coef / var
+  inline constexpr int kFloatOffPath_ModEnd = 78;       // coef % var (fmod)
+  inline constexpr int kFloatOffPath_IntrinsicEnd = 84; // call @intrinsic(args)
   // rest: concrete float literal
   // fallthrough → concrete int literal
 
@@ -92,6 +93,7 @@ namespace refractir::reify::rysmith::hp {
   inline constexpr int kFloatOnPath_MulLitEnd = 70;         // float lit * var
   inline constexpr int kFloatOnPath_CastFromVarEnd = 85;    // i32 var as fT
   inline constexpr int kFloatOnPath_SelectEnd = 95;         // select cond, a, b
+  inline constexpr int kFloatOnPath_IntrinsicEnd = 98;      // call @intrinsic(args)
   // fallthrough → concrete float literal
 
 
