@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
+// SPEC v0.2.3 §12.4 (V1) — call @reduce_add/min/max fold floating-point lanes.
+// FP addition is not associative, so the fold is the normative left-to-right
+// order (§12.4); the values here are exactly representable so the sum is exact.
+intrinsic @reduce_add(%v: <4> f32) : f32;
+intrinsic @reduce_min(%v: <4> f32) : f32;
+intrinsic @reduce_max(%v: <4> f32) : f32;
+intrinsic @reduce_add(%v: <2> f64) : f64;
+intrinsic @reduce_min(%v: <2> f64) : f64;
+
+fun @main() : i32 {
+  let %v: <4> f32 = {1.5, 2.5, -3.0, 4.0};
+  let %w: <2> f64 = {10.0, -2.0};
+^entry:
+  require call @reduce_add(%v) == 5.0,  "add {1.5,2.5,-3,4} = 5.0";
+  require call @reduce_min(%v) == -3.0, "min = -3.0";
+  require call @reduce_max(%v) == 4.0,  "max = 4.0";
+  require call @reduce_add(%w) == 8.0,  "f64 add = 8.0";
+  require call @reduce_min(%w) == -2.0, "f64 min = -2.0";
+  ret 0;
+}

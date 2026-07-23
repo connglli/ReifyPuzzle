@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
+// SPEC v0.2.3 §12.4 (V1) — integer horizontal reductions fold all lanes
+// left-to-right into one scalar.
+intrinsic @reduce_add(%v: <4> i32) : i32;
+intrinsic @reduce_min(%v: <4> i32) : i32;
+intrinsic @reduce_max(%v: <4> i32) : i32;
+intrinsic @reduce_and(%v: <4> i32) : i32;
+intrinsic @reduce_or(%v: <4> i32) : i32;
+intrinsic @reduce_xor(%v: <4> i32) : i32;
+
+fun @main() : i32 {
+  let %v: <4> i32 = {1, 2, 3, 4};
+  let %w: <4> i32 = {-5, 3, -1, 7};
+^entry:
+  require call @reduce_add(%v) == 10, "add {1,2,3,4} = 10";
+  require call @reduce_min(%v) == 1,  "min {1,2,3,4} = 1";
+  require call @reduce_max(%v) == 4,  "max {1,2,3,4} = 4";
+  require call @reduce_and(%v) == 0,  "and {1,2,3,4} = 0";
+  require call @reduce_or(%v)  == 7,  "or  {1,2,3,4} = 7";
+  require call @reduce_xor(%v) == 4,  "xor {1,2,3,4} = 4";
+  require call @reduce_min(%w) == -5, "min {-5,3,-1,7} = -5";
+  require call @reduce_max(%w) == 7,  "max {-5,3,-1,7} = 7";
+  ret 0;
+}

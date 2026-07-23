@@ -26,6 +26,7 @@
 #include "analysis/intrinsics.hpp"
 #include "analysis/type_utils.hpp"
 #include "error.hpp"
+#include "internal.hpp"
 
 namespace refractir {
 
@@ -1106,6 +1107,139 @@ namespace refractir {
       }
     };
 
+    // ── §12.4 Horizontal vector reductions (v0.2.3 V1) ─────────────────────
+    //
+    // The sole argument is a vector `<N> T` (a RuntimeValue of kind Vec whose
+    // arrayVal holds the N lane scalars); the result is the scalar element
+    // type `T`.  Every reduction is the normative left-to-right fold over
+    // lanes 0..N-1 — `((v[0] ⊕ v[1]) ⊕ v[2]) ⊕ …` — and reads *every* lane,
+    // so an undef lane is UB (rule 22).  Each fold step is an ordinary scalar
+    // operation and carries the ordinary scalar UB: @reduce_add over iN traps
+    // on any partial sum outside the iN range (rule 4), over fN on a ±∞/NaN
+    // intermediate (rules 6–7).  min/max fold with strict comparison (ties
+    // keep the accumulator); the bitwise reductions never trap.  A single
+    // parametrized class covers all six kinds — they differ only by the
+    // per-step operator and the int-vs-fp element split.
+    class ReduceIntrinsic final : public InterpreterIntrinsic {
+    public:
+      explicit ReduceIntrinsic(IntrinsicKind kind) : kind_(kind) {}
+
+      RuntimeValue
+      eval(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &args) const override {
+        if (args.empty() || args[0].kind != RuntimeValue::Kind::Vec)
+          throw std::runtime_error("Reduction " + intr.name.name + ": argument is not a vector");
+        const std::vector<RuntimeValue> &lanes = args[0].arrayVal;
+        if (lanes.empty())
+          throw std::runtime_error("Reduction " + intr.name.name + ": empty vector");
+
+        if (auto ib = TypeUtils::getIntBitWidth(intr.retType))
+          return foldInt(intr, lanes, *ib);
+        return foldFloat(intr, lanes, fpBitsOf(intr.retType));
+      }
+
+    private:
+      IntrinsicKind kind_;
+
+      // Read lane k as a sign-extended int64, raising UB on an undef lane.
+      static int64_t laneInt(
+          const IntrinsicDecl &intr, const std::vector<RuntimeValue> &lanes, size_t k, uint32_t W
+      ) {
+        const RuntimeValue &l = lanes[k];
+        if (l.kind == RuntimeValue::Kind::Undef)
+          throw UndefinedBehaviorError(
+              "UB: " + intr.name.name + " reads an undef vector lane (rule 22)"
+          );
+        if (l.kind != RuntimeValue::Kind::Int)
+          throw std::runtime_error("Reduction " + intr.name.name + ": non-integer lane");
+        return sextToInt64(l.intVal, W);
+      }
+
+      static double
+      laneFloat(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &lanes, size_t k) {
+        const RuntimeValue &l = lanes[k];
+        if (l.kind == RuntimeValue::Kind::Undef)
+          throw UndefinedBehaviorError(
+              "UB: " + intr.name.name + " reads an undef vector lane (rule 22)"
+          );
+        if (l.kind != RuntimeValue::Kind::Float)
+          throw std::runtime_error("Reduction " + intr.name.name + ": non-float lane");
+        return l.floatVal;
+      }
+
+      RuntimeValue
+      foldInt(const IntrinsicDecl &intr, const std::vector<RuntimeValue> &lanes, uint32_t W) const {
+        int64_t lo = intMinN(W), hi = intMaxN(W);
+        int64_t acc = laneInt(intr, lanes, 0, W);
+        for (size_t k = 1; k < lanes.size(); ++k) {
+          int64_t x = laneInt(intr, lanes, k, W);
+          switch (kind_) {
+            case IntrinsicKind::ReduceAdd: {
+              __int128 s = static_cast<__int128>(acc) + static_cast<__int128>(x);
+              if (s < static_cast<__int128>(lo) || s > static_cast<__int128>(hi))
+                throw UndefinedBehaviorError(
+                    "UB: @reduce_add partial sum not representable in the element type (rule 4)"
+                );
+              acc = static_cast<int64_t>(s);
+              break;
+            }
+            case IntrinsicKind::ReduceMin:
+              acc = (x < acc) ? x : acc;
+              break;
+            case IntrinsicKind::ReduceMax:
+              acc = (x > acc) ? x : acc;
+              break;
+            case IntrinsicKind::ReduceAnd:
+              acc &= x;
+              break;
+            case IntrinsicKind::ReduceOr:
+              acc |= x;
+              break;
+            case IntrinsicKind::ReduceXor:
+              acc ^= x;
+              break;
+            default:
+              throw std::runtime_error("Reduction: unexpected integer kind");
+          }
+        }
+        return makeInt(W, acc);
+      }
+
+      RuntimeValue foldFloat(
+          const IntrinsicDecl &intr, const std::vector<RuntimeValue> &lanes, uint32_t W
+      ) const {
+        double acc = laneFloat(intr, lanes, 0);
+        for (size_t k = 1; k < lanes.size(); ++k) {
+          double x = laneFloat(intr, lanes, k);
+          switch (kind_) {
+            case IntrinsicKind::ReduceAdd:
+              acc = checkFPResult(acc + x, W);
+              break;
+            // min / max fold with IEEE minNum/maxNum signed-zero tie-break
+            // (min prefers -0, max prefers +0), identical to @fmin/@fmax.
+            // §12.4 requires reduce_min/max to be order-independent so
+            // backends may use pairwise/hardware reductions; this canonical
+            // tie-break provides that (a strict `<` fold would make ±0
+            // order-observable).
+            case IntrinsicKind::ReduceMin:
+              if (x < acc)
+                acc = x;
+              else if (!(acc < x))
+                acc = std::signbit(acc) ? acc : x; // tie: prefer -0
+              break;
+            case IntrinsicKind::ReduceMax:
+              if (x > acc)
+                acc = x;
+              else if (!(acc > x))
+                acc = std::signbit(acc) ? x : acc; // tie: prefer +0
+              break;
+            default:
+              throw std::runtime_error("Reduction: unexpected float kind (bitwise on fp?)");
+          }
+        }
+        return makeFloat(W, acc);
+      }
+    };
+
     // ── Registry ────────────────────────────────────────────────────────────
 
     /**
@@ -1181,6 +1315,19 @@ namespace refractir {
         // Checksum primitives.
         registry_[IntrinsicKind::Crc32Update] = std::make_unique<Crc32UpdateIntrinsic>();
         registry_[IntrinsicKind::CheckChksum] = std::make_unique<CheckChksumIntrinsic>();
+        // §12.4 — horizontal vector reductions (v0.2.3 V1).
+        registry_[IntrinsicKind::ReduceAdd] =
+            std::make_unique<ReduceIntrinsic>(IntrinsicKind::ReduceAdd);
+        registry_[IntrinsicKind::ReduceMin] =
+            std::make_unique<ReduceIntrinsic>(IntrinsicKind::ReduceMin);
+        registry_[IntrinsicKind::ReduceMax] =
+            std::make_unique<ReduceIntrinsic>(IntrinsicKind::ReduceMax);
+        registry_[IntrinsicKind::ReduceAnd] =
+            std::make_unique<ReduceIntrinsic>(IntrinsicKind::ReduceAnd);
+        registry_[IntrinsicKind::ReduceOr] =
+            std::make_unique<ReduceIntrinsic>(IntrinsicKind::ReduceOr);
+        registry_[IntrinsicKind::ReduceXor] =
+            std::make_unique<ReduceIntrinsic>(IntrinsicKind::ReduceXor);
       }
 
       std::unordered_map<IntrinsicKind, std::unique_ptr<InterpreterIntrinsic>> registry_;

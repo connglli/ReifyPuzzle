@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
+// SPEC v0.2.3 §12.4 — the fold order is semantically observable: the same
+// multiset {60,60,60,-100} that overflows i8 as {60,60,60,-100} stays in
+// range when reordered so no partial sum leaves [-128,127].  Sum is 80.
+intrinsic @reduce_add(%v: <4> i8) : i8;
+
+fun @main() : i32 {
+  let %v: <4> i8 = {60, -100, 60, 60};   // 60,-40,20,80 — all in range
+^entry:
+  require call @reduce_add(%v) == 80, "reordered fold = 80, no overflow";
+  ret 0;
+}

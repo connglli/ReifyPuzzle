@@ -1,0 +1,23 @@
+// EXPECT: PASS
+// SKIP: COMPILER  — @reduce_* backend lowering is planned (v0.2.3 V1); core only for now
+// SPEC v0.2.3 §12.4 — reduce_min/max are order-INdependent (so backends may
+// use pairwise/hardware reductions).  They fold with the IEEE minNum/maxNum
+// signed-zero tie-break, identical to @fmin/@fmax: min yields -0 when any
+// lane is -0, max yields +0 when any lane is +0, regardless of lane order.
+// Also exercises the minimum lane count N=2.  @signbit reads the sign so the
+// +0/-0 distinction is testable.
+intrinsic @reduce_min(%v: <2> f32) : f32;
+intrinsic @reduce_max(%v: <2> f32) : f32;
+intrinsic @signbit(%x: f32) : i1;
+
+fun @main() : i32 {
+  let %pz: <2> f32 = {0.0, -0.0};   // +0.0 then -0.0
+  let %nz: <2> f32 = {-0.0, 0.0};   // -0.0 then +0.0
+^entry:
+  // min → -0 regardless of order; max → +0 regardless of order.
+  require call @signbit(call @reduce_min(%pz)) == -1, "min(+0,-0) = -0";
+  require call @signbit(call @reduce_min(%nz)) == -1, "min(-0,+0) = -0";
+  require call @signbit(call @reduce_max(%pz)) == 0,  "max(+0,-0) = +0";
+  require call @signbit(call @reduce_max(%nz)) == 0,  "max(-0,+0) = +0";
+  ret 0;
+}
