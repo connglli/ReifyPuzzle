@@ -1104,6 +1104,20 @@ namespace refractir {
     std::string base = intr.name.name;
     if (!base.empty() && base[0] == '@')
       base.erase(0, 1);
+    // [v0.2.3 V1] Reductions overload on vector shape (lane count +
+    // element type), so mangle by both — `_refractir_reduce_add_v4_i32`,
+    // `_refractir_reduce_add_v2_f64` — to keep distinct declarations from
+    // colliding on one helper name.
+    if (!intr.params.empty() && intr.params[0].type) {
+      if (auto vt = std::get_if<VecType>(&intr.params[0].type->v)) {
+        std::string el = "i32";
+        if (auto ib = TypeUtils::getIntBitWidth(vt->elem))
+          el = "i" + std::to_string(*ib);
+        else if (auto fp = std::get_if<FloatType>(&vt->elem->v))
+          el = fp->kind == FloatType::Kind::F32 ? "f32" : "f64";
+        return "_refractir_" + base + "_v" + std::to_string(vt->size) + "_" + el;
+      }
+    }
     bool paramFp = !intr.params.empty() && intr.params[0].type &&
                    std::holds_alternative<FloatType>(intr.params[0].type->v);
     bool retFp = intr.retType && std::holds_alternative<FloatType>(intr.retType->v);
@@ -1148,14 +1162,12 @@ namespace refractir {
 
   void CBackend::emitIntrinsicHelper(const IntrinsicDecl &intr) {
     // [v0.2.3 V1] Horizontal vector reductions (§12.4) have a vector
-    // parameter and are not yet lowered on any compiled target — the
-    // interpreter and solver implement them, backend support is planned.
-    // Reject with a clear diagnostic rather than emitting a trapping stub.
-    if (auto k = getIntrinsicKind(intr.name.name); k && isReductionIntrinsic(*k))
-      throw std::runtime_error(
-          "C target: horizontal vector reductions (@reduce_*) are not yet lowered "
-          "(v0.2.3 V1 backend support is planned)"
-      );
+    // parameter, so they lower to a dedicated helper rather than the
+    // scalar widening-and-mask path below.
+    if (auto k = getIntrinsicKind(intr.name.name); k && isReductionIntrinsic(*k)) {
+      emitReductionHelper(intr);
+      return;
+    }
     // Detect FP-touching intrinsics: dispatched to the FP registry instead
     // of the legacy integer-only one. Helper-signature param types follow
     // the declared RefractIR types directly (no widening for FP).
@@ -1234,6 +1246,120 @@ namespace refractir {
     }
 
     out_ << "  __builtin_trap(); /* unknown intrinsic */\n";
+    out_ << "}\n\n";
+  }
+
+  // [v0.2.3 V1] Horizontal vector reduction helper (§12.4). Emits a
+  // `static inline T H(<vec> a0) { ... }` that folds the lanes left-to-right
+  // into one scalar, reproducing the interpreter's per-step UB exactly:
+  // @reduce_add traps on an out-of-range partial sum (int) or a non-finite
+  // intermediate (fp); min/max use the @fmin/@fmax signed-zero tie-break for
+  // fp; the bitwise members never trap. Lanes are read through the
+  // vec-lowering strategy, so the same body serves every boundary-crossing
+  // representation (vecext / structscalars / structarray). UB guard lines go
+  // to a sink that vanishes under --no-ub-guards.
+  void CBackend::emitReductionHelper(const IntrinsicDecl &intr) {
+    const IntrinsicKind kind = *getIntrinsicKind(intr.name.name);
+    const VecType &vt = std::get<VecType>(intr.params[0].type->v);
+    const uint32_t M = static_cast<uint32_t>(vt.size);
+    const TypePtr &elem = vt.elem;
+
+    // The vector parameter must cross the function boundary in the chosen
+    // strategy — the same requirement as a `fun` with a vector parameter.
+    if (!vecLowering_->canCrossFnBoundary())
+      throw std::runtime_error(
+          "vec-lowering '" + vecLowering_->name() +
+          "' cannot pass a vector into the reduction helper '" + intr.name.name +
+          "'; use vecext, structscalars, or structarray"
+      );
+
+    const std::string retTy = cTypeOf(elem);
+    out_ << "static inline " << retTy << " " << intrinsicHelperName(intr) << "("
+         << vecLowering_->typeString(vt) << " a0) {\n";
+
+    auto lane = [&](uint32_t k) { return vecLowering_->emitLaneRead("a0", vt, std::to_string(k)); };
+    auto guard = [&](const std::string &s) {
+      if (!noUbGuards_)
+        out_ << s;
+    };
+
+    if (auto ib = TypeUtils::getIntBitWidth(elem)) {
+      const uint32_t N = *ib;
+      const uint32_t W = (N <= 8) ? 8 : (N <= 16) ? 16 : (N <= 32) ? 32 : 64;
+      const std::string sty = "int" + std::to_string(W) + "_t";
+      auto intMaxN = [](uint32_t n) {
+        return (n == 64) ? std::string("9223372036854775807LL")
+                         : std::to_string((INT64_C(1) << (n - 1)) - 1) + "LL";
+      };
+      auto intMinN = [](uint32_t n) {
+        return (n == 64) ? std::string("(-9223372036854775807LL - 1)")
+                         : std::to_string(-(INT64_C(1) << (n - 1))) + "LL";
+      };
+      switch (kind) {
+        case IntrinsicKind::ReduceAdd: {
+          // A partial sum stays in [-2^(N-1), 2^(N-1)-1] between steps, so a
+          // wide accumulator (int64 for N<=63, __int128 for N==64) cannot
+          // overflow before the per-step range check fires.
+          const std::string acc = (N < 64) ? "long long" : "__int128";
+          const std::string minE = (N < 64) ? intMinN(N) : "(__int128)(-9223372036854775807LL - 1)";
+          const std::string maxE = (N < 64) ? intMaxN(N) : "(__int128)9223372036854775807LL";
+          out_ << "  " << acc << " acc = (" << acc << ")(" << lane(0) << ");\n";
+          for (uint32_t k = 1; k < M; ++k) {
+            out_ << "  acc += (" << acc << ")(" << lane(k) << ");";
+            guard(" if (acc < " + minE + " || acc > " + maxE + ") __builtin_trap();");
+            out_ << "\n";
+          }
+          out_ << "  return (" << retTy << ")acc;\n";
+          break;
+        }
+        case IntrinsicKind::ReduceMin:
+        case IntrinsicKind::ReduceMax: {
+          const char *cmp = (kind == IntrinsicKind::ReduceMin) ? "<" : ">";
+          out_ << "  " << sty << " acc = (" << sty << ")(" << lane(0) << ");\n";
+          for (uint32_t k = 1; k < M; ++k)
+            out_ << "  { " << sty << " x = (" << sty << ")(" << lane(k) << "); acc = (x " << cmp
+                 << " acc) ? x : acc; }\n";
+          out_ << "  return (" << retTy << ")acc;\n";
+          break;
+        }
+        case IntrinsicKind::ReduceAnd:
+        case IntrinsicKind::ReduceOr:
+        case IntrinsicKind::ReduceXor: {
+          const char *op = (kind == IntrinsicKind::ReduceAnd)  ? "&"
+                           : (kind == IntrinsicKind::ReduceOr) ? "|"
+                                                               : "^";
+          out_ << "  " << sty << " acc = (" << sty << ")(" << lane(0) << ");\n";
+          for (uint32_t k = 1; k < M; ++k)
+            out_ << "  acc " << op << "= (" << sty << ")(" << lane(k) << ");\n";
+          // Bitwise on sign-extended lanes stays sign-extended, so a plain
+          // cast to the storage type is a valid iN representation.
+          out_ << "  return (" << retTy << ")acc;\n";
+          break;
+        }
+        default:
+          throw std::runtime_error("C reduction: unexpected integer kind");
+      }
+    } else {
+      // Floating-point element (f32 / f64).
+      out_ << "  " << retTy << " acc = " << lane(0) << ";\n";
+      for (uint32_t k = 1; k < M; ++k) {
+        if (kind == IntrinsicKind::ReduceAdd) {
+          out_ << "  acc = acc + (" << lane(k) << ");";
+          guard(" if (!__builtin_isfinite(acc)) __builtin_trap();");
+          out_ << "\n";
+        } else {
+          // fmin / fmax fold with the IEEE minNum/maxNum signed-zero
+          // tie-break, identical to @fmin / @fmax.
+          const bool isMin = (kind == IntrinsicKind::ReduceMin);
+          const char *cmp = isMin ? "<" : ">";
+          const char *tie = isMin ? "acc : x" : "x : acc"; // signbit(acc) ? ...
+          out_ << "  { " << retTy << " x = " << lane(k) << "; acc = (acc " << cmp
+               << " x) ? acc : (x " << cmp << " acc) ? x : (__builtin_signbit(acc) ? " << tie
+               << "); }\n";
+        }
+      }
+      out_ << "  return acc;\n";
+    }
     out_ << "}\n\n";
   }
 

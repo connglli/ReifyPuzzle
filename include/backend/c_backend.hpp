@@ -139,6 +139,11 @@ namespace refractir {
 
     // [v0.2.2] Helpers for new top-level decls.
     void emitIntrinsicHelper(const IntrinsicDecl &intr);
+    // [v0.2.3 V1] Emit the helper for a horizontal vector reduction
+    // (@reduce_*): a `static inline` function taking the vector by the
+    // vec-lowering strategy's cross-boundary representation and folding its
+    // lanes to a scalar. Requires a boundary-crossing strategy.
+    void emitReductionHelper(const IntrinsicDecl &intr);
     void emitExtDecl(const ExtDecl &d);
     std::string intrinsicHelperName(const std::string &intrName, std::uint32_t bits) const;
     std::string intrinsicHelperName(const IntrinsicDecl &intr) const;
