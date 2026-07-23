@@ -714,6 +714,12 @@ fun @demo(%x: i32) : i32 {
 | `@recip` | `(fN) → fN` | result non-finite (`x = ±0.0` or overflow) | finite `fN` |
 | `@crc32_update` | `(i32, iN) → i32`, `N ∈ {8, 16, 24, 32, 40, 48, 56, 64}` | — | full `i32` |
 | `@check_chksum` | `(i32, i32) → i32` | `expected != actual` (abort in C, UB in symiri) | `= actual` on match |
+| `@reduce_add` | `(<N> T) → T`, `T ∈ iN, fN` | int: partial sum out of `iN` range; fp: non-finite intermediate; any `undef` lane | scalar `T` |
+| `@reduce_min` | `(<N> T) → T`, `T ∈ iN, fN` | any `undef` lane | scalar `T` |
+| `@reduce_max` | `(<N> T) → T`, `T ∈ iN, fN` | any `undef` lane | scalar `T` |
+| `@reduce_and` | `(<N> iN) → iN` | any `undef` lane | full `iN` |
+| `@reduce_or` | `(<N> iN) → iN` | any `undef` lane | full `iN` |
+| `@reduce_xor` | `(<N> iN) → iN` | any `undef` lane | full `iN` |
 
 ---
 
@@ -1276,6 +1282,137 @@ ever needs to reason about its post-state.
 
 ---
 
+## 12.8 Horizontal vector reductions (v0.2.3 V1)
+
+Reductions fold every lane of a vector `<N> T` into one scalar `T`.
+They are the only intrinsic family whose parameter is a vector rather
+than a scalar.
+
+```text
+intrinsic @reduce_add(%v: <N> T) : T;    // T ∈ iN, fN
+intrinsic @reduce_min(%v: <N> T) : T;    // T ∈ iN, fN
+intrinsic @reduce_max(%v: <N> T) : T;    // T ∈ iN, fN
+intrinsic @reduce_and(%v: <N> T) : T;    // T ∈ iN only
+intrinsic @reduce_or (%v: <N> T) : T;    // T ∈ iN only
+intrinsic @reduce_xor(%v: <N> T) : T;    // T ∈ iN only
+```
+
+**Declaration well-formedness**
+(`src/frontend/semchecker.cpp::checkIntrinsicDecl`): the sole parameter
+must be a vector `<N> T`; the return type must be exactly the element
+type `T`; and `T` must be in the intrinsic's family — any `iN` or `fN`
+for `@reduce_add`/`@reduce_min`/`@reduce_max`, integer-only for the
+bitwise `@reduce_and`/`@reduce_or`/`@reduce_xor`. The typechecker
+(`src/frontend/typechecker.cpp`) admits the vector parameter (its coarse
+"iN/fN only" gate is relaxed to "iN, fN, or a vector of these") and
+disambiguates overloads by the argument's *exact* vector type, so
+`@reduce_add(<4> i32)` and `@reduce_add(<8> i32)` coexist as distinct
+declarations. `@reduce_mul` is **not** provided: an `N−1`-deep chain of
+symbolic `bvmul` / `fp.mul` is nonlinear and solver-hostile (spec §12.4,
+§13).
+
+**The fold** is the normative left-to-right order
+`((v[0] ⊕ v[1]) ⊕ v[2]) ⊕ …`. It reads every lane, so an `undef` lane is
+UB (rule 22 — the solver conjoins each lane's definedness, the
+interpreter raises on the first undef lane). Each step is an ordinary
+scalar operation carrying the ordinary scalar UB. Solver impls live in
+`src/solver/intrinsics.cpp` (`ReduceIntSolverIntrinsic` /
+`ReduceFpSolverIntrinsic`), the interpreter in
+`src/interp/intrinsics.cpp` (`ReduceIntrinsic`); the fp/int split is
+routed by the scalar return type, so add/min/max register in both the
+integer and floating-point solver dispatch.
+
+### `@reduce_add` — sequential lane sum
+
+Folds lanes with `+`. Order-**dependent**: intermediate overflow (int)
+and FP non-associativity are observable, so no reassociation.
+
+**UB conditions**:
+- Integer: any partial sum outside the signed `iN` range (rule 4).
+- Float: a `±∞` or NaN intermediate (rules 6–7).
+
+**SMT encoding**: `acc = v[0]`; then per lane `k`, integer
+`acc = bvadd(acc, v[k])` with a per-step `not bvsaddo(acc, v[k])` UB
+guard; float `acc = fp.add(RNE, acc, v[k])` with a per-step
+`not (fp.isInfinite ∨ fp.isNaN)` guard (same encoding as the scalar `+`
+operator).
+**Interpreter**: int fold in `__int128` with a `[INT_MIN_N, INT_MAX_N]`
+range check per step; float fold via `checkFPResult` (narrow to `fN`,
+reject non-finite) per step.
+
+### `@reduce_min`, `@reduce_max` — horizontal minimum / maximum
+
+Fold lanes keeping the smaller / larger. **Order-independent**, so a
+backend may use a pairwise or hardware reduction. No UB (finite-domain FP
+makes min/max total). Signed integers use signed comparison. Floating
+point uses the IEEE 754 minNum / maxNum signed-zero tie-break, identical
+to `@fmin` / `@fmax` (§12.6 D.3): `@reduce_min` yields `-0.0` when any
+lane is `-0.0`, `@reduce_max` yields `+0.0` when any lane is `+0.0`,
+regardless of lane order (a strict-comparison fold would make `±0.0`
+order-observable).
+
+**SMT encoding**:
+- Integer: `acc = ite(bvslt(v[k], acc), v[k], acc)` for min, `bvsgt` for
+  max.
+- Float: the three-level `@fmin` / `@fmax` signed-zero `ite` per step
+  (`fpMinFold` / `fpMaxFold`, sharing `FminSolverIntrinsic` /
+  `FmaxSolverIntrinsic`'s tie-break).
+
+**Interpreter**: int `acc = v[k] < acc ? v[k] : acc` (resp. `>`); float
+uses the `signbit`-based `@fmin` / `@fmax` tie-break.
+
+### `@reduce_and`, `@reduce_or`, `@reduce_xor` — bitwise fold
+
+Fold lanes with `&` / `|` / `^`. Integer element type only.
+Order-independent; no UB.
+
+**SMT encoding**: `acc = bvand / bvor / bvxor (acc, v[k])`.
+**Interpreter**: `acc &= v[k]` / `|=` / `^=` on the sign-extended lane
+values, re-masked to `iN` by `makeInt`.
+
+### Backend lowering — **[Planned, V1]**
+
+No compiled target lowers `@reduce_*` yet. All three backends
+(`src/backend/{c,wasm,py}_intrinsics.cpp::emitIntrinsicHelper`) reject a
+reduction with a clear diagnostic — `"<target> target: horizontal vector
+reductions (@reduce_*) are not yet lowered (v0.2.3 V1 backend support is
+planned)"` — so `symirc` fails loudly rather than emitting a trapping
+stub. The planned lowering (spec §11.7) unrolls the sequential fold as a
+helper function over the vector parameter (reusing the `fun`
+vector-parameter ABI and the per-strategy lane storage), with the
+order-insensitive members eligible for pairwise / hardware reductions.
+
+### Example
+
+```text
+intrinsic @reduce_add(%v: <4> i32) : i32;
+
+fun @main() : i32 {
+  let %v: <4> i32 = {1, 2, 3, 4};
+  let mut %r: i32 = 0;
+^entry:
+  %r = call @reduce_add(%v);   // %r == 10
+  ret %r;
+}
+```
+
+**Synthesis example** — pick per-lane values in `[0,10]` summing to 25:
+
+```text
+intrinsic @reduce_add(%v: <4> i32) : i32;
+
+fun @main() : i32 {
+  sym %?v: value <4> i32 in [0, 10];
+  let mut %t: <4> i32 = 0;
+^entry:
+  %t = %?v;
+  require call @reduce_add(%t) == 25, "lanes sum to 25";
+  ret 0;
+}
+```
+
+---
+
 ### P1 — solver-easy, composed WASM lowerings (planned)
 
 Solver and C lowerings remain trivial. This tier was originally
@@ -1307,11 +1444,9 @@ gates each member now:
   quotient can exceed integer precision. Keep deferred until there is
   concrete demand.
 
-Vector reductions (`@reduce_add`, `@reduce_max`, …) also land here in
-spirit. The v0.2.3 SIMD work shipped their storage side (the native
-v128 vec-lowering); what remains is the intrinsic surface itself —
-lane-fold solver encodings and per-backend reduction helpers — see
-spec §13.
+Vector reductions (`@reduce_*`, spec §12.4) also land here in spirit:
+the solver and interpreter lowerings are done, the per-backend
+reduction helpers remain. Full per-intrinsic detail is in §12.8.
 
 ### P2 — solver-feasible-but-expensive (planned, behind a flag)
 

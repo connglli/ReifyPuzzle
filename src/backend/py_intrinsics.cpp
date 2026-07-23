@@ -373,6 +373,19 @@ def _in_check_chksum(expected, actual):
         _trap("@check_chksum mismatch")
     return actual
 )PY";
+        // [v0.2.3 V1] Horizontal vector reductions (§12.4) are not yet
+        // lowered on any compiled target — interpreter and solver implement
+        // them, backend support is planned.
+        case IntrinsicKind::ReduceAdd:
+        case IntrinsicKind::ReduceMin:
+        case IntrinsicKind::ReduceMax:
+        case IntrinsicKind::ReduceAnd:
+        case IntrinsicKind::ReduceOr:
+        case IntrinsicKind::ReduceXor:
+          throw std::runtime_error(
+              "python target: horizontal vector reductions (@reduce_*) are not yet "
+              "lowered (v0.2.3 V1 backend support is planned)"
+          );
       }
       return "";
     }
@@ -531,6 +544,17 @@ def _in_check_chksum(expected, actual):
         return "_in_crc32_update(" + join({paramN(1)}) + ")";
       case IntrinsicKind::CheckChksum:
         return "_in_check_chksum(" + join({}) + ")";
+      // [v0.2.3 V1] Reductions are not yet lowered on any compiled target.
+      case IntrinsicKind::ReduceAdd:
+      case IntrinsicKind::ReduceMin:
+      case IntrinsicKind::ReduceMax:
+      case IntrinsicKind::ReduceAnd:
+      case IntrinsicKind::ReduceOr:
+      case IntrinsicKind::ReduceXor:
+        throw std::runtime_error(
+            "python target: horizontal vector reductions (@reduce_*) are not yet "
+            "lowered (v0.2.3 V1 backend support is planned)"
+        );
     }
     return "";
   }

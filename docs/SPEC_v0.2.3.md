@@ -1186,6 +1186,8 @@ intrinsic @reduce_xor(%v: <N> T) : T;    // T ∈ iN only
 - `@reduce_add` over `fN`: each step rounds RNE; a ±∞ or NaN intermediate is UB (rules 6–7). FP addition is not associative, so the fold order is observable here too.
 - `@reduce_min` / `@reduce_max` / bitwise reductions: no additional UB (finite-domain FP makes min/max total).
 
+For floating-point `@reduce_min` / `@reduce_max`, equal-magnitude signed zeros are resolved with the IEEE 754 minNum / maxNum tie-break — identical to `@fmin` / `@fmax` (§12.6): a `-0.0` lane forces a `-0.0` minimum, a `+0.0` lane forces a `+0.0` maximum. This keeps the min/max result **independent of fold order** (a strict-comparison fold would make `±0.0` order-observable), which is what lets a backend use a pairwise or hardware reduction for these members. `@reduce_add` remains order-**dependent** (int overflow and FP non-associativity are observable), so its fold order is fixed left-to-right.
+
 **SMT encoding**: the unrolled `N−1`-step fold over the vector's lane terms (`bvadd`/`fp.add`/`ite`-min-max/`bvand`/`bvor`/`bvxor`), with the per-step UB side-conditions of §7 conjoined to `PC`. Linear in `N`, no fresh symbols, no quantifiers.
 
 **Interpreter**: direct sequential fold with per-step UB checks.

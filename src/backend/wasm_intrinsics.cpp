@@ -34,6 +34,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include "analysis/intrinsics.hpp"
@@ -2434,6 +2435,14 @@ namespace refractir {
   }
 
   void WasmBackend::emitIntrinsicHelper(const IntrinsicDecl &intr) {
+    // [v0.2.3 V1] Horizontal vector reductions (§12.4) are not yet lowered
+    // on any compiled target — interpreter and solver implement them,
+    // backend support is planned. Reject with a clear diagnostic.
+    if (auto k = getIntrinsicKind(intr.name.name); k && isReductionIntrinsic(*k))
+      throw std::runtime_error(
+          "WASM target: horizontal vector reductions (@reduce_*) are not yet lowered "
+          "(v0.2.3 V1 backend support is planned)"
+      );
     // FP-touching path (v0.2.2 extra D.1).
     bool anyFp = (intr.retType && std::holds_alternative<FloatType>(intr.retType->v));
     for (const auto &p: intr.params)

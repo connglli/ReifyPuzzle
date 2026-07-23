@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include "analysis/intrinsics.hpp"
@@ -1146,6 +1147,15 @@ namespace refractir {
   }
 
   void CBackend::emitIntrinsicHelper(const IntrinsicDecl &intr) {
+    // [v0.2.3 V1] Horizontal vector reductions (§12.4) have a vector
+    // parameter and are not yet lowered on any compiled target — the
+    // interpreter and solver implement them, backend support is planned.
+    // Reject with a clear diagnostic rather than emitting a trapping stub.
+    if (auto k = getIntrinsicKind(intr.name.name); k && isReductionIntrinsic(*k))
+      throw std::runtime_error(
+          "C target: horizontal vector reductions (@reduce_*) are not yet lowered "
+          "(v0.2.3 V1 backend support is planned)"
+      );
     // Detect FP-touching intrinsics: dispatched to the FP registry instead
     // of the legacy integer-only one. Helper-signature param types follow
     // the declared RefractIR types directly (no widening for FP).
