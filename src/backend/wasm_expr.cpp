@@ -25,7 +25,7 @@ namespace refractir {
 
   void WasmBackend::emitAtom(const Atom &atom, std::uint32_t targetWidth, bool isFloat) {
     std::visit(
-        [this, targetWidth, isFloat](auto &&arg) {
+        [this, targetWidth, isFloat, &atom](auto &&arg) {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, CoefAtom>) {
             emitCoef(arg.coef, targetWidth, isFloat);
@@ -41,6 +41,20 @@ namespace refractir {
             emitPtrIndexAtom(arg);
           } else if constexpr (std::is_same_v<T, CallAtom>) {
             emitCallAtom(arg);
+            // Promote an f32 call result to f64 when the surrounding
+            // context expects f64 (e.g. a comparison whose other operand —
+            // a float literal or an f64 value — forced 64-bit width). This
+            // mirrors emitRValueAtom's promotion for f32 locals; without it
+            // a `require call @f32_returning(...) == <lit>` leaves an f32 on
+            // the stack against an f64 comparand and fails WASM validation.
+            if (isFloat && targetWidth == 64) {
+              TypePtr rt = getAtomType(atom);
+              if (rt && std::holds_alternative<FloatType>(rt->v) &&
+                  std::get<FloatType>(rt->v).kind == FloatType::Kind::F32) {
+                indent();
+                out_ << "f64.promote_f32\n";
+              }
+            }
           } else if constexpr (std::is_same_v<T, PtrFieldAtom>) {
             emitPtrFieldAtom(arg);
           } else if constexpr (std::is_same_v<T, UnaryAtom>) {
