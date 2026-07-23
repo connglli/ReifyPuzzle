@@ -205,356 +205,132 @@ namespace refractir {
       return;
     }
 
-    auto retBits = TypeUtils::getIntBitWidth(d.retType);
-    auto paramBits = [&](size_t i) -> std::optional<std::uint32_t> {
-      if (i >= d.params.size())
-        return std::nullopt;
-      return TypeUtils::getIntBitWidth(d.params[i].type);
-    };
-    auto expectArity = [&](size_t expected) {
-      if (d.params.size() != expected) {
-        diags.error(
-            "Intrinsic " + d.name.name + " expects " + std::to_string(expected) +
-                " parameter(s), got " + std::to_string(d.params.size()),
-            d.span
-        );
-      }
-    };
-    auto expectAllInt = [&]() {
-      for (size_t i = 0; i < d.params.size(); ++i) {
-        if (!paramBits(i))
-          diags.error(
-              "Intrinsic " + d.name.name + ": parameter " + std::to_string(i) +
-                  " must be an integer type",
-              d.params[i].span
-          );
-      }
-      if (!retBits)
-        diags.error("Intrinsic " + d.name.name + ": return type must be an integer type", d.span);
-    };
-    auto expectAllSameInt = [&]() {
-      expectAllInt();
-      if (!retBits)
-        return;
-      for (size_t i = 0; i < d.params.size(); ++i) {
-        auto pb = paramBits(i);
-        if (pb && *pb != *retBits) {
-          diags.error(
-              "Intrinsic " + d.name.name + ": parameter " + std::to_string(i) + " width (i" +
-                  std::to_string(*pb) + ") must equal return width (i" + std::to_string(*retBits) +
-                  ")",
-              d.params[i].span
-          );
-        }
-      }
-    };
-    auto expectI1Return = [&]() {
-      if (!retBits || *retBits != 1) {
-        diags.error(
-            "Intrinsic " + d.name.name + ": return type must be i1 (predicate intrinsic)", d.span
-        );
-      }
-    };
+    // Validate the declaration against the intrinsic's canonical signature
+    // (analysis/intrinsics.hpp). A signature is expressed over one type
+    // parameter T: we infer T from the declaration, check its class against
+    // the signature's domain, then verify each parameter and the return
+    // against their slot forms. Diagnostics are intentionally generic — the
+    // contract is simply "the declaration matches the canonical signature".
+    const IntrinsicInfo &info = intrinsicInfo(*kind);
 
-    // ── v0.2.2 extra D.1 helpers ────────────────────────────────────────
-    // Recognise a floating-point type and return its width in bits (32 or 64).
+    if (d.params.size() != info.params.size()) {
+      diags.error(
+          "Intrinsic " + d.name.name + " expects " + std::to_string(info.params.size()) +
+              " parameter(s), got " + std::to_string(d.params.size()),
+          d.span
+      );
+      return;
+    }
+
+    // FP width (32/64) of a type, or nullopt if it is not floating-point.
     auto fpBits = [](const TypePtr &t) -> std::optional<std::uint32_t> {
-      if (!t)
-        return std::nullopt;
-      if (auto fp = std::get_if<FloatType>(&t->v)) {
-        return fp->kind == FloatType::Kind::F32 ? 32u : 64u;
-      }
+      if (t)
+        if (auto fp = std::get_if<FloatType>(&t->v))
+          return fp->kind == FloatType::Kind::F32 ? 32u : 64u;
       return std::nullopt;
     };
-    auto paramFp = [&](size_t i) -> std::optional<std::uint32_t> {
-      if (i >= d.params.size())
-        return std::nullopt;
-      return fpBits(d.params[i].type);
-    };
-    auto retFp = fpBits(d.retType);
-    // All parameters and the return are the same FP type. Used by @fabs,
-    // @fneg, @copysign.
-    auto expectAllSameFp = [&]() {
-      if (!retFp) {
-        diags.error(
-            "Intrinsic " + d.name.name + ": return type must be a floating-point type", d.span
-        );
-        return;
-      }
-      for (size_t i = 0; i < d.params.size(); ++i) {
-        auto pb = paramFp(i);
-        if (!pb) {
-          diags.error(
-              "Intrinsic " + d.name.name + ": parameter " + std::to_string(i) +
-                  " must be a floating-point type",
-              d.params[i].span
-          );
-        } else if (*pb != *retFp) {
-          diags.error(
-              "Intrinsic " + d.name.name + ": parameter " + std::to_string(i) + " width (f" +
-                  std::to_string(*pb) + ") must equal return width (f" + std::to_string(*retFp) +
-                  ")",
-              d.params[i].span
-          );
-        }
-      }
-    };
-    // Single FP parameter, i1 return. Used by @signbit.
-    auto expectFpToPredicate = [&]() {
-      if (!paramFp(0)) {
-        diags.error(
-            "Intrinsic " + d.name.name + ": parameter 0 must be a floating-point type",
-            d.params.empty() ? d.span : d.params[0].span
-        );
-      }
-      expectI1Return();
-    };
-    // Single FP parameter, integer return whose width equals the FP width
-    // (f32→i32, f64→i64). Used by @to_bits.
-    auto expectFpToBitsWidthMatch = [&]() {
-      auto pb = paramFp(0);
-      if (!pb) {
-        diags.error(
-            "Intrinsic " + d.name.name + ": parameter 0 must be a floating-point type",
-            d.params.empty() ? d.span : d.params[0].span
-        );
-        return;
-      }
-      if (!retBits) {
-        diags.error("Intrinsic " + d.name.name + ": return type must be an integer type", d.span);
-        return;
-      }
-      if (*retBits != *pb) {
-        diags.error(
-            "Intrinsic " + d.name.name + ": return width (i" + std::to_string(*retBits) +
-                ") must equal parameter width (f" + std::to_string(*pb) + ")",
-            d.span
-        );
-      }
-    };
-    // Single integer parameter, FP return whose width equals the integer
-    // width (i32→f32, i64→f64). Used by @from_bits.
-    auto expectFromBitsWidthMatch = [&]() {
-      auto pb = paramBits(0);
-      if (!pb) {
-        diags.error(
-            "Intrinsic " + d.name.name + ": parameter 0 must be an integer type",
-            d.params.empty() ? d.span : d.params[0].span
-        );
-        return;
-      }
-      if (!retFp) {
-        diags.error(
-            "Intrinsic " + d.name.name + ": return type must be a floating-point type", d.span
-        );
-        return;
-      }
-      if (*retFp != *pb) {
-        diags.error(
-            "Intrinsic " + d.name.name + ": return width (f" + std::to_string(*retFp) +
-                ") must equal parameter width (i" + std::to_string(*pb) + ")",
-            d.span
-        );
-      }
-      if (*pb != 32 && *pb != 64) {
-        diags.error(
-            "Intrinsic " + d.name.name + ": parameter width i" + std::to_string(*pb) +
-                " has no matching FP type — must be i32 or i64",
-            d.params[0].span
-        );
-      }
+    auto vecElem = [](const TypePtr &t) -> TypePtr {
+      if (t)
+        if (auto vt = std::get_if<VecType>(&t->v))
+          return vt->elem;
+      return nullptr;
     };
 
-    switch (*kind) {
-      case IntrinsicKind::Abs:
-      case IntrinsicKind::Signum:
-      case IntrinsicKind::Popcount:
-      case IntrinsicKind::Clz:
-      case IntrinsicKind::Ctz:
-      case IntrinsicKind::Bitreverse:
-      case IntrinsicKind::Ilog2:
-        expectArity(1);
-        expectAllSameInt();
-        break;
-      case IntrinsicKind::Bswap:
-        expectArity(1);
-        expectAllSameInt();
-        if (retBits && (*retBits % 8) != 0) {
-          diags.error(
-              "Intrinsic @bswap requires a return type whose width is a multiple of 8, got i" +
-                  std::to_string(*retBits),
-              d.span
-          );
-        }
-        break;
-      case IntrinsicKind::Min:
-      case IntrinsicKind::Max:
-      case IntrinsicKind::AbsDiff:
-      case IntrinsicKind::Midpoint:
-      case IntrinsicKind::Rotl:
-      case IntrinsicKind::Rotr:
-        expectArity(2);
-        expectAllSameInt();
-        break;
-      case IntrinsicKind::Clamp:
-        expectArity(3);
-        expectAllSameInt();
-        break;
-      case IntrinsicKind::Parity:
-      case IntrinsicKind::IsPow2:
-        expectArity(1);
-        if (!paramBits(0))
-          diags.error(
-              "Intrinsic " + d.name.name + ": parameter 0 must be an integer type",
-              d.params.empty() ? d.span : d.params[0].span
-          );
-        expectI1Return();
-        break;
-      // [v0.2.2 extra batch C] Overflow-aware family — every member is
-      // declared at one common iN width across all parameters and the
-      // return.
-      case IntrinsicKind::WrappingNeg:
-      case IntrinsicKind::SaturatingNeg:
-        expectArity(1);
-        expectAllSameInt();
-        break;
-      case IntrinsicKind::WrappingAdd:
-      case IntrinsicKind::WrappingSub:
-      case IntrinsicKind::WrappingMul:
-      case IntrinsicKind::WrappingShl:
-      case IntrinsicKind::WrappingShr:
-      case IntrinsicKind::SaturatingAdd:
-      case IntrinsicKind::SaturatingSub:
-      case IntrinsicKind::SaturatingMul:
-      case IntrinsicKind::DivEuclid:
-      case IntrinsicKind::RemEuclid:
-        expectArity(2);
-        expectAllSameInt();
-        break;
-      // [v0.2.2 extra batch D.1] FP sign / bit ops (§12.6).
-      case IntrinsicKind::Fabs:
-      case IntrinsicKind::Fneg:
-      // [v0.2.2 extra batch D.4] Correctly-rounded math (§12.6) — every
-      // member is unary fN → fN of matching width, same shape as @fabs.
-      case IntrinsicKind::Sqrt:
-      case IntrinsicKind::Floor:
-      case IntrinsicKind::Ceil:
-      case IntrinsicKind::Trunc:
-      // [v0.2.2 extra batch D.5] Compositions (§12.6) — @fract = x - trunc(x),
-      // @recip = 1/x; both unary fN → fN.
-      case IntrinsicKind::Fract:
-      case IntrinsicKind::Recip:
-        expectArity(1);
-        expectAllSameFp();
-        break;
-      case IntrinsicKind::Copysign:
-      // [v0.2.2 extra batch D.3] @fmin / @fmax — same shape as @copysign
-      // (two fN parameters of matching width, fN return of the same width).
-      case IntrinsicKind::Fmin:
-      case IntrinsicKind::Fmax:
-        expectArity(2);
-        expectAllSameFp();
-        break;
-      case IntrinsicKind::Signbit:
-      // [v0.2.2 extra batch D.2] FP classification predicates (§12.6) —
-      // same shape as @signbit (fN parameter, i1 return).
-      case IntrinsicKind::IsNormal:
-      case IntrinsicKind::IsSubnormal:
-        expectArity(1);
-        expectFpToPredicate();
-        break;
-      case IntrinsicKind::ToBits:
-        expectArity(1);
-        expectFpToBitsWidthMatch();
-        break;
-      case IntrinsicKind::FromBits:
-        expectArity(1);
-        expectFromBitsWidthMatch();
-        break;
-      // Checksum primitives (§12 — see include/analysis/intrinsics.hpp).
-      // Their fixed-width signatures don't fit the generic same-width
-      // shape, so each gets its own check arm.
-      case IntrinsicKind::Crc32Update: {
-        // @crc32_update(state: i32, val: iN) : i32
-        expectArity(2);
-        if (!retBits || *retBits != 32)
-          diags.error("Intrinsic @crc32_update: return type must be i32", d.span);
-        auto p0 = paramBits(0);
-        if (!p0 || *p0 != 32)
-          diags.error(
-              "Intrinsic @crc32_update: parameter 0 (state) must be i32",
-              d.params.empty() ? d.span : d.params[0].span
-          );
-        if (!paramBits(1))
-          diags.error(
-              "Intrinsic @crc32_update: parameter 1 (val) must be an integer type",
-              d.params.size() < 2 ? d.span : d.params[1].span
-          );
-        break;
-      }
-      case IntrinsicKind::CheckChksum: {
-        // @check_chksum(expected: i32, actual: i32) : i32 — returns `actual`
-        // on equality, asserts on mismatch (with an fprintf diagnostic).
-        expectArity(2);
-        if (!retBits || *retBits != 32)
-          diags.error("Intrinsic @check_chksum: return type must be i32", d.span);
-        for (size_t i = 0; i < 2 && i < d.params.size(); ++i) {
-          auto pb = paramBits(i);
-          if (!pb || *pb != 32)
+    // Infer the type parameter T from the first slot that carries it — a `T`
+    // slot's declared type, or a `VecOfT` slot's element. Scan parameters
+    // then the return. Signatures with no such slot (e.g. @check_chksum)
+    // leave T null; their slots are all concrete and need no T.
+    TypePtr T;
+    auto inferT = [&](IntrinsicSigType form, const TypePtr &dt) {
+      if (T)
+        return;
+      if (form == IntrinsicSigType::T)
+        T = dt;
+      else if (form == IntrinsicSigType::VecOfT)
+        T = vecElem(dt);
+    };
+    for (std::size_t i = 0; i < info.params.size(); ++i)
+      inferT(info.params[i], d.params[i].type);
+    inferT(info.ret, d.retType);
+
+    const bool tIsInt = T && TypeUtils::getIntBitWidth(T).has_value();
+    const bool tIsFp = T && fpBits(T).has_value();
+    auto tWidth = [&]() -> std::optional<std::uint32_t> {
+      if (tIsInt)
+        return TypeUtils::getIntBitWidth(T);
+      if (tIsFp)
+        return fpBits(T);
+      return std::nullopt;
+    };
+
+    // The type parameter's class must lie within the signature's domain.
+    if (T) {
+      bool classOk = (info.domain == IntrinsicDomain::Int && tIsInt) ||
+                     (info.domain == IntrinsicDomain::Fp && tIsFp) ||
+                     (info.domain == IntrinsicDomain::IntOrFp && (tIsInt || tIsFp));
+      if (!classOk)
+        diags.error(
+            "Intrinsic " + d.name.name + ": element type does not match the intrinsic's domain",
+            d.span
+        );
+    }
+
+    // Verify one slot's declared type against its form.
+    auto checkSlot = [&](IntrinsicSigType form, const TypePtr &dt, const SourceSpan &span,
+                         const std::string &what) {
+      switch (form) {
+        case IntrinsicSigType::T:
+          if (!T || !TypeUtils::areTypesEqual(dt, T))
             diags.error(
-                "Intrinsic @check_chksum: parameter " + std::to_string(i) + " must be i32",
-                d.params[i].span
+                "Intrinsic " + d.name.name + ": " + what + " must be the element type T", span
             );
-        }
-        break;
-      }
-      // [v0.2.3 V1] Horizontal vector reductions (§12.4). The sole
-      // parameter is a vector `<N> T`; the result is the scalar element
-      // type `T`. @reduce_add / @reduce_min / @reduce_max fold integer or
-      // FP lanes; the bitwise @reduce_and / @reduce_or / @reduce_xor are
-      // integer-only.
-      case IntrinsicKind::ReduceAdd:
-      case IntrinsicKind::ReduceMin:
-      case IntrinsicKind::ReduceMax:
-      case IntrinsicKind::ReduceAnd:
-      case IntrinsicKind::ReduceOr:
-      case IntrinsicKind::ReduceXor: {
-        expectArity(1);
-        const VecType *vt = d.params.empty() ? nullptr : std::get_if<VecType>(&d.params[0].type->v);
-        if (!vt) {
-          diags.error(
-              "Intrinsic " + d.name.name + ": parameter 0 must be a vector type `<N> T`",
-              d.params.empty() ? d.span : d.params[0].span
-          );
+          break;
+        case IntrinsicSigType::VecOfT: {
+          TypePtr e = vecElem(dt);
+          if (!e || !T || !TypeUtils::areTypesEqual(e, T))
+            diags.error(
+                "Intrinsic " + d.name.name + ": " + what + " must be a vector `<N> T`", span
+            );
           break;
         }
-        const TypePtr &elem = vt->elem;
-        bool elemIsInt = TypeUtils::getIntBitWidth(elem).has_value();
-        bool elemIsFp = fpBits(elem).has_value();
-        if (reductionAllowsFloat(*kind)) {
-          if (!elemIsInt && !elemIsFp)
-            diags.error(
-                "Intrinsic " + d.name.name +
-                    ": vector element type must be an integer or floating-point type",
-                d.params[0].span
-            );
-        } else if (!elemIsInt) {
-          diags.error(
-              "Intrinsic " + d.name.name +
-                  ": bitwise reduction requires an integer vector element type",
-              d.params[0].span
-          );
+        case IntrinsicSigType::I1: {
+          auto ib = TypeUtils::getIntBitWidth(dt);
+          if (!ib || *ib != 1)
+            diags.error("Intrinsic " + d.name.name + ": " + what + " must be i1", span);
+          break;
         }
-        // The result of the fold is one lane, so the return type must be
-        // exactly the vector's element type.
-        if (!TypeUtils::areTypesEqual(d.retType, elem))
-          diags.error(
-              "Intrinsic " + d.name.name + ": return type must equal the vector element type `T`",
-              d.span
-          );
-        break;
+        case IntrinsicSigType::IntWidthOfT: {
+          auto ib = TypeUtils::getIntBitWidth(dt);
+          auto tw = tWidth();
+          if (!ib || !tw || *ib != *tw)
+            diags.error(
+                "Intrinsic " + d.name.name + ": " + what + " must be the iN of the same width as T",
+                span
+            );
+          break;
+        }
+        case IntrinsicSigType::I32: {
+          auto ib = TypeUtils::getIntBitWidth(dt);
+          if (!ib || *ib != 32)
+            diags.error("Intrinsic " + d.name.name + ": " + what + " must be i32", span);
+          break;
+        }
       }
-    }
+    };
+    checkSlot(info.ret, d.retType, d.span, "return type");
+    for (std::size_t i = 0; i < info.params.size(); ++i)
+      checkSlot(
+          info.params[i], d.params[i].type, d.params[i].span, "parameter " + std::to_string(i)
+      );
+
+    // @bswap: the byte-swapped width must be a whole number of bytes.
+    if (info.widthMultipleOf8)
+      if (auto tw = tWidth(); tw && (*tw % 8) != 0)
+        diags.error(
+            "Intrinsic " + d.name.name + " requires a width that is a multiple of 8, got i" +
+                std::to_string(*tw),
+            d.span
+        );
   }
 
 } // namespace refractir

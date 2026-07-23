@@ -449,9 +449,9 @@ namespace refractir::reify {
                 : intBitWidth(targetType);
 
     // One candidate = one callable intrinsic. `reduceVec` is null for a
-    // scalar intrinsic and the `<N> T` operand var for a reduction.
+    // scalar intrinsic and the `<N> T` operand var for a reduction. Every
+    // property comes from the canonical signature table.
     struct Candidate {
-      const char *name;
       IntrinsicKind kind;
       int paramCount;            // scalar arg count (unused for reductions)
       const VarEntry *reduceVec; // non-null ⇒ reduction over this vector var
@@ -459,26 +459,27 @@ namespace refractir::reify {
 
     std::vector<Candidate> cands;
 
-    // One pass over the whitelist. An intrinsic is a candidate when its
-    // element domain fits the target (FP targets need `allowsFloat`) and,
-    // for reductions, when a `<N> targetType` vector operand is in scope —
-    // one candidate per available operand.
+    // One pass over the generatable set. An intrinsic is a candidate when
+    // its element domain fits the target (FP targets need a float-admitting
+    // intrinsic) and, for reductions, when a `<N> targetType` vector operand
+    // is in scope — one candidate per available operand.
     auto vecs = excluding(vars.vecsWithElem(targetType), excludeName);
-    for (const auto &wi: getIntrinsicWhitelist()) {
+    for (IntrinsicKind kind: getGeneratableIntrinsics()) {
       // Skip i1-returning intrinsics — i1 is not a common target type.
-      if (wi.returnsI1)
+      if (intrinsicReturnsI1(kind))
         continue;
-      if (isFloat && !wi.allowsFloat)
+      if (isFloat && !intrinsicAllowsFloat(kind))
         continue;
-      if (wi.vectorParam) {
+      int arity = (int) intrinsicArity(kind);
+      if (isReductionIntrinsic(kind)) {
         for (auto *vv: vecs)
-          cands.push_back({wi.name, wi.kind, wi.paramCount, vv});
+          cands.push_back({kind, arity, vv});
       } else {
         // [P7] @bswap is width-restricted: the semchecker rejects widths
         // that are not a multiple of 8.
-        if (wi.kind == IntrinsicKind::Bswap && elemBits % 8 != 0)
+        if (intrinsicInfo(kind).widthMultipleOf8 && elemBits % 8 != 0)
           continue;
-        cands.push_back({wi.name, wi.kind, wi.paramCount, nullptr});
+        cands.push_back({kind, arity, nullptr});
       }
     }
 
@@ -488,7 +489,7 @@ namespace refractir::reify {
     const auto &c = cands[std::uniform_int_distribution<int>(0, (int) cands.size() - 1)(rng)];
 
     CallAtom ca;
-    ca.callee = GlobalId{std::string(c.name), {}};
+    ca.callee = GlobalId{std::string(intrinsicName(c.kind)), {}};
     if (c.reduceVec) {
       const TypePtr vecTy = c.reduceVec->type;
       ca.args.push_back(
