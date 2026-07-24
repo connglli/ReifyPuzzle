@@ -1,0 +1,24 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^b,^h' --require-nonterm
+
+// Two-block cycle whose body is a bitwise involution: %x is XORed by %?k at
+// ^h and again at ^b, so it returns to its entry value for any %?k (mid-lap
+// it holds 21 ^ %?k, distinct since %?k != 0). The loop-continue guard
+// br %x > %y compares two variables on the recurrent state (21 > 8).
+fun @main() : i32 {
+  sym %?k : value i32;
+  let mut %x : i32 = 21;
+  let mut %y : i32 = 8;
+^entry:
+  require %?k != 0, "nonzero so the mid-lap value at ^b differs";
+  br ^h;
+^h:
+  %x = %?k ^ %x;
+  br ^b;
+^b:
+  %x = %?k ^ %x;
+  br %x > %y, ^h, ^exit;
+^exit:
+  ret %x;
+}

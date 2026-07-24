@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h' --require-nonterm
+
+// Signed variable-variable condition with negative operands: br %v > %w is
+// the signed comparison -5 > -100. %v recurs via an AND fixed point (%?m
+// must cover every set bit of -5 = 0xFFFFFFFB); %w is loop-invariant.
+fun @main() : i32 {
+  sym %?m : value i32;
+  let mut %v : i32 = -5;
+  let mut %w : i32 = -100;
+^entry:
+  br ^h;
+^h:
+  %v = %?m & %v;
+  br %v > %w, ^h, ^exit;
+^exit:
+  ret %v;
+}

@@ -1,0 +1,24 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h' --require-nonterm
+
+// The loop condition is an arithmetic expression over three variables:
+// br %a + %b < %c. %a and %b recur via OR/AND fixed points; %c is loop-
+// invariant. The sum %a + %b (= 3 + 4) must stay below %c (= 100) on the
+// recurrent state, and the add itself must be overflow-free.
+fun @main() : i32 {
+  sym %?p : value i32;
+  sym %?q : value i32;
+  let mut %a : i32 = 3;
+  let mut %b : i32 = 4;
+  let mut %c : i32 = 100;
+^entry:
+  br ^h;
+^h:
+  %a = %?p | %a;
+  %b = %?q & %b;
+  br %a + %b < %c, ^h, ^exit;
+^exit:
+  %a = %a + %b;
+  ret %a;
+}

@@ -1,0 +1,18 @@
+// EXPECT: FAIL
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h' --require-nonterm
+
+// A strictly-incrementing loop has NO recurrent header state: the fixed
+// point %v + 1 == %v is unsatisfiable, so RequireNonterm correctly
+// reports UNSAT. The loop makes progress (and would eventually overflow
+// or exit), so it must not be certified as diverging in place.
+fun @main() : i32 {
+  sym %?g : value i32;
+  let mut %v : i32 = 0;
+^entry:
+  br ^h;
+^h:
+  %v = %v + 1;
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %v;
+}

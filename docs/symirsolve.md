@@ -94,11 +94,26 @@ on the solving mode:
   `require`) are still asserted normally, so the interpreter follows the same
   path and reaches the intended trap. A path with no UB-capable operation
   (empty guard set) is reported UNSAT.
+* **`--require-nonterm` mode.** The path is a **lasso**: its final block is a
+  loop header that reappears earlier, and the segment between the two is one lap
+  of the cycle. Every safety guard is asserted **true** (as in UB-free mode),
+  and additionally the complete mutable state at the header's entry is
+  constrained to be **bit-identical** on the first and last visit
+  (`σ_h′ = σ_h`, leaf by leaf over every `let mut` — parameters and syms are
+  immutable). By determinism a lap that returns to its own entry state replays
+  forever, so any returned model diverges (⇑) UB-free. A path that does not
+  revisit its final block (no cycle) is reported UNSAT.
 
 `--require-ub` is used to synthesize UB-triggering programs — for example, to
 exercise a compiler's or analyzer's UB detection. Because the interpreter halts
 at the **first** UB it reaches, the emitted program traps rather than returning
 a value.
+
+`--require-nonterm` is used to synthesize non-terminating programs — for
+example, to exercise a compiler's infinite-loop handling or forward-progress
+assumptions. The lasso has no `ret`, so a solved program carries no `ret=` in
+its SOLVED header; the divergence is certified by the finite one-lap witness
+rather than by running to completion.
 
 
 ## Path Specification
@@ -195,7 +210,8 @@ Controls how many threads each SMT solver instance uses internally:
 | `--seed <n>`          | Seed for deterministic model selection                   |
 | `--emit-model <file>` | Emit symbol assignments in nested JSON format            |
 | `--sym sym=val`       | Fix a symbol to a concrete value before solving          |
-| `--require-ub`        | Solve for a model that **triggers** at least one UB on the path (see below) |
+| `--require-ub`        | Solve for a model that **triggers** at least one UB on the path |
+| `--require-nonterm`   | Solve for a lasso whose header state recurs after one lap, so the program **diverges** UB-free |
 | `-h, --help`          | Print usage                                              |
 
 

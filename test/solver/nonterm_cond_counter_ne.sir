@@ -1,0 +1,24 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^b,^h' --require-nonterm
+
+// Counter-style variable condition br %i != %n across a two-block cycle.
+// %i is bumped by %?d at ^h and restored by -%?d at ^b (a genuine mid-lap
+// change, since %?d != 0), so the header state recurs for any non-
+// overflowing %?d while the guard 5 != 40 keeps the back edge live.
+fun @main() : i32 {
+  sym %?d : value i32;
+  let mut %i : i32 = 5;
+  let mut %n : i32 = 40;
+^entry:
+  require %?d != 0, "nonzero step so %i genuinely moves mid-lap";
+  br ^h;
+^h:
+  %i = %i + %?d;
+  br ^b;
+^b:
+  %i = %i - %?d;
+  br %i != %n, ^h, ^exit;
+^exit:
+  ret %i;
+}

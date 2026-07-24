@@ -54,6 +54,7 @@ int main(int argc, char **argv) {
     ("sym", "Fix a symbol to a value (name=val)", cxxopts::value<std::vector<std::string>>())
     ("I", "Include path for resolving link-form `decl`s (may repeat)", cxxopts::value<std::vector<std::string>>())
     ("require-ub", "Force at least one UB to be triggered on the chosen path", cxxopts::value<bool>()->default_value("false"))
+    ("require-nonterm", "Solve for a lasso path (final block = loop header) whose header state recurs after one lap, so the program diverges UB-free", cxxopts::value<bool>()->default_value("false"))
     ("h,help", "Print usage");
   options.parse_positional({"input"});
   // clang-format on
@@ -136,6 +137,9 @@ int main(int argc, char **argv) {
     config.num_smt_threads = result["num-smt-threads"].as<uint32_t>();
     if (result["require-ub"].as<bool>()) {
       config.mode = SolvingMode::RequireUB;
+    }
+    if (result["require-nonterm"].as<bool>()) {
+      config.mode = SolvingMode::RequireNonterm;
     }
 
 #if defined(USE_ALIVESMT)

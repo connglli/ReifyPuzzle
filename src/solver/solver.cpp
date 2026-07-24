@@ -530,6 +530,26 @@ namespace refractir {
     if (diags.hasErrors())
       throw std::runtime_error("CFG build failed");
 
+    // [v0.2.3] RequireNonterm: the path is a lasso whose final block is
+    // the loop header (it must reappear earlier — its first occurrence is
+    // the orbit entry). We snapshot the complete mutable state at the
+    // header's entry on the first and last visit; step 5 then asserts the
+    // two are equal, so one UB-free lap recurs forever. See docs/reify.md.
+    std::string nontermHeader;
+    size_t nontermFirstIdx = 0, nontermLastIdx = 0;
+    bool nontermLasso = false;
+    if (config_.mode == SolvingMode::RequireNonterm && !path.empty()) {
+      nontermHeader = path.back();
+      nontermLastIdx = path.size() - 1;
+      for (size_t i = 0; i < path.size(); ++i)
+        if (path[i] == nontermHeader) {
+          nontermFirstIdx = i;
+          break;
+        }
+      nontermLasso = (nontermFirstIdx != nontermLastIdx);
+    }
+    SymbolicStore snapFirst, snapLast;
+
     // 4. Path traversal
     for (size_t i = 0; i < path.size(); ++i) {
       const std::string &label = path[i];
@@ -537,6 +557,15 @@ namespace refractir {
         throw std::runtime_error("Invalid block label in path: " + label);
 
       const Block &block = entry->blocks[cfg.indexOf.at(label)];
+
+      // Capture the header-entry state (before any of the block's
+      // instructions run) on the first and last visit to the lasso header.
+      if (config_.mode == SolvingMode::RequireNonterm && nontermLasso) {
+        if (i == nontermFirstIdx)
+          snapFirst = store;
+        if (i == nontermLastIdx)
+          snapLast = store;
+      }
 
       for (const auto &ins: block.instrs) {
         execInstr(ins, solver, store, pathConstraints, ubGuards, requirements);
@@ -614,6 +643,63 @@ namespace refractir {
       } else {
         // No UB guards possible on this path — force UNSAT
         solver.assert_formula(solver.make_false());
+      }
+    } else if (config_.mode == SolvingMode::RequireNonterm) {
+      // Non-termination via a recurrent header state (lasso). Assert every
+      // operation on the stem + one lap is UB-free (exactly as UBFree),
+      // then assert the complete mutable state at the header's entry recurs
+      // after one lap. Determinism lifts the single safe lap to an
+      // infinite, UB-free run. See docs/reify.md.
+      for (auto g: ubGuards)
+        solver.assert_formula(g);
+
+      if (!nontermLasso) {
+        // The path never revisits its final block, so there is no cycle
+        // whose recurrence could certify divergence — unsatisfiable.
+        solver.assert_formula(solver.make_false());
+      } else {
+        // Bit-exact equality between two SymbolicValues of the same
+        // declared type, recursing through aggregate/vector leaves. A
+        // pointer let is a scalar Int whose term is its address, so the
+        // Int case compares pointer values too. Undef leaves add no
+        // constraint (an unread undef cannot influence the next lap).
+        std::function<void(const SymbolicValue &, const SymbolicValue &, std::vector<smt::Term> &)>
+            collectEq =
+                [&](const SymbolicValue &a, const SymbolicValue &b, std::vector<smt::Term> &out) {
+                  switch (a.kind) {
+                    case SymbolicValue::Kind::Int:
+                      if (a.term.internal && b.term.internal)
+                        out.push_back(solver.make_term(smt::Kind::EQUAL, {a.term, b.term}));
+                      return;
+                    case SymbolicValue::Kind::Array:
+                    case SymbolicValue::Kind::Vec: {
+                      size_t n = std::min(a.arrayVal.size(), b.arrayVal.size());
+                      for (size_t k = 0; k < n; ++k)
+                        collectEq(a.arrayVal[k], b.arrayVal[k], out);
+                      return;
+                    }
+                    case SymbolicValue::Kind::Struct:
+                      for (const auto &[fname, fv]: a.structVal) {
+                        auto it = b.structVal.find(fname);
+                        if (it != b.structVal.end())
+                          collectEq(fv, it->second, out);
+                      }
+                      return;
+                    case SymbolicValue::Kind::Undef:
+                    default:
+                      return;
+                  }
+                };
+
+        std::vector<smt::Term> eqs;
+        for (const auto &l: entry->lets) {
+          auto i1 = snapFirst.find(l.name.name);
+          auto i2 = snapLast.find(l.name.name);
+          if (i1 != snapFirst.end() && i2 != snapLast.end())
+            collectEq(i1->second, i2->second, eqs);
+        }
+        for (auto &e: eqs)
+          solver.assert_formula(e);
       }
     }
 

@@ -14,7 +14,14 @@
 
 namespace refractir {
 
-  enum class SolvingMode { UBFree, RequireUB, Unconstrained };
+  // How the collected UB-safety guards are used when solving a path.
+  enum class SolvingMode {
+    UBFree,         // Assert every safety guard true: the path executes with no UB (default).
+    RequireUB,      // Assert NOT(and guards): the model triggers at least one UB on the path.
+    RequireNonterm, // Lasso path: assert guards true AND the header state recurs after one
+                    // lap, so the program diverges UB-free (see docs/reify.md).
+    Unconstrained   // Leave UB guards unasserted: solve for a feasible path, UB either way.
+  };
 
   /**
    * Performs path-based symbolic execution on the RefractIR program.

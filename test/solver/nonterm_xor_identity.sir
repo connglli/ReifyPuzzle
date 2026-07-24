@@ -1,0 +1,19 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h' --require-nonterm
+
+// Lasso ^entry -> (^h)^omega. The cycle XORs %v by %?c; the
+// header-state fixed point %v ^ %?c == %v forces %?c = 0, so every lap
+// reproduces %v and the program diverges UB-free.
+fun @main() : i32 {
+  sym %?c : value i32;
+  sym %?g : value i32;
+  let mut %v : i32 = 5;
+^entry:
+  br ^h;
+^h:
+  %v = %?c ^ %v;
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %v;
+}

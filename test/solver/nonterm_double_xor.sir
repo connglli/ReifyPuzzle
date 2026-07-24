@@ -1,0 +1,23 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^b,^h' --require-nonterm
+
+// Two-block cycle ^h -> ^b -> ^h. %v is XORed by %?a in each block, so
+// the net lap effect is identity for ANY %?a even though the mid-lap
+// state (%v ^ %?a at ^b) differs from the header state.
+fun @main() : i32 {
+  sym %?a : value i32;
+  sym %?g : value i32;
+  let mut %v : i32 = 9;
+^entry:
+  require %?a != 0, "nonzero so the mid-lap state at ^b differs from the header";
+  br ^h;
+^h:
+  %v = %?a ^ %v;
+  br ^b;
+^b:
+  %v = %?a ^ %v;
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %v;
+}

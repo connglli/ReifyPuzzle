@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h' --require-nonterm
+
+// Additive-correction shape (the way rysmith seeds cycle bodies).
+// %v + %?d == %v forces %?d = 0, and RequireNonterm ASSERTS the add's
+// no-overflow guard, so %v + %?d must also be UB-free (satisfied at
+// %?d = 0). A negated guard would change the answer -- this pins that
+// RequireNonterm keeps guards asserted (unlike RequireUB).
+fun @main() : i32 {
+  sym %?d : value i32;
+  sym %?g : value i32;
+  let mut %v : i32 = 7;
+^entry:
+  br ^h;
+^h:
+  %v = %v + %?d;
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %v;
+}

@@ -1,0 +1,24 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h' --require-nonterm
+
+// Full-state recurrence: BOTH mutable locals must recur. %v ^ %?a == %v
+// forces %?a = 0; %w | %?z == %w forces %?z's bits within %w (= 12).
+// Neither the ret expression nor %w being "unused" in the header
+// exempts %w from the fixed point.
+fun @main() : i32 {
+  sym %?a : value i32;
+  sym %?z : value i32;
+  sym %?g : value i32;
+  let mut %v : i32 = 3;
+  let mut %w : i32 = 12;
+^entry:
+  br ^h;
+^h:
+  %v = %?a ^ %v;
+  %w = %?z | %w;
+  br %?g > 0, ^h, ^exit;
+^exit:
+  %v = %v + %w;
+  ret %v;
+}
