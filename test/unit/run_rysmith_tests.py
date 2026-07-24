@@ -255,6 +255,48 @@ def test_descriptor_schema(rysmith):
       )
 
 
+def test_descriptor_outcome_field(rysmith):
+  """--emit-desc records the runtime `outcome`: `return` by default, `trap`
+  under --require-ub, `diverge` under --require-nonterm."""
+  for flags, expected in (
+    ([], "return"),
+    (["--require-ub"], "trap"),
+    (["--require-nonterm"], "diverge"),
+  ):
+    with tempfile.TemporaryDirectory() as d:
+      r = run(
+        [
+          rysmith,
+          "--emit-desc",
+          "--seed",
+          "5",
+          "--n-funcs",
+          "1",
+          "--n-inits",
+          "1",
+          "-o",
+          d,
+        ]
+        + flags
+      )
+      jsons = [f for f in os.listdir(d) if f.endswith(".json")]
+      if r.returncode != 0 or not jsons:
+        check(f"outcome={expected}: descriptor emitted", False, r.stderr[:200])
+        continue
+      desc = json.load(open(os.path.join(d, jsons[0])))
+      check(
+        f"descriptor outcome == {expected!r}",
+        desc.get("outcome") == expected,
+        f"got {desc.get('outcome')!r}",
+      )
+      # The legacy has_ub bool is gone (generalized into outcome).
+      check(
+        f"outcome={expected}: no legacy has_ub field",
+        "has_ub" not in desc,
+        str(desc.keys()),
+      )
+
+
 # Single-function generation is inherently seed-fragile: the exact seed
 # whose lone function solves drifts whenever the generator's RNG draw
 # sequence changes (a new expression shape, a reordered candidate pool).
@@ -2862,6 +2904,8 @@ def main():
   test_n_params(rysmith)
   print("=== rysmith descriptor schema ===")
   test_descriptor_schema(rysmith)
+  print("=== descriptor outcome field (return / trap / diverge) ===")
+  test_descriptor_outcome_field(rysmith)
   print("=== rysmith SOLVED header replay via symiri ===")
   test_solved_replay(rysmith, symiri)
   print("=== rysmith --emit-main wrapper ===")

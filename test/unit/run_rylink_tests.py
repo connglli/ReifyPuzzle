@@ -846,6 +846,51 @@ def test_python_vec_lowering(rylink, rysmith):
       )
 
 
+def test_rylink_discards_diverge_seeds(rylink, rysmith):
+  """A diverging leaf (rysmith --require-nonterm) never returns, so rylink
+  discards it from the pool unconditionally — a spliced `call @leaf(...)` would
+  hang the caller — and builds only from the terminating seeds."""
+  with tempfile.TemporaryDirectory() as pool:
+    seed_pool(rysmith, pool, seed=23)  # terminating (return) leaves
+    # Add diverging leaves under a different seed so the genId (hence the
+    # func_<id>_<i> filenames) doesn't clash with the return pool.
+    run(
+      [
+        rysmith,
+        "--require-nonterm",
+        "--emit-desc",
+        "--seed",
+        "99",
+        "--n-funcs",
+        "3",
+        "-o",
+        pool,
+      ]
+    )
+    n_div = sum(
+      1
+      for f in os.listdir(pool)
+      if f.endswith(".json")
+      and '"outcome": "diverge"' in open(os.path.join(pool, f)).read()
+    )
+    check("mixed pool has >=1 diverge seed", n_div >= 1, f"n_div={n_div}")
+    if n_div < 1:
+      return
+    with tempfile.TemporaryDirectory() as out:
+      r = run([rylink, "--input-dir", pool, "--n-progs", "1", "--seed", "7", "-o", out])
+      m = re.search(r"discarded (\d+) non-terminating seed", r.stdout)
+      check(
+        "rylink discards exactly the diverging seeds",
+        m is not None and int(m.group(1)) == n_div,
+        f"n_div={n_div} stdout={r.stdout[:300]!r}",
+      )
+      check(
+        "rylink still builds a bundle from the terminating seeds",
+        r.returncode == 0 and "bundled:" in r.stdout,
+        f"rc={r.returncode} stdout={r.stdout[:300]!r}",
+      )
+
+
 def main():
   if len(sys.argv) != 4:
     print("Usage: python3 -m test.unit.run_rylink_tests <rylink> <rysmith> <symiri>")
@@ -875,6 +920,8 @@ def main():
   test_structured_lowering_wasm(rylink, rysmith)
   print("=== rylink --structured-lowering: seed filtering ===")
   test_structured_lowering_discards_irreducible_seeds(rylink, rysmith)
+  print("=== rylink discards diverging (non-terminating) seeds ===")
+  test_rylink_discards_diverge_seeds(rylink, rysmith)
   print("=== rylink --structured-lowering: all seeds discarded ===")
   test_structured_lowering_all_seeds_discarded(rylink)
   print("=== rylink --structured-lowering: gating ===")

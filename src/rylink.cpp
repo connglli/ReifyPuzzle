@@ -444,7 +444,7 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
   // has_ub=true — keeps the guards on.
   bool noUbGuards = !cfg.keepUbGuards;
   for (const auto &n: nodes)
-    if (pool.entries[n.poolIdx].desc.hasUb) {
+    if (pool.entries[n.poolIdx].desc.hasUb()) {
       noUbGuards = false;
       break;
     }
@@ -686,6 +686,18 @@ int main(int argc, char **argv) {
   std::cout << "rylink: master seed = " << seed << "\n";
   std::cout << "rylink: generation id = " << genId << "\n";
   FuncPool pool = loadFuncPool(res["input-dir"].as<std::string>());
+  // [v0.2.3] A diverging leaf (rysmith --require-nonterm) never returns, so a
+  // spliced `call @leaf(...) + (c - o)` would hang the caller. Discard such
+  // seeds unconditionally — they can't participate in a call graph.
+  {
+    std::size_t before = pool.entries.size();
+    std::erase_if(pool.entries, [](const PoolEntry &e) {
+      return e.desc.outcome == FuncDescriptor::Outcome::Diverge;
+    });
+    if (std::size_t discarded = before - pool.entries.size())
+      std::cout << "rylink: discarded " << discarded
+                << " non-terminating seed(s) (cannot be called)\n";
+  }
   // [v0.2.3] Structuring consumers only handle reducible CFGs, and
   // seed programs (older pools, runs without --require-reducible) may
   // not be: discard every seed whose descriptor is not known

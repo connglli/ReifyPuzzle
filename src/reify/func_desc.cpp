@@ -39,7 +39,11 @@ namespace refractir::reify {
     ofs << "  \"name\": \"" << d.name << "\",\n";
     ofs << "  \"ret_type\": \"" << jsonEscape(d.retType) << "\",\n";
     ofs << "  \"reducible\": " << (d.reducible ? "true" : "false") << ",\n";
-    ofs << "  \"has_ub\": " << (d.hasUb ? "true" : "false") << ",\n";
+    ofs << "  \"outcome\": \""
+        << (d.outcome == FuncDescriptor::Outcome::Return    ? "return"
+            : d.outcome == FuncDescriptor::Outcome::Diverge ? "diverge"
+                                                            : "trap")
+        << "\",\n";
 
     ofs << "  \"params\": [";
     for (size_t i = 0; i < d.params.size(); ++i) {
@@ -103,7 +107,7 @@ namespace refractir::reify {
       const std::filesystem::path &outPath, const std::string &funcName,
       const refractir::Program &prog, const std::vector<std::string> &pathLabels,
       const std::vector<FuncDescriptor::Realization> &realizations, const std::string &genId,
-      bool hasUb
+      FuncDescriptor::Outcome outcome
   ) {
     const refractir::FunDecl *fn = nullptr;
     const std::string mangled = "@" + funcName;
@@ -117,7 +121,7 @@ namespace refractir::reify {
 
     FuncDescriptor d;
     d.id = genId;
-    d.hasUb = hasUb;
+    d.outcome = outcome;
     d.name = fn->name.name;
     d.retType = SIRPrinter::typeToString(fn->retType);
     // Reducibility of the emitted function, via the same analyses the
@@ -365,9 +369,19 @@ namespace refractir::reify {
       } else if (key == "reducible") {
         if (!p.parseBool(d.reducible))
           return std::nullopt;
-      } else if (key == "has_ub") {
-        if (!p.parseBool(d.hasUb))
+      } else if (key == "outcome") {
+        std::string s;
+        if (!p.parseString(s))
           return std::nullopt;
+        d.outcome = s == "return"    ? FuncDescriptor::Outcome::Return
+                    : s == "diverge" ? FuncDescriptor::Outcome::Diverge
+                                     : FuncDescriptor::Outcome::Trap;
+      } else if (key == "has_ub") {
+        // Legacy field (descriptors predating `outcome`): map onto it.
+        bool ub = true;
+        if (!p.parseBool(ub))
+          return std::nullopt;
+        d.outcome = ub ? FuncDescriptor::Outcome::Trap : FuncDescriptor::Outcome::Return;
       } else if (key == "params") {
         if (!p.match('['))
           return std::nullopt;

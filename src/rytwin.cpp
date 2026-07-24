@@ -293,6 +293,13 @@ int main(int argc, char **argv) {
     if (!desc)
       std::cerr << "rytwin: warning: could not read descriptor " << descPath << "\n";
   }
+  // A non-terminating program (rysmith --require-nonterm) can't be twinned:
+  // rytwin profiles p1 by interpreting it on its solved input, which would
+  // hang, and a region twin has no exit state to memoize.
+  if (desc && desc->outcome == FuncDescriptor::Outcome::Diverge) {
+    std::cerr << "rytwin: cannot twin a non-terminating program (" << inputPath << ")\n";
+    return 1;
+  }
   std::string entry = findEntry(prog, desc);
   if (entry.empty()) {
     std::cerr << "rytwin: no entry function found in " << inputPath << "\n";

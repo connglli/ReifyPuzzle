@@ -554,9 +554,12 @@ static GenerateResult generateLeaf(
           for (const auto &x: produced)
             realizations.push_back(x.rz);
           auto descPath = outDir / (funcName + ".json");
+          FuncDescriptor::Outcome outcome =
+              solMode == SolvingMode::RequireUB        ? FuncDescriptor::Outcome::Trap
+              : solMode == SolvingMode::RequireNonterm ? FuncDescriptor::Outcome::Diverge
+                                                       : FuncDescriptor::Outcome::Return;
           writeFuncDescriptorFromProgram(
-              descPath, funcName, prog, pathLabels, realizations, genId,
-              /*hasUb=*/solMode == SolvingMode::RequireUB
+              descPath, funcName, prog, pathLabels, realizations, genId, outcome
           );
         }
         if (verbose)

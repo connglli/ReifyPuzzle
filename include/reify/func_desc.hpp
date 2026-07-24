@@ -33,13 +33,23 @@ namespace refractir::reify {
     // conservatively "not known reducible".
     bool reducible = false;
 
-    // [v0.2.3] Whether this function was generated in UB-triggering mode
-    // (rysmith --require-ub): its concretized path deliberately hits
-    // undefined behavior. UB-free generation (the default) sets this
-    // false, letting consumers drop the backends' dynamic UB guards.
-    // Descriptors written before this field default to true —
-    // conservatively "may contain UB" so guards are kept.
-    bool hasUb = true;
+    // [v0.2.3] Runtime outcome of the generated function on its solved
+    // input, generalizing the old `has_ub` bool:
+    //   Return  — UB-free, terminates, returns a value (default rysmith).
+    //   Trap    — deliberately triggers UB (rysmith --require-ub).
+    //   Diverge — UB-free but never returns (rysmith --require-nonterm).
+    // Consumers use it to drop the backends' dynamic UB guards (Return and
+    // Diverge are UB-free), to avoid splicing a callee that never returns a
+    // value (rylink discards Diverge — a call to it would hang), and to skip
+    // twinning a non-terminating program (rytwin refuses Diverge — profiling
+    // it would hang). Legacy descriptors carry `has_ub` instead and map on
+    // read (has_ub:true → Trap, false → Return); an absent value defaults to
+    // Trap, conservatively "may contain UB" so guards stay on.
+    enum class Outcome { Return, Trap, Diverge };
+    Outcome outcome = Outcome::Trap;
+
+    // True when the concretized path deliberately hits UB (the old `has_ub`).
+    bool hasUb() const { return outcome == Outcome::Trap; }
 
     struct Param {
       std::string name; // e.g. `%pa0`
@@ -112,7 +122,7 @@ namespace refractir::reify {
       const std::filesystem::path &outPath, const std::string &funcName,
       const refractir::Program &prog, const std::vector<std::string> &pathLabels,
       const std::vector<FuncDescriptor::Realization> &realizations, const std::string &genId,
-      bool hasUb
+      FuncDescriptor::Outcome outcome
   );
 
   // Parse a descriptor JSON. Returns nullopt on parse error (callers
