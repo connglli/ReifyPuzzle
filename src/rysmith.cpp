@@ -266,7 +266,11 @@ static GenerateResult generateLeaf(
         }
         os << "\n";
       }
-      os << "// PATH:";
+      if (requireNonterm) {
+        os << "// LASSO:";
+      } else {
+        os << "// PATH:";
+      }
       for (std::size_t k = 0; k < path.size(); k++)
         os << (k == 0 ? " " : " -> ") << path[k];
       os << "\n\n";
