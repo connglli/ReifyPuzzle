@@ -483,6 +483,13 @@ static GenerateResult generateLeaf(
             !crcRetValue.empty() ? crcRetValue
                                  : (res.retModel.has_value() ? fmtModelVal(*res.retModel) : "");
 
+        // A diverging program has no captured return value, but --emit-main
+        // still needs an expected checksum for @check_chksum. The entry call
+        // never returns, so the check is unreachable at runtime and any
+        // literal is sound; use a random i32 so the anchor value varies.
+        if (requireNonterm && emitMain && expectedRet.empty())
+          expectedRet = std::to_string((int32_t) rng());
+
         // Now that we have the expected return value we can build a faithful
         // `@main` wrapper that asserts it via `@check_chksum`. This
         // push_back invalidates `entry`, but every read we needed
@@ -812,9 +819,13 @@ int main(int argc, char **argv) {
   bool keepSymbolic = result.count("keep-symbolic") > 0;
   bool emitDesc = result.count("emit-desc") > 0;
   bool doValidate = result.count("validate") > 0;
-  // A diverging program has no return value to assert, and its @main would
-  // loop forever, so --emit-main is meaningless under --require-nonterm.
-  bool emitMain = result.count("emit-main") > 0 && !requireNonterm;
+  // --emit-main works under --require-nonterm too: the entry call never
+  // returns, so the @check_chksum is unreachable at runtime — but the
+  // compiler cannot prove the loop diverges, so it must keep the whole
+  // computation alive against the abort() side effect. There is no real
+  // return value to capture, so a random literal is used as the expected
+  // checksum (see the emit-main block below).
+  bool emitMain = result.count("emit-main") > 0;
   bool verbose = result.count("verbose") > 0;
   std::string emitStateMode =
       result.count("emit-state") ? result["emit-state"].as<std::string>() : "";

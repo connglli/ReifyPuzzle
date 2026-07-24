@@ -2266,6 +2266,47 @@ def test_require_nonterm_validate_flag(rysmith):
     )
 
 
+def test_require_nonterm_emit_main(rysmith, symiri, symirc):
+  """--require-nonterm --emit-main appends a @main that calls the diverging
+  entry and checks its (unreachable) return against a random checksum, so the
+  whole program stays compilable for differential testing: the compiler cannot
+  prove the loop is infinite, so it must preserve the computation against
+  @check_chksum's abort(). The wrapper must be well-formed and lower to C."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--require-nonterm",
+        "--emit-main",
+        "--seed",
+        "42",
+        "--n-funcs",
+        "3",
+        "--n-inits",
+        "1",
+        "-o",
+        d,
+      ]
+    )
+    check("require-nonterm --emit-main exits 0", r.returncode == 0, r.stderr[:300])
+    sirs = sorted(f for f in os.listdir(d) if f.endswith(".sir") and "_sym" not in f)
+    check(
+      "require-nonterm --emit-main emitted at least one .sir", len(sirs) > 0, str(sirs)
+    )
+    for name in sirs:
+      p = os.path.join(d, name)
+      body = open(p).read()
+      check(
+        f"{name}: @main calls the entry and @check_chksum",
+        "fun @main(" in body and "call @check_chksum(" in body,
+        body[:200],
+      )
+      cr = run([symiri, "--check", p])
+      check(f"{name}: symiri --check well-formed", cr.returncode == 0, cr.stderr[:200])
+      cc = run([symirc, "--target", "c", p, "-o", p + ".c"])
+      check(f"{name}: symirc --target c lowers", cc.returncode == 0, cc.stderr[:200])
+
+
 def test_require_ub_emit_main_reparses(rysmith, symiri):
   """Every --require-ub --emit-main whole-program .sir must re-parse.
 
@@ -2921,6 +2962,8 @@ def main():
   test_require_nonterm_programs_actually_diverge(rysmith, symiri)
   print("=== --require-nonterm --validate: in-process bounded-replay check ===")
   test_require_nonterm_validate_flag(rysmith)
+  print("=== --require-nonterm --emit-main: compilable diverging whole program ===")
+  test_require_nonterm_emit_main(rysmith, symiri, symirc)
   print("=== --require-ub --emit-main: whole programs re-parse (no inf/nan leak) ===")
   test_require_ub_emit_main_reparses(rysmith, symiri)
   print("=== --emit-state: pbb sidecar shape ===")
