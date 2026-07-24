@@ -72,6 +72,7 @@ Value parsing:
 | `--sym name=value` | Bind a scalar symbol (`--sym %?x=42`, `--sym %?f=1.5`) |
 | `--sym name=v0,v1,…` | Bind a vector symbol per lane (`--sym '%?v=1,2,3,4'`; count must equal the lane count). A single value splats across all lanes |
 | `--check`          | Check semantics and type correctness only (don't execute)|
+| `--max-bbl-steps <n>` | Limit the number of executed blocks (default: unlimited) |
 | `--dump-trace`     | Dump executed blocks and variable updates during execution|
 | `-w`               | Inhibit all warning messages                             |
 | `--Werror`         | Make all warnings into errors                            |

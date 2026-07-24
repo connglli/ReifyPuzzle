@@ -210,7 +210,7 @@ Controls how many threads each SMT solver instance uses internally:
 | `--seed <n>`          | Seed for deterministic model selection                   |
 | `--emit-model <file>` | Emit symbol assignments in nested JSON format            |
 | `--sym sym=val`       | Fix a symbol to a concrete value before solving          |
-| `--require-ub`        | Solve for a model that **triggers** at least one UB on the path |
+| `--require-ub`        | Solve for a model that **triggers** at least one UB on the path to **trap** |
 | `--require-nonterm`   | Solve for a lasso whose header state recurs after one lap, so the program **diverges** UB-free |
 | `-h, --help`          | Print usage                                              |
 
