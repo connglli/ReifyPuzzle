@@ -5,6 +5,7 @@
 #include <cmath>
 #include <functional>
 #include <set>
+#include <unordered_map>
 #include <unordered_set>
 #include "analysis/intrinsics.hpp"
 #include "reify/hyperparameters.hpp"
@@ -475,6 +476,79 @@ namespace refractir::reify {
       pathLabels.push_back("^" + lbl);
 
     return FuncGenResult{std::move(prog), std::move(pathLabels)};
+  }
+
+  // ---------------------------------------------------------------------------
+  // spliceNontermCorrections
+  // ---------------------------------------------------------------------------
+
+  void spliceNontermCorrections(
+      Program &prog, const std::string &funcName, const std::vector<std::string> &cycleLabels,
+      const std::string &latchLabel
+  ) {
+    FunDecl *fun = nullptr;
+    for (auto &f: prog.funs)
+      if (f.name.name == "@" + funcName) {
+        fun = &f;
+        break;
+      }
+    if (!fun)
+      return;
+
+    // Scalar-integer mutable lets, keyed by name (the checksum accumulator
+    // is generation scaffolding, never real state — exclude it).
+    std::unordered_map<std::string, TypePtr> intLets;
+    for (const auto &l: fun->lets)
+      if (l.name.name != "%_chk" && isIntType(l.type))
+        intLets[l.name.name] = l.type;
+
+    std::unordered_set<std::string> cycleSet(cycleLabels.begin(), cycleLabels.end());
+
+    // Scalar-int lets the cycle assigns, in first-write order. A let the
+    // cycle never writes is invariant across the lap and needs no correction.
+    std::vector<std::string> written;
+    std::unordered_set<std::string> seen;
+    for (auto &blk: fun->blocks) {
+      if (!cycleSet.count(blk.label.name))
+        continue;
+      for (auto &ins: blk.instrs) {
+        if (auto *a = std::get_if<AssignInstr>(&ins)) {
+          if (!a->lhs.accesses.empty())
+            continue; // whole-local writes only
+          const std::string &nm = a->lhs.base.name;
+          if (intLets.count(nm) && seen.insert(nm).second)
+            written.push_back(nm);
+        }
+      }
+    }
+    if (written.empty())
+      return;
+
+    Block *latch = nullptr;
+    for (auto &blk: fun->blocks)
+      if (blk.label.name == latchLabel) {
+        latch = &blk;
+        break;
+      }
+    if (!latch)
+      return;
+
+    // One fresh correction symbol + `%v = %v + %?ntK;` per written leaf,
+    // appended (in order) to the latch so they are the lap's final writes.
+    int k = 0;
+    for (const auto &nm: written) {
+      std::string symName = "%?nt" + std::to_string(k++);
+      SymDecl d;
+      d.name = SymId{symName, {}};
+      d.kind = SymKind::Value;
+      d.type = intLets[nm];
+      fun->syms.push_back(std::move(d));
+
+      Expr rhs;
+      rhs.first = rvalAtom(localLV(nm));
+      rhs.rest.push_back({AddOp::Plus, coefAtom(LocalOrSymId{SymId{symName, {}}}), {}});
+      latch->instrs.push_back(Instr{AssignInstr{localLV(nm), std::move(rhs), {}}});
+    }
   }
 
 } // namespace refractir::reify

@@ -53,4 +53,18 @@ namespace refractir::reify {
       const FuncGenConfig &fcfg
   );
 
+  // [v0.2.3] Cycle-closing corrections for --require-nonterm. For each
+  // scalar-integer mutable let the lasso cycle writes, appends a fresh
+  // additive-correction symbol (`sym %?ntK`) and a `%v = %v + %?ntK;`
+  // statement to the latch block (before its terminator). This gives the
+  // solver the freedom to restore each leaf to its header-entry value, so
+  // the header-state fixed point RequireNonterm asserts is always solvable
+  // regardless of the random cycle body. `cycleLabels` / `latchLabel` are
+  // ^-prefixed. No-op if the function or latch is absent, or the cycle
+  // writes no scalar-int let.
+  void spliceNontermCorrections(
+      Program &prog, const std::string &funcName, const std::vector<std::string> &cycleLabels,
+      const std::string &latchLabel
+  );
+
 } // namespace refractir::reify

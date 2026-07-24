@@ -2148,6 +2148,93 @@ def test_require_ub_programs_actually_trap(rysmith, symiri):
     )
 
 
+def _solved_call(src):
+  """Extract (fname, positional-args) for a rysmith .sir from its `fun`
+  signature (declaration order) and `// SOLVED:` header. Shared by the
+  replay-style tests."""
+  m = re.search(r"//\s*SOLVED:\s*(.*)", src)
+  kv = {}
+  if m:
+    for part in m.group(1).split(","):
+      part = part.strip()
+      if "=" in part:
+        k, v = part.split("=", 1)
+        kv[k.strip()] = v.strip()
+  fm = re.search(r"fun\s+(@\w+)\s*\(([^)]*)\)", src)
+  if not fm:
+    return None, []
+  fname = fm.group(1)
+  pnames = [p.split(":")[0].strip() for p in fm.group(2).split(",") if p.strip()]
+  return fname, [kv[p] for p in pnames if p in kv]
+
+
+def test_require_nonterm_programs_actually_diverge(rysmith, symiri):
+  """Every concrete .sir produced under --require-nonterm must actually
+  diverge (⇑) when replayed through symiri with its SOLVED parameters: the
+  lasso's header state recurs after one lap, so the loop runs forever. A
+  bounded replay confirms the program neither returns (a `Result:` line) nor
+  traps (UB) within the window — either would mean the fixed point the solver
+  proved did not hold at runtime. --require-nonterm also implies --no-crc32
+  (the checksum is dead and its oracle would hang)."""
+
+  def runs_forever(fname, path, args, timeout=1.5):
+    try:
+      rr = subprocess.run(
+        [symiri, "--main", fname, path, "--"] + args,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+      )
+      return False, (rr.stdout + rr.stderr)  # returned => terminated or trapped
+    except subprocess.TimeoutExpired:
+      return True, ""  # still running => diverges
+
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--require-nonterm",
+        "--n-funcs",
+        "6",
+        "--seed",
+        "7",
+        "--n-inits",
+        "1",
+        "-o",
+        d,
+      ]
+    )
+    if r.returncode != 0:
+      check("require-nonterm run setup", False, r.stderr[:300])
+      return
+    sirs = sorted(f for f in os.listdir(d) if f.endswith(".sir") and "_sym" not in f)
+    check("require-nonterm emitted at least one .sir", len(sirs) > 0, str(sirs))
+    if not sirs:
+      return
+    first_body = open(os.path.join(d, sirs[0])).read()
+    check(
+      "require-nonterm emits no crc32_update (implies --no-crc32)",
+      "crc32_update" not in first_body,
+      "crc32_update found in a --require-nonterm program",
+    )
+    not_diverging = []
+    for name in sirs:
+      path = os.path.join(d, name)
+      fname, args = _solved_call(open(path).read())
+      if fname is None:
+        continue
+      diverges, out = runs_forever(fname, path, args)
+      if not diverges:
+        last = out.strip().splitlines()[-1:] if out.strip() else []
+        not_diverging.append((name, last))
+    check(
+      f"every --require-nonterm program diverges under symiri "
+      f"({len(sirs) - len(not_diverging)}/{len(sirs)} bounded runs)",
+      len(not_diverging) == 0,
+      f"{len(not_diverging)} terminated/trapped: {not_diverging}",
+    )
+
+
 def test_require_ub_emit_main_reparses(rysmith, symiri):
   """Every --require-ub --emit-main whole-program .sir must re-parse.
 
@@ -2799,6 +2886,8 @@ def main():
   test_no_crc32_descriptor_matches_solved_header(rysmith)
   print("=== --require-ub: emitted programs actually trap UB ===")
   test_require_ub_programs_actually_trap(rysmith, symiri)
+  print("=== --require-nonterm: emitted programs actually diverge ===")
+  test_require_nonterm_programs_actually_diverge(rysmith, symiri)
   print("=== --require-ub --emit-main: whole programs re-parse (no inf/nan leak) ===")
   test_require_ub_emit_main_reparses(rysmith, symiri)
   print("=== --emit-state: pbb sidecar shape ===")

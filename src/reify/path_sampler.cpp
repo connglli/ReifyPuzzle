@@ -165,4 +165,93 @@ namespace refractir::reify {
     return path;
   }
 
+  // BFS shortest simple path from `start` to `goal` over cfg edges,
+  // optionally skipping the edge (skipSrc -> skipDst) and treating
+  // `blocked` as already-visited (never entered). Returns the label
+  // sequence [start, ..., goal] inclusive, or nullopt if unreachable.
+  static std::optional<std::vector<std::string>> bfsPath(
+      const RyCFG &cfg, const std::string &start, const std::string &goal,
+      const std::string &skipSrc, const std::string &skipDst, const std::string &blocked
+  ) {
+    std::deque<std::vector<std::string>> q;
+    q.push_back({start});
+    std::unordered_set<std::string> visited{start};
+    if (!blocked.empty())
+      visited.insert(blocked);
+
+    while (!q.empty()) {
+      auto p = std::move(q.front());
+      q.pop_front();
+      if (p.back() == goal)
+        return p;
+      const auto *blk = cfg.get(p.back());
+      if (!blk)
+        continue;
+      for (const auto &s: blk->succs) {
+        if (p.back() == skipSrc && s == skipDst)
+          continue; // do not traverse the back edge itself
+        if (visited.count(s))
+          continue;
+        visited.insert(s);
+        auto np = p;
+        np.push_back(s);
+        q.push_back(std::move(np));
+      }
+    }
+    return std::nullopt;
+  }
+
+  std::optional<std::vector<std::string>>
+  sampleLasso(const RyCFG &cfg, const SampleLassoParams &params) {
+    std::mt19937 rng(params.seed);
+
+    // Back edges: dst appears at or before src in label order. The CFG is
+    // built so label order matches a forward spanning chain, so these are
+    // the loops; under a reducible CFG each header dominates its latch.
+    std::vector<std::pair<std::string, std::string>> backEdges;
+    for (std::size_t i = 0; i < cfg.blocks.size(); i++) {
+      const auto &blk = cfg.blocks[i];
+      for (const auto &s: blk.succs) {
+        auto it = cfg.blockIndex.find(s);
+        if (it != cfg.blockIndex.end() && it->second <= i)
+          backEdges.push_back({blk.label, s});
+      }
+    }
+    if (backEdges.empty())
+      return std::nullopt;
+
+    // Try the back edges in a random order until one yields a connectable
+    // stem + cycle, so a single dead edge doesn't fail the whole sample.
+    std::shuffle(backEdges.begin(), backEdges.end(), rng);
+    for (const auto &[src, h]: backEdges) {
+      // Stem: entry -> ... -> h.
+      auto stem = bfsPath(cfg, cfg.entry, h, "", "", "");
+      if (!stem)
+        continue;
+
+      // Cycle body: h -> ... -> src, without taking the back edge and
+      // without re-entering h. For a self-loop (src == h) the lap is the
+      // bare back edge, so the body is just [h].
+      std::vector<std::string> body;
+      if (src == h) {
+        body = {h};
+      } else {
+        auto b = bfsPath(cfg, h, src, src, h, /*blocked=*/h);
+        if (!b)
+          continue;
+        body = std::move(*b);
+      }
+
+      // path = stem[entry..h] ++ body(h..src)[1:] ++ [h]
+      std::vector<std::string> path = *stem;
+      path.insert(path.end(), body.begin() + 1, body.end());
+      path.push_back(h);
+
+      if ((int) path.size() > params.maxPathLen)
+        continue;
+      return path;
+    }
+    return std::nullopt;
+  }
+
 } // namespace refractir::reify

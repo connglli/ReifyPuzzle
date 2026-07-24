@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -184,16 +185,33 @@ static GenerateResult generateLeaf(
     const std::string &genId,
     // [v0.2.2] When true, write the rylink-consumable func_<id>_<i>.json
     // sidecar next to each successful concrete .sir.
-    bool emitDesc, bool emitMain, bool noCrc32
+    bool emitDesc, bool emitMain, bool noCrc32,
+    // [v0.2.3] Non-terminating mode: sample a lasso instead of an entry-to-
+    // exit path and splice cycle-closing corrections before solving.
+    bool requireNonterm
 ) {
   // S1: CFG
   GenCFGParams cfgParams;
   cfgParams.nBbls = nBbls;
-  cfgParams.seed = rng();
   cfgParams.pBranch = pBranch;
-  cfgParams.pBackedge = pBackedge;
+  // Non-terminating generation needs at least one loop; bias toward back
+  // edges and regenerate until the CFG admits a lasso (see below).
+  cfgParams.pBackedge = requireNonterm ? std::max(pBackedge, 0.5) : pBackedge;
   cfgParams.requireReducible = requireReducible;
-  auto cfg = genCFG(cfgParams);
+  RyCFG cfg;
+  for (int cfgTry = 0;; cfgTry++) {
+    cfgParams.seed = rng();
+    cfg = genCFG(cfgParams);
+    if (!requireNonterm)
+      break;
+    // A lasso requires a reachable loop header; retry a bounded number of
+    // times if the repaired CFG has none (the attempt loop fails cleanly
+    // if we give up).
+    SampleLassoParams probe;
+    probe.seed = rng();
+    if (sampleLasso(cfg, probe).has_value() || cfgTry >= 20)
+      break;
+  }
 
   if (verbose)
     std::cout << "[cfg] " << cfg.blocks.size() << " blocks\n";
@@ -206,19 +224,24 @@ static GenerateResult generateLeaf(
               << " structs\n";
 
   for (int attempt = 0; attempt <= maxRetries; attempt++) {
-    // Path sampling (reduce loop iterations on retry)
-    SamplePathParams pathParams;
-    pathParams.seed = rng();
-    // Keep max ≥ min so retry decay can't violate the requested minimum.
-    pathParams.maxLoopIter = std::max(minLoopIter, maxLoopIter - attempt);
-    pathParams.minLoopIter = minLoopIter;
-
-    auto maybePath = samplePath(cfg, pathParams);
+    // Path sampling: a lasso for non-terminating generation, otherwise a
+    // random entry-to-exit walk (loop iterations decay on retry).
+    std::optional<std::vector<std::string>> maybePath;
+    if (requireNonterm) {
+      SampleLassoParams lassoParams;
+      lassoParams.seed = rng();
+      maybePath = sampleLasso(cfg, lassoParams);
+    } else {
+      SamplePathParams pathParams;
+      pathParams.seed = rng();
+      // Keep max ≥ min so retry decay can't violate the requested minimum.
+      pathParams.maxLoopIter = std::max(minLoopIter, maxLoopIter - attempt);
+      pathParams.minLoopIter = minLoopIter;
+      maybePath = samplePath(cfg, pathParams);
+    }
     if (!maybePath) {
       if (verbose)
-        std::cerr << "[sampler] attempt=" << attempt
-                  << " sample failed (minLoopIter=" << minLoopIter
-                  << ", maxLoopIter=" << pathParams.maxLoopIter << ")\n";
+        std::cerr << "[sampler] attempt=" << attempt << " sample failed\n";
       continue;
     }
     const auto &path = *maybePath;
@@ -268,6 +291,27 @@ static GenerateResult generateLeaf(
       fcfg.indexHi = indexHi;
 
       auto [prog, pathLabels] = genFunction(cfg, path, vars, fcfg);
+
+      // [v0.2.3] Non-terminating mode: splice cycle-closing corrections into
+      // the lasso's latch so the header-state fixed point is solvable. The
+      // cycle spans the header (path.back()'s first occurrence) to the end;
+      // the latch is the block just before the terminating header revisit.
+      if (requireNonterm) {
+        const std::string &header = path.back();
+        size_t firstHeaderIdx = 0;
+        for (size_t j = 0; j < path.size(); ++j)
+          if (path[j] == header) {
+            firstHeaderIdx = j;
+            break;
+          }
+        std::vector<std::string> cycleLabels;
+        std::unordered_set<std::string> seenCycle;
+        for (size_t j = firstHeaderIdx; j < path.size(); ++j)
+          if (seenCycle.insert(path[j]).second)
+            cycleLabels.push_back("^" + path[j]);
+        std::string latchLabel = "^" + path[path.size() - 2];
+        spliceNontermCorrections(prog, funcName, cycleLabels, latchLabel);
+      }
 
       // Optionally dump symbolic program
       if (keepSymbolic) {
@@ -563,6 +607,7 @@ int main(int argc, char **argv) {
     ("timeout",           "SMT solver timeout per attempt in ms",
                           cxxopts::value<uint32_t>()->default_value("2000"))
     ("require-ub",        "Force at least one UB to be triggered on the chosen path")
+    ("require-nonterm",   "Generate UB-free programs that diverge on the sampled input (samples a lasso; implies --require-reducible, --no-crc32, integer-scalar vars only)")
     ("coef-domain",       "Domain for coef symbols",
                           cxxopts::value<std::string>()->default_value("[-2147483647, 2147483647]"))
     ("value-domain",      "Domain for value/constant symbols",
@@ -662,6 +707,27 @@ int main(int argc, char **argv) {
   typeCfg.maxAggNesting = result["max-agg-nest"].as<int>();
   typeCfg.maxAggElems = result["max-agg-elems"].as<int>();
 
+  // [v0.2.3] --require-nonterm: generate diverging (⇑) programs. V1 restricts
+  // the type lattice to integer scalars so every mutable leaf gets a
+  // closeable additive correction (see spliceNontermCorrections). Must run
+  // before varCfg / exprCfg are built from typeCfg below.
+  bool requireNonterm = result.count("require-nonterm") > 0;
+  if (requireNonterm && result.count("require-ub")) {
+    std::cerr << "error: --require-nonterm and --require-ub are mutually exclusive\n";
+    return 2;
+  }
+  if (requireNonterm) {
+    typeCfg.enableFp = false;
+    typeCfg.enableVec = false;
+    typeCfg.enableAggPtr = false;
+    typeCfg.maxPtrDepth = 0;
+    // maxAggNesting = 0 zeroes the array/struct probability at depth 0, so
+    // with pointers/vectors/floats off every var is an integer scalar — then
+    // every mutable leaf the cycle writes is a whole local that
+    // spliceNontermCorrections can close.
+    typeCfg.maxAggNesting = 0;
+  }
+
   int minAtoms = result["min-atoms"].as<int>();
   int maxAtoms = result["max-atoms"].as<int>();
   if (minAtoms < 1) {
@@ -716,7 +782,7 @@ int main(int argc, char **argv) {
   int maxRetries = result["max-retries"].as<int>();
   double pBranch = result["p-branch"].as<double>();
   double pBackedge = result["p-backedge"].as<double>();
-  bool requireReducible = result.count("require-reducible") > 0;
+  bool requireReducible = result.count("require-reducible") > 0 || requireNonterm;
   bool enableInterestCoefs = true; // kept in code; not user-exposed
   double pLargeCoef = result["p-large-coef"].as<double>();
   if (pLargeCoef < 0.0 || pLargeCoef > 1.0) {
@@ -730,6 +796,8 @@ int main(int argc, char **argv) {
   }
   uint32_t timeoutMs = result["timeout"].as<uint32_t>();
   SolvingMode solMode = result.count("require-ub") ? SolvingMode::RequireUB : SolvingMode::UBFree;
+  if (requireNonterm)
+    solMode = SolvingMode::RequireNonterm;
   // Wall-clock budget per function: covers all retries × inits plus 50 ms for non-solver overhead
   // (CFG gen, path sampling, formula construction, SIRPrinter). Compilation runs outside the
   // thread.
@@ -737,7 +805,9 @@ int main(int argc, char **argv) {
   bool keepSymbolic = result.count("keep-symbolic") > 0;
   bool emitDesc = result.count("emit-desc") > 0;
   bool doValidate = result.count("validate") > 0;
-  bool emitMain = result.count("emit-main") > 0;
+  // A diverging program has no return value to assert, and its @main would
+  // loop forever, so --emit-main is meaningless under --require-nonterm.
+  bool emitMain = result.count("emit-main") > 0 && !requireNonterm;
   bool verbose = result.count("verbose") > 0;
   std::string emitStateMode =
       result.count("emit-state") ? result["emit-state"].as<std::string>() : "";
@@ -759,7 +829,13 @@ int main(int argc, char **argv) {
   // guaranteed to trap. This costs nothing: a UB-triggering program
   // aborts before it reaches a clean `ret`, so the crc32 return-value
   // oracle is vestigial for it anyway.
-  bool noCrc32 = result.count("no-crc32") > 0 || solMode == SolvingMode::RequireUB;
+  // --require-ub and --require-nonterm both imply --no-crc32. RequireUB
+  // needs the emitted program byte-identical to the solved one (the CRC32
+  // rewrite would delete a solver-found accumulator overflow); RequireNonterm
+  // never reaches ^exit, so the checksum is dead and its post-solve oracle
+  // (which runs the program under symiri) would hang on the divergent loop.
+  bool noCrc32 = result.count("no-crc32") > 0 || solMode == SolvingMode::RequireUB ||
+                 solMode == SolvingMode::RequireNonterm;
   std::string target = result["target"].as<std::string>();
   bool noRequire = !result.count("keep-require");
   // [v0.2.3] UB-free generation (the default) produces programs the
@@ -844,7 +920,7 @@ int main(int argc, char **argv) {
           nStmts, offPathMultiplier, enableInterestCoefs, pLargeCoef, largeCoefThreshold, coefLo,
           coefHi, valueLo, valueHi, indexLo, indexHi, exprCfg, enableIntrinsics, timeoutMs, solMode,
           maxRetries, nInits, outDir, keepSymbolic, verbose, state->rng, funcSeed, genId, emitDesc,
-          emitMain, noCrc32
+          emitMain, noCrc32, requireNonterm
       );
       state->done.store(true, std::memory_order_release);
     });
@@ -901,7 +977,10 @@ int main(int argc, char **argv) {
       }
     }
 
-    if (doValidate || !emitStateMode.empty()) {
+    // A diverging program runs forever, so the symiri-based validate /
+    // state-profile passes below would hang. Skip them under --require-nonterm
+    // (bounded-replay divergence validation is a separate follow-up).
+    if ((doValidate || !emitStateMode.empty()) && !requireNonterm) {
       const bool wantProfile = !emitStateMode.empty();
       const StateGranularity stGran =
           emitStateMode == "ppp" ? StateGranularity::Ppp : StateGranularity::Pbb;
