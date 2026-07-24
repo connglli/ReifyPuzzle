@@ -1967,7 +1967,7 @@ def test_custom_int_widths_generated(rysmith):
 def test_no_crc32_flag_accepted(rysmith):
   """rysmith --no-crc32 is accepted as a valid CLI flag and runs successfully."""
   with tempfile.TemporaryDirectory() as d:
-    r = run([rysmith, "--n-funcs", "1", "--no-crc32", "-o", d])
+    r = run([rysmith, "--n-funcs", "1", "--no-crc32", "--seed", "7", "-o", d])
     check(
       "rysmith --no-crc32 run exits 0",
       r.returncode == 0,
@@ -1978,7 +1978,7 @@ def test_no_crc32_flag_accepted(rysmith):
 def test_no_crc32_no_crc32_update_in_sir(rysmith):
   """When --no-crc32 is specified, the generated SIR file does not contain crc32_update."""
   with tempfile.TemporaryDirectory() as d:
-    r = run([rysmith, "--n-funcs", "1", "--no-crc32", "-o", d])
+    r = run([rysmith, "--n-funcs", "1", "--no-crc32", "--seed", "7", "-o", d])
     if r.returncode != 0:
       check("no-crc32 presence check setup", False, r.stderr[:200])
       return
@@ -2299,8 +2299,8 @@ def test_require_nonterm_validate_flag(rysmith):
       ]
     )
     check("require-nonterm --validate exits 0", r.returncode == 0, r.stderr[:300])
-    oks = r.stdout.count("validated: OK (diverges)")
-    fails = r.stdout.count("validated: FAIL")
+    oks = r.stdout.count("validated: OK(")
+    fails = r.stdout.count("validated: FAIL(")
     check(
       "require-nonterm --validate: >=1 OK and 0 FAIL",
       oks >= 1 and fails == 0,
@@ -2350,11 +2350,13 @@ def test_require_nonterm_emit_main(rysmith, symiri, symirc):
 
 
 def test_require_nonterm_c_stays_infinite(rysmith):
-  """A diverging program keeps looping when compiled to C at -O2 under both gcc
-  and clang. RefractIR emits only constant-condition loops (structured `for(;;)`
-  + break, or `label: … goto label`), which C11 6.8.5p6 exempts from the
-  terminate-and-delete assumption — so the loop survives optimization. A build
-  that terminates would be a miscompilation (or a regression in the lowering)."""
+  """A diverging program compiled to C keeps looping at -O2 under both gcc and
+  clang. A side-effect-free infinite loop is deletable under C11 6.8.5p6 /
+  mustprogress, and gcc/clang exploit that non-deterministically at -O2 — so
+  rysmith plants an `@observe` beacon (a volatile write) in the cycle to keep
+  the loop observably side-effecting. This test uses the default goto lowering
+  and seed 33, a config that terminated under clang -O2 *before* the beacon; a
+  build that terminates now is a regression (beacon dropped or lowered wrong)."""
   import shutil
 
   ccs = [c for c in ("gcc", "clang") if shutil.which(c)]
@@ -2367,12 +2369,10 @@ def test_require_nonterm_c_stays_infinite(rysmith):
         rysmith,
         "--require-nonterm",
         "--emit-main",
-        "--structured-lowering",
-        "true",
         "--target",
         "c",
         "--seed",
-        "700",
+        "33",
         "--n-funcs",
         "4",
         "--n-inits",

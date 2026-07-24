@@ -495,33 +495,33 @@ namespace refractir::reify {
     if (!fun)
       return;
 
-    // Scalar-integer mutable lets, keyed by name (the checksum accumulator
-    // is generation scaffolding, never real state — exclude it).
-    std::unordered_map<std::string, TypePtr> intLets;
+    // Declared type of each mutable let (the checksum accumulator is
+    // generation scaffolding, never real state — exclude it).
+    std::unordered_map<std::string, TypePtr> letTypes;
     for (const auto &l: fun->lets)
-      if (l.name.name != "%_chk" && isIntType(l.type))
-        intLets[l.name.name] = l.type;
+      if (l.name.name != "%_chk")
+        letTypes[l.name.name] = l.type;
 
     std::unordered_set<std::string> cycleSet(cycleLabels.begin(), cycleLabels.end());
 
-    // Scalar-int lets the cycle assigns, in first-write order. A let the
-    // cycle never writes is invariant across the lap and needs no correction.
-    std::vector<std::string> written;
+    // Mutable lets the cycle *touches* (assigns via any access path), in
+    // first-touch order. Every scalar-int leaf of a touched let is corrected
+    // below, so a dynamic-index write — whose target leaf is not statically
+    // known — is still closed (all leaves of that let get a correction). A let
+    // the cycle never writes is invariant across the lap and needs none.
+    std::vector<std::string> touched;
     std::unordered_set<std::string> seen;
     for (auto &blk: fun->blocks) {
       if (!cycleSet.count(blk.label.name))
         continue;
-      for (auto &ins: blk.instrs) {
+      for (auto &ins: blk.instrs)
         if (auto *a = std::get_if<AssignInstr>(&ins)) {
-          if (!a->lhs.accesses.empty())
-            continue; // whole-local writes only
           const std::string &nm = a->lhs.base.name;
-          if (intLets.count(nm) && seen.insert(nm).second)
-            written.push_back(nm);
+          if (letTypes.count(nm) && seen.insert(nm).second)
+            touched.push_back(nm);
         }
-      }
     }
-    if (written.empty())
+    if (touched.empty())
       return;
 
     Block *latch = nullptr;
@@ -533,21 +533,108 @@ namespace refractir::reify {
     if (!latch)
       return;
 
-    // One fresh correction symbol + `%v = %v + %?ntK;` per written leaf,
-    // appended (in order) to the latch so they are the lap's final writes.
-    int k = 0;
-    for (const auto &nm: written) {
-      std::string symName = "%?nt" + std::to_string(k++);
-      SymDecl d;
-      d.name = SymId{symName, {}};
-      d.kind = SymKind::Value;
-      d.type = intLets[nm];
-      fun->syms.push_back(std::move(d));
+    auto findStruct = [&](const std::string &sname) -> const StructDecl * {
+      for (const auto &d: prog.structs)
+        if (d.name.name == sname)
+          return &d;
+      return nullptr;
+    };
 
-      Expr rhs;
-      rhs.first = rvalAtom(localLV(nm));
-      rhs.rest.push_back({AddOp::Plus, coefAtom(LocalOrSymId{SymId{symName, {}}}), {}});
-      latch->instrs.push_back(Instr{AssignInstr{localLV(nm), std::move(rhs), {}}});
+    // Append `<leaf> = <leaf> + %?ntK;` to the latch for every scalar-integer
+    // leaf of a touched let, recursing through array / vector / struct nesting.
+    // The fresh correction symbol gives the solver the freedom to restore that
+    // leaf to its header-entry value, so the fixed point is always solvable.
+    // Pointer and FP leaves are skipped — --require-nonterm restricts vars to
+    // integer scalars and aggregates thereof, so those never occur. The first
+    // int leaf is remembered so an @observe beacon can be planted on it below.
+    int k = 0;
+    bool haveObsLeaf = false;
+    LValue obsLv;
+    TypePtr obsTy;
+    std::function<void(LValue, const TypePtr &)> correctLeaves;
+    correctLeaves = [&](LValue lv, const TypePtr &t) {
+      if (!t || isPtrType(t))
+        return;
+      if (isIntType(t)) {
+        if (!haveObsLeaf) {
+          haveObsLeaf = true;
+          obsLv = lv;
+          obsTy = t;
+        }
+        std::string symName = "%?nt" + std::to_string(k++);
+        SymDecl d;
+        d.name = SymId{symName, {}};
+        d.kind = SymKind::Value;
+        d.type = t;
+        fun->syms.push_back(std::move(d));
+
+        Expr rhs;
+        rhs.first = rvalAtom(lv); // read the leaf
+        rhs.rest.push_back({AddOp::Plus, coefAtom(LocalOrSymId{SymId{symName, {}}}), {}});
+        latch->instrs.push_back(Instr{AssignInstr{std::move(lv), std::move(rhs), {}}});
+        return;
+      }
+      if (std::holds_alternative<ArrayType>(t->v)) {
+        const auto &at = std::get<ArrayType>(t->v);
+        for (uint64_t i = 0; i < at.size; i++) {
+          LValue inner = lv;
+          inner.accesses.push_back(AccessIndex{Index{IntLit{(int64_t) i, {}}}, {}});
+          correctLeaves(std::move(inner), at.elem);
+        }
+        return;
+      }
+      if (std::holds_alternative<VecType>(t->v)) {
+        const auto &vt = std::get<VecType>(t->v);
+        for (uint64_t i = 0; i < vt.size; i++) {
+          LValue inner = lv;
+          inner.accesses.push_back(AccessIndex{Index{IntLit{(int64_t) i, {}}}, {}});
+          correctLeaves(std::move(inner), vt.elem);
+        }
+        return;
+      }
+      if (std::holds_alternative<StructType>(t->v)) {
+        const std::string &sname = std::get<StructType>(t->v).name.name;
+        if (const StructDecl *sd = findStruct(sname))
+          for (const auto &f: sd->fields) {
+            LValue inner = lv;
+            inner.accesses.push_back(AccessField{f.name, {}});
+            correctLeaves(std::move(inner), f.type);
+          }
+        return;
+      }
+    };
+
+    for (const auto &nm: touched)
+      correctLeaves(localLV(nm), letTypes[nm]);
+
+    // Plant one observability beacon in the cycle: `%leaf = call @observe(%leaf);`.
+    // @observe is the identity, so the header fixed point is unaffected, but its
+    // C lowering performs an observable volatile write — a side effect that
+    // stops the optimizer from treating the infinite loop as side-effect-free
+    // and deleting it under the C11 §6.8.5p6 / mustprogress termination
+    // assumption (which fires non-deterministically at -O2 otherwise).
+    if (haveObsLeaf) {
+      bool declared = false;
+      for (const auto &id: prog.intrinsics)
+        if (id.name.name == "@observe") {
+          declared = true;
+          break;
+        }
+      if (!declared) {
+        IntrinsicDecl id;
+        id.name = GlobalId{"@observe", {}};
+        id.retType = obsTy;
+        ParamDecl p;
+        p.name = LocalId{"%x", {}};
+        p.type = obsTy;
+        id.params.push_back(std::move(p));
+        prog.intrinsics.push_back(std::move(id));
+      }
+      CallAtom ca;
+      ca.callee = GlobalId{"@observe", {}};
+      ca.args.push_back(std::make_shared<Expr>(simpleExpr(rvalAtom(obsLv))));
+      Expr obsRhs = simpleExpr(Atom{std::move(ca), {}});
+      latch->instrs.push_back(Instr{AssignInstr{obsLv, std::move(obsRhs), {}}});
     }
   }
 

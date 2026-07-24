@@ -738,15 +738,14 @@ int main(int argc, char **argv) {
     return 2;
   }
   if (requireNonterm) {
+    // Integer scalars, arrays, structs, and vectors: spliceNontermCorrections
+    // closes every scalar-int leaf of a touched aggregate, so the header fixed
+    // point stays solvable over aggregate state too. Floats (their fixed point
+    // needs a ±0 bit-exact re-verify) and pointers (leaf = restore the target
+    // cell) are deferred, so keep them off.
     typeCfg.enableFp = false;
-    typeCfg.enableVec = false;
     typeCfg.enableAggPtr = false;
     typeCfg.maxPtrDepth = 0;
-    // maxAggNesting = 0 zeroes the array/struct probability at depth 0, so
-    // with pointers/vectors/floats off every var is an integer scalar — then
-    // every mutable leaf the cycle writes is a whole local that
-    // spliceNontermCorrections can close.
-    typeCfg.maxAggNesting = 0;
   }
 
   int minAtoms = result["min-atoms"].as<int>();
