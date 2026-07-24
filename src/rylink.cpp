@@ -261,6 +261,11 @@ struct PerProgConfig {
   std::string structuredLowering = "false";
   bool keepRequire = false;
   bool keepUbGuards = false; // [v0.2.3] force UB guards on even for UB-free bundles
+  // [v0.2.3] The common outcome of every pool leaf (the pool is required to be
+  // homogeneous). Determines the whole program's behavior and how --validate
+  // checks it: Return → assert the solved ret; Trap → assert it traps; Diverge
+  // → bounded-replay assert it diverges.
+  FuncDescriptor::Outcome poolKind = FuncDescriptor::Outcome::Return;
   bool validate = false;
   bool verbose = false;
   bool emitMain = false;
@@ -395,7 +400,14 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
         }
         paramVals.push_back(std::move(val));
       }
-      FunDecl mainFn = reify::buildMainFunction(bundle, *entryFn, paramVals, entryRz.retValue);
+      // A diverging entry never returns, so it has no captured ret value; use a
+      // random i32 so @check_chksum stays present (the compiler can't prove the
+      // loop is infinite, so it must keep the computation). Return/Trap use the
+      // solved ret (a Trap entry traps before reaching the — unreachable — check).
+      std::string expected = entryRz.retValue;
+      if (cfg.poolKind == FuncDescriptor::Outcome::Diverge && expected.empty())
+        expected = std::to_string((int32_t) rng());
+      FunDecl mainFn = reify::buildMainFunction(bundle, *entryFn, paramVals, expected);
       bundle.funs.push_back(std::move(mainFn));
     }
   }
@@ -518,19 +530,42 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
     std::cout << "  compiled: " << pyOut << "\n";
   }
 
-  // Validate: run symiri with the entry's param realization values and
-  // assert the returned value matches the descriptor's solved ret.
+  // Validate the fused program on the entry's solved input, asserting the
+  // behavior the homogeneous pool's outcome dictates.
   if (cfg.validate) {
     std::vector<std::string> args;
     for (const auto &pv: entryRz.paramValues)
       args.push_back(pv.second);
-    auto got = runSymiriCaptureResult(programSir, nodes[cg.entry()].funcName, args);
-    bool ok = got && (*got == entryRz.retValue);
+    const std::string &entryName = nodes[cg.entry()].funcName;
+    bool ok = false;
+    std::string detail;
+    switch (cfg.poolKind) {
+      case FuncDescriptor::Outcome::Return: {
+        // Assert the entry returns its descriptor's solved ret value.
+        auto got = runSymiriCaptureResult(programSir, entryName, args);
+        ok = got && (*got == entryRz.retValue);
+        detail =
+            "expected=" + entryRz.retValue + " got=" + (got ? *got : std::string("<no Result>"));
+        break;
+      }
+      case FuncDescriptor::Outcome::Trap:
+        // Assert the whole program triggers UB (like rysmith --require-ub).
+        ok = programTraps(programSir, entryName, args);
+        detail = "expected UB but the program did not trap";
+        break;
+      case FuncDescriptor::Outcome::Diverge: {
+        // Assert the program diverges: the entry is the unmodified diverging
+        // leaf, whose lasso header is the last block of its descriptor path.
+        std::string header = entryEntry.desc.path.empty() ? "" : entryEntry.desc.path.back();
+        ok = validateNontermDiverges(programSir, entryName, args, header);
+        detail = "expected divergence (header=" + header + ")";
+        break;
+      }
+    }
     if (ok) {
       std::cout << "  validated: OK (" << failTag << ")\n";
     } else {
-      std::cerr << "  validated: FAIL (" << failTag << ") expected=" << entryRz.retValue
-                << " got=" << (got ? *got : std::string("<no Result>")) << "\n";
+      std::cerr << "  validated: FAIL (" << failTag << ") " << detail << "\n";
       return false;
     }
   }
@@ -686,18 +721,6 @@ int main(int argc, char **argv) {
   std::cout << "rylink: master seed = " << seed << "\n";
   std::cout << "rylink: generation id = " << genId << "\n";
   FuncPool pool = loadFuncPool(res["input-dir"].as<std::string>());
-  // [v0.2.3] A diverging leaf (rysmith --require-nonterm) never returns, so a
-  // spliced `call @leaf(...) + (c - o)` would hang the caller. Discard such
-  // seeds unconditionally — they can't participate in a call graph.
-  {
-    std::size_t before = pool.entries.size();
-    std::erase_if(pool.entries, [](const PoolEntry &e) {
-      return e.desc.outcome == FuncDescriptor::Outcome::Diverge;
-    });
-    if (std::size_t discarded = before - pool.entries.size())
-      std::cout << "rylink: discarded " << discarded
-                << " non-terminating seed(s) (cannot be called)\n";
-  }
   // [v0.2.3] Structuring consumers only handle reducible CFGs, and
   // seed programs (older pools, runs without --require-reducible) may
   // not be: discard every seed whose descriptor is not known
@@ -720,7 +743,24 @@ int main(int argc, char **argv) {
     std::cerr << "rylink: empty pool — aborting\n";
     return 1;
   }
-  std::cout << "rylink: pool size = " << pool.entries.size() << "\n";
+  // [v0.2.3] rylink composes a HOMOGENEOUS pool: every leaf must share the same
+  // runtime outcome (all Return, all Trap, or all Diverge). A mixed pool has no
+  // well-defined fused behavior — e.g. a returning caller splicing a call to a
+  // trapping or non-terminating callee — so it is rejected. The common outcome
+  // becomes the whole program's outcome and drives @main + --validate.
+  pc.poolKind = pool.entries.front().desc.outcome;
+  for (const auto &e: pool.entries)
+    if (e.desc.outcome != pc.poolKind) {
+      std::cerr << "rylink: pool is not homogeneous — every leaf must have the same outcome "
+                   "(all return, all trap, or all diverge). Regenerate the pool with a single "
+                   "rysmith mode (default / --require-ub / --require-nonterm).\n";
+      return 1;
+    }
+  std::cout << "rylink: pool size = " << pool.entries.size() << " (outcome: "
+            << (pc.poolKind == FuncDescriptor::Outcome::Return    ? "return"
+                : pc.poolKind == FuncDescriptor::Outcome::Diverge ? "diverge"
+                                                                  : "trap")
+            << ")\n";
 
   fs::create_directories(pc.outRoot);
   int nProgs = std::max(1, res["n-progs"].as<int>());

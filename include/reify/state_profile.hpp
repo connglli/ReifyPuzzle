@@ -133,9 +133,13 @@ namespace refractir::reify {
   // return the resulting StateProfile. Throws whatever the interpreter
   // throws (e.g. UndefinedBehaviorError) — callers targeting UB-free
   // programs can let it propagate.
+  // `maxBlockSteps` caps the number of basic blocks the profiling run may
+  // enter (0 = unlimited); when exceeded the interpreter throws StepLimitError.
+  // A caller that can't rule out a non-terminating program up front (no
+  // descriptor) passes a bound so profiling fails cleanly instead of hanging.
   StateProfile profileProgram(
       const Program &prog, const std::string &func, const std::vector<std::string> &paramArgs,
-      StateGranularity granularity = StateGranularity::Pbb
+      StateGranularity granularity = StateGranularity::Pbb, std::uint64_t maxBlockSteps = 0
   );
 
   // Serialize a StateProfile to JSON (bit-exact FP via formatDouble).

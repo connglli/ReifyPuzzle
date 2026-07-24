@@ -274,6 +274,15 @@ namespace refractir::reify {
       std::uint64_t maxBlocks = 256
   );
 
+  // [v0.2.3] Returns true iff running `funcName` on `paramArgs` triggers
+  // undefined behavior (the intended outcome of a --require-ub program), and
+  // false on a clean return, a require-failure, or any parse/setup error. Used
+  // to validate a UB-triggering whole program (rylink over a trap pool).
+  bool programTraps(
+      const std::filesystem::path &sirPath, const std::string &funcName,
+      const std::vector<std::string> &paramArgs
+  );
+
   // ---------------------------------------------------------------------------
   // Shared backend compiler helpers
   // ---------------------------------------------------------------------------

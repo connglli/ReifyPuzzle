@@ -266,7 +266,7 @@ namespace refractir::reify {
 
   StateProfile profileProgram(
       const Program &prog, const std::string &func, const std::vector<std::string> &paramArgs,
-      StateGranularity granularity
+      StateGranularity granularity, std::uint64_t maxBlockSteps
   ) {
     StateProfile profile;
     profile.func = func.empty() || func[0] == '@' ? func : "@" + func;
@@ -278,6 +278,7 @@ namespace refractir::reify {
     std::ostringstream sink;
     Interpreter interp(prog, sink);
     attachStateProfile(interp, profile, granularity);
+    interp.setMaxBlockSteps(maxBlockSteps);
     interp.run(profile.func, {}, paramArgs, /*dumpExec=*/false);
     return profile;
   }

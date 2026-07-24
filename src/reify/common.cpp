@@ -185,6 +185,39 @@ namespace refractir::reify {
     }
   }
 
+  bool programTraps(
+      const fs::path &sirPath, const std::string &funcName,
+      const std::vector<std::string> &paramArgs
+  ) {
+    std::ifstream ifs(sirPath);
+    if (!ifs)
+      return false;
+    std::stringstream ss;
+    ss << ifs.rdbuf();
+    std::string src = ss.str();
+    try {
+      Lexer lx(src);
+      auto toks = lx.lexAll();
+      Parser ps(std::move(toks));
+      Program prog = ps.parseProgram();
+      if (!runAnalysisPasses(prog, /*verbose=*/false))
+        return false;
+      std::string canonical = funcName.empty() || funcName[0] == '@' ? funcName : "@" + funcName;
+      std::stringstream sink;
+      Interpreter interp(prog, sink);
+      try {
+        interp.run(canonical, {}, paramArgs);
+        return false; // returned cleanly — no UB
+      } catch (const UndefinedBehaviorError &) {
+        return true; // trapped, as a --require-ub program should
+      } catch (...) {
+        return false; // require-failure / other — not the UB we wanted
+      }
+    } catch (...) {
+      return false;
+    }
+  }
+
   // [v0.2.3] Structured emission (C/WASM --structured-lowering, python)
   // is only total on reducible CFGs. Callers filter or repair upstream;
   // verify here so a violation is a clean failure instead of

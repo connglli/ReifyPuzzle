@@ -31,6 +31,7 @@
 #include "ast/sir_printer.hpp"
 #include "backend/wasm_vec_lowering.hpp"
 #include "cxxopts.hpp"
+#include "error.hpp"
 #include "frontend/lexer.hpp"
 #include "frontend/parser.hpp"
 #include "reify/common.hpp"
@@ -48,6 +49,13 @@
 
 namespace fs = std::filesystem;
 using namespace refractir;
+
+// Block-step budget for the in-process profiling run when no descriptor is
+// present (so the leaf's outcome is unknown). A UB-free terminating program
+// finishes well within it; a non-terminating one hits the cap and is rejected
+// instead of hanging. Generous because it only bounds this rare no-descriptor
+// path — rysmith/rylink outputs always carry a descriptor.
+static constexpr std::uint64_t kNoDescProfileStepCap = 3200;
 using namespace refractir::reify;
 
 static std::string readFile(const fs::path &p) {
@@ -293,11 +301,16 @@ int main(int argc, char **argv) {
     if (!desc)
       std::cerr << "rytwin: warning: could not read descriptor " << descPath << "\n";
   }
-  // A non-terminating program (rysmith --require-nonterm) can't be twinned:
-  // rytwin profiles p1 by interpreting it on its solved input, which would
-  // hang, and a region twin has no exit state to memoize.
-  if (desc && desc->outcome == FuncDescriptor::Outcome::Diverge) {
-    std::cerr << "rytwin: cannot twin a non-terminating program (" << inputPath << ")\n";
+  // rytwin only transforms UB-free terminating programs. When the descriptor
+  // is present, reject a trapping (--require-ub) or non-terminating
+  // (--require-nonterm) leaf up front with a clear message: profiling one would
+  // trap, the other would hang. Without a descriptor the bounded profiling run
+  // below catches both cases.
+  if (desc && desc->outcome != FuncDescriptor::Outcome::Return) {
+    const char *kind =
+        desc->outcome == FuncDescriptor::Outcome::Diverge ? "non-terminating" : "UB-triggering";
+    std::cerr << "rytwin: cannot twin a " << kind << " program (" << inputPath
+              << "); rytwin only transforms UB-free terminating programs\n";
     return 1;
   }
   std::string entry = findEntry(prog, desc);
@@ -337,8 +350,19 @@ int main(int argc, char **argv) {
                 << " — falling back to in-process profiling\n";
   }
   if (!profile) {
+    // Without a descriptor we can't rule out a trapping or non-terminating
+    // program up front, so bound the profiling run: a UB-free terminating
+    // program finishes well within the budget, a trapping one throws UB, and a
+    // non-terminating one hits the step cap — all rejected below. With a
+    // descriptor the outcome check above already gated those out, so the run
+    // is unbounded.
+    const std::uint64_t stepCap = desc ? 0 : kNoDescProfileStepCap;
     try {
-      profile = profileProgram(prog, profEntry, args, StateGranularity::Pbb);
+      profile = profileProgram(prog, profEntry, args, StateGranularity::Pbb, stepCap);
+    } catch (const StepLimitError &) {
+      std::cerr << "rytwin: profiling " << inputPath.filename() << " exceeded " << stepCap
+                << " steps — refusing to twin a possibly non-terminating program\n";
+      return 1;
     } catch (const std::exception &e) {
       std::cerr << "rytwin: failed to profile " << inputPath.filename()
                 << " on its recorded input: " << e.what() << "\n";
