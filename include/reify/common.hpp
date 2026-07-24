@@ -271,7 +271,7 @@ namespace refractir::reify {
   bool validateNontermDiverges(
       const std::filesystem::path &sirPath, const std::string &funcName,
       const std::vector<std::string> &paramArgs, const std::string &headerLabel,
-      std::uint64_t maxBlocks = 4000
+      std::uint64_t maxBlocks = 256
   );
 
   // ---------------------------------------------------------------------------

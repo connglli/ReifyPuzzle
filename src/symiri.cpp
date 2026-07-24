@@ -31,6 +31,7 @@ int main(int argc, char **argv) {
     ("sym", "Bind a symbol (name=value)", cxxopts::value<std::vector<std::string>>())
     ("check", "Check semantics only (do not execute)", cxxopts::value<bool>()->default_value("false"))
     ("dump-trace", "Dump executed blocks and variable updates", cxxopts::value<bool>()->default_value("false"))
+    ("max-bbl-steps", "Abort after entering this many basic blocks (0 = unlimited); bounds a possibly non-terminating program", cxxopts::value<uint64_t>()->default_value("0"))
     ("w", "Inhibit all warning messages", cxxopts::value<bool>()->default_value("false"))
     ("Werror", "Make all warnings into errors", cxxopts::value<bool>()->default_value("false"))
     ("I", "Include path for resolving link-form `decl`s (may repeat)", cxxopts::value<std::vector<std::string>>())
@@ -161,8 +162,12 @@ int main(int argc, char **argv) {
     if (result.count("args"))
       paramArgs = result["args"].as<std::vector<std::string>>();
     Interpreter interp(prog);
+    interp.setMaxBlockSteps(result["max-bbl-steps"].as<uint64_t>());
     interp.run(mainFunc, symBindings, paramArgs, result["dump-trace"].as<bool>());
 
+  } catch (const StepLimitError &e) {
+    std::cerr << "Step limit exceeded: " << e.what() << "\n";
+    return ExitCode::Error;
   } catch (const UndefinedBehaviorError &e) {
     std::cerr << e.what() << "\n";
     return ExitCode::UndefinedBehavior;
