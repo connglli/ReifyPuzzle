@@ -133,11 +133,12 @@ Multiple concretizations of the same symbolic template (different solver seeds, 
 
 ### S5: Lowering
 
-The concrete `.sir` file is lowered to C or WASM by `symirc`:
+The concrete `.sir` file is lowered to C, WASM, or Python by `symirc`:
 
 ```
 rysmith  →  concrete .sir  →  symirc -t c  →  .c  →  gcc / clang (link with -lm)
-                            →  symirc -t wasm →  .wat / .wasm
+                           →  symirc -t wasm →  .wat / .wasm
+                           →  symirc -t python →  .py
 ```
 
 The generated C code is suitable for direct compilation and execution under the generated input $i$. The expected output $o$ is the return value of the function (the checksum over all live variables at exit).
@@ -244,6 +245,7 @@ rysmith [OPTIONS]
 | `--timeout N` | 2000 | SMT solver timeout per attempt (ms) |
 | `--seed N` | random | Master RNG seed |
 | `--require-ub` | off | Generate programs that **trigger** UB on the sampled path instead of UB-free ones (see below). Implies `--no-crc32`. |
+| `--require-nonterm` | off | Generate UB-free programs that **diverge** (⇑) on the sampled input instead of terminating ones (see below). Samples a lasso instead of an entry-to-exit path; implies `--require-reducible` and `--no-crc32`. |
 | `--no-crc32` | off | Keep the sum-form checksum (`%_chk = %_chk + <leaf>`) in the emitted program instead of rewriting it to `@crc32_update` calls |
 
 #### Output
@@ -316,6 +318,20 @@ By default every generated program is UB-free on its input: the solver asserts e
 
 `--require-ub` **implies `--no-crc32`.** The solver reasons about the *sum-form* checksum (`%_chk = %_chk + <leaf>`, the cheap contract above), and one legitimate way to satisfy "at least one UB on the path" is to overflow that signed accumulator. The post-solve CRC32 rewriter, however, replaces every `%_chk = %_chk + <leaf>` with a total `@crc32_update(...)` call — which cannot overflow — so it would silently *delete* the very UB the solver just proved, leaving the emitted program UB-free. Keeping the sum form (`--no-crc32`) makes the program rysmith emits byte-identical to the one it solved, so a solver-found UB is guaranteed to trap under the interpreter. This costs nothing: a UB-triggering program aborts before it reaches a clean `ret`, so its CRC32 return-value oracle is vestigial anyway.
 
+### Generating non-terminating programs (`--require-nonterm`)
+
+By default every generated program terminates and returns the checksum. With `--require-nonterm`, rysmith instead generates programs that are UB-free but **diverge** (⇑) on their input — the concretization runs forever. The witness is no longer a finite entry-to-exit path but a *lasso*: a finite stem ρ from `^entry` to a loop header `^h`, followed by a cycle γ that closes back at `^h`. The infinite execution ρ·γ^ω is represented by the finite prefix ρ·γ — the stem plus one lap, ending on the revisit of `^h` — and nothing materializes the infinite unrolling. The mode implies `--require-reducible` so every sampled back edge is a genuine loop header (its target dominates its source).
+
+The core is a **state fixed point**. Symbolic execution walks the lasso once and snapshots the complete mutable state at `^h`'s entry on the first arrival (σ_h) and again on the revisit (σ_h′, the state after one lap). It then asserts σ_h′ = σ_h — a bit-exact equality over every `let mut` leaf (scalars, aggregate/vector lanes, and pointer addresses; parameters and syms are immutable and cannot change) — together with the ordinary UB-safety guards collected over the stem and the one lap. Because execution is deterministic, a lap that starts in σ_h and returns to σ_h replays identically forever: the same branches are taken (so control stays on γ), the same operations stay UB-free, and the same state recurs. One finite SMT query therefore certifies an infinite, UB-free execution. This is delegated to `symirsolve`'s RequireNonterm mode (see [symirsolve.md](./symirsolve.md)) — the divergent analogue of RequireUB: where RequireUB *negates* the safety guards, RequireNonterm *asserts* them and adds the header recurrence. (A one-lap fixed point is the default; recurring only after a period of k > 1 laps is a planned generalization.)
+
+A freely random cycle rarely admits a fixed point, so the cycle blocks are seeded like `rytwin`'s twin bodies: random statements over the live state plus **one fresh additive-correction symbol per mutable leaf the cycle touches**, giving the solver the freedom to restore each leaf to its entry value. (RefractIR's `+ - * <<` trap on signed overflow, so a bare `x = x + c` would force `c = 0`; the corrections carry their own no-overflow guards, and the body is biased toward the overflow-safe `^ & | lshr` mixers.) To avoid emitting a trivial `while (1)`, the sampler keeps a live-looking exit edge on the cycle that the data never takes, and at least one intermediate lap state is required to differ from σ_h — so the loop genuinely computes even though it recurs.
+
+`--require-nonterm` **implies `--no-crc32`.** A diverging program never reaches `^exit`, so it has no return value and the CRC32 return-value oracle is vestigial; more to the point, the post-solve oracle capture runs the program under `symiri`, which would *hang* on a divergent one. Validation is therefore not a return-value diff but a **bounded replay**: the interpreter runs the stem and a few laps under a fuel bound (reusing the per-block state-capture hook that backs `--emit-state`) and confirms that two successive arrivals at `^h` carry bit-identical state, that no UB fires, and that no `ret` is reached. The `--emit-desc` descriptor records the leaf's **`outcome`** (`return` / `trap` / `diverge`, generalizing the old `has_ub` bool), which downstream tools key on: `rylink` requires a homogeneous pool and composes a `diverge` pool into a diverging whole program, while `rytwin` refuses a `diverge` (or `trap`) input. See the `rylink` and `rytwin` sections for the full behavior.
+
+**`--emit-main` for divergence.** `--emit-main` still applies: rysmith appends a `@main` that calls the entry and asserts its return via `@check_chksum(EXPECTED, %r)`. The entry call never returns, so the check is unreachable at runtime — but the compiler cannot prove the loop diverges, so it must keep the whole computation alive against `@check_chksum`'s `abort()` side effect. There is no captured return value to assert, so `EXPECTED` is a **random** `i32` (any literal is sound, since the check is never reached). This makes `--require-nonterm --emit-main` a compilable whole-program differential-testing artifact: a correct compilation hangs, while a miscompilation that lets the loop terminate reaches the check and aborts.
+
+**Limitation.** The C differential oracle is out of scope for this mode. C11 / C++ forward-progress rules (`mustprogress`) permit a compiler to legally delete a side-effect-free infinite loop, so a deleted loop is not a miscompilation. Making C observe the divergence requires an observable side effect inside the cycle — a planned `@observe()` intrinsic lowering to a `volatile` write in C and to nothing in WASM / Python — which is deferred; until then, exercise this mode with the interpreter, WASM, or Python targets.
+
 ### Dropping UB guards for UB-free output
 
 The C/WASM/Python backends emit dynamic UB guards (`symirc --no-ub-guards`; see [symirc.md](./symirc.md#omitting-ub-guards---no-ub-guards-v023)). Because those guards only ever fire on a UB path, a program the reify pipeline proves UB-free renders them dead weight, so the tools **drop them automatically** rather than exposing a flag:
@@ -330,6 +346,18 @@ Each tool takes **`--keep-ub-guards`** to force the guards back on — useful fo
 ## Tool: rylink
 
 `rylink` reads a rysmith function pool, builds whole programs over it, and (optionally) compiles and validates each one following W1-W5.
+
+### Pool outcome (homogeneity)
+
+Every whole program rylink builds has a single well-defined behavior, so the pool must be **homogeneous**: every leaf's descriptor `outcome` must be the same — all `return`, all `trap`, or all `diverge`. A mixed pool has no well-defined fused behavior (a returning caller splicing a `call` to a trapping or non-terminating callee), so rylink **rejects it with an error**. The common outcome becomes the whole program's outcome and selects how `--validate` checks each program:
+
+| Pool | Fused program | `--validate` asserts |
+|---|---|---|
+| **`return`** (default rysmith) | returns the entry's value; peephole `call + (c − o)` preserves each rewritten literal | the entry returns its descriptor's solved `ret` |
+| **`trap`** (`--require-ub`) | triggers UB — the entry (or a spliced trap callee) traps | the program **traps** under `symiri` |
+| **`diverge`** (`--require-nonterm`) | diverges — the entry is the unmodified diverging leaf (its empty `ret` means no value-preserving call splices, so callees ride along as compiler surface) | the program **diverges** (bounded-replay on the entry's lasso header, taken from the descriptor path) |
+
+UB guards are dropped for `return`/`diverge` bundles (both UB-free) and kept for `trap`. With `--emit-main`, a `diverge` entry's `@main` uses a random `i32` checksum (the entry never returns, so the check is unreachable, but the compiler must keep the computation — see the `--emit-main` note under `--require-nonterm`).
 
 When `--structured-lowering` is `true`/`random` — or the target is `python` — seed programs may not be reducible (older pools, or runs without `rysmith --require-reducible`), so rylink **discards every pool seed whose descriptor's `reducible` flag is false** before generation (descriptors predating the flag parse as false and are conservatively discarded too). If no reducible seeds remain, rylink aborts with a pointer to `rysmith --require-reducible`. The composed program is then reducible by construction: every inlined seed is, and the generated `@main` wrapper's CFG is trivial.
 
@@ -394,6 +422,8 @@ rylink -n 5 --target c --structured-lowering random -i pool/ -o progs/
 ## Tool: rytwin
 
 `rytwin` is an **equivalence-preserving program transformer**. Given a generated program `f1` (a rysmith leaf or a rylink whole program), it emits an equivalent program `f2` such that `f1(i) == f2(i)` for **every** input `i` — same result, same undefined-behaviour outcome. Whole programs are profiled from `@main`, and twins are grafted into any function along the executed trace; the state capture is frame-aware, so states are attributed to the right activation even when block labels repeat across functions.
+
+rytwin only transforms **UB-free terminating** programs, because it profiles `f1` by interpreting it on its solved input. When the descriptor is present, a `trap` (`--require-ub`) or `diverge` (`--require-nonterm`) input is **rejected up front** with a clear message (profiling one would trap, the other would hang). Without a descriptor the profiling run is **bounded** by a block-step cap (`kNoDescProfileStepCap`, 3200): a terminating program finishes well within it, a trapping one throws UB, and a non-terminating one hits the cap — all reported as a clean failure rather than a hang.
 
 ### Usage
 

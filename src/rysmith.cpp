@@ -1023,8 +1023,7 @@ int main(int argc, char **argv) {
         for (const auto &pv: cf.rz.paramValues)
           paramArgs.push_back(pv.second);
         bool ok = validateNontermDiverges(p, baseFuncName, paramArgs, cf.nontermHeader);
-        std::cout << "  validated: " << (ok ? "OK" : "FAIL") << " (diverges) (" << p.filename()
-                  << ")\n";
+        std::cout << "  validated: " << (ok ? "OK" : "FAIL") << "(" << p.filename() << ")\n";
         if (!ok) {
           nFail++;
           allOk = false;
