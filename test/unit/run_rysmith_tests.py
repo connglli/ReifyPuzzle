@@ -2349,6 +2349,61 @@ def test_require_nonterm_emit_main(rysmith, symiri, symirc):
       check(f"{name}: symirc --target c lowers", cc.returncode == 0, cc.stderr[:200])
 
 
+def test_require_nonterm_c_stays_infinite(rysmith):
+  """A diverging program keeps looping when compiled to C at -O2 under both gcc
+  and clang. RefractIR emits only constant-condition loops (structured `for(;;)`
+  + break, or `label: … goto label`), which C11 6.8.5p6 exempts from the
+  terminate-and-delete assumption — so the loop survives optimization. A build
+  that terminates would be a miscompilation (or a regression in the lowering)."""
+  import shutil
+
+  ccs = [c for c in ("gcc", "clang") if shutil.which(c)]
+  if not ccs:
+    check("nonterm-C: a C compiler is available", False, "neither gcc nor clang found")
+    return
+  with tempfile.TemporaryDirectory() as d:
+    run(
+      [
+        rysmith,
+        "--require-nonterm",
+        "--emit-main",
+        "--structured-lowering",
+        "true",
+        "--target",
+        "c",
+        "--seed",
+        "700",
+        "--n-funcs",
+        "4",
+        "--n-inits",
+        "1",
+        "-o",
+        d,
+      ]
+    )
+    cs = [os.path.join(d, f) for f in os.listdir(d) if f.endswith(".c")]
+    check("nonterm-C: emitted at least one .c", len(cs) >= 1, str(cs))
+    for cf in cs:
+      for cc in ccs:
+        binp = cf + "." + cc
+        comp = subprocess.run(
+          [cc, "-O2", cf, "-lm", "-o", binp], capture_output=True, text=True
+        )
+        if comp.returncode != 0:
+          check(f"{os.path.basename(cf)}: {cc} -O2 compiles", False, comp.stderr[:200])
+          continue
+        try:
+          subprocess.run([binp], capture_output=True, timeout=2.0)
+          diverges = False  # returned within the window => terminated
+        except subprocess.TimeoutExpired:
+          diverges = True  # still running => diverges, as intended
+        check(
+          f"{os.path.basename(cf)}: {cc} -O2 build stays infinite",
+          diverges,
+          "compiled program terminated — the diverging loop was deleted",
+        )
+
+
 def test_require_ub_emit_main_reparses(rysmith, symiri):
   """Every --require-ub --emit-main whole-program .sir must re-parse.
 
@@ -3008,6 +3063,8 @@ def main():
   test_require_nonterm_validate_flag(rysmith)
   print("=== --require-nonterm --emit-main: compilable diverging whole program ===")
   test_require_nonterm_emit_main(rysmith, symiri, symirc)
+  print("=== --require-nonterm: compiled C stays infinite at -O2 (gcc/clang) ===")
+  test_require_nonterm_c_stays_infinite(rysmith)
   print("=== --require-ub --emit-main: whole programs re-parse (no inf/nan leak) ===")
   test_require_ub_emit_main_reparses(rysmith, symiri)
   print("=== --emit-state: pbb sidecar shape ===")
