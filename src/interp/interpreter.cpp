@@ -39,6 +39,7 @@ namespace refractir {
 #endif
     dumpExec_ = dumpExec;
     nextFrameId_ = 0;
+    blockSteps_ = 0;
     const FunDecl *entry = nullptr;
     for (const auto &f: prog_.funs) {
       if (f.name.name == entryFuncName) {
@@ -312,6 +313,12 @@ namespace refractir {
     std::size_t pc = cfg.entry;
 
     while (true) {
+      // Block-step budget (see setMaxBlockSteps): bound a possibly non-
+      // terminating run instead of hanging. Counts blocks across nested
+      // calls (blockSteps_ is reset per run()).
+      if (maxBlockSteps_ != 0 && ++blockSteps_ > maxBlockSteps_)
+        throw StepLimitError("block-step budget exhausted");
+
       const Block &block = f.blocks[pc];
       if (dumpExec_) {
         out_ << block.label.name << ":\n";

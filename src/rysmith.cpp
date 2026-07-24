@@ -155,6 +155,9 @@ static bool validateWithSymiri(
 struct ConcreteFile {
   fs::path path;
   FuncDescriptor::Realization rz;
+  // [v0.2.3] Lasso header (^-prefixed) for --require-nonterm, so the
+  // bounded-replay divergence validation knows which block's state must recur.
+  std::string nontermHeader;
 };
 
 struct GenerateResult {
@@ -529,6 +532,10 @@ static GenerateResult generateLeaf(
         cf.rz.paramValues = std::move(paramValuesCaptured);
         cf.rz.symValues = std::move(symValuesCaptured);
         cf.rz.retValue = expectedRet;
+        // The lasso header is the path's final block; the bounded-replay
+        // validation asserts its state recurs after one lap.
+        if (requireNonterm)
+          cf.nontermHeader = pathLabels.back();
         produced.push_back(std::move(cf));
         if (emitDesc) {
           std::vector<FuncDescriptor::Realization> realizations;
@@ -977,10 +984,38 @@ int main(int argc, char **argv) {
       }
     }
 
-    // A diverging program runs forever, so the symiri-based validate /
-    // state-profile passes below would hang. Skip them under --require-nonterm
-    // (bounded-replay divergence validation is a separate follow-up).
-    if ((doValidate || !emitStateMode.empty()) && !requireNonterm) {
+    // Non-terminating programs run forever, so the symiri validate /
+    // state-profile passes below would hang. --require-nonterm instead gets a
+    // dedicated bounded-replay divergence check that confirms the header state
+    // recurs after one lap; --emit-state is unsupported for it.
+    if (requireNonterm && doValidate) {
+      bool allOk = true;
+      for (const auto &cf: genRes.produced) {
+        const fs::path &p = cf.path;
+        std::string stem = p.stem().string();
+        std::string baseFuncName = stem;
+        if (stem.size() >= 2) {
+          char last = stem.back();
+          char prev = stem[stem.size() - 2];
+          if (last >= 'a' && last <= 'z' && std::isdigit((unsigned char) prev))
+            baseFuncName = stem.substr(0, stem.size() - 1);
+        }
+        std::vector<std::string> paramArgs;
+        paramArgs.reserve(cf.rz.paramValues.size());
+        for (const auto &pv: cf.rz.paramValues)
+          paramArgs.push_back(pv.second);
+        bool ok = validateNontermDiverges(p, baseFuncName, paramArgs, cf.nontermHeader);
+        std::cout << "  validated: " << (ok ? "OK" : "FAIL") << " (diverges) (" << p.filename()
+                  << ")\n";
+        if (!ok) {
+          nFail++;
+          allOk = false;
+          break;
+        }
+      }
+      if (allOk)
+        nOk++;
+    } else if ((doValidate || !emitStateMode.empty()) && !requireNonterm) {
       const bool wantProfile = !emitStateMode.empty();
       const StateGranularity stGran =
           emitStateMode == "ppp" ? StateGranularity::Ppp : StateGranularity::Pbb;

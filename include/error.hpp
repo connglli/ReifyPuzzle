@@ -36,4 +36,14 @@ namespace refractir {
     explicit RequireViolationError(const std::string &msg) : std::runtime_error(msg) {}
   };
 
+  /**
+   * Thrown by the interpreter when execution exceeds the configured block-step
+   * budget (Interpreter::setMaxBlockSteps). Lets a caller run a possibly
+   * non-terminating program under a bound and treat the limit as "still
+   * running" rather than hanging. Unlimited (0) by default.
+   */
+  struct StepLimitError : std::runtime_error {
+    explicit StepLimitError(const std::string &msg) : std::runtime_error(msg) {}
+  };
+
 } // namespace refractir

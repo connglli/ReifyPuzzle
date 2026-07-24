@@ -2235,6 +2235,37 @@ def test_require_nonterm_programs_actually_diverge(rysmith, symiri):
     )
 
 
+def test_require_nonterm_validate_flag(rysmith):
+  """rysmith --require-nonterm --validate runs the in-process bounded-replay
+  check (fuel-capped interpreter + bit-exact header-state recurrence) and
+  reports OK for every solved program without hanging -- confirming the fixed
+  point the solver proved actually holds at runtime."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--require-nonterm",
+        "--validate",
+        "--seed",
+        "7",
+        "--n-funcs",
+        "6",
+        "--n-inits",
+        "1",
+        "-o",
+        d,
+      ]
+    )
+    check("require-nonterm --validate exits 0", r.returncode == 0, r.stderr[:300])
+    oks = r.stdout.count("validated: OK (diverges)")
+    fails = r.stdout.count("validated: FAIL")
+    check(
+      "require-nonterm --validate: >=1 OK and 0 FAIL",
+      oks >= 1 and fails == 0,
+      f"oks={oks} fails={fails}",
+    )
+
+
 def test_require_ub_emit_main_reparses(rysmith, symiri):
   """Every --require-ub --emit-main whole-program .sir must re-parse.
 
@@ -2888,6 +2919,8 @@ def main():
   test_require_ub_programs_actually_trap(rysmith, symiri)
   print("=== --require-nonterm: emitted programs actually diverge ===")
   test_require_nonterm_programs_actually_diverge(rysmith, symiri)
+  print("=== --require-nonterm --validate: in-process bounded-replay check ===")
+  test_require_nonterm_validate_flag(rysmith)
   print("=== --require-ub --emit-main: whole programs re-parse (no inf/nan leak) ===")
   test_require_ub_emit_main_reparses(rysmith, symiri)
   print("=== --emit-state: pbb sidecar shape ===")

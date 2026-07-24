@@ -27,12 +27,14 @@
 #include "backend/c_vec_lowering.hpp"
 #include "backend/py_backend.hpp"
 #include "backend/wasm_backend.hpp"
+#include "error.hpp"
 #include "frontend/diagnostics.hpp"
 #include "frontend/lexer.hpp"
 #include "frontend/parser.hpp"
 #include "frontend/semchecker.hpp"
 #include "frontend/typechecker.hpp"
 #include "interp/interpreter.hpp"
+#include "reify/state_profile.hpp"
 
 namespace fs = std::filesystem;
 using namespace refractir;
@@ -113,6 +115,73 @@ namespace refractir::reify {
       return val;
     } catch (...) {
       return std::nullopt;
+    }
+  }
+
+  bool validateNontermDiverges(
+      const fs::path &sirPath, const std::string &funcName,
+      const std::vector<std::string> &paramArgs, const std::string &headerLabel,
+      std::uint64_t maxBlocks
+  ) {
+    if (headerLabel.empty())
+      return false;
+    std::ifstream ifs(sirPath);
+    if (!ifs)
+      return false;
+    std::stringstream ss;
+    ss << ifs.rdbuf();
+    std::string src = ss.str();
+    try {
+      Lexer lx(src);
+      auto toks = lx.lexAll();
+      Parser ps(std::move(toks));
+      Program prog = ps.parseProgram();
+      if (!runAnalysisPasses(prog, /*verbose=*/false))
+        return false;
+      std::string canonical = funcName.empty() || funcName[0] == '@' ? funcName : "@" + funcName;
+
+      std::stringstream sink;
+      Interpreter interp(prog, sink);
+      StateProfile profile;
+      profile.func = canonical;
+      profile.granularity = StateGranularity::Pbb;
+      attachStateProfile(interp, profile, StateGranularity::Pbb);
+      interp.setMaxBlockSteps(maxBlocks);
+
+      try {
+        interp.run(canonical, {}, paramArgs);
+        return false; // returned within budget => terminated, not diverging
+      } catch (const StepLimitError &) {
+        // Ran the whole budget without returning — the expected outcome for a
+        // divergent loop. Fall through to the header-recurrence check.
+      } catch (...) {
+        return false; // UB / require / other => not a clean divergence
+      }
+
+      // Confirm the header-state fixed point at runtime: the first two entries
+      // of the lasso header must carry bit-identical state (a lap that returns
+      // to its own entry state, so it recurs forever).
+      const StatePoint *first = nullptr;
+      for (const auto &pt: profile.trace) {
+        if (pt.instr != -1 || pt.block != headerLabel)
+          continue;
+        if (!first) {
+          first = &pt;
+          continue;
+        }
+        if (pt.vars.size() != first->vars.size())
+          return false;
+        for (std::size_t i = 0; i < pt.vars.size(); ++i) {
+          if (pt.vars[i].first != first->vars[i].first)
+            return false;
+          if (!bitExactEq(pt.vars[i].second, first->vars[i].second))
+            return false;
+        }
+        return true; // header state recurred after one lap => diverges
+      }
+      return false; // header visited fewer than twice within the budget
+    } catch (...) {
+      return false;
     }
   }
 

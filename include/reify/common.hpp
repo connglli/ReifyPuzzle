@@ -261,6 +261,19 @@ namespace refractir::reify {
       StateGranularity gran = StateGranularity::Pbb
   );
 
+  // [v0.2.3] Bounded-replay divergence check for --require-nonterm. Replays
+  // `funcName` on `paramArgs` under a block-step cap (`maxBlocks`) and returns
+  // true iff the program neither returns nor traps within the cap AND the
+  // first two entries of the lasso header `headerLabel` (^-prefixed) carry
+  // bit-identical state — i.e. the header-state fixed point the solver proved
+  // actually holds at runtime, so the program diverges. Returns false on
+  // termination, UB, a non-recurrent header state, or any parse/setup failure.
+  bool validateNontermDiverges(
+      const std::filesystem::path &sirPath, const std::string &funcName,
+      const std::vector<std::string> &paramArgs, const std::string &headerLabel,
+      std::uint64_t maxBlocks = 4000
+  );
+
   // ---------------------------------------------------------------------------
   // Shared backend compiler helpers
   // ---------------------------------------------------------------------------

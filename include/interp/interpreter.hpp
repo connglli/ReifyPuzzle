@@ -72,6 +72,12 @@ namespace refractir {
       stateHookPerInstr_ = perInstr;
     }
 
+    // Bound the number of basic blocks a run may enter (across nested calls).
+    // When exceeded, execution throws StepLimitError. 0 (default) is
+    // unlimited. Lets a caller replay a possibly non-terminating program
+    // under a bound instead of hanging. Reset per run().
+    void setMaxBlockSteps(std::uint64_t n) { maxBlockSteps_ = n; }
+
   private:
     const Program &prog_;
     std::ostream &out_; // sink for Result: / dump-exec (default std::cout)
@@ -135,6 +141,12 @@ namespace refractir {
     // Activation counter for StateHook frame ids: each runBlocks entry
     // (top-level run or nested call) claims the next id.
     std::uint64_t nextFrameId_ = 0;
+
+    // Block-step budget (see setMaxBlockSteps). `maxBlockSteps_ == 0` means
+    // unlimited; `blockSteps_` counts blocks entered in the current run and
+    // is reset at the top of run().
+    std::uint64_t maxBlockSteps_ = 0;
+    std::uint64_t blockSteps_ = 0;
 
     RuntimeValue evalExpr(const Expr &e, const Store &store);
     // evalAtom dispatches on the Atom variant; each alternative's evaluation
