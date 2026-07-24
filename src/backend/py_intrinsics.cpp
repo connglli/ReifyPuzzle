@@ -373,6 +373,14 @@ def _in_check_chksum(expected, actual):
         _trap("@check_chksum mismatch")
     return actual
 )PY";
+        // Observability beacon — identity. Python has no forward-progress
+        // assumption, so a diverging loop is preserved without an observable
+        // side effect; the helper just returns its argument.
+        case IntrinsicKind::Observe:
+          return R"PY(
+def _in_observe(x):
+    return x
+)PY";
         // [v0.2.3 V1] Horizontal vector reductions (§12.4) are not yet
         // lowered on any compiled target — interpreter and solver implement
         // them, backend support is planned.
@@ -640,6 +648,8 @@ def _in_check_chksum(expected, actual):
         return "_in_crc32_update(" + join({paramN(1)}) + ")";
       case IntrinsicKind::CheckChksum:
         return "_in_check_chksum(" + join({}) + ")";
+      case IntrinsicKind::Observe:
+        return "_in_observe(" + join({}) + ")";
       // [v0.2.3 V1] Reductions: fold the vector-list argument. Add carries a
       // width (int overflow / f32 rounding); min/max/bitwise do not.
       case IntrinsicKind::ReduceAdd: {

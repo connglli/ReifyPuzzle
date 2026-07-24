@@ -329,7 +329,7 @@ Attributes appear between the return type and the body (`fun`) or the contract/s
   - **`pure`**: the body contains no `store` instruction and calls only `pure` or `const` callees. It may `load` — the result may depend on memory reachable from pointer parameters, but the call mutates nothing.
   - **`const`**: `pure`, and additionally the body contains no `load` — the result depends only on the argument values. `const` implies `pure`; writing both is an error.
 
-**Enforcement.** For a `fun` (or a link-form `decl`, checked against its resolved body), the checker verifies the restriction syntactically over the body and transitively over callees; a violation is a semantic error at check time. For a contract-form `decl` there is no body: the attribute is a **trusted assumption**, exactly like its `post` clauses. All shipped intrinsics are treated as `const` for this check, except `@check_chksum`, which is impure (it aborts on mismatch).
+**Enforcement.** For a `fun` (or a link-form `decl`, checked against its resolved body), the checker verifies the restriction syntactically over the body and transitively over callees; a violation is a semantic error at check time. For a contract-form `decl` there is no body: the attribute is a **trusted assumption**, exactly like its `post` clauses. All shipped intrinsics are treated as `const` for this check, except `@check_chksum` (impure — it aborts on mismatch) and `@observe` (impure — its C lowering performs an observable `volatile` write; its *value* is nonetheless the deterministic identity).
 
 **Solver exploitation.**
 
@@ -1195,6 +1195,15 @@ For floating-point `@reduce_min` / `@reduce_max`, equal-magnitude signed zeros a
 **Lowering**: see §11.7. Backends must reproduce the sequential fold bit-exactly; only the order-insensitive members (`min`/`max`/`and`/`or`/`xor`, whose results and UB behavior are order-independent) may use pairwise or hardware reduction instructions.
 
 **Rejected member**: `@reduce_mul` is **not** provided — an `N−1`-deep chain of symbolic `bvmul`/`fp.mul` is solver-hostile (nonlinear), violating the SMT-friendliness goal. Write the product fold manually with lane subscripts if needed.
+
+
+### 12.5 Observability beacon **[New in v0.2.3]**
+
+```text
+intrinsic @observe(%x: iN) : iN;
+```
+
+`@observe(v) = v` — the identity, at any integer width. It is deterministic and oracle-consistent; the interpreter, solver, WASM, and Python all lower it to the identity. Its purpose is a **lowering** property rather than a value: the C backend emits an observable `volatile` write of `v`, a side effect the optimizer must preserve. This anchors a computation the compiler cannot prove dead — e.g. the body of a deliberately non-terminating loop — so the loop survives even under a forward-progress-assuming toolchain. Because that side effect is observable, `@observe` is treated as impure for the `const` restriction (§6.15); its identity *value* nonetheless keeps it deterministic and solver-friendly. Per-backend lowering: `docs/intrinsics.md` §12.7.
 
 
 ## 13. Non-goals for v0.2.3 (planned for later)

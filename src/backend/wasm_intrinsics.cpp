@@ -202,6 +202,18 @@ namespace refractir {
       }
     };
 
+    // Observability beacon — identity. WASM has no forward-progress assumption,
+    // so a diverging loop is preserved without an observable side effect; the
+    // helper just returns its argument.
+    class ObserveIntrinsic final : public WasmIntrinsic {
+    public:
+      void emit(
+          WasmBackend &backend, const IntrinsicDecl &, uint32_t, uint32_t, const std::string &
+      ) const override {
+        pushArg(backend, 0);
+      }
+    };
+
     class MinIntrinsic final : public WasmIntrinsic {
     public:
       void emit(
@@ -2386,6 +2398,7 @@ namespace refractir {
       // Checksum primitives
       r[IntrinsicKind::Crc32Update] = std::make_unique<Crc32UpdateIntrinsic>();
       r[IntrinsicKind::CheckChksum] = std::make_unique<CheckChksumIntrinsic>();
+      r[IntrinsicKind::Observe] = std::make_unique<ObserveIntrinsic>();
       return r;
     }();
     return registry;

@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// @observe returns its argument unchanged in the reference interpreter.
+intrinsic @observe(%x: i32) : i32;
+
+fun @main() : i32 {
+  let mut %v: i32 = 42;
+^entry:
+  %v = call @observe(%v);
+  require %v == 42, "@observe is identity";
+  ret %v;
+}

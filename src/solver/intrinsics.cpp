@@ -82,6 +82,18 @@ namespace refractir {
       }
     };
 
+    // Observability beacon — identity value; the observable write lives only in
+    // the C lowering, so symbolically @observe(v) is v (no UB, no side effect).
+    class ObserveIntrinsic final : public SolverIntrinsic {
+    public:
+      SymbolicValue solve(
+          const IntrinsicDecl &, uint32_t, const std::vector<SymbolicValue> &argVals, smt::Sort,
+          smt::ISolver &, std::vector<smt::Term> &
+      ) const override {
+        return argVals[0];
+      }
+    };
+
     class MinIntrinsic final : public SolverIntrinsic {
     public:
       SymbolicValue solve(
@@ -1235,6 +1247,7 @@ namespace refractir {
             std::make_unique<ReduceIntSolverIntrinsic>(IntrinsicKind::ReduceOr);
         registry_[IntrinsicKind::ReduceXor] =
             std::make_unique<ReduceIntSolverIntrinsic>(IntrinsicKind::ReduceXor);
+        registry_[IntrinsicKind::Observe] = std::make_unique<ObserveIntrinsic>();
       }
 
       std::unordered_map<IntrinsicKind, std::unique_ptr<SolverIntrinsic>> registry_;

@@ -1107,6 +1107,19 @@ namespace refractir {
       }
     };
 
+    // ── Observability beacon ───────────────────────────────────────────────
+    //
+    // @observe(v) = v. The reference oracle's value semantics is the identity;
+    // the observable side effect (a volatile write) exists only in the C
+    // lowering, so the interpreter simply returns the argument unchanged.
+    class ObserveIntrinsic final : public InterpreterIntrinsic {
+    public:
+      RuntimeValue
+      eval(const IntrinsicDecl &, const std::vector<RuntimeValue> &args) const override {
+        return args[0];
+      }
+    };
+
     // ── §12.4 Horizontal vector reductions (v0.2.3 V1) ─────────────────────
     //
     // The sole argument is a vector `<N> T` (a RuntimeValue of kind Vec whose
@@ -1315,6 +1328,7 @@ namespace refractir {
         // Checksum primitives.
         registry_[IntrinsicKind::Crc32Update] = std::make_unique<Crc32UpdateIntrinsic>();
         registry_[IntrinsicKind::CheckChksum] = std::make_unique<CheckChksumIntrinsic>();
+        registry_[IntrinsicKind::Observe] = std::make_unique<ObserveIntrinsic>();
         // §12.4 — horizontal vector reductions (v0.2.3 V1).
         registry_[IntrinsicKind::ReduceAdd] =
             std::make_unique<ReduceIntrinsic>(IntrinsicKind::ReduceAdd);

@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: 42
+// @observe is the identity — returns its argument unchanged. Confirms the
+// backend lowering (C volatile-write helper; WASM / Python plain identity)
+// preserves the value across every compiled target.
+intrinsic @observe(%x: i32) : i32;
+
+fun @main() : i32 {
+^entry:
+  ret call @observe(42);
+}

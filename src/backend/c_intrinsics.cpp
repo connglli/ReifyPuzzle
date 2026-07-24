@@ -1014,6 +1014,24 @@ namespace refractir {
       }
     };
 
+    class ObserveCIntrinsic final : public CIntrinsic {
+    public:
+      // The volatile store is the observable side effect the optimizer must
+      // preserve; noinline keeps a caller from folding through the identity
+      // return and dropping it. Together they anchor the argument's computation
+      // (e.g. the body of a diverging loop) so no pass can prove it dead.
+      std::string linkageQualifier() const override { return "static __attribute__((noinline))"; }
+
+      void emit(
+          CBackend &backend, const IntrinsicDecl &, uint32_t /*N*/, uint32_t /*W*/,
+          const std::string &sty, const std::string & /*uty*/
+      ) const override {
+        out(backend) << "  static volatile " << sty << " __rir_observe_sink;\n";
+        out(backend) << "  __rir_observe_sink = a0;\n";
+        out(backend) << "  return a0;\n";
+      }
+    };
+
   } // namespace
 
   // FP registry: separate from CIntrinsicRegistry because the emit
@@ -1083,6 +1101,7 @@ namespace refractir {
       // Checksum primitives
       r[IntrinsicKind::Crc32Update] = std::make_unique<Crc32UpdateIntrinsic>();
       r[IntrinsicKind::CheckChksum] = std::make_unique<CheckChksumIntrinsic>();
+      r[IntrinsicKind::Observe] = std::make_unique<ObserveCIntrinsic>();
       return r;
     }();
     return registry;

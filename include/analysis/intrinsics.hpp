@@ -100,6 +100,17 @@ namespace refractir {
     //     diagnostic on stderr (UB in the interpreter).
     Crc32Update,
     CheckChksum,
+    // v0.2.3 — observability beacon.
+    //   @observe(v: iN) : iN
+    //     Value semantics is the identity (returns v unchanged), so it is a
+    //     deterministic, solver-friendly, oracle-consistent pure function like
+    //     every other intrinsic. Its purpose is a *lowering* property: the C
+    //     backend emits a `volatile` write of v, an observable side effect the
+    //     optimizer must preserve. This anchors a computation the compiler
+    //     cannot prove dead — e.g. the body of a deliberately non-terminating
+    //     loop (rysmith --require-nonterm). WASM / Python have no
+    //     forward-progress assumption, so there it lowers to plain identity.
+    Observe,
     // v0.2.3 V1 — horizontal vector reductions (§12.4). The sole parameter
     // is a vector `<N> T`; the result is the scalar element type `T`.
     // Add / Min / Max fold over integer or floating-point lanes; the
@@ -208,6 +219,9 @@ namespace refractir {
         // Checksum primitives — fixed i32 plumbing; the folded value is any iN.
         {K::Crc32Update, "@crc32_update", D::Int, S::I32, {S::I32, S::T}},
         {K::CheckChksum, "@check_chksum", D::Int, S::I32, {S::I32, S::I32}},
+        // Observability beacon — identity value; observable write in the C
+        // lowering. Any integer width.
+        {K::Observe, "@observe", D::Int, S::T, {S::T}},
         // Horizontal reductions — <N> T → T (§12.4). add/min/max fold integer
         // or FP lanes; the bitwise reductions are integer-only.
         {K::ReduceAdd, "@reduce_add", D::IntOrFp, S::T, {S::VecOfT}},

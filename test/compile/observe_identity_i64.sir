@@ -1,0 +1,11 @@
+// EXPECT: PASS
+// EXPECT_RC: 100
+// @observe identity at i64 — exercises the wide-integer helper path.
+intrinsic @observe(%x: i64) : i64;
+
+fun @main() : i32 {
+  let mut %r: i64 = 0;
+^entry:
+  %r = call @observe(100);
+  ret %r as i32;
+}

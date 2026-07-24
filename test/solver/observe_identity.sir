@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+// The solver models @observe as the identity, so %?x is pinned to 43 by the
+// require on the observed value.
+intrinsic @observe(%x: i32) : i32;
+
+fun @main() : i32 {
+  sym %?x : value i32 in [40, 44];
+  let mut %v: i32 = 0;
+^entry:
+  %v = call @observe(%?x);
+  require %v == 43, "@observe identity: observed value equals input";
+  ret %v;
+}

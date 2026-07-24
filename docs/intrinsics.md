@@ -714,6 +714,7 @@ fun @demo(%x: i32) : i32 {
 | `@recip` | `(fN) → fN` | result non-finite (`x = ±0.0` or overflow) | finite `fN` |
 | `@crc32_update` | `(i32, iN) → i32`, `N ∈ {8, 16, 24, 32, 40, 48, 56, 64}` | — | full `i32` |
 | `@check_chksum` | `(i32, i32) → i32` | `expected != actual` (abort in C, UB in symiri) | `= actual` on match |
+| `@observe` | `(iN) → iN` | — | `= x` (identity; observable `volatile` write in C) |
 | `@reduce_add` | `(<N> T) → T`, `T ∈ iN, fN` | int: partial sum out of `iN` range; fp: non-finite intermediate; any `undef` lane | scalar `T` |
 | `@reduce_min` | `(<N> T) → T`, `T ∈ iN, fN` | any `undef` lane | scalar `T` |
 | `@reduce_max` | `(<N> T) → T`, `T ∈ iN, fN` | any `undef` lane | scalar `T` |
@@ -777,7 +778,7 @@ detect it:
 
 | Layer | Rejection means | Used for |
 |---|---|---|
-| **Frontend (semantic checker)** | `intrinsic @x` declaration is refused. Program will not parse. | Truly nonsensical or stateful intrinsics: `@rand`, `@time`, anything impure, anything that produces non-finite FP. |
+| **Frontend (semantic checker)** | `intrinsic @x` declaration is refused. Program will not parse. | Truly nonsensical or stateful intrinsics: `@rand`, `@time`, anything whose *value* is non-deterministic or state-dependent, anything that produces non-finite FP. (`@observe` is admitted: its value is the deterministic identity; only its C *lowering* has an observable write — see §12.7.) |
 | **Solver (`symirsolve`)** | Declaration and program are accepted; reaching a `call @x` on a *symbolic* path makes that path infeasible (the same effect as UB pruning). Concrete-only paths still solve. | Transcendentals, recursive number theory, anything without a precise SMT encoding. |
 | **WASM backend** | Compile-time error from `symirc --target wasm`: "`@x` not lowerable to WASM target". | Reserved as of v0.2.3 — the checksum primitives were the last users of this layer and now lower natively (§12.7). It stays as the designated home for future P3 libm-backed intrinsics whose polyfill would diverge from the C target (e.g. `wasi-libc` vs `glibc` last-ULP drift). |
 | **Interpreter** | Runtime error (distinct from UB: "intrinsic not implemented in this build"). | Reserved. The interpreter is the reference oracle; aim to keep this empty. |
@@ -1279,6 +1280,38 @@ with the backend's no-host-stdio model.
 **Solver**: not encoded. Only the rylink-generated `@main` wrapper
 calls it, and that wrapper is the **end** of execution; no SMT path
 ever needs to reason about its post-state.
+
+### `@observe` — observability beacon (v0.2.3)
+
+```text
+intrinsic @observe(%x: iN) : iN;
+```
+
+**Value semantics is the identity**: `@observe(v)` returns `v` unchanged, at
+any integer width. It is a deterministic, oracle-consistent pure function like
+every other intrinsic — the interpreter, solver, WASM, and Python all lower it
+to the identity. Its purpose is a **lowering** property: the **C** backend emits
+an observable `volatile` write of `v`, a side effect the optimizer must
+preserve. This anchors a computation the compiler cannot prove dead — most
+usefully the body of a deliberately non-terminating loop (`rysmith
+--require-nonterm`), keeping the loop alive even under a forward-progress-
+assuming toolchain.
+
+Because its *value* is the identity, `@observe` is **not** in the "impure /
+stateful" category the frontend rejects (see *Rejection layers*): `@rand` /
+`@time` return non-deterministic or state-dependent values and would break
+cross-validation, whereas `@observe` returns the same value on every call and
+its observable write produces no value that enters the oracle comparison.
+
+**Interpreter** (`ObserveIntrinsic`): returns `args[0]`.
+**Solver** (`ObserveIntrinsic`): returns `argVals[0]` — no UB, no effect on the
+symbolic state.
+**C** (`ObserveCIntrinsic`): a `static __attribute__((noinline))` helper with
+`static volatile <T> __rir_observe_sink; __rir_observe_sink = a0; return a0;` —
+the volatile store is unremovable and noinline stops a caller from folding
+through the identity return.
+**WASM / Python**: plain identity — neither target has a forward-progress
+assumption, so a diverging loop is preserved without an observable side effect.
 
 ---
 
