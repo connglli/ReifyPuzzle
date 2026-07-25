@@ -156,8 +156,10 @@ struct ConcreteFile {
   fs::path path;
   FuncDescriptor::Realization rz;
   // [v0.2.3] Lasso header (^-prefixed) for --require-nonterm, so the
-  // bounded-replay divergence validation knows which block's state must recur.
+  // bounded-replay divergence validation knows which block's state must recur,
+  // and after how many laps (the orbit's period).
   std::string nontermHeader;
+  int nontermPeriod = 1;
 };
 
 struct GenerateResult {
@@ -191,7 +193,9 @@ static GenerateResult generateLeaf(
     bool emitDesc, bool emitMain, bool noCrc32,
     // [v0.2.3] Non-terminating mode: sample a lasso instead of an entry-to-
     // exit path and splice cycle-closing corrections before solving.
-    bool requireNonterm
+    // maxLassoPeriod caps the orbit's period k; each attempt draws k from
+    // [1, maxLassoPeriod], so a run mixes single-lap and multi-lap orbits.
+    bool requireNonterm, int maxLassoPeriod
 ) {
   // S1: CFG
   GenCFGParams cfgParams;
@@ -233,6 +237,12 @@ static GenerateResult generateLeaf(
     if (requireNonterm) {
       SampleLassoParams lassoParams;
       lassoParams.seed = rng();
+      // Draw the period per attempt: a k > 1 orbit is a strictly harder
+      // constraint (the state must avoid the header state for k-1 laps), so
+      // retrying re-rolls it rather than being stuck on one hard k.
+      lassoParams.period = maxLassoPeriod <= 1
+                               ? 1
+                               : (int) (std::uniform_int_distribution<int>(1, maxLassoPeriod)(rng));
       maybePath = sampleLasso(cfg, lassoParams);
     } else {
       SamplePathParams pathParams;
@@ -317,7 +327,10 @@ static GenerateResult generateLeaf(
           if (seenCycle.insert(path[j]).second)
             cycleLabels.push_back("^" + path[j]);
         std::string latchLabel = "^" + path[path.size() - 2];
-        spliceNontermCorrections(prog, funcName, cycleLabels, latchLabel);
+        // The orbit's period is read off the path, exactly as the solver
+        // reads it: k+1 arrivals at the header means k laps.
+        int lassoPeriod = (int) std::count(path.begin(), path.end(), header) - 1;
+        spliceNontermCorrections(prog, funcName, cycleLabels, latchLabel, lassoPeriod);
       }
 
       // Optionally dump symbolic program
@@ -544,9 +557,13 @@ static GenerateResult generateLeaf(
         cf.rz.symValues = std::move(symValuesCaptured);
         cf.rz.retValue = expectedRet;
         // The lasso header is the path's final block; the bounded-replay
-        // validation asserts its state recurs after one lap.
-        if (requireNonterm)
+        // validation asserts its state recurs after the orbit's k laps, which
+        // the path spells out as k+1 arrivals at that block.
+        if (requireNonterm) {
           cf.nontermHeader = pathLabels.back();
+          cf.nontermPeriod =
+              (int) std::count(pathLabels.begin(), pathLabels.end(), cf.nontermHeader) - 1;
+        }
         produced.push_back(std::move(cf));
         if (emitDesc) {
           std::vector<FuncDescriptor::Realization> realizations;
@@ -629,6 +646,8 @@ int main(int argc, char **argv) {
                           cxxopts::value<uint32_t>()->default_value("2000"))
     ("require-ub",        "Force at least one UB to be triggered on the chosen path")
     ("require-nonterm",   "Generate UB-free programs that diverge on the sampled input (samples a lasso; implies --require-reducible and --no-crc32)")
+    ("max-lasso-period",  "Cap the lasso orbit's period k under --require-nonterm; each attempt draws k from [1, N]. k > 1 means the header state recurs only after k laps",
+                          cxxopts::value<int>()->default_value("1"))
     ("coef-domain",       "Domain for coef symbols",
                           cxxopts::value<std::string>()->default_value("[-2147483647, 2147483647]"))
     ("value-domain",      "Domain for value/constant symbols",
@@ -736,6 +755,15 @@ int main(int argc, char **argv) {
   bool requireNonterm = result.count("require-nonterm") > 0;
   if (requireNonterm && result.count("require-ub")) {
     std::cerr << "error: --require-nonterm and --require-ub are mutually exclusive\n";
+    return 2;
+  }
+  int maxLassoPeriod = result["max-lasso-period"].as<int>();
+  if (maxLassoPeriod < 1) {
+    std::cerr << "error: --max-lasso-period must be >= 1 (got " << maxLassoPeriod << ")\n";
+    return 2;
+  }
+  if (maxLassoPeriod > 1 && !requireNonterm) {
+    std::cerr << "error: --max-lasso-period requires --require-nonterm\n";
     return 2;
   }
 
@@ -935,7 +963,7 @@ int main(int argc, char **argv) {
           nStmts, offPathMultiplier, enableInterestCoefs, pLargeCoef, largeCoefThreshold, coefLo,
           coefHi, valueLo, valueHi, indexLo, indexHi, exprCfg, enableIntrinsics, timeoutMs, solMode,
           maxRetries, nInits, outDir, keepSymbolic, verbose, state->rng, funcSeed, genId, emitDesc,
-          emitMain, noCrc32, requireNonterm
+          emitMain, noCrc32, requireNonterm, maxLassoPeriod
       );
       state->done.store(true, std::memory_order_release);
     });
@@ -1012,7 +1040,8 @@ int main(int argc, char **argv) {
         paramArgs.reserve(cf.rz.paramValues.size());
         for (const auto &pv: cf.rz.paramValues)
           paramArgs.push_back(pv.second);
-        bool ok = validateNontermDiverges(p, baseFuncName, paramArgs, cf.nontermHeader);
+        bool ok =
+            validateNontermDiverges(p, baseFuncName, paramArgs, cf.nontermHeader, cf.nontermPeriod);
         std::cout << "  validated: " << (ok ? "OK" : "FAIL") << "(" << p.filename() << ")\n";
         if (!ok) {
           nFail++;

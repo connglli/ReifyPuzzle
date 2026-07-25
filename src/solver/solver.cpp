@@ -533,22 +533,28 @@ namespace refractir {
     // [v0.2.3] RequireNonterm: the path is a lasso whose final block is
     // the loop header (it must reappear earlier — its first occurrence is
     // the orbit entry). We snapshot the complete mutable state at the
-    // header's entry on the first and last visit; step 5 then asserts the
-    // two are equal, so one UB-free lap recurs forever. See docs/reify.md.
+    // header's entry on *every* arrival. Step 5 then asserts the last equals
+    // the first, so one UB-free orbit recurs forever.
+    //
+    // The number of arrivals is the requested period: k+1 arrivals means a
+    // k-lap orbit, so the path itself carries k and no separate knob is
+    // needed. For k > 1, step 5 additionally requires each intermediate
+    // arrival to *differ* from the header state, which pins the period at
+    // exactly k — otherwise any shorter orbit (in particular a period-1 one,
+    // which the additive corrections can always produce) would satisfy the
+    // closing equality and silently downgrade the request.
+    // See docs/reify.md.
     std::string nontermHeader;
-    size_t nontermFirstIdx = 0, nontermLastIdx = 0;
+    std::vector<size_t> nontermVisits;
     bool nontermLasso = false;
     if (config_.mode == SolvingMode::RequireNonterm && !path.empty()) {
       nontermHeader = path.back();
-      nontermLastIdx = path.size() - 1;
       for (size_t i = 0; i < path.size(); ++i)
-        if (path[i] == nontermHeader) {
-          nontermFirstIdx = i;
-          break;
-        }
-      nontermLasso = (nontermFirstIdx != nontermLastIdx);
+        if (path[i] == nontermHeader)
+          nontermVisits.push_back(i);
+      nontermLasso = (nontermVisits.size() >= 2);
     }
-    SymbolicStore snapFirst, snapLast;
+    std::vector<SymbolicStore> nontermSnaps(nontermVisits.size());
 
     // 4. Path traversal
     for (size_t i = 0; i < path.size(); ++i) {
@@ -559,12 +565,11 @@ namespace refractir {
       const Block &block = entry->blocks[cfg.indexOf.at(label)];
 
       // Capture the header-entry state (before any of the block's
-      // instructions run) on the first and last visit to the lasso header.
+      // instructions run) on every arrival at the lasso header.
       if (config_.mode == SolvingMode::RequireNonterm && nontermLasso) {
-        if (i == nontermFirstIdx)
-          snapFirst = store;
-        if (i == nontermLastIdx)
-          snapLast = store;
+        for (size_t v = 0; v < nontermVisits.size(); ++v)
+          if (nontermVisits[v] == i)
+            nontermSnaps[v] = store;
       }
 
       for (const auto &ins: block.instrs) {
@@ -646,10 +651,11 @@ namespace refractir {
       }
     } else if (config_.mode == SolvingMode::RequireNonterm) {
       // Non-termination via a recurrent header state (lasso). Assert every
-      // operation on the stem + one lap is UB-free (exactly as UBFree),
+      // operation on the stem + the orbit is UB-free (exactly as UBFree),
       // then assert the complete mutable state at the header's entry recurs
-      // after one lap. Determinism lifts the single safe lap to an
-      // infinite, UB-free run. See docs/reify.md.
+      // after the orbit's k laps, and — for k > 1 — that it does not recur
+      // any earlier. Determinism lifts the single safe orbit to an infinite,
+      // UB-free run. See docs/reify.md.
       for (auto g: ubGuards)
         solver.assert_formula(g);
 
@@ -691,15 +697,38 @@ namespace refractir {
                   }
                 };
 
-        std::vector<smt::Term> eqs;
-        for (const auto &l: entry->lets) {
-          auto i1 = snapFirst.find(l.name.name);
-          auto i2 = snapLast.find(l.name.name);
-          if (i1 != snapFirst.end() && i2 != snapLast.end())
-            collectEq(i1->second, i2->second, eqs);
-        }
-        for (auto &e: eqs)
+        // Per-leaf equalities between the header state at two arrivals.
+        auto stateEqs = [&](const SymbolicStore &x, const SymbolicStore &y) {
+          std::vector<smt::Term> eqs;
+          for (const auto &l: entry->lets) {
+            auto i1 = x.find(l.name.name);
+            auto i2 = y.find(l.name.name);
+            if (i1 != x.end() && i2 != y.end())
+              collectEq(i1->second, i2->second, eqs);
+          }
+          return eqs;
+        };
+
+        // Closing equality: the last arrival restores the header state.
+        const SymbolicStore &first = nontermSnaps.front();
+        for (auto &e: stateEqs(first, nontermSnaps.back()))
           solver.assert_formula(e);
+
+        // Primitive period: every intermediate arrival differs from the
+        // header state, i.e. NOT(all leaves equal). A state with no
+        // comparable leaf at all cannot differ, so the orbit is rejected
+        // rather than admitted by an empty conjunction.
+        for (size_t v = 1; v + 1 < nontermSnaps.size(); ++v) {
+          auto eqs = stateEqs(first, nontermSnaps[v]);
+          if (eqs.empty()) {
+            solver.assert_formula(solver.make_false());
+            break;
+          }
+          smt::Term same = eqs[0];
+          for (size_t j = 1; j < eqs.size(); ++j)
+            same = solver.make_term(smt::Kind::AND, {same, eqs[j]});
+          solver.assert_formula(solver.make_term(smt::Kind::NOT, {same}));
+        }
       }
     }
 

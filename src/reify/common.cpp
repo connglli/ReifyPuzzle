@@ -120,7 +120,7 @@ namespace refractir::reify {
 
   bool validateNontermDiverges(
       const fs::path &sirPath, const std::string &funcName,
-      const std::vector<std::string> &paramArgs, const std::string &headerLabel,
+      const std::vector<std::string> &paramArgs, const std::string &headerLabel, int period,
       std::uint64_t maxBlocks
   ) {
     if (headerLabel.empty())
@@ -158,27 +158,28 @@ namespace refractir::reify {
         return false; // UB / require / other => not a clean divergence
       }
 
-      // Confirm the header-state fixed point at runtime: the *last two* visits
-      // to the lasso header must carry bit-identical state. Two consecutive
-      // identical header states in a deterministic program prove the lap repeats
-      // forever, which is the property we are certifying.
+      // Confirm the header-state fixed point at runtime: two arrivals at the
+      // lasso header exactly `period` laps apart must carry bit-identical
+      // state. Two such identical states in a deterministic program prove the
+      // orbit repeats forever, which is the property we are certifying. For a
+      // period-k orbit *consecutive* arrivals deliberately differ, so the gap
+      // has to be k, not 1.
       //
-      // The last two rather than the first two, because a local declared
+      // The last arrivals rather than the first, because a local declared
       // `= undef` does not enter the store until it is first assigned: at the
       // header's first visit the state is both smaller and partly undefined
       // (the usual case, since the header is often the entry block that
       // initializes the pointers). Late visits are past all initialization, so
       // the comparison needs no exemption and stays strictly bit-exact.
-      const StatePoint *prev = nullptr;
-      const StatePoint *last = nullptr;
-      for (const auto &pt: profile.trace) {
-        if (pt.instr != -1 || pt.block != headerLabel)
-          continue;
-        prev = last;
-        last = &pt;
-      }
-      if (!prev || !last)
-        return false; // header visited fewer than twice within the budget
+      const int k = std::max(1, period);
+      std::vector<const StatePoint *> arrivals;
+      for (const auto &pt: profile.trace)
+        if (pt.instr == -1 && pt.block == headerLabel)
+          arrivals.push_back(&pt);
+      if ((int) arrivals.size() < k + 1)
+        return false; // fewer than one full orbit within the budget
+      const StatePoint *last = arrivals.back();
+      const StatePoint *prev = arrivals[arrivals.size() - 1 - k];
       if (prev->vars.size() != last->vars.size())
         return false;
       for (std::size_t i = 0; i < last->vars.size(); ++i) {
@@ -187,7 +188,7 @@ namespace refractir::reify {
         if (!bitExactEq(last->vars[i].second, prev->vars[i].second))
           return false;
       }
-      return true; // header state recurred => diverges
+      return true; // header state recurred after k laps => diverges
     } catch (...) {
       return false;
     }

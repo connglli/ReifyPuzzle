@@ -263,14 +263,15 @@ namespace refractir::reify {
 
   // [v0.2.3] Bounded-replay divergence check for --require-nonterm. Replays
   // `funcName` on `paramArgs` under a block-step cap (`maxBlocks`) and returns
-  // true iff the program neither returns nor traps within the cap AND the
-  // first two entries of the lasso header `headerLabel` (^-prefixed) carry
-  // bit-identical state — i.e. the header-state fixed point the solver proved
-  // actually holds at runtime, so the program diverges. Returns false on
-  // termination, UB, a non-recurrent header state, or any parse/setup failure.
+  // true iff the program neither returns nor traps within the cap AND two
+  // arrivals at the lasso header `headerLabel` (^-prefixed) `period` laps
+  // apart carry bit-identical state — i.e. the header-state fixed point the
+  // solver proved actually holds at runtime, so the program diverges. Returns
+  // false on termination, UB, a non-recurrent header state, too few arrivals
+  // within the cap, or any parse/setup failure.
   bool validateNontermDiverges(
       const std::filesystem::path &sirPath, const std::string &funcName,
-      const std::vector<std::string> &paramArgs, const std::string &headerLabel,
+      const std::vector<std::string> &paramArgs, const std::string &headerLabel, int period = 1,
       std::uint64_t maxBlocks = 256
   );
 

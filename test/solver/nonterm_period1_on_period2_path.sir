@@ -1,0 +1,22 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h,^h' --require-nonterm
+
+// Asking for period 2 must not be answered with a period-1 program. The
+// additive correction can close this lasso after a single lap (%?d = 0), so
+// without the intermediate disequality the solver would happily report SAT
+// and the "period 2" request would be silently downgraded. Requiring the
+// state at the intermediate arrival to DIFFER from the header state makes
+// the period exactly two, so this is UNSAT.
+fun @main() : i32 {
+  sym %?d : value i32;
+  sym %?g : value i32;
+  let mut %v : i32 = 7;
+^entry:
+  br ^h;
+^h:
+  %v = %v + %?d;
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %v;
+}

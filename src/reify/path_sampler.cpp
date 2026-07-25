@@ -242,10 +242,14 @@ namespace refractir::reify {
         body = std::move(*b);
       }
 
-      // path = stem[entry..h] ++ body(h..src)[1:] ++ [h]
+      // path = stem[entry..h] ++ k copies of ( body(h..src)[1:] ++ [h] ).
+      // Each copy is one lap of the orbit, so the header appears k+1 times
+      // and the solver reads the requested period off the path itself.
       std::vector<std::string> path = *stem;
-      path.insert(path.end(), body.begin() + 1, body.end());
-      path.push_back(h);
+      for (int lap = 0; lap < std::max(1, params.period); ++lap) {
+        path.insert(path.end(), body.begin() + 1, body.end());
+        path.push_back(h);
+      }
 
       if ((int) path.size() > params.maxPathLen)
         continue;

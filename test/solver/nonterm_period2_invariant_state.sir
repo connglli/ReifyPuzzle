@@ -1,0 +1,18 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h,^h' --require-nonterm
+
+// A cycle that never touches the state at all is period 1 (trivially), so it
+// cannot answer a period-2 request either. This pins that the disequality is
+// over the *whole* header state -- a lasso with nothing to distinguish its
+// intermediate arrival is rejected rather than accepted by default.
+fun @main() : i32 {
+  sym %?g : value i32;
+  let mut %v : i32 = 7;
+^entry:
+  br ^h;
+^h:
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %v;
+}

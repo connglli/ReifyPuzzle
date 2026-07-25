@@ -1,0 +1,29 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h,^h,^h' --require-nonterm
+
+// An odd period, to show the mechanism is not special-cased to powers of two.
+// Three locals rotate a <- b <- c <- a, returning to the header state after
+// exactly three laps while both intermediate arrivals differ from it.
+//
+// %t is the rotation's temporary but it is still *state*, so it has to recur
+// too: it holds the previous lap's %a at every arrival, which is why it is
+// seeded with 3 rather than 0. A leaf the cycle writes is never exempt from
+// the fixed point just because the program treats it as scratch.
+fun @main() : i32 {
+  sym %?g : value i32;
+  let mut %a : i32 = 1;
+  let mut %b : i32 = 2;
+  let mut %c : i32 = 3;
+  let mut %t : i32 = 3;
+^entry:
+  br ^h;
+^h:
+  %t = %a;
+  %a = %b;
+  %b = %c;
+  %c = %t;
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %a + %b + %c;
+}

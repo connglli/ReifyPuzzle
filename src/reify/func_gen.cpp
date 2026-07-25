@@ -482,9 +482,15 @@ namespace refractir::reify {
   // spliceNontermCorrections
   // ---------------------------------------------------------------------------
 
+  // Locals spliced in to drive a period-k orbit (see the counter below).
+  // Named like the checksum accumulator `%_chk`: generator scaffolding, not
+  // part of the random variable catalogue.
+  static constexpr const char *kNontermPeriodVar = "%_ntper";
+  static constexpr const char *kNontermModulusVar = "%_ntmod";
+
   void spliceNontermCorrections(
       Program &prog, const std::string &funcName, const std::vector<std::string> &cycleLabels,
-      const std::string &latchLabel
+      const std::string &latchLabel, int period
   ) {
     FunDecl *fun = nullptr;
     for (auto &f: prog.funs)
@@ -623,6 +629,53 @@ namespace refractir::reify {
 
     for (const auto &nm: touched)
       correctLeaves(localLV(nm), letTypes[nm]);
+
+    // For a period-k orbit (k > 1), plant a modular counter. The additive
+    // corrections above can only ever close a period-1 orbit: closing after k
+    // laps with a single correction value would need the leaf to wrap around
+    // (k·c ≡ 0 with no intermediate hitting 0), and RefractIR's `+` traps on
+    // signed overflow, so the solver is forced to c = 0 — which recurs after
+    // one lap, not k. A counter supplies the k-cycle directly instead:
+    //
+    //   %__ntper = %__ntper + 1;        // 0,1,…,k-1,k  — never overflows
+    //   %__ntper = %__ntper % %__ntmod; // k wraps to 0
+    //
+    // so %__ntper is 0 only at every k-th arrival. That is all the period
+    // constraint needs: the intermediate-arrival requirement is that the
+    // *state* differs, i.e. at least one leaf differs, so every other leaf is
+    // free to stay put (correction 0) and still satisfy it. The modulus lives
+    // in its own never-written local because an atom is `coef OP rval`, which
+    // cannot spell `%v % 3` with the literal on the right; being invariant, it
+    // recurs trivially.
+    if (period > 1) {
+      auto i32Ty = std::make_shared<Type>(Type{IntType{IntType::Kind::I32, {}, {}}, {}});
+      auto addLet = [&](const std::string &name, std::int64_t initVal) {
+        LetDecl d;
+        d.isMutable = true;
+        d.name = LocalId{name, {}};
+        d.type = i32Ty;
+        InitVal iv;
+        iv.kind = InitVal::Kind::Int;
+        iv.value = IntLit{initVal, {}};
+        d.init = std::move(iv);
+        fun->lets.push_back(std::move(d));
+      };
+      addLet(kNontermPeriodVar, 0);
+      addLet(kNontermModulusVar, period);
+
+      Expr inc;
+      inc.first = rvalAtom(localLV(kNontermPeriodVar));
+      inc.rest.push_back({AddOp::Plus, coefAtom(IntLit{1, {}}), {}});
+      latch->instrs.push_back(Instr{AssignInstr{localLV(kNontermPeriodVar), std::move(inc), {}}});
+
+      OpAtom mod;
+      mod.op = AtomOpKind::Mod;
+      mod.coef = LocalOrSymId{LocalId{kNontermPeriodVar, {}}};
+      mod.rval = RValue{localLV(kNontermModulusVar)};
+      latch->instrs.push_back(
+          Instr{AssignInstr{localLV(kNontermPeriodVar), simpleExpr(Atom{std::move(mod), {}}), {}}}
+      );
+    }
 
     // Plant one observability beacon in the cycle: `%leaf = call @observe(%leaf);`.
     // @observe is the identity, so the header fixed point is unaffected, but its

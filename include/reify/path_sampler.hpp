@@ -24,6 +24,10 @@ namespace refractir::reify {
   struct SampleLassoParams {
     uint32_t seed = 0;
     int maxPathLen = 50;
+    // Number of laps of the cycle to emit (the orbit's period k). 1 is the
+    // classic single-lap fixed point; k > 1 asks the solver for an orbit that
+    // returns to the header state only after k laps.
+    int period = 1;
   };
 
   // [v0.2.3] Sample a *lasso* path for non-terminating generation:

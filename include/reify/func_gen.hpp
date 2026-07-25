@@ -62,9 +62,12 @@ namespace refractir::reify {
   // regardless of the random cycle body. `cycleLabels` / `latchLabel` are
   // ^-prefixed. No-op if the function or latch is absent, or the cycle
   // writes no scalar-int let.
+  // `period` is the orbit's lap count k (1 = classic single-lap fixed point).
+  // For k > 1 a modular counter is spliced in alongside the corrections, since
+  // the corrections alone can only close a period-1 orbit.
   void spliceNontermCorrections(
       Program &prog, const std::string &funcName, const std::vector<std::string> &cycleLabels,
-      const std::string &latchLabel
+      const std::string &latchLabel, int period = 1
   );
 
 } // namespace refractir::reify

@@ -1,0 +1,21 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h,^h,^h,^h' --require-nonterm
+
+// The sharp case: a *divisor* of the requested period must also be rejected.
+// %v alternates with period 2, so over four laps it does return to the header
+// state (7 -> -7 -> 7 -> -7 -> 7) and the closing equality σ_4 = σ_0 holds.
+// But σ_2 = σ_0 as well, so the primitive period is 2, not 4. Every
+// intermediate arrival -- not just the immediate successor -- must differ
+// from the header state, which makes this UNSAT.
+fun @main() : i32 {
+  sym %?g : value i32;
+  let mut %v : i32 = 7;
+^entry:
+  br ^h;
+^h:
+  %v = 0 - %v;
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %v;
+}

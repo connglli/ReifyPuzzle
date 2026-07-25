@@ -2529,6 +2529,120 @@ def test_require_nonterm_validate_full_lattice(rysmith):
     )
 
 
+def _lasso_period(sir_text):
+  """Read the orbit's period off the `// LASSO:` header: the header block is
+  the last label, and k+1 arrivals at it means k laps."""
+  for line in sir_text.splitlines():
+    if "LASSO:" in line:
+      labels = line.split("LASSO:")[1].replace("->", " ").split()
+      return labels.count(labels[-1]) - 1
+  return None
+
+
+def test_max_lasso_period_generates_multi_lap_orbits(rysmith):
+  """--max-lasso-period N draws the orbit period k from [1, N], so a batch
+  contains genuinely multi-lap lassos, not just the classic single-lap fixed
+  point. Each program's spliced modulus local must equal its own period: the
+  counter is what makes the k-cycle realizable, since the additive corrections
+  alone can only ever close a period-1 orbit (RefractIR's `+` traps on signed
+  overflow, so the solver is forced to a zero correction)."""
+  with tempfile.TemporaryDirectory() as d:
+    for seed in ("1", "2", "3"):
+      run(
+        [
+          rysmith,
+          "--require-nonterm",
+          "--max-lasso-period",
+          "4",
+          "--seed",
+          seed,
+          "--n-funcs",
+          "10",
+          "--n-inits",
+          "1",
+          "-o",
+          d,
+        ]
+      )
+    sirs = [os.path.join(d, f) for f in sorted(os.listdir(d)) if f.endswith(".sir")]
+    periods, mismatched = [], []
+    for p in sirs:
+      body = open(p).read()
+      k = _lasso_period(body)
+      if k is None:
+        continue
+      periods.append(k)
+      m = re.search(r"let mut %_ntmod: i32 = (\d+);", body)
+      declared = int(m.group(1)) if m else 1
+      if declared != max(k, 1) and not (k == 1 and m is None):
+        mismatched.append((os.path.basename(p), k, declared))
+    check("max-lasso-period: emitted programs", len(periods) > 0, "no lassos found")
+    check(
+      "max-lasso-period: some orbits have k > 1",
+      any(k > 1 for k in periods),
+      f"all periods were 1: {sorted(set(periods))}",
+    )
+    check(
+      "max-lasso-period: odd periods reachable too",
+      any(k % 2 == 1 and k > 1 for k in periods),
+      f"no odd k>1 orbit; periods seen: {sorted(set(periods))}",
+    )
+    check(
+      "max-lasso-period: modulus local matches each orbit's period",
+      not mismatched,
+      f"mismatches (file, k, declared): {mismatched}",
+    )
+
+
+def test_max_lasso_period_requires_nonterm(rysmith):
+  """--max-lasso-period only means something for lasso sampling, so asking for
+  it without --require-nonterm is a usage error rather than a silent no-op."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run([rysmith, "--max-lasso-period", "3", "--n-funcs", "1", "-o", d])
+    check(
+      "max-lasso-period without --require-nonterm exits non-zero",
+      r.returncode != 0,
+      f"rc={r.returncode}",
+    )
+    check(
+      "max-lasso-period: error names the missing flag",
+      "require-nonterm" in r.stderr,
+      r.stderr[:200],
+    )
+
+
+def test_max_lasso_period_validates(rysmith):
+  """The bounded-replay check must understand periods: for a period-k orbit
+  *consecutive* header arrivals deliberately differ, so validation compares
+  arrivals k laps apart. A validator that compared neighbours would fail every
+  k > 1 program. Seed pinned so the assertion is deterministic."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--require-nonterm",
+        "--max-lasso-period",
+        "4",
+        "--validate",
+        "--seed",
+        "3",
+        "--n-funcs",
+        "10",
+        "--n-inits",
+        "1",
+        "-o",
+        d,
+      ]
+    )
+    check("max-lasso-period --validate exits 0", r.returncode == 0, r.stderr[:300])
+    oks, fails = r.stdout.count("validated: OK("), r.stdout.count("validated: FAIL(")
+    check(
+      "max-lasso-period: multi-lap orbits validate as diverging",
+      oks >= 5,
+      f"oks={oks} fails={fails}",
+    )
+
+
 def test_require_ub_emit_main_reparses(rysmith, symiri):
   """Every --require-ub --emit-main whole-program .sir must re-parse.
 
@@ -3196,6 +3310,12 @@ def main():
   test_require_nonterm_covers_pointer_state(rysmith, symiri)
   print("=== --require-nonterm: --validate over the full type lattice ===")
   test_require_nonterm_validate_full_lattice(rysmith)
+  print("=== --max-lasso-period: multi-lap orbits ===")
+  test_max_lasso_period_generates_multi_lap_orbits(rysmith)
+  print("=== --max-lasso-period: requires --require-nonterm ===")
+  test_max_lasso_period_requires_nonterm(rysmith)
+  print("=== --max-lasso-period: period-aware bounded replay ===")
+  test_max_lasso_period_validates(rysmith)
   print("=== --require-ub --emit-main: whole programs re-parse (no inf/nan leak) ===")
   test_require_ub_emit_main_reparses(rysmith, symiri)
   print("=== --emit-state: pbb sidecar shape ===")

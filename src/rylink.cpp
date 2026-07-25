@@ -556,9 +556,14 @@ static bool generateOne(const FuncPool &pool, std::mt19937 &rng, const PerProgCo
       case FuncDescriptor::Outcome::Diverge: {
         // Assert the program diverges: the entry is the unmodified diverging
         // leaf, whose lasso header is the last block of its descriptor path.
-        std::string header = entryEntry.desc.path.empty() ? "" : entryEntry.desc.path.back();
-        ok = validateNontermDiverges(programSir, entryName, args, header);
-        detail = "expected divergence (header=" + header + ")";
+        // That path also carries the orbit's period — k+1 arrivals at the
+        // header means k laps between two identical states.
+        const auto &dpath = entryEntry.desc.path;
+        std::string header = dpath.empty() ? "" : dpath.back();
+        int period = dpath.empty() ? 1 : (int) std::count(dpath.begin(), dpath.end(), header) - 1;
+        ok = validateNontermDiverges(programSir, entryName, args, header, period);
+        detail =
+            "expected divergence (header=" + header + ", period=" + std::to_string(period) + ")";
         break;
       }
     }
