@@ -158,28 +158,36 @@ namespace refractir::reify {
         return false; // UB / require / other => not a clean divergence
       }
 
-      // Confirm the header-state fixed point at runtime: the first two entries
-      // of the lasso header must carry bit-identical state (a lap that returns
-      // to its own entry state, so it recurs forever).
-      const StatePoint *first = nullptr;
+      // Confirm the header-state fixed point at runtime: the *last two* visits
+      // to the lasso header must carry bit-identical state. Two consecutive
+      // identical header states in a deterministic program prove the lap repeats
+      // forever, which is the property we are certifying.
+      //
+      // The last two rather than the first two, because a local declared
+      // `= undef` does not enter the store until it is first assigned: at the
+      // header's first visit the state is both smaller and partly undefined
+      // (the usual case, since the header is often the entry block that
+      // initializes the pointers). Late visits are past all initialization, so
+      // the comparison needs no exemption and stays strictly bit-exact.
+      const StatePoint *prev = nullptr;
+      const StatePoint *last = nullptr;
       for (const auto &pt: profile.trace) {
         if (pt.instr != -1 || pt.block != headerLabel)
           continue;
-        if (!first) {
-          first = &pt;
-          continue;
-        }
-        if (pt.vars.size() != first->vars.size())
-          return false;
-        for (std::size_t i = 0; i < pt.vars.size(); ++i) {
-          if (pt.vars[i].first != first->vars[i].first)
-            return false;
-          if (!bitExactEq(pt.vars[i].second, first->vars[i].second))
-            return false;
-        }
-        return true; // header state recurred after one lap => diverges
+        prev = last;
+        last = &pt;
       }
-      return false; // header visited fewer than twice within the budget
+      if (!prev || !last)
+        return false; // header visited fewer than twice within the budget
+      if (prev->vars.size() != last->vars.size())
+        return false;
+      for (std::size_t i = 0; i < last->vars.size(); ++i) {
+        if (last->vars[i].first != prev->vars[i].first)
+          return false;
+        if (!bitExactEq(last->vars[i].second, prev->vars[i].second))
+          return false;
+      }
+      return true; // header state recurred => diverges
     } catch (...) {
       return false;
     }

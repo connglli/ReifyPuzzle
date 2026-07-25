@@ -1,0 +1,23 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h' --require-nonterm
+
+// %p points at %x on the header's first visit and at %y after one lap.
+// Distinct objects have distinct addresses, so the pointer leaf cannot
+// recur and the lasso is UNSAT -- no additive correction can bridge two
+// objects, since cross-object pointer arithmetic is itself UB. Pins that
+// a pointer leaf is compared, not skipped.
+fun @main() : i32 {
+  sym %?g : value i32;
+  let mut %x : i32 = 1;
+  let mut %y : i32 = 2;
+  let mut %p : ptr i32 = null;
+^entry:
+  %p = addr %x;
+  br ^h;
+^h:
+  %p = addr %y;
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %x;
+}

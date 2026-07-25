@@ -1,0 +1,21 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h' --require-nonterm
+
+// FP additive correction, the float analogue of nonterm_add_correction.
+// %v + %?d == %v forces %?d to a zero, and RequireNonterm ASSERTS the
+// add's finite-result guard, so the lap is UB-free under the finite-only
+// FP domain. Pins that a float leaf participates in the header fixed
+// point exactly like an integer one.
+fun @main() : f64 {
+  sym %?d : value f64;
+  sym %?g : value i32;
+  let mut %v : f64 = 7.0;
+^entry:
+  br ^h;
+^h:
+  %v = %v + %?d;
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %v;
+}

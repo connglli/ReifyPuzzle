@@ -628,7 +628,7 @@ int main(int argc, char **argv) {
     ("timeout",           "SMT solver timeout per attempt in ms",
                           cxxopts::value<uint32_t>()->default_value("2000"))
     ("require-ub",        "Force at least one UB to be triggered on the chosen path")
-    ("require-nonterm",   "Generate UB-free programs that diverge on the sampled input (samples a lasso; implies --require-reducible, --no-crc32, integer-scalar vars only)")
+    ("require-nonterm",   "Generate UB-free programs that diverge on the sampled input (samples a lasso; implies --require-reducible and --no-crc32)")
     ("coef-domain",       "Domain for coef symbols",
                           cxxopts::value<std::string>()->default_value("[-2147483647, 2147483647]"))
     ("value-domain",      "Domain for value/constant symbols",
@@ -728,24 +728,15 @@ int main(int argc, char **argv) {
   typeCfg.maxAggNesting = result["max-agg-nest"].as<int>();
   typeCfg.maxAggElems = result["max-agg-elems"].as<int>();
 
-  // [v0.2.3] --require-nonterm: generate diverging (⇑) programs. V1 restricts
-  // the type lattice to integer scalars so every mutable leaf gets a
-  // closeable additive correction (see spliceNontermCorrections). Must run
-  // before varCfg / exprCfg are built from typeCfg below.
+  // [v0.2.3] --require-nonterm: generate diverging (⇑) programs. The type
+  // lattice is unrestricted — spliceNontermCorrections closes every scalar
+  // leaf of a touched let (integer, floating-point, or pointer) with the same
+  // additive correction, so the header fixed point stays solvable over the
+  // whole state.
   bool requireNonterm = result.count("require-nonterm") > 0;
   if (requireNonterm && result.count("require-ub")) {
     std::cerr << "error: --require-nonterm and --require-ub are mutually exclusive\n";
     return 2;
-  }
-  if (requireNonterm) {
-    // Integer scalars, arrays, structs, and vectors: spliceNontermCorrections
-    // closes every scalar-int leaf of a touched aggregate, so the header fixed
-    // point stays solvable over aggregate state too. Floats (their fixed point
-    // needs a ±0 bit-exact re-verify) and pointers (leaf = restore the target
-    // cell) are deferred, so keep them off.
-    typeCfg.enableFp = false;
-    typeCfg.enableAggPtr = false;
-    typeCfg.maxPtrDepth = 0;
   }
 
   int minAtoms = result["min-atoms"].as<int>();

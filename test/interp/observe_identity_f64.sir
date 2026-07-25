@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// @observe is domain-agnostic: it returns a float argument unchanged, so a
+// float leaf can carry the beacon that keeps a diverging loop observably
+// side-effecting in the C lowering.
+intrinsic @observe(%x: f64) : f64;
+
+fun @main() : f64 {
+  let mut %v: f64 = 2.5;
+^entry:
+  %v = call @observe(%v);
+  require %v == 2.5, "@observe is identity on f64";
+  ret %v;
+}

@@ -1,0 +1,15 @@
+// EXPECT: PASS
+// EXPECT_RC: 7
+// @observe over a float: the C lowering's volatile-write helper must be
+// typed on the float, and every backend must still return the argument
+// unchanged. The cast back to i32 keeps the exit code checkable.
+intrinsic @observe(%x: f64) : f64;
+
+fun @main() : i32 {
+  let mut %v: f64 = 7.0;
+  let mut %r: i32 = 0;
+^entry:
+  %v = call @observe(%v);
+  %r = %v as i32;
+  ret %r;
+}

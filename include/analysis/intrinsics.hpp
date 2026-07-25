@@ -101,7 +101,7 @@ namespace refractir {
     Crc32Update,
     CheckChksum,
     // v0.2.3 — observability beacon.
-    //   @observe(v: iN) : iN
+    //   @observe(v: T) : T   for an integer or floating-point T
     //     Value semantics is the identity (returns v unchanged), so it is a
     //     deterministic, solver-friendly, oracle-consistent pure function like
     //     every other intrinsic. Its purpose is a *lowering* property: the C
@@ -221,7 +221,7 @@ namespace refractir {
         {K::CheckChksum, "@check_chksum", D::Int, S::I32, {S::I32, S::I32}},
         // Observability beacon — identity value; observable write in the C
         // lowering. Any integer width.
-        {K::Observe, "@observe", D::Int, S::T, {S::T}},
+        {K::Observe, "@observe", D::IntOrFp, S::T, {S::T}},
         // Horizontal reductions — <N> T → T (§12.4). add/min/max fold integer
         // or FP lanes; the bitwise reductions are integer-only.
         {K::ReduceAdd, "@reduce_add", D::IntOrFp, S::T, {S::VecOfT}},

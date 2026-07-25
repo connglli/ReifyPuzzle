@@ -736,6 +736,10 @@ namespace refractir {
       virtual ~CFpIntrinsic() = default;
       virtual void emit(CBackend &backend, const IntrinsicDecl &intr) const = 0;
 
+      // Mirrors CIntrinsic::linkageQualifier — @observe needs `noinline` so a
+      // caller cannot fold through its identity return and drop the sink write.
+      virtual std::string linkageQualifier() const { return "static inline"; }
+
     protected:
       static std::ostream &out(CBackend &backend) { return CIntrinsicRegistry::out(backend); }
 
@@ -759,6 +763,22 @@ namespace refractir {
         // Plain unary negation flips the sign bit without rounding; this is
         // the RefractIR @fneg contract (no fmul -1.0).
         out(backend) << "  return -a0;\n";
+      }
+    };
+
+    // Float twin of ObserveCIntrinsic — same volatile-sink anchor, typed on
+    // the float so a diverging loop whose only state is FP still carries an
+    // observable side effect.
+    class ObserveCFpIntrinsic final : public CFpIntrinsic {
+    public:
+      std::string linkageQualifier() const override { return "static __attribute__((noinline))"; }
+
+      void emit(CBackend &backend, const IntrinsicDecl &intr) const override {
+        bool isF32 = std::get<FloatType>(intr.retType->v).kind == FloatType::Kind::F32;
+        out(backend) << "  static volatile " << (isF32 ? "float" : "double")
+                     << " __rir_observe_fsink;\n";
+        out(backend) << "  __rir_observe_fsink = a0;\n";
+        out(backend) << "  return a0;\n";
       }
     };
 
@@ -1042,6 +1062,7 @@ namespace refractir {
     static const std::unordered_map<IntrinsicKind, CFpIntrinsicGenFn> &getRegistry() {
       static const std::unordered_map<IntrinsicKind, CFpIntrinsicGenFn> registry = []() {
         std::unordered_map<IntrinsicKind, CFpIntrinsicGenFn> r;
+        r[IntrinsicKind::Observe] = std::make_unique<ObserveCFpIntrinsic>();
         r[IntrinsicKind::Fabs] = std::make_unique<FabsCIntrinsic>();
         r[IntrinsicKind::Fneg] = std::make_unique<FnegCIntrinsic>();
         r[IntrinsicKind::Copysign] = std::make_unique<CopysignCIntrinsic>();
@@ -1195,27 +1216,29 @@ namespace refractir {
       anyFp = anyFp || (p.type && std::holds_alternative<FloatType>(p.type->v));
 
     if (anyFp) {
-      // FP helpers share the simple `static inline` linkage — none of them
-      // need to defeat caller-side constant folding the way @crc32_update
-      // does, so the qualifier hook isn't threaded through this path.
+      // Look up the impl before the signature so its linkage qualifier can be
+      // read, exactly as the integer path below does.
+      const CFpIntrinsic *fpImpl = nullptr;
+      if (auto kind = getIntrinsicKind(intr.name.name)) {
+        const auto &fpRegistry = CFpIntrinsicRegistry::getRegistry();
+        auto it = fpRegistry.find(*kind);
+        if (it != fpRegistry.end())
+          fpImpl = it->second.get();
+      }
       std::string outTy = cTypeOf(intr.retType);
       std::string name = intrinsicHelperName(intr);
-      out_ << "static inline " << outTy << " " << name << "(";
+      out_ << (fpImpl ? fpImpl->linkageQualifier() : "static inline") << " " << outTy << " " << name
+           << "(";
       for (size_t i = 0; i < intr.params.size(); ++i) {
         if (i)
           out_ << ", ";
         out_ << cTypeOf(intr.params[i].type) << " a" << i;
       }
       out_ << ") {\n";
-      auto kind = getIntrinsicKind(intr.name.name);
-      if (kind) {
-        const auto &fpRegistry = CFpIntrinsicRegistry::getRegistry();
-        auto it = fpRegistry.find(*kind);
-        if (it != fpRegistry.end()) {
-          it->second->emit(*this, intr);
-          out_ << "}\n\n";
-          return;
-        }
+      if (fpImpl) {
+        fpImpl->emit(*this, intr);
+        out_ << "}\n\n";
+        return;
       }
       out_ << "  __builtin_trap(); /* unknown FP intrinsic */\n";
       out_ << "}\n\n";

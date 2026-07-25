@@ -1923,6 +1923,16 @@ namespace refractir {
 
   namespace {
 
+    // Float twin of ObserveIntrinsic — identity, as in the integer registry:
+    // WASM has no forward-progress assumption, so no side effect is needed.
+    class ObserveWasmFpIntrinsic final : public WasmFpIntrinsic {
+    public:
+      void emit(WasmBackend &backend, const IntrinsicDecl &) const override {
+        indent(backend);
+        out(backend) << "local.get $a0\n";
+      }
+    };
+
     class FabsWasmIntrinsic final : public WasmFpIntrinsic {
     public:
       void emit(WasmBackend &backend, const IntrinsicDecl &intr) const override {
@@ -2339,6 +2349,7 @@ namespace refractir {
     static const std::unordered_map<IntrinsicKind, GenFn> &getRegistry() {
       static const std::unordered_map<IntrinsicKind, GenFn> registry = []() {
         std::unordered_map<IntrinsicKind, GenFn> r;
+        r[IntrinsicKind::Observe] = std::make_unique<ObserveWasmFpIntrinsic>();
         r[IntrinsicKind::Fabs] = std::make_unique<FabsWasmIntrinsic>();
         r[IntrinsicKind::Fneg] = std::make_unique<FnegWasmIntrinsic>();
         r[IntrinsicKind::Copysign] = std::make_unique<CopysignWasmIntrinsic>();

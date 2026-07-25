@@ -2404,6 +2404,131 @@ def test_require_nonterm_c_stays_infinite(rysmith):
         )
 
 
+def _nonterm_batch_state_kinds(rysmith, seed, n_funcs, extra=()):
+  """Generate a --require-nonterm batch and report which type kinds appear as
+  mutable state, plus the concrete .sir paths. Shared by the coverage tests."""
+  d = tempfile.mkdtemp()
+  r = run(
+    [
+      rysmith,
+      "--require-nonterm",
+      "--seed",
+      str(seed),
+      "--n-funcs",
+      str(n_funcs),
+      "--n-inits",
+      "1",
+      "-o",
+      d,
+    ]
+    + list(extra)
+  )
+  sirs = (
+    [
+      os.path.join(d, f)
+      for f in sorted(os.listdir(d))
+      if f.endswith(".sir") and "_sym" not in f
+    ]
+    if r.returncode == 0
+    else []
+  )
+  bodies = "".join(open(p).read() for p in sirs)
+  kinds = {
+    "fp": bool(re.search(r"let mut [^:]+:\s*(f32|f64)\b", bodies)),
+    "ptr": bool(re.search(r"let mut [^:]+:\s*ptr\b", bodies)),
+    "int": bool(re.search(r"let mut [^:]+:\s*i\d+\b", bodies)),
+  }
+  return d, r, sirs, kinds
+
+
+def _all_diverge(symiri, sirs, timeout=1.5):
+  """Bounded replay: return the subset of `sirs` that terminated or trapped."""
+  bad = []
+  for path in sirs:
+    fname, args = _solved_call(open(path).read())
+    if fname is None:
+      continue
+    try:
+      rr = subprocess.run(
+        [symiri, "--main", fname, path, "--"] + args,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+      )
+      bad.append((os.path.basename(path), (rr.stdout + rr.stderr).strip()[-160:]))
+    except subprocess.TimeoutExpired:
+      pass  # still running => diverges, as intended
+  return bad
+
+
+def test_require_nonterm_covers_fp_state(rysmith, symiri):
+  """--require-nonterm admits floating-point state. A float leaf is closed by
+  the same additive correction as an integer one (`%v = %v + %?ntK`), and the
+  header recurrence is bit-exact equality, so a lap that only permutes signed
+  zeros is not mistaken for a fixed point. Requires that float locals actually
+  appear in a batch and that every program still diverges."""
+  d, r, sirs, kinds = _nonterm_batch_state_kinds(
+    rysmith, seed=7, n_funcs=10, extra=("--no-vec", "--no-agg-ptr")
+  )
+  check("nonterm-fp: generation exits 0", r.returncode == 0, r.stderr[:300])
+  check(
+    "nonterm-fp: float locals appear as state",
+    kinds["fp"],
+    f"no f32/f64 `let mut` across {len(sirs)} programs (FP still disabled?)",
+  )
+  bad = _all_diverge(symiri, sirs)
+  check(f"nonterm-fp: all {len(sirs)} programs diverge", not bad, f"terminated: {bad}")
+
+
+def test_require_nonterm_covers_pointer_state(rysmith, symiri):
+  """--require-nonterm admits pointer state. A pointer leaf is closed by
+  pointer arithmetic against a fresh i64 correction symbol (`%p = %p + %?ntK`),
+  which the asserted in-bounds guard keeps within the pointee's object.
+  Requires that pointer locals actually appear and every program diverges."""
+  d, r, sirs, kinds = _nonterm_batch_state_kinds(
+    rysmith, seed=11, n_funcs=10, extra=("--no-fp",)
+  )
+  check("nonterm-ptr: generation exits 0", r.returncode == 0, r.stderr[:300])
+  check(
+    "nonterm-ptr: pointer locals appear as state",
+    kinds["ptr"],
+    f"no `ptr` `let mut` across {len(sirs)} programs (pointers still disabled?)",
+  )
+  bad = _all_diverge(symiri, sirs)
+  check(f"nonterm-ptr: all {len(sirs)} programs diverge", not bad, f"terminated: {bad}")
+
+
+def test_require_nonterm_validate_full_lattice(rysmith):
+  """With the type lattice unrestricted, `--validate`'s bounded replay (which
+  compares header states *bit-exactly*, unlike the solver's FP reasoning) must
+  still confirm every solved program: 0 FAIL. This is the check that would
+  catch a float fixed point the solver believed but that does not hold
+  bit-for-bit at runtime (the ±0 hazard)."""
+  with tempfile.TemporaryDirectory() as d:
+    r = run(
+      [
+        rysmith,
+        "--require-nonterm",
+        "--validate",
+        "--seed",
+        "23",
+        "--n-funcs",
+        "10",
+        "--n-inits",
+        "1",
+        "-o",
+        d,
+      ]
+    )
+    check("nonterm-lattice: --validate exits 0", r.returncode == 0, r.stderr[:300])
+    oks, fails = r.stdout.count("validated: OK("), r.stdout.count("validated: FAIL(")
+    check(
+      "nonterm-lattice: >=1 OK and 0 FAIL",
+      oks >= 1 and fails == 0,
+      f"oks={oks} fails={fails}",
+    )
+
+
 def test_require_ub_emit_main_reparses(rysmith, symiri):
   """Every --require-ub --emit-main whole-program .sir must re-parse.
 
@@ -3065,6 +3190,12 @@ def main():
   test_require_nonterm_emit_main(rysmith, symiri, symirc)
   print("=== --require-nonterm: compiled C stays infinite at -O2 (gcc/clang) ===")
   test_require_nonterm_c_stays_infinite(rysmith)
+  print("=== --require-nonterm: floating-point state ===")
+  test_require_nonterm_covers_fp_state(rysmith, symiri)
+  print("=== --require-nonterm: pointer state ===")
+  test_require_nonterm_covers_pointer_state(rysmith, symiri)
+  print("=== --require-nonterm: --validate over the full type lattice ===")
+  test_require_nonterm_validate_full_lattice(rysmith)
   print("=== --require-ub --emit-main: whole programs re-parse (no inf/nan leak) ===")
   test_require_ub_emit_main_reparses(rysmith, symiri)
   print("=== --emit-state: pbb sidecar shape ===")

@@ -736,6 +736,18 @@ namespace refractir {
       }
     };
 
+    // Float twin of ObserveIntrinsic — the beacon's value semantics is the
+    // identity in every domain; only the C lowering writes the sink.
+    class ObserveSolverFpIntrinsic final : public SolverFpIntrinsic {
+    public:
+      SymbolicValue solve(
+          const IntrinsicDecl &, const std::vector<SymbolicValue> &argVals, smt::ISolver &,
+          std::vector<smt::Term> &
+      ) const override {
+        return argVals[0];
+      }
+    };
+
     class FabsSolverIntrinsic final : public SolverFpIntrinsic {
     public:
       SymbolicValue solve(
@@ -1149,6 +1161,7 @@ namespace refractir {
 
     private:
       SolverFpIntrinsicRegistry() {
+        registry_[IntrinsicKind::Observe] = std::make_unique<ObserveSolverFpIntrinsic>();
         registry_[IntrinsicKind::Fabs] = std::make_unique<FabsSolverIntrinsic>();
         registry_[IntrinsicKind::Fneg] = std::make_unique<FnegSolverIntrinsic>();
         registry_[IntrinsicKind::Copysign] = std::make_unique<CopysignSolverIntrinsic>();

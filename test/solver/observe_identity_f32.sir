@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+// The solver models @observe as the identity over floats too, so %?x is
+// pinned to 1.5 by the require on the observed value.
+intrinsic @observe(%x: f32) : f32;
+
+fun @main() : f32 {
+  sym %?x : value f32;
+  let mut %v: f32 = 0.0;
+^entry:
+  %v = call @observe(%?x);
+  require %v == 1.5, "@observe identity: observed float equals input";
+  ret %v;
+}

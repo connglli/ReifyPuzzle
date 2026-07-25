@@ -1,0 +1,25 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h' --require-nonterm
+
+// A float buried in a struct is a leaf of the header state like any
+// other: %s.b + %?d == %s.b forces %?d to a zero, while the untouched
+// integer field %s.a recurs trivially. Pins that the recurrence
+// recursion reaches mixed int/float aggregate leaves.
+struct @S {
+  a: i32;
+  b: f64;
+}
+
+fun @main() : i32 {
+  sym %?d : value f64;
+  sym %?g : value i32;
+  let mut %s : @S = {5, 1.5};
+^entry:
+  br ^h;
+^h:
+  %s.b = %s.b + %?d;
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %s.a;
+}

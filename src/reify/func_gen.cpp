@@ -540,32 +540,49 @@ namespace refractir::reify {
       return nullptr;
     };
 
-    // Append `<leaf> = <leaf> + %?ntK;` to the latch for every scalar-integer
-    // leaf of a touched let, recursing through array / vector / struct nesting.
-    // The fresh correction symbol gives the solver the freedom to restore that
-    // leaf to its header-entry value, so the fixed point is always solvable.
-    // Pointer and FP leaves are skipped — --require-nonterm restricts vars to
-    // integer scalars and aggregates thereof, so those never occur. The first
-    // int leaf is remembered so an @observe beacon can be planted on it below.
+    // Append `<leaf> = <leaf> + %?ntK;` to the latch for every *scalar* leaf of
+    // a touched let, recursing through array / vector / struct nesting. The
+    // fresh correction symbol gives the solver the freedom to restore that leaf
+    // to its header-entry value, so the fixed point is always solvable.
+    //
+    // `+` is the one closer for every scalar domain, because in each it is the
+    // group operation the solver can invert:
+    //   iN   — wrapping add is a bijection, so some %?nt always closes the gap;
+    //   fN   — add reaches the header value whenever the difference is
+    //          representable, and the asserted finite-result guard keeps the
+    //          lap UB-free (an unreachable target just yields UNSAT, and
+    //          rysmith resamples);
+    //   ptr  — pointer arithmetic shifts the offset within the pointee's
+    //          object, so a pointer that merely *moves* over the lap is
+    //          closeable; one that changes object is not (cross-object
+    //          arithmetic is itself UB), which again surfaces as UNSAT.
+    // The first int-or-float leaf is remembered so an @observe beacon can be
+    // planted on it below; a pointer cannot carry the beacon (@observe's
+    // domain is int-or-fp).
     int k = 0;
     bool haveObsLeaf = false;
     LValue obsLv;
     TypePtr obsTy;
     std::function<void(LValue, const TypePtr &)> correctLeaves;
     correctLeaves = [&](LValue lv, const TypePtr &t) {
-      if (!t || isPtrType(t))
+      if (!t)
         return;
-      if (isIntType(t)) {
-        if (!haveObsLeaf) {
+      const bool ptrLeaf = isPtrType(t);
+      if (isIntType(t) || isFpType(t) || ptrLeaf) {
+        if (!haveObsLeaf && !ptrLeaf) {
           haveObsLeaf = true;
           obsLv = lv;
           obsTy = t;
         }
+        // A pointer's correction shifts its offset, so the symbol is the
+        // integer element-distance type — there is no `sym` of pointer type.
+        TypePtr symTy =
+            ptrLeaf ? std::make_shared<Type>(Type{IntType{IntType::Kind::I64, {}, {}}, {}}) : t;
         std::string symName = "%?nt" + std::to_string(k++);
         SymDecl d;
         d.name = SymId{symName, {}};
         d.kind = SymKind::Value;
-        d.type = t;
+        d.type = std::move(symTy);
         fun->syms.push_back(std::move(d));
 
         Expr rhs;

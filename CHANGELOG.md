@@ -24,12 +24,14 @@ considered and dropped (spec §13).
 - **Non-terminating program generation** (`rysmith --require-nonterm`,
   `symirsolve --require-nonterm`): generate UB-free **diverging** leaf
   functions from a lasso witness with a header-state fixed point
-  (`σ_h′ = σ_h`); `rylink` fuses a **homogeneous** pool (all-return /
-  all-trap / all-diverge) into a whole program of that outcome; `rytwin`
-  transforms only UB-free terminating inputs. Adds the descriptor
-  `outcome` field (generalizing `has_ub`), the `@observe`
-  observability-beacon intrinsic (identity value; observable `volatile`
-  write in the C lowering), and `symiri --max-bbl-steps`.
+  (`σ_h′ = σ_h`), closed by a uniform `leaf = leaf + %?ntK` correction
+  over every integer, float, and pointer leaf; `rylink` fuses a
+  **homogeneous** pool (all-return / all-trap / all-diverge) into a
+  whole program of that outcome; `rytwin` transforms only UB-free
+  terminating inputs. Adds the descriptor `outcome` field (generalizing
+  `has_ub`), the `@observe` observability-beacon intrinsic (identity
+  value over any `iN`/`fN`; observable `volatile` write in the C
+  lowering), and `symiri --max-bbl-steps`.
 - **Python compilation target** (`symirc --target python`): emits
   genuine `while`/`if` control flow, a boxed pointer/aggregate memory
   model with runtime UB traps, lane-list vectors, and symbol providers

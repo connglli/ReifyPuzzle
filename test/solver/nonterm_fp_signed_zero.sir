@@ -1,0 +1,23 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h' --require-nonterm
+
+// Bit-exactness of the header fixed point on signed zero. %v is 0.0 at
+// the header's first visit and @fneg makes it -0.0 after one lap.
+// IEEE comparison (fp.eq) calls those equal and would wrongly certify
+// divergence; the recurrence must be *bit-exact* equality, under which
+// +0.0 != -0.0, so this is UNSAT. Guards the one place where the FP
+// value model and the state-recurrence model must disagree.
+intrinsic @fneg(%x: f64) : f64;
+
+fun @main() : f64 {
+  sym %?g : value i32;
+  let mut %v : f64 = 0.0;
+^entry:
+  br ^h;
+^h:
+  %v = call @fneg(%v);
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %v;
+}

@@ -1200,10 +1200,10 @@ For floating-point `@reduce_min` / `@reduce_max`, equal-magnitude signed zeros a
 ### 12.5 Observability beacon **[New in v0.2.3]**
 
 ```text
-intrinsic @observe(%x: iN) : iN;
+intrinsic @observe(%x: T) : T;      // T is any iN or fN
 ```
 
-`@observe(v) = v` — the identity, at any integer width. It is deterministic and oracle-consistent; the interpreter, solver, WASM, and Python all lower it to the identity. Its purpose is a **lowering** property rather than a value: the C backend emits an observable `volatile` write of `v`, a side effect the optimizer must preserve. This anchors a computation the compiler cannot prove dead — e.g. the body of a deliberately non-terminating loop — so the loop survives even under a forward-progress-assuming toolchain. Because that side effect is observable, `@observe` is treated as impure for the `const` restriction (§6.15); its identity *value* nonetheless keeps it deterministic and solver-friendly. Per-backend lowering: `docs/intrinsics.md` §12.7.
+`@observe(v) = v` — the identity, at any integer or floating-point width. It is deterministic and oracle-consistent; the interpreter, solver, WASM, and Python all lower it to the identity. Its purpose is a **lowering** property rather than a value: the C backend emits an observable `volatile` write of `v`, a side effect the optimizer must preserve. This anchors a computation the compiler cannot prove dead — e.g. the body of a deliberately non-terminating loop — so the loop survives even under a forward-progress-assuming toolchain. Because that side effect is observable, `@observe` is treated as impure for the `const` restriction (§6.15); its identity *value* nonetheless keeps it deterministic and solver-friendly. Per-backend lowering: `docs/intrinsics.md` §12.7.
 
 
 ## 13. Non-goals for v0.2.3 (planned for later)

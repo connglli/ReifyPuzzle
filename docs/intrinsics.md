@@ -714,7 +714,7 @@ fun @demo(%x: i32) : i32 {
 | `@recip` | `(fN) → fN` | result non-finite (`x = ±0.0` or overflow) | finite `fN` |
 | `@crc32_update` | `(i32, iN) → i32`, `N ∈ {8, 16, 24, 32, 40, 48, 56, 64}` | — | full `i32` |
 | `@check_chksum` | `(i32, i32) → i32` | `expected != actual` (abort in C, UB in symiri) | `= actual` on match |
-| `@observe` | `(iN) → iN` | — | `= x` (identity; observable `volatile` write in C) |
+| `@observe` | `(T) → T` | — | `= x` (identity, any `iN`/`fN`; observable `volatile` write in C) |
 | `@reduce_add` | `(<N> T) → T`, `T ∈ iN, fN` | int: partial sum out of `iN` range; fp: non-finite intermediate; any `undef` lane | scalar `T` |
 | `@reduce_min` | `(<N> T) → T`, `T ∈ iN, fN` | any `undef` lane | scalar `T` |
 | `@reduce_max` | `(<N> T) → T`, `T ∈ iN, fN` | any `undef` lane | scalar `T` |
@@ -1284,11 +1284,14 @@ ever needs to reason about its post-state.
 ### `@observe` — observability beacon (v0.2.3)
 
 ```text
-intrinsic @observe(%x: iN) : iN;
+intrinsic @observe(%x: T) : T;      // T is any iN or fN
 ```
 
 **Value semantics is the identity**: `@observe(v)` returns `v` unchanged, at
-any integer width. It is a deterministic, oracle-consistent pure function like
+any integer or floating-point width. The float domain matters because the leaf
+a beacon is planted on may be of any scalar type — a diverging loop whose state
+is entirely floating-point still needs an anchor. It is a deterministic,
+oracle-consistent pure function like
 every other intrinsic — the interpreter, solver, WASM, and Python all lower it
 to the identity. Its purpose is a **lowering** property: the **C** backend emits
 an observable `volatile` write of `v`, a side effect the optimizer must
@@ -1306,10 +1309,11 @@ its observable write produces no value that enters the oracle comparison.
 **Interpreter** (`ObserveIntrinsic`): returns `args[0]`.
 **Solver** (`ObserveIntrinsic`): returns `argVals[0]` — no UB, no effect on the
 symbolic state.
-**C** (`ObserveCIntrinsic`): a `static __attribute__((noinline))` helper with
-`static volatile <T> __rir_observe_sink; __rir_observe_sink = a0; return a0;` —
-the volatile store is unremovable and noinline stops a caller from folding
-through the identity return.
+**C** (`ObserveCIntrinsic` / `ObserveCFpIntrinsic`): a `static
+__attribute__((noinline))` helper with `static volatile <T> __rir_observe_sink;
+__rir_observe_sink = a0; return a0;` — the volatile store is unremovable and
+noinline stops a caller from folding through the identity return. The float
+variant is identical but typed on `float` / `double`.
 **WASM / Python**: plain identity — neither target has a forward-progress
 assumption, so a diverging loop is preserved without an observable side effect.
 

@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h' --require-nonterm
+
+// A pointer local is state too: %p + %?k == %p forces %?k = 0, and the
+// asserted in-bounds guard keeps the lap UB-free. Pins that pointer
+// arithmetic is a closeable correction shape, so a cycle that moves a
+// pointer can still be certified as diverging.
+fun @main() : i32 {
+  sym %?k : value i64;
+  sym %?g : value i32;
+  let mut %x : i32 = 1;
+  let mut %p : ptr i32 = null;
+^entry:
+  %p = addr %x;
+  br ^h;
+^h:
+  %p = %p + %?k;
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %x;
+}
