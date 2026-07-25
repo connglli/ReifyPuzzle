@@ -2529,6 +2529,53 @@ def test_require_nonterm_validate_full_lattice(rysmith):
     )
 
 
+def test_emit_main_checksum_oracle_agrees(rysmith, symiri):
+  """The --emit-main checksum is an independent oracle: it is built from the
+  *solver's* model of the end-of-path state, then checked against what the
+  *interpreter* actually computes. Running @main must therefore exit 0 on
+  every generated program — a mismatch means the two disagree about the final
+  state.
+
+  The delicate part is pointers. The solver reports where each pointer ended
+  up as (targetLocal, targetOffset), and the oracle builder walks that offset
+  back down into a leaf. Both sides must measure with the same size model; a
+  decoder counting one unit per scalar leaf while the solver reports packed
+  bytes lands on the wrong leaf, and only when a struct mixes scalar widths
+  (e.g. an `i24` beside an `[2] i64`), which is why one fixed seed is not
+  enough coverage here."""
+  bad = []
+  with tempfile.TemporaryDirectory() as d:
+    for seed in ("42", "7", "11", "23", "33", "101"):
+      sub = os.path.join(d, "s" + seed)
+      os.makedirs(sub, exist_ok=True)
+      r = run(
+        [
+          rysmith,
+          "--n-funcs",
+          "4",
+          "--seed",
+          seed,
+          "--n-params",
+          "2",
+          "--emit-main",
+          "-o",
+          sub,
+        ]
+      )
+      if r.returncode != 0:
+        bad.append((seed, "generation failed", r.stderr[:120]))
+        continue
+      for name in sorted(f for f in os.listdir(sub) if f.endswith(".sir")):
+        rr = run([symiri, os.path.join(sub, name)])
+        if rr.returncode != 0:
+          bad.append((seed, name, (rr.stdout + rr.stderr).strip()[:120]))
+  check(
+    "emit-main: checksum oracle agrees with the interpreter on every program",
+    not bad,
+    f"{len(bad)} mismatched: {bad[:4]}",
+  )
+
+
 def _lasso_period(sir_text):
   """Read the orbit's period off the `// LASSO:` header: the header block is
   the last label, and k+1 arrivals at it means k laps."""
@@ -3310,6 +3357,8 @@ def main():
   test_require_nonterm_covers_pointer_state(rysmith, symiri)
   print("=== --require-nonterm: --validate over the full type lattice ===")
   test_require_nonterm_validate_full_lattice(rysmith)
+  print("=== --emit-main: checksum oracle agrees across seeds ===")
+  test_emit_main_checksum_oracle_agrees(rysmith, symiri)
   print("=== --max-lasso-period: multi-lap orbits ===")
   test_max_lasso_period_generates_multi_lap_orbits(rysmith)
   print("=== --max-lasso-period: requires --require-nonterm ===")

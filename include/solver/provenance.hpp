@@ -9,7 +9,7 @@ namespace refractir {
 
   /**
    * Pointer provenance for a `ptr T` local: the base tag identifying the
-   * addressed object and the size (in BV64 tag units) of its addressable
+   * addressed object and the size (in packed bytes) of its addressable
    * region (scalar = 1, array = N, struct = #fields).
    */
   struct PtrProvenance {

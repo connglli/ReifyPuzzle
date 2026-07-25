@@ -1,0 +1,29 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @main --path '^entry'
+// SKIP: COMPILER
+
+// Pointer arithmetic that leaves the object must be UB in the solver as well
+// as the interpreter, and object extents are measured in **packed bytes**
+// (SPEC §4: sizeof(@S) = Σ sizeof(field_i), no padding).
+//
+// sizeof(@S) = 4 + 4 + 2 = 10 bytes and sizeof([1] i32) = 4, so `%nav + 3`
+// lands 12 bytes in — past the end of the whole struct. A size model that
+// counts one unit per scalar *leaf* instead of bytes sees the struct as 3
+// units with a stride of 1 and wrongly calls the offset in-bounds; the two
+// models only agree while every scalar in the object has the same width.
+struct @S {
+  f0: [1] i32;
+  f1: i32;
+  f2: [2] i8;
+}
+
+fun @main() : i32 {
+  let mut %t: @S = {{7}, -3, {5, 0}};
+  let mut %ap: ptr @S = null;
+  let mut %nav: ptr [1] i32 = null;
+^entry:
+  %ap = addr %t;
+  %nav = ptrfield %ap, f0;
+  %nav = %nav + 3;
+  ret 0;
+}

@@ -1,0 +1,35 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+// SKIP: PYTHON
+//
+// Skipped on the Python target only. Its memory model is a flat list of
+// *leaf cells* rather than a byte array, so an object's extent is a leaf
+// count (3 here) instead of 10 bytes, and `%p + 4` reads as out of bounds
+// there while the interpreter, the C backend and the solver all agree it is
+// in bounds. That divergence is confined to arithmetic that roams across
+// sibling fields of differing widths — the one shape where a leaf-indexed
+// and a byte-indexed object extent disagree — and it is a property of the
+// Python lowering, not of this program.
+
+// The other direction of the same size-model bug: a *narrow* pointee inside a
+// *wide* object. sizeof(@S) = 2 + 8 = 10 bytes and sizeof([2] i8) = 2, so
+// `%p + 4` lands at byte 8 — comfortably inside. Counting one unit per scalar
+// leaf makes the object 3 units while the stride stays 2, so the offset looks
+// like 8 > 3 and the solver rejects a perfectly valid program. Under-counting
+// costs soundness; over-counting costs completeness, and a byte-accurate model
+// is what fixes both at once.
+struct @S {
+  f0: [2] i8;
+  f1: i64;
+}
+
+fun @main() : i32 {
+  let mut %t: @S = {{1, 2}, 9};
+  let mut %ap: ptr @S = null;
+  let mut %p: ptr [2] i8 = null;
+^entry:
+  %ap = addr %t;
+  %p = ptrfield %ap, f0;
+  %p = %p + 4;
+  ret 0;
+}

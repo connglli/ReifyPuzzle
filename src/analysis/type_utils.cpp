@@ -111,4 +111,43 @@ namespace refractir {
 
   bool TypeUtils::isVec(const TypePtr &t) { return t && std::holds_alternative<VecType>(t->v); }
 
+  std::uint64_t TypeUtils::packedSizeof(const TypePtr &t, const StructTable &structs) {
+    // The 8-byte fallbacks (null type, unknown struct) match the pointer
+    // width; they stand in for "no layout information", not a real size.
+    if (!t)
+      return 8;
+    if (auto it = std::get_if<IntType>(&t->v)) {
+      std::uint32_t bits = it->bits.value_or(it->kind == IntType::Kind::I32 ? 32 : 64);
+      return (bits + 7) / 8;
+    }
+    if (auto ft = std::get_if<FloatType>(&t->v))
+      return ft->kind == FloatType::Kind::F32 ? 4 : 8;
+    if (std::holds_alternative<PtrType>(t->v))
+      return 8;
+    if (auto at = std::get_if<ArrayType>(&t->v))
+      return at->size * packedSizeof(at->elem, structs);
+    if (auto st = std::get_if<StructType>(&t->v)) {
+      auto it = structs.find(st->name.name);
+      if (it == structs.end())
+        return 8;
+      std::uint64_t total = 0;
+      for (const auto &f: it->second->fields)
+        total += packedSizeof(f.type, structs);
+      return total;
+    }
+    return 8;
+  }
+
+  std::uint64_t TypeUtils::packedFieldOffset(
+      const StructDecl &s, const std::string &field, const StructTable &structs
+  ) {
+    std::uint64_t off = 0;
+    for (const auto &f: s.fields) {
+      if (f.name == field)
+        return off;
+      off += packedSizeof(f.type, structs);
+    }
+    return off;
+  }
+
 } // namespace refractir

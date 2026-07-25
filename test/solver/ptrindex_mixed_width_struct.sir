@@ -1,0 +1,26 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+
+// The same byte-accuracy requirement reached through `ptrindex` rather than
+// `ptrfield`, and with the load checking that the offset actually names the
+// cell the byte layout says it does. `%a` is 3 structs of 1 + 8 = 9 bytes; the
+// element at index 2 starts at byte 18, and its `w` field holds 30.
+struct @P {
+  b: i8;
+  w: i64;
+}
+
+fun @main() : i32 {
+  let mut %a: [3] @P = {{1, 10}, {2, 20}, {3, 30}};
+  let mut %pa: ptr [3] @P = null;
+  let mut %pe: ptr @P = null;
+  let mut %pw: ptr i64 = null;
+  let mut %v: i64 = 0;
+^entry:
+  %pa = addr %a;
+  %pe = ptrindex %pa, 2;
+  %pw = ptrfield %pe, w;
+  %v = load %pw;
+  require %v == 30, "ptrindex lands on the third element's wide field";
+  ret 0;
+}

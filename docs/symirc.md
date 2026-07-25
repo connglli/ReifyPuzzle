@@ -161,6 +161,23 @@ arithmetic, and cross-object relational comparison all trap. `undef`
 slots hold a unique sentinel that traps on read. Non-addressable
 scalars stay plain Python variables for readability.
 
+**Known divergence — object extents are leaf counts, not bytes.**
+Because the buffer is a list of leaf *slots*, an object's extent is its
+number of leaves, whereas the interpreter, the C backend and the solver
+all measure packed bytes (`sizeof(@S) = Σ sizeof(field_i)`). The two
+scales order the same addresses identically while every scalar in an
+object has the same width, and disagree otherwise: for
+`struct @S { f0: [2] i8; f1: i64; }` the object spans 10 bytes but only
+3 leaves, so a `ptr [2] i8` advanced by 4 sits at byte 8 — in bounds —
+yet at leaf 8 of 3, which the Python lowering traps as out of bounds.
+The divergence is confined to pointer arithmetic that roams across
+sibling fields of differing widths (SPEC §7.5 rule 15 makes a field
+pointer's provenance the whole enclosing struct, so such roaming is
+legal). Closing it means re-indexing the Python memory model by byte;
+until then those programs are Python-target-incompatible.
+`test/solver/ptrfield_narrow_elem_inbounds.sir` pins the case and is
+tagged `SKIP: PYTHON`.
+
 Vectors compute as lane lists (comprehensions over `zip`), and
 `--vec-lowering` selects the *storage form* of vector locals —
 mirroring the C strategies: `array` (a plain lane list, the default),

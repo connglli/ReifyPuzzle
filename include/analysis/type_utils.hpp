@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <unordered_map>
 #include "ast/ast.hpp"
 
 namespace refractir {
@@ -74,6 +76,30 @@ namespace refractir {
      * [v0.2.1] True iff the type is a vector type `<N> T`.
      */
     static bool isVec(const TypePtr &t);
+
+    /// Struct registry shared by every layout query: name → declaration.
+    using StructTable = std::unordered_map<std::string, const StructDecl *>;
+
+    /**
+     * Packed byte size of `t` — the one object-layout authority (SPEC §4:
+     * `sizeof(@S) = Σ sizeof(field_i)`, no padding).
+     *
+     * Every consumer that reasons about object extents must measure with
+     * this: the interpreter's memory model, and the solver's pointer
+     * provenance and arithmetic. A second, differently-scaled size model
+     * silently disagrees about what is in bounds — counting one unit per
+     * scalar *leaf* rather than per byte, for instance, agrees with this one
+     * only while every scalar in an object has the same width, and otherwise
+     * both misses real out-of-bounds arithmetic and rejects valid programs.
+     */
+    static std::uint64_t packedSizeof(const TypePtr &t, const StructTable &structs);
+
+    /**
+     * Byte offset of `field` within `s` — sequential, no padding, and
+     * measured with packedSizeof so it shares its scale.
+     */
+    static std::uint64_t
+    packedFieldOffset(const StructDecl &s, const std::string &field, const StructTable &structs);
   };
 
 } // namespace refractir

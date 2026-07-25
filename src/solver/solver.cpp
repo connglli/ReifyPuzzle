@@ -846,7 +846,7 @@ namespace refractir {
           // `prov_base` names the underlying object (even after
           // ptrfield / ptrindex / pointer arithmetic shifted the
           // pointer inside it); `sv.term` is the actual exit-time
-          // address. The delta is the in-object offset in tag units.
+          // address. The delta is the in-object offset in packed bytes.
           if (sv.term.internal && sv.prov_base.internal) {
             try {
               auto addrTerm = solver.get_value(sv.term);

@@ -1,0 +1,23 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+
+// The in-bounds side of fail_solver_ptrfield_agg_oob, one step below the
+// boundary: sizeof(@S) = 10 bytes and sizeof([1] i32) = 4, so `%nav + 2`
+// lands at byte 8, still inside the object. Pins that the byte-accurate
+// bound is not merely conservative — the last valid offset stays valid.
+struct @S {
+  f0: [1] i32;
+  f1: i32;
+  f2: [2] i8;
+}
+
+fun @main() : i32 {
+  let mut %t: @S = {{7}, -3, {5, 0}};
+  let mut %ap: ptr @S = null;
+  let mut %nav: ptr [1] i32 = null;
+^entry:
+  %ap = addr %t;
+  %nav = ptrfield %ap, f0;
+  %nav = %nav + 2;
+  ret 0;
+}

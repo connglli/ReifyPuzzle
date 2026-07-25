@@ -1,0 +1,26 @@
+// EXPECT: FAIL:UndefinedBehavior
+// SOLVER_ARGS: --main @main --path '^entry'
+// SKIP: COMPILER
+
+// Byte-accurate bounds through `ptrindex` on a mixed-width element type.
+// `@P` is 1 + 8 = 9 bytes, so `[2] @P` spans 18 bytes; a `ptr i64` obtained
+// from the second element's `w` field sits at byte 10 and `+ 2` moves it to
+// byte 26, well past the array. A scalar-leaf size model counts the array as
+// only 4 units and misses it.
+struct @P {
+  b: i8;
+  w: i64;
+}
+
+fun @main() : i32 {
+  let mut %a: [2] @P = {{1, 10}, {2, 20}};
+  let mut %pa: ptr [2] @P = null;
+  let mut %pe: ptr @P = null;
+  let mut %pw: ptr i64 = null;
+^entry:
+  %pa = addr %a;
+  %pe = ptrindex %pa, 1;
+  %pw = ptrfield %pe, w;
+  %pw = %pw + 2;
+  ret 0;
+}

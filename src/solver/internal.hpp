@@ -13,6 +13,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "analysis/type_utils.hpp"
 #include "ast/ast.hpp"
 #include "solver/smt.hpp"
 
@@ -54,42 +55,29 @@ namespace refractir {
     return smt::Kind::EQUAL;
   }
 
-  // Size of a type measured in BV-tag units (one unit per scalar leaf).
-  // Used by the pointer encoding so that:
+  // Size of a type in **packed bytes**, so that:
   //   * `addr %arr[k]` on `[N] T` advances by `k * sizeofTagUnits(T)`
   //   * pointer arithmetic on `ptr T` scales by `sizeofTagUnits(T)`
   //   * `ptrfield`/`ptrindex` adds the right offset for nested aggregates
+  //
+  // This must be the *same* scale the interpreter's memory model uses, which
+  // is why both route through the one authority. An earlier version counted
+  // one unit per scalar leaf instead; that agrees with the byte layout only
+  // while every scalar in an object has the same width, and otherwise both
+  // misses real out-of-bounds pointer arithmetic and rejects valid programs
+  // (see TypeUtils::packedSizeof).
   inline std::uint64_t sizeofTagUnits(
       const TypePtr &t, const std::unordered_map<std::string, const StructDecl *> &structs
   ) {
-    if (!t)
-      return 1;
-    if (auto at = std::get_if<ArrayType>(&t->v))
-      return at->size * sizeofTagUnits(at->elem, structs);
-    if (auto st = std::get_if<StructType>(&t->v)) {
-      auto sIt = structs.find(st->name.name);
-      if (sIt == structs.end())
-        return 1;
-      std::uint64_t sum = 0;
-      for (const auto &f: sIt->second->fields)
-        sum += sizeofTagUnits(f.type, structs);
-      return sum;
-    }
-    return 1; // scalar / ptr / vec
+    return TypeUtils::packedSizeof(t, structs);
   }
 
-  // Byte offset (in tag units) of the named struct field.
+  // Byte offset of the named struct field, on the same scale.
   inline std::uint64_t fieldOffsetTagUnits(
       const StructDecl &s, const std::string &field,
       const std::unordered_map<std::string, const StructDecl *> &structs
   ) {
-    std::uint64_t off = 0;
-    for (const auto &f: s.fields) {
-      if (f.name == field)
-        return off;
-      off += sizeofTagUnits(f.type, structs);
-    }
-    return off;
+    return TypeUtils::packedFieldOffset(s, field, structs);
   }
 
   // Compare RefractIR types for structural equality at the level we care about

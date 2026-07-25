@@ -1,5 +1,7 @@
 #include "reify/checksum.hpp"
 
+#include "analysis/type_utils.hpp"
+
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -525,13 +527,17 @@ namespace refractir::reify {
       mini.lets.push_back(std::move(newLet));
     }
 
-    // Walk type `t` for a contiguous in-object offset (tag units;
-    // one unit per scalar leaf — matches the solver's tag scheme)
-    // and append the field / index accesses needed to reach the
-    // scalar leaf at that offset. Returns true on success and
-    // narrows `t` to the leaf type. False means the offset doesn't
-    // land on a clean leaf — happens when the target type's leaves
-    // disagree with the pointer's pointee width.
+    // Walk type `t` for a contiguous in-object offset (packed bytes —
+    // the scale the solver reports LetExitValue::targetOffset in) and
+    // append the field / index accesses needed to reach the scalar leaf
+    // at that offset. Returns true on success and narrows `t` to the
+    // leaf type. False means the offset doesn't land on a clean leaf —
+    // happens when the target type's leaves disagree with the pointer's
+    // pointee width.
+    //
+    // The size model here MUST be the one the solver measured with, or
+    // the walk lands on the wrong leaf and this oracle silently disagrees
+    // with the program it is meant to check.
     auto findStructByName = [&](const std::string &nm) -> const StructDecl * {
       for (const auto &s: full.structs) {
         if (s.name.name == nm)
@@ -539,24 +545,11 @@ namespace refractir::reify {
       }
       return nullptr;
     };
-    std::function<uint64_t(const TypePtr &)> sizeUnits;
-    sizeUnits = [&](const TypePtr &t) -> uint64_t {
-      if (!t)
-        return 1;
-      if (auto at = std::get_if<ArrayType>(&t->v))
-        return at->size * sizeUnits(at->elem);
-      if (auto vt = std::get_if<VecType>(&t->v))
-        return vt->size * sizeUnits(vt->elem);
-      if (auto st = std::get_if<StructType>(&t->v)) {
-        if (const auto *sd = findStructByName(st->name.name)) {
-          uint64_t sum = 0;
-          for (const auto &f: sd->fields)
-            sum += sizeUnits(f.type);
-          return sum;
-        }
-        return 1;
-      }
-      return 1; // scalar / ptr
+    TypeUtils::StructTable structTable;
+    for (const auto &s: full.structs)
+      structTable[s.name.name] = &s;
+    auto sizeUnits = [&](const TypePtr &t) -> uint64_t {
+      return TypeUtils::packedSizeof(t, structTable);
     };
     // Type-equality probe restricted to the type families a RefractIR
     // pointer pointee can name. Used to decide when to stop the
@@ -593,8 +586,8 @@ namespace refractir::reify {
       return false;
     };
 
-    // Walk type `t` for a contiguous in-object offset (tag units;
-    // one unit per scalar leaf — matches the solver's tag scheme)
+    // Walk type `t` for a contiguous in-object offset (packed bytes —
+    // the scale the solver reports LetExitValue::targetOffset in)
     // and append the field / index accesses needed to reach a
     // sub-value whose type matches `target`. Stops at the first
     // matching (type, remOff==0) pair so a `ptr [N] T` lands on the

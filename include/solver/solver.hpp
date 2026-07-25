@@ -77,8 +77,9 @@ namespace refractir {
       // Ptr only: `targetLocal` is the entry-function let / param the
       // pointer's provenance base resolves to (FNV-1a inverse of the
       // model value of SymbolicValue::prov_base). `targetOffset` is
-      // the address delta inside that object in tag units (one unit
-      // per scalar leaf — same scale `sizeofTagUnits` reports).
+      // the address delta inside that object in packed bytes (the
+      // scale `TypeUtils::packedSizeof` reports, shared with the
+      // interpreter's memory model — decoders must walk it in bytes).
       // Together they pinpoint *which scalar leaf* the pointer points
       // at exit time, even when the body retargeted it mid-aggregate
       // via ptrfield / ptrindex / pointer arithmetic. Empty

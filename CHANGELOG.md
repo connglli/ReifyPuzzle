@@ -113,6 +113,15 @@ considered and dropped (spec §13).
   uninitialized cell, in both the interpreter and the solver.
 - Symbolic floating-point inputs constrained finite by the solver
   (finite-only FP domain, spec §2.9).
+- Object extents in the solver were measured as one unit per scalar
+  **leaf** rather than packed **bytes**, a scale that matches the
+  interpreter only while every scalar in an object has the same width.
+  Mixed-width structs both hid real out-of-bounds pointer arithmetic and
+  rejected valid programs, and the `--emit-main` checksum oracle decoded
+  the solver's exit-time pointer offsets on a third, differently-scaled
+  copy of the model. All now share `TypeUtils::packedSizeof`. (The
+  Python backend's leaf-slot memory model still differs by design — see
+  `docs/symirc.md`.)
 - Float **literals** reached the solver through a decimal rendering,
   which dropped the sign of `-0.0` (a decimal parses via a real, which
   has no signed zero) and truncated every value to six fraction digits
