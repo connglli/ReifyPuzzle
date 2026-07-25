@@ -1,0 +1,27 @@
+// EXPECT: PASS
+// EXPECT_RC: 30
+
+// Field offsets are packed byte offsets, so navigating an array of
+// mixed-width structs has to stride by the struct's byte size. `@P` is
+// 1 + 8 = 9 bytes, so element 2 begins at byte 18 and its `w` field at 19.
+// A leaf-indexed model strides by 2 instead and lands on the wrong element.
+struct @P {
+  b: i8;
+  w: i64;
+}
+
+fun @main() : i32 {
+  let mut %a: [3] @P = {{1, 10}, {2, 20}, {3, 30}};
+  let mut %pa: ptr [3] @P = null;
+  let mut %pe: ptr @P = null;
+  let mut %pw: ptr i64 = null;
+  let mut %v: i64 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %pa = addr %a;
+  %pe = ptrindex %pa, 2;
+  %pw = ptrfield %pe, w;
+  %v = load %pw;
+  %r = %v as i32;
+  ret %r;
+}

@@ -119,9 +119,10 @@ considered and dropped (spec §13).
   Mixed-width structs both hid real out-of-bounds pointer arithmetic and
   rejected valid programs, and the `--emit-main` checksum oracle decoded
   the solver's exit-time pointer offsets on a third, differently-scaled
-  copy of the model. All now share `TypeUtils::packedSizeof`. (The
-  Python backend's leaf-slot memory model still differs by design — see
-  `docs/symirc.md`.)
+  copy of the model. The Python backend's memory was a fourth, indexed
+  by leaf slot. All four now measure with `TypeUtils::packedSizeof`;
+  Python's buffer is byte-indexed, with a `_PAD` sentinel for the
+  interior bytes of a wider leaf that traps if read.
 - Float **literals** reached the solver through a decimal rendering,
   which dropped the sign of `-0.0` (a decimal parses via a real, which
   has no signed zero) and truncated every value to six fraction digits

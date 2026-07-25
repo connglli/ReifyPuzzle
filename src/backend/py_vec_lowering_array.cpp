@@ -29,7 +29,7 @@ namespace refractir {
       std::string rawListExpr(const std::string &name, const VecType &) override { return name; }
 
       std::string readListExpr(const std::string &name, const VecType &vt) override {
-        return "_vrd(" + name + ", 0, " + std::to_string(vt.size) + ")";
+        return "_vrd(" + name + ", 0, " + std::to_string(vt.size) + ", 1)";
       }
 
       std::string

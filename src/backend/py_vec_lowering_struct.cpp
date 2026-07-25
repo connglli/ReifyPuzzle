@@ -66,7 +66,8 @@ namespace refractir {
       }
 
       std::string declUndef(const std::string &name, const VecType &vt) override {
-        return name + " = " + className(vt, true) + "([_UNDEF] * " + std::to_string(vt.size) + ")";
+        return name + " = " + className(vt, true) + "([_UNDEF] * " + std::to_string(vt.size) +
+               ", 1)";
       }
 
       std::string assignFromList(
@@ -81,7 +82,7 @@ namespace refractir {
       }
 
       std::string readListExpr(const std::string &name, const VecType &vt) override {
-        return "_vrd(" + name + ".lanes, 0, " + std::to_string(vt.size) + ")";
+        return "_vrd(" + name + ".lanes, 0, " + std::to_string(vt.size) + ", 1)";
       }
 
       std::string
@@ -165,7 +166,7 @@ namespace refractir {
       }
 
       std::string readListExpr(const std::string &name, const VecType &vt) override {
-        return "_vrd(" + fieldList(name, vt) + ", 0, " + std::to_string(vt.size) + ")";
+        return "_vrd(" + fieldList(name, vt) + ", 0, " + std::to_string(vt.size) + ", 1)";
       }
 
       std::string

@@ -1,0 +1,30 @@
+// EXPECT: PASS
+// EXPECT_RC: 8
+
+// Object extents are packed bytes on every target (SPEC §4), including
+// Python. sizeof(@S) = 2 + 8 = 10, so a `ptr [2] i8` at the start of the
+// struct may be advanced by 4 (to byte 8) and back: SPEC §7.5 rule 15 makes
+// a field pointer's provenance the whole enclosing struct, so roaming across
+// a sibling of a different width is legal. A memory model that indexes by
+// scalar *leaf* rather than by byte sees the object as 3 units and traps.
+struct @S {
+  f0: [2] i8;
+  f1: i64;
+}
+
+fun @main() : i32 {
+  let mut %t: @S = {{1, 2}, 9};
+  let mut %ap: ptr @S = null;
+  let mut %p: ptr [2] i8 = null;
+  let mut %q: ptr [2] i8 = null;
+  let mut %d: i64 = 0;
+  let mut %r: i32 = 0;
+^entry:
+  %ap = addr %t;
+  %p = ptrfield %ap, f0;
+  %q = %p + 4;
+  %d = %q - %p;
+  %r = %d as i32;
+  %r = 2 * %r;
+  ret %r;
+}

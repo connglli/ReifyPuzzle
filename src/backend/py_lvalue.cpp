@@ -62,7 +62,7 @@ namespace refractir {
     // Extent of the innermost enclosing object: narrows at each field
     // access and widens to the whole array at each index access.
     std::string lo = "0";
-    std::string hi = std::to_string(leafCount(cur));
+    std::string hi = std::to_string(byteSize(cur));
     for (const auto &acc: lv.accesses) {
       if (auto ai = std::get_if<AccessIndex>(&acc)) {
         std::uint64_t size;
@@ -76,7 +76,7 @@ namespace refractir {
         } else {
           throw std::runtime_error("python target: subscript on non-array not yet supported");
         }
-        const std::uint64_t elemLeaves = leafCount(elem);
+        const std::uint64_t elemLeaves = byteSize(elem);
         lo = off.str();
         hi = off.plusConst(size * elemLeaves);
         if (auto lit = std::get_if<IntLit>(&ai->index)) {
@@ -93,12 +93,12 @@ namespace refractir {
         if (!st)
           throw std::runtime_error("python target: field access on non-struct");
         TypePtr fieldTy;
-        std::uint64_t foff = fieldLeafOffset(st->name.name, af.field, &fieldTy);
+        std::uint64_t foff = fieldByteOffset(st->name.name, af.field, &fieldTy);
         // SPEC §7.5 rule 15: a field pointer's provenance is the
         // immediate containing STRUCT — arithmetic may roam across
         // sibling fields.
         lo = off.str();
-        hi = off.plusConst(leafCount(cur));
+        hi = off.plusConst(byteSize(cur));
         off.addConst(foff);
         cur = fieldTy;
       }
@@ -164,7 +164,11 @@ namespace refractir {
     if (p.type && std::holds_alternative<VecType>(p.type->v)) {
       // Whole vector inside an aggregate: a fresh, undef-checked lane
       // list read straight from the root's slots.
-      return "_vrd(" + p.buf + ", " + p.off + ", " + std::to_string(leafCount(p.type)) + ")";
+      // Lanes sit one element-width apart in the byte-indexed buffer, so
+      // the read strides rather than walking consecutive slots.
+      const auto &vt = std::get<VecType>(p.type->v);
+      return "_vrd(" + p.buf + ", " + p.off + ", " + std::to_string(vt.size) + ", " +
+             std::to_string(byteSize(vt.elem)) + ")";
     }
     const bool aggregate = p.type && (std::holds_alternative<ArrayType>(p.type->v) ||
                                       std::holds_alternative<StructType>(p.type->v));
@@ -172,9 +176,9 @@ namespace refractir {
       // Whole-aggregate value (e.g. an array argument): pass the root
       // list itself, or a slice copy for a sub-aggregate. Callees never
       // mutate parameters, so aliasing the root is safe.
-      if (p.off == "0" && p.hi == std::to_string(leafCount(p.type)) && p.lo == "0")
+      if (p.off == "0" && p.hi == std::to_string(byteSize(p.type)) && p.lo == "0")
         return p.buf;
-      return p.buf + "[" + p.off + ":" + p.off + " + " + std::to_string(leafCount(p.type)) + "]";
+      return p.buf + "[" + p.off + ":" + p.off + " + " + std::to_string(byteSize(p.type)) + "]";
     }
     return "_rd(" + p.buf + ", " + p.off + ")";
   }
@@ -183,7 +187,7 @@ namespace refractir {
     PathInfo p = resolvePath(arg.lv);
     if (!p.boxed)
       throw std::runtime_error("python target: addr of a non-boxed local (backend bug)");
-    return "_Ptr(" + p.buf + ", " + p.off + ", " + std::to_string(leafCount(p.type)) + ", " + p.lo +
+    return "_Ptr(" + p.buf + ", " + p.off + ", " + std::to_string(byteSize(p.type)) + ", " + p.lo +
            ", " + p.hi + ")";
   }
 
@@ -198,7 +202,7 @@ namespace refractir {
     if (!at)
       throw std::runtime_error("python target: ptrindex on a non-array pointer");
     return "_pidx(" + lvalueStr(arg.rval) + ", " + indexStr(arg.index) + ", " +
-           std::to_string(at->size) + ", " + std::to_string(leafCount(at->elem)) + ")";
+           std::to_string(at->size) + ", " + std::to_string(byteSize(at->elem)) + ")";
   }
 
   std::string PyBackend::ptrFieldAtomStr(const PtrFieldAtom &arg) {
@@ -209,15 +213,15 @@ namespace refractir {
     if (!st)
       throw std::runtime_error("python target: ptrfield on a non-struct pointer");
     TypePtr fieldTy;
-    std::uint64_t foff = fieldLeafOffset(st->name.name, arg.field, &fieldTy);
+    std::uint64_t foff = fieldByteOffset(st->name.name, arg.field, &fieldTy);
     // Provenance of the field pointer is the whole struct (§7.5 rule
     // 15), so pass the struct's leaf size as the bound.
     auto sit = structFields_.find(st->name.name);
     std::uint64_t slen = 0;
     for (const auto &[_, fty]: sit->second)
-      slen += leafCount(fty);
+      slen += byteSize(fty);
     return "_pfield(" + lvalueStr(arg.rval) + ", " + std::to_string(foff) + ", " +
-           std::to_string(leafCount(fieldTy)) + ", " + std::to_string(slen) + ")";
+           std::to_string(byteSize(fieldTy)) + ", " + std::to_string(slen) + ")";
   }
 
   void PyBackend::emitAssign(const AssignInstr &ins) {
@@ -264,7 +268,7 @@ namespace refractir {
     PathInfo p = resolvePath(ins.lhs);
     F32Guard ctx(f32Ctx_, !containsF64(p.type));
     if (p.type && std::holds_alternative<VecType>(p.type->v)) {
-      const std::string n = std::to_string(leafCount(p.type));
+      const std::string n = std::to_string(byteSize(p.type));
       // Destination vector lives inside an aggregate: raw slot slice
       // write into the boxed root (source handling as above).
       std::string rhs;
@@ -346,6 +350,10 @@ namespace refractir {
   }
 
   std::string PyBackend::flattenInit(const InitVal &iv, const TypePtr &type) {
+    // A vector local's storage is a dense lane list, not a byte-indexed
+    // buffer, so its lanes must stay adjacent; every other root is an
+    // object whose leaves sit at their byte offsets.
+    const bool densePacking = type && std::holds_alternative<VecType>(type->v);
     // Adjacent leaf items merge into one bracketed list; broadcast /
     // undef sub-inits contribute `[v] * N` pieces concatenated with +.
     std::vector<std::string> pieces;
@@ -370,7 +378,13 @@ namespace refractir {
                 std::holds_alternative<StructType>(t->v) || std::holds_alternative<VecType>(t->v));
       if (v.kind != InitVal::Kind::Aggregate) {
         if (!aggregateTy) {
+          // The buffer is byte-indexed, so a leaf owns its first byte and
+          // pads the rest of its width. `_PAD` traps if read, which is what
+          // an interior (misaligned) access amounts to.
           run.push_back(v.kind == InitVal::Kind::Undef ? "_UNDEF" : scalarInit(v, t));
+          if (!densePacking)
+            for (std::uint64_t k = 1; k < byteSize(t); ++k)
+              run.push_back("_PAD");
           return;
         }
         // Broadcast / undef over every leaf of the sub-aggregate.
@@ -378,7 +392,7 @@ namespace refractir {
         // broadcast with 0); python numerics tolerate that.
         flushRun();
         std::string elem = v.kind == InitVal::Kind::Undef ? "_UNDEF" : scalarInit(v, nullptr);
-        pieces.push_back("[" + elem + "] * " + std::to_string(leafCount(t)));
+        pieces.push_back("[" + elem + "] * " + std::to_string(byteSize(t)));
         return;
       }
       const auto &elems = std::get<std::vector<InitValPtr>>(v.value);

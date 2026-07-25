@@ -154,29 +154,25 @@ helper preamble emitted once per module:
 - `i1` uses the spec's canonical `{0, -1}` values; vector `cmp`
   yields a `{0, -1}` mask list.
 
-Aggregates and address-taken scalars lower to flat leaf-slot lists
-with a provenance-tracked `_Ptr(buf, off, stride, lo, hi)` pointer
+Aggregates and address-taken scalars lower to flat byte-indexed slot
+lists with a provenance-tracked `_Ptr(buf, off, stride, lo, hi)` pointer
 class: null/uninitialized/out-of-bounds dereference, cross-object
 arithmetic, and cross-object relational comparison all trap. `undef`
 slots hold a unique sentinel that traps on read. Non-addressable
 scalars stay plain Python variables for readability.
 
-**Known divergence — object extents are leaf counts, not bytes.**
-Because the buffer is a list of leaf *slots*, an object's extent is its
-number of leaves, whereas the interpreter, the C backend and the solver
-all measure packed bytes (`sizeof(@S) = Σ sizeof(field_i)`). The two
-scales order the same addresses identically while every scalar in an
-object has the same width, and disagree otherwise: for
-`struct @S { f0: [2] i8; f1: i64; }` the object spans 10 bytes but only
-3 leaves, so a `ptr [2] i8` advanced by 4 sits at byte 8 — in bounds —
-yet at leaf 8 of 3, which the Python lowering traps as out of bounds.
-The divergence is confined to pointer arithmetic that roams across
-sibling fields of differing widths (SPEC §7.5 rule 15 makes a field
-pointer's provenance the whole enclosing struct, so such roaming is
-legal). Closing it means re-indexing the Python memory model by byte;
-until then those programs are Python-target-incompatible.
-`test/solver/ptrfield_narrow_elem_inbounds.sir` pins the case and is
-tagged `SKIP: PYTHON`.
+The buffer is indexed by **packed byte offset**, the same scale the
+interpreter, the C backend and the solver use, so an object's extent is
+`sizeof(@S) = Σ sizeof(field_i)` rather than a count of its leaves. Each
+leaf owns the first of the bytes it spans and the rest hold a `_PAD`
+sentinel that traps if read, which is what an interior (misaligned)
+access amounts to. The distinction is observable: SPEC §7.5 rule 15
+makes a field pointer's provenance the whole enclosing struct, so
+arithmetic may legally roam across sibling fields — and for
+`struct @S { f0: [2] i8; f1: i64; }` a `ptr [2] i8` advanced by 4 sits at
+byte 8, inside the 10-byte object, but at leaf 8 of only 3. Vector
+locals are the one exception: their lanes are a dense list, not a
+byte-indexed buffer.
 
 Vectors compute as lane lists (comprehensions over `zip`), and
 `--vec-lowering` selects the *storage form* of vector locals —

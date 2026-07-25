@@ -184,9 +184,9 @@ namespace refractir {
 
     // --- Packed leaf layout (src/backend/py_types.cpp) ---
     // Number of scalar/pointer leaf slots a type occupies.
-    std::uint64_t leafCount(const TypePtr &t) const;
+    std::uint64_t byteSize(const TypePtr &t) const;
     // Leaf offset of a struct field; also yields its type.
-    std::uint64_t fieldLeafOffset(
+    std::uint64_t fieldByteOffset(
         const std::string &structName, const std::string &field, TypePtr *fieldType
     ) const;
 

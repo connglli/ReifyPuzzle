@@ -1,6 +1,8 @@
 #include <stdexcept>
 #include "backend/py_backend.hpp"
 
+#include "analysis/type_utils.hpp"
+
 namespace refractir {
 
   std::uint32_t PyBackend::intWidth(const TypePtr &t) {
@@ -58,33 +60,19 @@ namespace refractir {
       requireSupportedType(at->elem, what);
   }
 
-  std::uint64_t PyBackend::leafCount(const TypePtr &t) const {
-    if (!t)
-      return 1;
-    return std::visit(
-        [this](const auto &arg) -> std::uint64_t {
-          using T = std::decay_t<decltype(arg)>;
-          if constexpr (std::is_same_v<T, ArrayType>) {
-            return arg.size * leafCount(arg.elem);
-          } else if constexpr (std::is_same_v<T, StructType>) {
-            auto it = structFields_.find(arg.name.name);
-            if (it == structFields_.end())
-              throw std::runtime_error("python target: unknown struct type");
-            std::uint64_t n = 0;
-            for (const auto &[_, fty]: it->second)
-              n += leafCount(fty);
-            return n;
-          } else if constexpr (std::is_same_v<T, VecType>) {
-            return arg.size; // one slot per lane
-          } else {
-            return 1; // int / float / ptr leaves occupy one slot
-          }
-        },
-        t->v
-    );
+  std::uint64_t PyBackend::byteSize(const TypePtr &t) const {
+    // Packed bytes, from the one layout authority shared with the
+    // interpreter and the solver. The buffer below is byte-indexed, so a
+    // leaf lives at its byte offset and the slots it spans past the first
+    // are padding — see flattenInit.
+    TypeUtils::StructTable tbl;
+    if (prog_)
+      for (const auto &sd: prog_->structs)
+        tbl[sd.name.name] = &sd;
+    return TypeUtils::packedSizeof(t, tbl);
   }
 
-  std::uint64_t PyBackend::fieldLeafOffset(
+  std::uint64_t PyBackend::fieldByteOffset(
       const std::string &structName, const std::string &field, TypePtr *fieldType
   ) const {
     auto it = structFields_.find(structName);
@@ -97,7 +85,7 @@ namespace refractir {
           *fieldType = fty;
         return off;
       }
-      off += leafCount(fty);
+      off += byteSize(fty);
     }
     throw std::runtime_error("python target: unknown struct field " + field);
   }
@@ -124,7 +112,7 @@ namespace refractir {
         if (!st)
           return nullptr;
         TypePtr fieldTy;
-        fieldLeafOffset(st->name.name, af->field, &fieldTy);
+        fieldByteOffset(st->name.name, af->field, &fieldTy);
         cur = fieldTy;
       }
     }
@@ -240,7 +228,7 @@ namespace refractir {
               if (auto ptr = std::get_if<PtrType>(&pt->v))
                 if (auto st = std::get_if<StructType>(&ptr->pointee->v)) {
                   TypePtr fieldTy;
-                  fieldLeafOffset(st->name.name, arg.field, &fieldTy);
+                  fieldByteOffset(st->name.name, arg.field, &fieldTy);
                   auto res = std::make_shared<Type>();
                   res->v = PtrType{fieldTy, {}};
                   return res;

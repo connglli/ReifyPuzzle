@@ -175,12 +175,15 @@ class _Ptr:
 
 _NULL = _Ptr(None, 0, 0, 0, 0)
 _UNDEF = ["undef"]  # unique identity sentinel
+_PAD = ["pad"]  # interior byte of a wider leaf; never a valid access
 
 
 def _rd(buf, off):
     v = buf[off]
     if v is _UNDEF:
         _trap("read of undef value")
+    if v is _PAD:
+        _trap("access to the interior of a value")
     return v
 
 
@@ -190,8 +193,8 @@ def _idx(i, n):
     return i
 
 
-def _vrd(buf, off, n):
-    return [_rd(buf, off + k) for k in range(n)]
+def _vrd(buf, off, n, stride):
+    return [_rd(buf, off + k * stride) for k in range(n)]
 
 
 def _padd(p, n):
@@ -293,6 +296,7 @@ class _Ptr:
 
 _NULL = _Ptr(None, 0, 0, 0, 0)
 _UNDEF = ["undef"]  # unique identity sentinel
+_PAD = ["pad"]  # interior byte of a wider leaf; never a valid access
 
 
 def _rd(buf, off):
@@ -303,8 +307,8 @@ def _idx(i, n):
     return i
 
 
-def _vrd(buf, off, n):
-    return [buf[off + k] for k in range(n)]
+def _vrd(buf, off, n, stride):
+    return [buf[off + k * stride] for k in range(n)]
 
 
 def _padd(p, n):
@@ -574,7 +578,7 @@ def _pfield(p, foff, flen, slen):
         return;
       }
       if (!l.init || l.init->kind == InitVal::Kind::Undef) {
-        line(name + " = [_UNDEF] * " + std::to_string(leafCount(l.type)));
+        line(name + " = [_UNDEF] * " + std::to_string(byteSize(l.type)));
       } else {
         line(name + " = " + flattenInit(*l.init, l.type));
       }

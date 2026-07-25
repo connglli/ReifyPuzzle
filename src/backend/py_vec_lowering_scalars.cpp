@@ -66,7 +66,7 @@ namespace refractir {
 
       std::string readListExpr(const std::string &name, const VecType &vt) override {
         // Undef-check via the existing _vrd over a fresh lane list.
-        return "_vrd(" + rawList(name, vt) + ", 0, " + std::to_string(vt.size) + ")";
+        return "_vrd(" + rawList(name, vt) + ", 0, " + std::to_string(vt.size) + ", 1)";
       }
 
       std::string
