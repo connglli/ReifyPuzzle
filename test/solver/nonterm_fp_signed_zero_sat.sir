@@ -1,0 +1,22 @@
+// EXPECT: PASS
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h' --require-nonterm
+
+// Positive control for nonterm_fp_signed_zero_fabs: byte-for-byte the same
+// program except the initializer is `0.0` rather than `-0.0`. @fabs(+0.0) is
+// +0.0, so the header state genuinely recurs and the lasso is SAT. The pair
+// isolates the sign bit of a zero as the only thing that differs, so a
+// regression that drops the sign shows up as this pair agreeing.
+intrinsic @fabs(%x: f64) : f64;
+
+fun @main() : f64 {
+  sym %?g : value i32;
+  let mut %v : f64 = 0.0;
+^entry:
+  br ^h;
+^h:
+  %v = call @fabs(%v);
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %v;
+}

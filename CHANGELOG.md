@@ -113,6 +113,12 @@ considered and dropped (spec §13).
   uninitialized cell, in both the interpreter and the solver.
 - Symbolic floating-point inputs constrained finite by the solver
   (finite-only FP domain, spec §2.9).
+- Float **literals** reached the solver through a decimal rendering,
+  which dropped the sign of `-0.0` (a decimal parses via a real, which
+  has no signed zero) and truncated every value to six fraction digits
+  (`std::to_string` formats with `%f`, so `1e-7` became `0.0`). All four
+  construction sites and both solver backends now build FP constants
+  from the `double` itself, bit-exactly.
 - Literal bit-width inference propagated so UB overflow detection sees
   the resolved width.
 - C backend: inline `cmp`-atom masks and vector symbol initialization.

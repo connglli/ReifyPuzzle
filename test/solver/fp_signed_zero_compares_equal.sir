@@ -1,0 +1,20 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+
+// The other half of the signed-zero contract (SPEC §2.9, float.md §1): the
+// `==` operator is IEEE comparison, under which `+0.0 == -0.0` is true, even
+// though the two are distinct values that @signbit tells apart. Paired with
+// nonterm_fp_signed_zero_fabs, which shows that *state recurrence* uses the
+// stricter bit-exact equality and keeps them apart.
+intrinsic @signbit(%x: f64) : i1;
+
+fun @main() : i32 {
+  let mut %p : f64 = 0.0;
+  let mut %n : f64 = -0.0;
+  let mut %s : i1 = 0;
+^entry:
+  require %p == %n, "IEEE comparison: +0.0 equals -0.0";
+  %s = call @signbit(%n);
+  require %s != 0, "yet they are distinct values: -0.0 has its sign bit set";
+  ret 0;
+}

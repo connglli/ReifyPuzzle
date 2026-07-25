@@ -129,7 +129,7 @@ RefractIR uses a typed, stack-only memory model:
 RefractIR uses **finite IEEE 754-2008 semantics** for floating-point:
 
 - **Domain**: the only valid floating-point values are **finite** IEEE 754 values. ±∞ and NaN are **not** RefractIR values. Any operation whose IEEE 754 result would be ±∞ or NaN is UB (see §7.4).
-- **Signed zeros**: `+0.0` and `-0.0` are distinct bit patterns and both are valid values. They compare equal (`+0.0 == -0.0` is `true`).
+- **Signed zeros**: `+0.0` and `-0.0` are distinct bit patterns and both are valid values. They compare equal (`+0.0 == -0.0` is `true`) but are **not the same value** — `@signbit` and `@to_bits` tell them apart. Comparison and value identity are therefore distinct relations on floats: the `==` / `!=` operators and `cmp` are IEEE comparison (SMT `fp.eq`), while value identity is bit-exact (SMT `=`). The two agree everywhere except on `±0.0`. The language provides only the comparison form; an analysis needing value identity must express it as `@to_bits` equality or a bit-level comparison in its own layer. See [`docs/float.md`](./float.md) §2.1.
 - **Subnormals**: subnormal (denormal) values are regular finite values. No flush-to-zero behavior.
 - **Rounding mode**: all operations use a single fixed mode — **RNE (Round to Nearest, Ties to Even)**.
 - **`%` for floats**: the `%` operator is **C's `fmod`** (truncated-quotient remainder), **not** IEEE 754 `remainder` (`fp.rem`).
@@ -1148,18 +1148,15 @@ v0.2.2 line, each adding one solver-friendly group:
   solver-friendly intrinsic targets.  See
   [`docs/intrinsics.md`](./intrinsics.md) §12.6 for the per-intrinsic
   signatures, SMT encodings, and UB conditions.
-- Batch R — §12 *reify checksum primitives* (§12.7):
+- Batch R — §12 *checksum primitives* (§12.7):
   `@crc32_update(state: i32, val: iN) : i32` (`N ∈ {8, 16, 24, 32, 40,
   48, 56, 64}`, byte-wise table-driven CRC32 update, reflected
   `0xEDB88320` polynomial, no initial / final XOR) and
   `@check_chksum(expected: i32, actual: i32) : i32` (returns `actual`
-  on match, aborts in C / raises UB in symiri on mismatch). These two
-  support the rysmith / rylink R1 opaque return-value oracle and are
-  **excluded** from the random intrinsic whitelist — body code never
-  synthesises them; only the post-solve checksum rewriter and the
-  `@main` wrapper emit them. The C lowering carries function-local
-  `static` tables and a `static __attribute__((noinline))` qualifier
-  (new `CIntrinsic::linkageQualifier()` hook in
+  on match, aborts in C / raises UB in symiri on mismatch). The C
+  lowering carries function-local `static` tables and a
+  `static __attribute__((noinline))` qualifier (new
+  `CIntrinsic::linkageQualifier()` hook in
   `src/backend/intrinsics_c.cpp`) so the optimizer cannot fold the
   body or propagate the table contents into callers. See
   [`docs/intrinsics.md`](./intrinsics.md) §12.7 for the per-intrinsic
@@ -1220,6 +1217,7 @@ Every feature v0.2.2 §13 slated for v0.2.3 (WASM SIMD-128, addressable vectors,
 
 - **Per-call-site fresh symbols**. A `sym` in a `fun` body denotes one solver-chosen value shared across all call sites on the path (§9.6.1). Per-call-site instantiation, exposing independent unknowns per call, is deferred.
 - **Callee sub-path syntax** — planned. §9.6.4 promotes the user-chosen path `π` to a tree of block visits, but the surface syntax to specify each callee's sub-path (e.g., a nested `[call @inner: ^entry -> ^body -> ^exit]` form, a per-callee `--call-path @inner=^a,^b` CLI flag, or a JSON object) is deferred. The current solver picks one random path per callee per `solve()` invocation, seeded from `--seed`, with a per-block visit cap to bound loops. A future version will replace the random choice with an exact user-supplied sub-path so synthesis results are fully reproducible across branchy callees.
+- **`@is_bitexact` — a value-identity predicate** — planned. `@is_bitexact(%a: T, %b: T) : i1`, true iff `a` and `b` are the *same* value. For integers it coincides with `==`; for floats it is the stricter relation of §2.9, differing from `==` only on `±0.0`. Today an analysis wanting value identity must open-code it (`@to_bits` equality at the source level, SMT `=` rather than `fp.eq` in the solver, a bit comparison in the interpreter), which is easy to get wrong in exactly one case and only in one direction. A first-class predicate would make the choice between the two relations explicit at the point of use. Lowers to `fp.eq` plus a signbit agreement check, or equivalently to `@to_bits` equality — both cheap and solver-friendly.
 - **Char and string types** — planned. Add first-class support for `char` and string literals.
 - **Aggregate symbols** — planned. `sym` of array / struct type is currently rejected (§3.4). Supporting them needs consumer syntax (element access on symbols or whole-aggregate-copy initialization), per-leaf solver encoding, and driver conventions in every backend; the interpreter's `--sym` binding format would extend to brace-initializer literals (e.g. `--sym '%?a={1,2,3}'`).
 - **Recursion**. A `fun` body may not call itself (direct recursion) or participate in a mutual recursion cycle. The call graph must be a DAG. Loops within a single `fun` via CFG back-edges remain the primary iteration mechanism. Recursion introduces fixed-depth unrolling heuristics and complicates the SMT encoding with nested contexts — it provides limited value for the synthesis use cases v0.2.3 targets.

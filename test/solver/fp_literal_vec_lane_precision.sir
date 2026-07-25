@@ -1,0 +1,14 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+
+// A float literal broadcast across vector lanes goes through yet another
+// construction site (the vector lane path) and must be exact there too.
+fun @main() : i32 {
+  let mut %v : <2> f64 = {1.0, 1.0};
+  let mut %e : f64 = 0.0;
+^entry:
+  %v = 0.0000001 * %v;
+  %e = %v[0];
+  require %e > 0.0, "lane scaled by 1e-7 stays positive";
+  ret 0;
+}

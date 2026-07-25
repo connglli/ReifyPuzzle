@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+
+// A small-magnitude literal must survive into the solver as a nonzero value.
+// Formatting the double with `%f` (six fraction digits) renders 1e-7 as
+// "0.000000", silently flushing a positive value to zero -- which would also
+// break the SPEC's "no flush-to-zero" guarantee for subnormals.
+fun @main() : i32 {
+  let mut %v : f64 = 0.0000001;
+^entry:
+  require %v > 0.0, "1e-7 initializer is positive, not zero";
+  ret 0;
+}

@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+
+// The same exactness is required of a float literal appearing in an
+// *expression*, not just in a `let` initializer -- a separate construction
+// site in the solver's expression translation.
+fun @main() : i32 {
+  let mut %v : f64 = 1.0;
+^entry:
+  %v = 1.0 + 0.0000001;
+  require %v > 1.0, "adding 1e-7 to 1.0 grows it";
+  ret 0;
+}

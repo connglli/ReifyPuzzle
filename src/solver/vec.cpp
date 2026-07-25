@@ -296,8 +296,7 @@ namespace refractir {
     } else if (auto fl = std::get_if<FloatLit>(&arg.coef)) {
       if (!solver.is_fp_sort(laneSort))
         throw std::runtime_error("Vec OpAtom: float-literal coef on non-FP vector lane sort");
-      smt::Term fp =
-          solver.make_fp_value(laneSort, std::to_string(fl->value), smt::RoundingMode::RNE);
+      smt::Term fp = solver.make_fp_value_from_real(laneSort, fl->value, smt::RoundingMode::RNE);
       for (std::uint64_t k = 0; k < vt.size; ++k)
         coefLanes.push_back(fp);
     } else if (auto id = std::get_if<LocalOrSymId>(&arg.coef)) {

@@ -1,0 +1,13 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+
+// Full f64 precision must survive: 1.0000000000000002 is the next double
+// above 1.0 (one ulp). A six-decimal rendering collapses both to "1.000000",
+// making them indistinguishable in the solver while the interpreter keeps
+// them apart.
+fun @main() : i32 {
+  let mut %v : f64 = 1.0000000000000002;
+^entry:
+  require %v != 1.0, "one ulp above 1.0 is not 1.0";
+  ret 0;
+}

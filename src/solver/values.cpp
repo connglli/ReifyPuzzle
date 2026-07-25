@@ -239,9 +239,11 @@ namespace refractir {
       while (auto *at = std::get_if<ArrayType>(&leafType->v)) {
         leafType = at->elem;
       }
-      // Using standard RNE
-      val = solver.make_fp_value(
-          getSort(leafType, solver), std::to_string(lit.value), smt::RoundingMode::RNE
+      // From the double itself, never a decimal rendering of it: a decimal
+      // string parses through a rational, which cannot represent -0.0 and
+      // (via `%f`) keeps only six fraction digits. See make_fp_value_from_real.
+      val = solver.make_fp_value_from_real(
+          getSort(leafType, solver), lit.value, smt::RoundingMode::RNE
       );
     } else if (iv.kind == InitVal::Kind::Sym) {
       return store.at(std::get<SymId>(iv.value).name);

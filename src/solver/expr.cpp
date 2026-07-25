@@ -364,9 +364,10 @@ namespace refractir {
           if constexpr (std::is_same_v<S, IntLit>) {
             return solver.make_bv_value(solver.make_bv_sort(32), std::to_string(s.value), 10);
           } else if constexpr (std::is_same_v<S, FloatLit>) {
-            // Default to f32 if implied
-            return solver.make_fp_value(
-                solver.make_fp_sort(8, 24), std::to_string(s.value), smt::RoundingMode::RNE
+            // Default to f32 if implied. Built from the double, not a decimal
+            // rendering of it (see make_fp_value_from_real).
+            return solver.make_fp_value_from_real(
+                solver.make_fp_sort(8, 24), s.value, smt::RoundingMode::RNE
             );
           } else if constexpr (std::is_same_v<S, SymId>) {
             return store.at(s.name).term;
@@ -917,7 +918,7 @@ namespace refractir {
     }
     if (auto flit = std::get_if<FloatLit>(&c)) {
       smt::Sort s = expectedSort.value_or(solver.make_fp_sort(8, 24));
-      return solver.make_fp_value(s, std::to_string(flit->value), smt::RoundingMode::RNE);
+      return solver.make_fp_value_from_real(s, flit->value, smt::RoundingMode::RNE);
     }
     if (std::get_if<NullLit>(&c)) {
       // null = 0 as BV64 (pointer width)

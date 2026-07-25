@@ -1,4 +1,6 @@
 #include "solver/bitwuzla_impl.hpp"
+#include <cstdint>
+#include <cstring>
 #include <stdexcept>
 
 namespace refractir::solver {
@@ -247,9 +249,41 @@ namespace refractir::solver {
     return wrap(tm.mk_fp_value(unwrap(s), rm_term, val));
   }
 
-  smt::Term BitwuzlaSolver::make_fp_value_from_real(smt::Sort s, double val, smt::RoundingMode rm) {
-    // Bitwuzla might not support double directly, usually strings.
-    return wrap(tm.mk_fp_value(unwrap(s), tm.mk_rm_value(map_rm(rm)), std::to_string(val)));
+  smt::Term
+  BitwuzlaSolver::make_fp_value_from_real(smt::Sort s, double val, smt::RoundingMode /*rm*/) {
+    // Bit-exact by construction: split the IEEE encoding into its sign,
+    // exponent and significand bit-vectors and rebuild the value from them.
+    //
+    // The decimal-string overload cannot be used here. A decimal parses
+    // through a *real*, and the real zero has no sign, so `-0.0` would come
+    // back as `+0.0` -- but SPEC §2.9 makes `+0.0` and `-0.0` distinct values
+    // that `@signbit` tells apart. (Rendering the double with `std::to_string`
+    // compounded this by keeping only six fraction digits, flushing anything
+    // below ~1e-7 to zero.) Going through the bit pattern needs no rounding
+    // mode at all, since the value is already representable.
+    const bitwuzla::Sort sort = unwrap(s);
+    const auto expW = static_cast<unsigned>(sort.fp_exp_size());
+    // fp_sig_size() counts the hidden bit; the stored field is one narrower.
+    const unsigned sigW = static_cast<unsigned>(sort.fp_sig_size()) - 1;
+    const unsigned total = 1 + expW + sigW;
+
+    std::uint64_t bits;
+    if (total == 32) {
+      float f = static_cast<float>(val);
+      std::uint32_t b32;
+      std::memcpy(&b32, &f, sizeof(b32));
+      bits = b32;
+    } else {
+      std::memcpy(&bits, &val, sizeof(bits));
+    }
+
+    auto bvOf = [&](unsigned width, std::uint64_t value) {
+      return tm.mk_bv_value_uint64(tm.mk_bv_sort(width), value);
+    };
+    const std::uint64_t sign = (bits >> (total - 1)) & 1u;
+    const std::uint64_t expo = (bits >> sigW) & ((1ull << expW) - 1);
+    const std::uint64_t sigf = bits & ((1ull << sigW) - 1);
+    return wrap(tm.mk_fp_value(bvOf(1, sign), bvOf(expW, expo), bvOf(sigW, sigf)));
   }
 
   smt::Term BitwuzlaSolver::make_rm_value(smt::RoundingMode rm) {

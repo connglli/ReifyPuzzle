@@ -1,0 +1,18 @@
+// EXPECT: PASS
+// SOLVER_ARGS: --main @main --path '^entry'
+
+// SPEC §2.9 / float.md §1: `+0.0` and `-0.0` are distinct bit patterns and
+// both are valid values, distinguishable by @signbit. A `-0.0` initializer
+// must therefore reach the solver with its sign bit intact. Building the
+// constant from a decimal string loses it: a decimal parses to a rational,
+// and the rational zero has no sign.
+intrinsic @signbit(%x: f64) : i1;
+
+fun @main() : i32 {
+  let mut %v : f64 = -0.0;
+  let mut %s : i1 = 0;
+^entry:
+  %s = call @signbit(%v);
+  require %s != 0, "-0.0 initializer keeps its sign bit";
+  ret 0;
+}

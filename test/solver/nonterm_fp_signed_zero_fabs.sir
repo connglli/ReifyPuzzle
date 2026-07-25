@@ -1,0 +1,28 @@
+// EXPECT: FAIL
+// SKIP: INTERPRETER
+// SOLVER_ARGS: --main @main --path '^entry,^h,^h' --require-nonterm
+
+// The sharpest form of the signed-zero rule for state recurrence, differing
+// from a SAT program only in the sign bit of a zero. @fabs(-0.0) is +0.0, so
+// the header leaf goes -0.0 -> +0.0 over one lap. Those are IEEE-*equal*
+// (SPEC §2.9: `+0.0 == -0.0` is true) but they are different values, so the
+// state has NOT recurred and the lasso is UNSAT. Replace the initializer with
+// `0.0` and the very same program is SAT -- see nonterm_fp_signed_zero_sat.
+//
+// Guards the distinction between RefractIR's two equalities: the `==`
+// operator is IEEE comparison (fp.eq), while state recurrence is bit-exact
+// equality (SMT `=`). Conflating them would certify a non-recurring state as
+// divergent.
+intrinsic @fabs(%x: f64) : f64;
+
+fun @main() : f64 {
+  sym %?g : value i32;
+  let mut %v : f64 = -0.0;
+^entry:
+  br ^h;
+^h:
+  %v = call @fabs(%v);
+  br %?g > 0, ^h, ^exit;
+^exit:
+  ret %v;
+}

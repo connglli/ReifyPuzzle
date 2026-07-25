@@ -89,6 +89,28 @@ Because NaN is UB, the "unordered" cases of the IEEE relops never
 arise: by the time `cmp` runs, both operands are finite, so every relop
 is total.
 
+**Two equalities — do not conflate them.** RefractIR distinguishes
+*comparing* two floats from *two floats being the same value*:
+
+| notion | applies to | `+0.0` vs `-0.0` | SMT |
+|--------|------------|------------------|-----|
+| **IEEE comparison** | the `==` / `!=` operators, `cmp` | **equal** | `fp.eq` |
+| **Value identity** | state recurrence, model equality, any "is this the same value" question | **distinct** | `=` |
+
+The operator answers a numeric question and follows IEEE, so `+0.0 ==
+-0.0` is `true` (§1). Value identity asks whether two floats *are* the
+same RefractIR value; since `+0.0` and `-0.0` are distinct values that
+`@signbit` and `@to_bits` tell apart, identity keeps them apart too.
+
+The language surfaces only the comparison form. Value identity has no
+operator: an analysis that needs "same value" must reach for it
+directly — `@to_bits` equality at the source level, SMT `=` (never
+`fp.eq`) in the solver, or a raw bit comparison in the interpreter. Any
+whole-state question ("did this state recur?", "do these two models
+agree?") is an identity question, so answering it with `==` would
+silently merge the two zeros. A dedicated `@is_bitexact` predicate is a
+candidate for a future revision (spec §13).
+
 ### 2.2 `select` and FP
 
 `select cond, a, b` evaluates only the selected arm (lazy). The unused
@@ -241,6 +263,17 @@ Intentional, documented divergences:
 If you are about to write `std::stod`, `std::to_string(double)`,
 `std::ostringstream` with `precision(17)`, `printf("%.17g", …)`, or
 `printf("%f", …)` in RefractIR code — **stop and use the canonical pair**.
+
+**The invariant covers the SMT boundary too.** Handing a float to a
+solver is a value crossing, and a decimal rendering loses on both ends:
+`std::to_string` formats with `%f`, keeping only six fraction digits (so
+`1e-7` becomes `"0.000000"`, flushing a positive value to zero), and a
+decimal string parses through a *real*, which has no signed zero (so
+`-0.0` comes back `+0.0`). Build FP constants from the `double` itself:
+`ISolver::make_fp_value_from_real`, which goes to
+`Z3_mk_fpa_numeral_double` on the Alive backend and to Bitwuzla's
+sign/exponent/significand triple constructor. The decimal-string
+`make_fp_value` is **not** for values that started life as a `double`.
 
 The interpreter emits its `Result:` line via `printf("%a", …)` (hex
 float). Hex-float form is parseable by `strtod` and bit-exact by
